@@ -41,7 +41,7 @@ catch {
         Check "uv install failed|安装uv模块失败。"
     }
     else {
-        sh "./uv-installer.sh"
+        curl -LsSf https://astral.sh/uv/install.sh | sh
         Check "uv install failed|安装uv模块失败。"
     }
 }
