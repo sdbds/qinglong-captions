@@ -161,7 +161,7 @@ class FileProcessor:
                     fps = video.fps
                     duration = int(video.duration * 1000)  # Convert to milliseconds
                     n_frames = int(fps * video.duration)  # Calculate total frames
-                    
+
                     # Get color info from first frame
                     first_frame = video.get_frame(0)  # Returns numpy array
                     channels = first_frame.shape[2] if len(first_frame.shape) > 2 else 1
@@ -172,9 +172,10 @@ class FileProcessor:
                     extension = os.path.splitext(file_path)[1].lstrip(".")
                     format = mime_type or extension
 
-                    # Calculate hash from video file content
+                    # Read video binary data
                     with open(file_path, "rb") as f:
-                        video_hash = hashlib.sha256(f.read()).hexdigest()
+                        blob = f.read()
+                        video_hash = hashlib.sha256(blob).hexdigest()
 
                     return Metadata(
                         uris=file_path,
@@ -183,7 +184,7 @@ class FileProcessor:
                         format=format,
                         channels=channels,
                         size=os.path.getsize(file_path),
-                        blob=b"",  # Don't store video binary data
+                        blob=blob if save_binary else b"",
                         hash=video_hash,
                         has_audio=video.audio is not None,
                         duration=duration,
@@ -202,14 +203,14 @@ class FileProcessor:
                     channels = wav.getnchannels()
                     depth = wav.getsampwidth() * 8  # Convert bytes to bits
 
+                    # Get audio data
+                    blob = wav.readframes(num_frames)
+                    audio_hash = hashlib.sha256(blob).hexdigest()
+
                 # Get audio MIME type
                 mime_type, _ = mimetypes.guess_type(file_path)
                 extension = os.path.splitext(file_path)[1].lstrip(".")
                 format = mime_type or extension
-
-                # Calculate hash from audio file content
-                with open(file_path, "rb") as f:
-                    audio_hash = hashlib.sha256(f.read()).hexdigest()
 
                 return Metadata(
                     uris=file_path,
@@ -218,7 +219,7 @@ class FileProcessor:
                     format=format,
                     channels=channels,
                     size=os.path.getsize(file_path),
-                    blob=b"",  # Don't store audio binary data
+                    blob=blob if save_binary else b"",
                     hash=audio_hash,
                     has_audio=True,
                     duration=duration,
