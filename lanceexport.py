@@ -8,13 +8,16 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 console = Console()
+image_extensions = get_supported_extensions("image")
+video_extensions = get_supported_extensions("video")
+audio_extensions = get_supported_extensions("audio")
 
-def save_image(image_path: str, image_data: bytes, quality: int = 100) -> bool:
+def save_image(image_path: str, blob: bytes, quality: int = 100) -> bool:
     """Save image data to disk.
     
     Args:
         image_path: Path to save the image
-        image_data: Binary image data
+        blob: Binary image data
         quality: Image quality for JPEG compression
         
     Returns:
@@ -22,7 +25,7 @@ def save_image(image_path: str, image_data: bytes, quality: int = 100) -> bool:
     """
     try:
         os.makedirs(os.path.dirname(image_path), exist_ok=True)
-        with Image.open(io.BytesIO(image_data)) as img:
+        with Image.open(io.BytesIO(blob)) as img:
             img.save(image_path, quality=quality)
             console.print(f"[green]image: {image_path} saved successfully.[/green]")
         return True
@@ -81,15 +84,15 @@ def extract_from_lance(
         
         for batch in dataset.to_batches():
             filepaths = batch.column("filepath").to_pylist()
-            extensions = batch.column("extension").to_pylist()
-            images = batch.column("data").to_pylist()
+            formats = batch.column("format").to_pylist()
+            blobs = batch.column("blob").to_pylist()
             captions = batch.column("captions").to_pylist()
 
-            for filepath, extension, image, caption in zip(
-                filepaths, extensions, images, captions
+            for filepath, format, blob, caption in zip(
+                filepaths, formats, blobs, captions
             ):
                 if not os.path.exists(filepath):
-                    if not save_image(filepath, image):
+                    if not save_image(filepath, blob):
                         progress.advance(task)
                         continue
 

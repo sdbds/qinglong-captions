@@ -6,3 +6,4 @@ rich
 pandas
 pillow-avif-plugin
 toml
+moviepy

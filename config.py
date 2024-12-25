@@ -19,31 +19,67 @@ BASE_IMAGE_EXTENSIONS: List[str] = [
     ".BMP",
 ]
 
+BASE_VIDEO_EXTENSIONS: List[str] = [
+    ".mp4",
+    ".webm",
+    ".avi",
+    ".mkv",
+    ".mov",
+    ".flv",
+    ".wmv",
+    ".m4v",
+    ".mpg",
+    ".mpeg",
+]
 
-def get_supported_extensions() -> Tuple[str, ...]:
-    """Get all supported image extensions including optional formats."""
-    extensions = BASE_IMAGE_EXTENSIONS.copy()
+BASE_AUDIO_EXTENSIONS: List[str] = [
+    ".mp3",
+    ".wav",
+    ".ogg",
+    ".flac",
+    ".m4a",
+    ".wma",
+    ".aac",
+    ".aiff",
+    ".aifc",
+    ".aif",
+    ".au",
+    ".snd",
+    ".mid",
+    ".midi",
+    ".mka",
+]
 
-    # Try to add AVIF support
-    try:
-        import pillow_avif
 
-        extensions.extend([".avif", ".AVIF"])
-    except ImportError:
-        pass
+def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
+    """Get all supported media extensions including optional formats."""
+    if media_type == "image":
+        extensions = BASE_IMAGE_EXTENSIONS.copy()
 
-    # Try to add JPEG-XL support
-    try:
-        from jxlpy import JXLImagePlugin
-
-        extensions.extend([".jxl", ".JXL"])
-    except ImportError:
+        # Try to add AVIF support
         try:
-            import pillow_jxl
+            import pillow_avif
+
+            extensions.extend([".avif", ".AVIF"])
+        except ImportError:
+            pass
+
+        # Try to add JPEG-XL support
+        try:
+            from jxlpy import JXLImagePlugin
 
             extensions.extend([".jxl", ".JXL"])
         except ImportError:
-            pass
+            try:
+                import pillow_jxl
+
+                extensions.extend([".jxl", ".JXL"])
+            except ImportError:
+                pass
+    elif media_type == "video":
+        extensions = BASE_VIDEO_EXTENSIONS.copy()
+    elif media_type == "audio":
+        extensions = BASE_AUDIO_EXTENSIONS.copy()
 
     return tuple(extensions)
 
@@ -51,12 +87,17 @@ def get_supported_extensions() -> Tuple[str, ...]:
 # Default schema definition
 DEFAULT_DATASET_SCHEMA = [
     ("filepath", pa.string()),
-    ("extension", pa.string()),
-    ("hash", pa.string()),
-    ("size", pa.int64()),
+    ("format", pa.string()),
     ("width", pa.int32()),
     ("height", pa.int32()),
-    ("data", pa.binary()),
+    ("depth", pa.int32()),
+    ("channels", pa.int32()),
+    ("size", pa.int64()),
+    ("hash", pa.string()),
+    ("has_audio", pa.bool_()),
+    ("duration", pa.int32()),
+    ("num_frames", pa.int32()),
+    ("blob", pa.binary()),
     ("captions", pa.list_(pa.string())),
 ]
 
