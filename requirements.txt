@@ -5,5 +5,9 @@ pylance>=0.20.0
 rich
 pandas
 pillow-avif-plugin
+pillow-heif
+pillow-jxl-plugin
 toml
-moviepy
+imageio>=2.31.1
+imageio-ffmpeg>=0.4.8
+pyarrow>=14.0.1

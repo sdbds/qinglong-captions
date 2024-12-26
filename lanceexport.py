@@ -6,6 +6,7 @@ import io
 from typing import Optional, Union, List
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from config import get_supported_extensions, DATASET_SCHEMA
 
 console = Console()
 image_extensions = get_supported_extensions("image")

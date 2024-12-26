@@ -10,13 +10,28 @@ BASE_IMAGE_EXTENSIONS: List[str] = [
     ".png",
     ".jpg",
     ".jpeg",
+    ".gif",
     ".webp",
     ".bmp",
+    ".ico",
+    ".tif",
+    ".tiff",
     ".PNG",
     ".JPG",
     ".JPEG",
+    ".GIF",
     ".WEBP",
     ".BMP",
+    ".ICO",
+    ".TIF",
+    ".TIFF",
+]
+
+BASE_ANIMATION_EXTENSIONS: List[str] = [
+    ".gif",
+    ".webp",
+    ".GIF",
+    ".WEBP",
 ]
 
 BASE_VIDEO_EXTENSIONS: List[str] = [
@@ -53,8 +68,12 @@ BASE_AUDIO_EXTENSIONS: List[str] = [
 
 def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
     """Get all supported media extensions including optional formats."""
-    if media_type == "image":
-        extensions = BASE_IMAGE_EXTENSIONS.copy()
+    if media_type == "image" or media_type == "animation":
+        extensions = (
+            BASE_IMAGE_EXTENSIONS.copy()
+            if media_type == "image"
+            else BASE_ANIMATION_EXTENSIONS.copy()
+        )
 
         # Try to add AVIF support
         try:
@@ -66,16 +85,28 @@ def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
 
         # Try to add JPEG-XL support
         try:
-            from jxlpy import JXLImagePlugin
+            import pillow_jxl
 
             extensions.extend([".jxl", ".JXL"])
         except ImportError:
-            try:
-                import pillow_jxl
+            pass
 
-                extensions.extend([".jxl", ".JXL"])
+        try:
+            from pillow_heif import register_heif_opener
+
+            register_heif_opener()
+            extensions.extend([".heic", ".heif", ".HEIC", ".HEIF"])
+        except ImportError:
+            pass
+
+        if media_type == "animation":
+            try:
+                from apng import APNG
+
+                extensions.extend([".apng", ".APNG"])
             except ImportError:
                 pass
+
     elif media_type == "video":
         extensions = BASE_VIDEO_EXTENSIONS.copy()
     elif media_type == "audio":
@@ -86,17 +117,18 @@ def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
 
 # Default schema definition
 DEFAULT_DATASET_SCHEMA = [
-    ("filepath", pa.string()),
-    ("format", pa.string()),
+    ("uris", pa.string()),
+    ("mime", pa.string()),
     ("width", pa.int32()),
     ("height", pa.int32()),
-    ("depth", pa.int32()),
     ("channels", pa.int32()),
-    ("size", pa.int64()),
+    ("depth", pa.int32()),
     ("hash", pa.string()),
+    ("size", pa.int64()),
     ("has_audio", pa.bool_()),
     ("duration", pa.int32()),
     ("num_frames", pa.int32()),
+    ("frame_rate", pa.float32()),
     ("blob", pa.binary()),
     ("captions", pa.list_(pa.string())),
 ]
