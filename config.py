@@ -45,6 +45,16 @@ BASE_VIDEO_EXTENSIONS: List[str] = [
     ".m4v",
     ".mpg",
     ".mpeg",
+    ".MP4",
+    ".WEBM",
+    ".AVI",
+    ".MKV",
+    ".MOV",
+    ".FLV",
+    ".WMV",
+    ".M4V",
+    ".MPG",
+    ".MPEG",
 ]
 
 BASE_AUDIO_EXTENSIONS: List[str] = [
@@ -63,6 +73,21 @@ BASE_AUDIO_EXTENSIONS: List[str] = [
     ".mid",
     ".midi",
     ".mka",
+    ".MP3",
+    ".WAV",
+    ".OGG",
+    ".FLAC",
+    ".M4A",
+    ".WMA",
+    ".AAC",
+    ".AIFF",
+    ".AIFC",
+    ".AIF",
+    ".AU",
+    ".SND",
+    ".MID",
+    ".MIDI",
+    ".MKA",
 ]
 
 
@@ -129,10 +154,20 @@ DEFAULT_DATASET_SCHEMA = [
     ("duration", pa.int32()),
     ("num_frames", pa.int32()),
     ("frame_rate", pa.float32()),
-    ("blob", pa.binary()),
+    ("blob", pa.large_binary()),
     ("captions", pa.list_(pa.string())),
 ]
 
+# 控制台输出颜色配置
+CONSOLE_COLORS = {
+    "image": "green",
+    "animation": "bold green",
+    "video": "magenta",
+    "audio": "orange1",
+    "text": "yellow",
+    "caption": "yellow",
+    "unknown": "cyan",
+}
 
 def load_schema_from_toml(schema_path: str) -> List[Tuple[str, str]]:
     """Load a custom dataset schema from a TOML file.

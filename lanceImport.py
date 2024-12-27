@@ -15,14 +15,24 @@ import imageio.v3 as iio
 import lance
 import pyarrow as pa
 from PIL import Image, ImageMode
-from rich.progress import Progress
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+)
 from rich.console import Console
 import mimetypes
 from pathlib import Path
 from enum import Enum, auto
 import numpy as np
 
-from config import get_supported_extensions, DATASET_SCHEMA
+from config import (
+    get_supported_extensions,
+    DATASET_SCHEMA,
+    CONSOLE_COLORS,
+)
 
 
 console = Console()
@@ -40,13 +50,13 @@ class Metadata:
     mime: str  # MIME type
     width: int  # Image/video width in pixels
     height: int  # Image/video height in pixels
-    channels: int = 0  # Number of channels (RGB=3, RGBA=4, mono=1, stereo=2)
     depth: int  # Sample depth/width in bits
-    hash: str  # SHA256 hash
-    size: int  # File size in bytes
+    channels: int = 0  # Number of channels (RGB=3, RGBA=4, mono=1, stereo=2)
+    hash: str = ""  # SHA256 hash
+    size: int = 0  # File size in bytes
     has_audio: bool = False  # True if audio is present
     duration: Optional[int] = None  # Duration in milliseconds
-    num_frames: Optional[int] = None  # Number of frames
+    num_frames: Optional[int] = 1  # Number of frames
     frame_rate: float = 0.0  # Frames/samples per second
     blob: bytes = b""  # Binary data
 
@@ -208,7 +218,7 @@ class FileProcessor:
                     duration = 0  # Initialize to 0 for accumulation
                     n_frames = None
                     frame_rate = 0.0
-                    
+
                     if hasattr(img, "n_frames") and img.n_frames > 1:
                         n_frames = img.n_frames
                         # Get duration in milliseconds
@@ -220,7 +230,7 @@ class FileProcessor:
                             frame_rate = (n_frames * 1000) / duration  # Convert to fps
                     else:
                         duration = None
-                    
+
                     # Get image MIME type, fallback to PIL format
                     mime_type, _ = mimetypes.guess_type(file_path)
                     mime = mime_type or f"image/{img.format.lower()}"
@@ -254,8 +264,8 @@ class FileProcessor:
                         mime=mime,
                         width=img.size[0],
                         height=img.size[1],
-                        channels=channels,
                         depth=depth,
+                        channels=channels,
                         hash=image_hash,
                         size=Path(file_path).stat().st_size,
                         has_audio=False,
@@ -265,153 +275,162 @@ class FileProcessor:
                         blob=binary_data if save_binary else b"",
                     )
             elif file_path.endswith(video_extensions):
-                # Open video file
-                with iio.imopen(file_path, "r") as video:
+                try:
+                    # Get video metadata first
+                    meta = iio.immeta(file_path) or {}
 
                     # Get video MIME type
                     mime_type, _ = mimetypes.guess_type(file_path)
                     extension = Path(file_path).suffix.lstrip(".")
                     mime = mime_type or f"video/{extension}"
 
-                    # Get video metadata
-                    meta = video.metadata
-                    width = meta.get("size", (0, 0))[0]
-                    height = meta.get("size", (0, 0))[1]
-                    frame_rate = float(meta.get("fps", 0))
-                    duration = int(
-                        meta.get("duration", 0) * 1000
-                    )  # Convert to milliseconds
-                    n_frames = meta.get(
-                        "nframes", int(frame_rate * meta.get("duration", 0))
+                    # Get basic video info with safety checks
+                    size = meta.get("size", (0, 0))
+                    width = (
+                        int(size[0])
+                        if isinstance(size, (tuple, list)) and len(size) > 0
+                        else 0
+                    )
+                    height = (
+                        int(size[1])
+                        if isinstance(size, (tuple, list)) and len(size) > 1
+                        else 0
                     )
 
-                    # Get first frame for color info
-                    first_frame = video.read(index=0)
-                    channels = first_frame.shape[2] if len(first_frame.shape) > 2 else 1
-                    depth = first_frame.dtype.itemsize * 8
+                    # Handle fps with safety checks
+                    fps = meta.get("fps", 0)
+                    frame_rate = (
+                        float(fps)
+                        if fps and not np.isinf(fps) and not np.isnan(fps)
+                        else 0.0
+                    )
 
-                    # Read video binary data and calculate hash
-                    video.seek(0)
-                    binary_data = video.read_bytes()
-                    video_hash = hashlib.sha256(binary_data).hexdigest()
+                    # Handle duration with safety checks
+                    dur = meta.get("duration", 0)
+                    duration = (
+                        int(dur * 1000)
+                        if dur and not np.isinf(dur) and not np.isnan(dur)
+                        else 0
+                    )
 
-                    if import_mode == VideoImportMode.ALL:
-                        has_audio = meta.get("has_audio", False)
-                    elif import_mode == VideoImportMode.VIDEO_ONLY:
-                        # Remove audio from video
-                        if meta.get("has_audio"):
-                            video.audio = None
-                        has_audio = False
-
-                    elif import_mode == VideoImportMode.AUDIO_ONLY:
-                        # Extract audio metadata
-                        result = self._extract_audio_metadata(
-                            video, file_path, meta, save_binary
-                        )
-                        if result is None:
-                            return None
-                        return result[0]  # Return just the metadata
-
-                    elif import_mode == VideoImportMode.VIDEO_SPLIT_AUDIO:
-                        # Create separate entries for video and audio
-                        if meta.get("has_audio", False):
-                            # Extract audio metadata
-                            result = self._extract_audio_metadata(
-                                video, file_path, meta, save_binary
-                            )
-                            if result is None:
-                                # If no audio, just return video metadata
-                                has_audio = False
-                            else:
-                                audio_metadata = result[0]
-                                # Create video metadata
-                                video_metadata = Metadata(
-                                    uris=file_path,
-                                    mime=mime,
-                                    width=width,
-                                    height=height,
-                                    channels=channels,
-                                    depth=depth,
-                                    hash=video_hash,
-                                    size=Path(file_path).stat().st_size,
-                                    has_audio=False,
-                                    duration=duration,
-                                    num_frames=n_frames,
-                                    frame_rate=frame_rate,
-                                    blob=binary_data if save_binary else b"",
-                                )
-                                return [video_metadata, audio_metadata]
+                    # Calculate frames with safety checks
+                    n_frames = meta.get("nframes", 0)
+                    if not n_frames or np.isinf(n_frames) or np.isnan(n_frames):
+                        if frame_rate > 0 and duration > 0:
+                            n_frames = int(frame_rate * (duration / 1000))
                         else:
-                            # If no audio, just return video metadata
-                            has_audio = False
+                            n_frames = 0
+
+                    # Get first frame for color info
+                    try:
+                        first_frame = iio.imread(file_path, index=0)
+                        channels = (
+                            first_frame.shape[2] if len(first_frame.shape) > 2 else 1
+                        )
+                        depth = first_frame.dtype.itemsize * 8
+                    except Exception as e:
+                        console.print(
+                            f"[yellow]Warning: Could not read first frame from {file_path}: {e}[/yellow]"
+                        )
+                        channels = 3  # Assume RGB
+                        depth = 8  # Assume 8-bit
+
+                    # Read video binary data and calculate hash in chunks
+                    hasher = hashlib.sha256()
+                    binary_data = bytearray()
+                    chunk_size = 8192  # 8KB chunks
+
+                    with open(file_path, "rb") as f:
+                        while True:
+                            chunk = f.read(chunk_size)
+                            if not chunk:
+                                break
+                            hasher.update(chunk)
+                            if save_binary:
+                                binary_data.extend(chunk)
+
+                    video_hash = hasher.hexdigest()
 
                     return Metadata(
                         uris=file_path,
                         mime=mime,
                         width=width,
                         height=height,
-                        channels=channels,
                         depth=depth,
+                        channels=channels,
                         hash=video_hash,
                         size=Path(file_path).stat().st_size,
-                        has_audio=has_audio,
+                        has_audio=meta.get("has_audio", False),
+                        duration=duration,
+                        num_frames=n_frames,
+                        frame_rate=frame_rate,
+                        blob=bytes(binary_data) if save_binary else b"",
+                    )
+                except Exception as e:
+                    console.print(
+                        f"[red]Error processing video {file_path}: {str(e)}[/red]"
+                    )
+                    return None
+
+            elif file_path.endswith(audio_extensions):
+                try:
+                    # Read audio file as binary first
+                    binary_data = Path(file_path).read_bytes()
+                    audio_hash = hashlib.sha256(binary_data).hexdigest()
+
+                    # Get audio MIME type
+                    mime_type, _ = mimetypes.guess_type(file_path)
+                    extension = Path(file_path).suffix.lstrip(".")
+                    mime = mime_type or f"audio/{extension}"
+
+                    # Try to get audio metadata using wave module
+                    try:
+                        with wave.open(io.BytesIO(binary_data), "rb") as wav:
+                            channels = wav.getnchannels()
+                            frame_rate = wav.getframerate()
+                            n_frames = wav.getnframes()
+                            duration = int(
+                                (n_frames / frame_rate) * 1000
+                            )  # Convert to milliseconds
+                            depth = wav.getsampwidth() * 8
+                    except Exception as wave_error:
+                        console.print(
+                            f"[yellow]Warning: Could not read wave metadata from {file_path}: {wave_error}[/yellow]"
+                        )
+                        # Fallback to basic metadata
+                        channels = 2  # Assume stereo
+                        frame_rate = 44100  # Assume standard sample rate
+                        depth = 16  # Assume 16-bit
+                        duration = 0
+                        n_frames = 0
+
+                    return Metadata(
+                        uris=file_path,
+                        mime=mime,
+                        width=0,
+                        height=0,
+                        depth=depth,
+                        channels=channels,
+                        hash=audio_hash,
+                        size=Path(file_path).stat().st_size,
+                        has_audio=True,
                         duration=duration,
                         num_frames=n_frames,
                         frame_rate=frame_rate,
                         blob=binary_data if save_binary else b"",
                     )
-            elif file_path.endswith(audio_extensions):
-                with wave.open(file_path, "rb") as wav:
-                    # Get audio info
-                    frame_rate = float(wav.getframerate())  # Hz
-                    num_frames = wav.getnframes()
-                    duration = int(
-                        num_frames * 1000 / frame_rate
-                    )  # Convert to milliseconds
-                    channels = wav.getnchannels()
-                    depth = wav.getsampwidth() * 8  # Convert bytes to bits
+                except Exception as e:
+                    console.print(
+                        f"[red]Error processing audio {file_path}: {str(e)}[/red]"
+                    )
+                    return None
 
-                    # Read audio data and calculate hash
-                    wav.setpos(0)  # Reset position to start
-                    binary_data = wav.readframes(num_frames)
-                    audio_hash = hashlib.sha256(binary_data).hexdigest()
+            return None
 
-                # Get audio MIME type
-                mime_type, _ = mimetypes.guess_type(file_path)
-                extension = Path(file_path).suffix.lstrip(".")
-                mime = mime_type or f"audio/{extension}"
-
-                return Metadata(
-                    uris=file_path,
-                    mime=mime,
-                    width=0,
-                    height=0,
-                    channels=channels,
-                    depth=depth,
-                    hash=audio_hash,
-                    size=Path(file_path).stat().st_size,
-                    has_audio=True,
-                    duration=duration,
-                    num_frames=num_frames,
-                    frame_rate=frame_rate,
-                    blob=binary_data if save_binary else b"",
-                )
-            else:
-                console.print(
-                    f"[yellow]Unsupported file format for {file_path}[/yellow]"
-                )
-                return None
-        except FileNotFoundError:
-            console.print(f"[red]File not found: {file_path}[/red]")
-            return None
-        except IOError as e:
-            console.print(f"[red]IO error reading file {file_path}: {e}[/red]")
-            return None
-        except SyntaxError as e:
-            console.print(f"[red]Invalid file format for {file_path}: {e}[/red]")
-            return None
         except Exception as e:
-            console.print(f"[red]Unexpected error processing {file_path}: {e}[/red]")
+            console.print(
+                f"[red]Unexpected error processing {file_path}: {str(e)}[/red]"
+            )
             return None
 
 
@@ -435,7 +454,12 @@ def load_data(
         for file in Path(datasets_dir).iterdir():
             if not file.is_file() or not any(
                 str(file).endswith(ext)
-                for ext in (image_extensions + video_extensions + audio_extensions)
+                for ext in (
+                    image_extensions
+                    + animation_extensions
+                    + video_extensions
+                    + audio_extensions
+                )
             ):
                 continue
 
@@ -454,7 +478,12 @@ def load_data(
         for file_path in Path(datasets_dir).rglob("*"):
             if not file_path.is_file() or not any(
                 str(file_path).endswith(ext)
-                for ext in (image_extensions + video_extensions + audio_extensions)
+                for ext in (
+                    image_extensions
+                    + animation_extensions
+                    + video_extensions
+                    + audio_extensions
+                )
             ):
                 continue
 
@@ -499,8 +528,31 @@ def process(
             file_path = item["file_path"]
             caption = item["caption"]
 
-            console.print(f"Processing file [yellow]'{file_path}'...", style="yellow")
-            console.print(f"Caption: {caption}", style="cyan")
+            console.print()
+
+            # 根据文件类型选择颜色
+            suffix = Path(file_path).suffix.lower()
+            if suffix in image_extensions:
+                if suffix in animation_extensions:
+                    color = CONSOLE_COLORS["animation"]
+                    media_type = "animation"
+                else:
+                    color = CONSOLE_COLORS["image"]
+                    media_type = "image"
+            elif suffix in video_extensions:
+                color = CONSOLE_COLORS["video"]
+                media_type = "video"
+            elif suffix in audio_extensions:
+                color = CONSOLE_COLORS["audio"]
+                media_type = "audio"
+            else:
+                color = CONSOLE_COLORS["unknown"]
+                media_type = "unknown"
+
+            console.print(
+                f"Processing {media_type} file [{color}]'{file_path}'[/{color}]"
+            )
+            console.print(f"Caption: {caption}", style=CONSOLE_COLORS["caption"])
 
             metadata = processor.load_metadata(file_path, save_binary, import_mode)
             if not metadata:
@@ -510,14 +562,28 @@ def process(
             # Get field names and create arrays
             field_names = [field[0] for field in DATASET_SCHEMA]
             arrays = []
-            for field_name in field_names:
+            for field_name, field_type in DATASET_SCHEMA:
                 if field_name == "filepath":
                     value = str(Path(file_path).resolve())
+                    array = pa.array([value], type=field_type)
                 elif field_name == "captions":
-                    value = caption
+                    array = pa.array([caption], type=field_type)
+                elif field_name == "blob":
+                    array = pa.array([getattr(metadata, field_name)], type=field_type)
                 else:
                     value = getattr(metadata, field_name)
-                arrays.append(pa.array([value]))
+                    # Convert None to appropriate default value based on type
+                    if value is None:
+                        if pa.types.is_integer(field_type):
+                            value = 0
+                        elif pa.types.is_floating(field_type):
+                            value = 0.0
+                        elif pa.types.is_boolean(field_type):
+                            value = False
+                        elif pa.types.is_string(field_type):
+                            value = ""
+                    array = pa.array([value], type=field_type)
+                arrays.append(array)
 
             batch = pa.RecordBatch.from_arrays(
                 arrays,
@@ -559,7 +625,16 @@ def transform2lance(
     """
     data = load_condition(dataset_dir, caption_dir)
 
-    schema = pa.schema([pa.field(name, pa_type) for name, pa_type in DATASET_SCHEMA])
+    schema = pa.schema(
+        [
+            pa.field(
+                name,
+                pa_type,
+                metadata={b"lance-encoding:blob": b"true"} if name == "blob" else None,
+            )
+            for name, pa_type in DATASET_SCHEMA
+        ]
+    )
 
     try:
         reader = pa.RecordBatchReader.from_batches(

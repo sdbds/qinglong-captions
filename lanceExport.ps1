@@ -1,47 +1,56 @@
-$lance_file = "D:\lora-scripts\input\train\aijou karen\dataset.lance" # input images path | 图片输入路径
-$output_dir = "D:\lora-scripts\input\train\aijou karen"
-$version = "WDtagger" #WDtagger pixtral
+# Input parameters | 输入参数
+param(
+    [string]$lance_file = "D:\lora-scripts\input\train\aijou karen\dataset.lance",  # Lance dataset path | Lance数据集路径
+    [string]$output_dir = "D:\lora-scripts\input\train\aijou karen",                # Output directory | 输出目录
+    [string]$version = "WDtagger"                                                   # Dataset version (WDtagger/pixtral)
+)
 
-# ============= DO NOT MODIFY CONTENTS BELOW | 请勿修改下方内容 =====================
-# Activate python venv
+# Set working directory | 设置工作目录
 Set-Location $PSScriptRoot
-if ($env:OS -ilike "*windows*") {
-  if (Test-Path "./venv/Scripts/activate") {
-    Write-Output "Windows venv"
-    ./venv/Scripts/activate
-  }
-  elseif (Test-Path "./.venv/Scripts/activate") {
-    Write-Output "Windows .venv"
-    ./.venv/Scripts/activate
-  }
-}
-elseif (Test-Path "./venv/bin/activate") {
-  Write-Output "Linux venv"
-  ./venv/bin/Activate.ps1
-}
-elseif (Test-Path "./.venv/bin/activate") {
-  Write-Output "Linux .venv"
-  ./.venv/bin/activate.ps1
+
+# Activate virtual environment | 激活虚拟环境
+$venvPaths = @(
+    "venv/Scripts/activate",
+    ".venv/Scripts/activate",
+    "venv/bin/Activate.ps1",
+    ".venv/bin/activate.ps1"
+)
+
+$activated = $false
+foreach ($path in $venvPaths) {
+    if (Test-Path $path) {
+        Write-Output "Activating virtual environment: $path"
+        & $path
+        $activated = $true
+        break
+    }
 }
 
-$Env:HF_HOME = "huggingface"
-$Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
-$Env:HF_ENDPOINT = "https://hf-mirror.com"
-$ext_args = [System.Collections.ArrayList]::new()
-
-
-if ($api_key) {
-  [void]$ext_args.Add("--api_key=$api_key")
+if (-not $activated) {
+    Write-Error "No virtual environment found. Please create one first."
+    exit 1
 }
+
+# Set environment variables | 设置环境变量
+$env:HF_HOME = "huggingface"
+$env:XFORMERS_FORCE_DISABLE_TRITON = "1"
+$env:HF_ENDPOINT = "https://hf-mirror.com"
+
+# Prepare arguments | 准备参数
+$arguments = @(
+    "./lanceexport.py",
+    $lance_file,
+    "--output_dir=$output_dir"
+)
 
 if ($version) {
-  [void]$ext_args.Add("--version=$version")
+    $arguments += "--version=$version"
 }
 
-# run train
-python "./lanceexport.py" `
-  $lance_file `
-  --output_dir=$output_dir $ext_args
+# Run export script | 运行导出脚本
+Write-Output "Starting export from $lance_file to $output_dir"
+& python $arguments
 
-Write-Output "Export finished"
-Read-Host | Out-Null
+# Wait for user input before closing | 等待用户输入后关闭
+Write-Output "`nExport finished. Press Enter to exit..."
+$null = Read-Host

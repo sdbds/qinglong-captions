@@ -1,107 +1,256 @@
 import argparse
 import lance
-import os
-from PIL import Image
 import io
-from typing import Optional, Union, List
+from PIL import Image
+from typing import Optional, Union, List, Dict, Any
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
-from config import get_supported_extensions, DATASET_SCHEMA
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+)
+from config import get_supported_extensions, DATASET_SCHEMA, CONSOLE_COLORS
+from pathlib import Path
 
 console = Console()
 image_extensions = get_supported_extensions("image")
+animation_extensions = get_supported_extensions("animation")
 video_extensions = get_supported_extensions("video")
 audio_extensions = get_supported_extensions("audio")
 
-def save_image(image_path: str, blob: bytes, quality: int = 100) -> bool:
-    """Save image data to disk.
-    
+
+def format_duration(duration_ms: int) -> str:
+    """将毫秒转换为分:秒格式."""
+    total_seconds = duration_ms // 1000
+    minutes = total_seconds // 60
+    seconds = total_seconds % 60
+    return f"{minutes}:{seconds:02d}"
+
+
+def save_blob(
+    uri: Path,
+    blob: Union[bytes, lance.BlobFile],
+    metadata: Dict[str, Any],
+    media_type: str,
+) -> bool:
+    """Save binary blob to file.
+
     Args:
-        image_path: Path to save the image
-        blob: Binary image data
-        quality: Image quality for JPEG compression
-        
+        uri: Target path
+        blob: Binary data or BlobFile
+        metadata: File metadata
+        media_type: Type of media (image/video/audio)
+
     Returns:
-        bool: True if save successful, False otherwise
+        bool: True if successful
     """
     try:
-        os.makedirs(os.path.dirname(image_path), exist_ok=True)
-        with Image.open(io.BytesIO(blob)) as img:
-            img.save(image_path, quality=quality)
-            console.print(f"[green]image: {image_path} saved successfully.[/green]")
+        uri.parent.mkdir(parents=True, exist_ok=True)
+
+        # Handle both bytes and BlobFile
+        if isinstance(blob, lance.BlobFile):
+            with open(uri, "wb") as f:
+                while True:
+                    chunk = blob.read(8192)  # Read in chunks
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        else:
+            uri.write_bytes(blob)
+
+        # Print media-specific metadata
+        meta_info = []
+        if media_type in ["image", "animation"]:
+            meta_info.extend(
+                [
+                    f"{metadata.get('width', 0)}x{metadata.get('height', 0)}",
+                    f"{metadata.get('channels', 0)}ch",
+                    (
+                        f"{metadata.get('num_frames', 1)} frames"
+                        if metadata.get("num_frames", 1) > 1
+                        else None
+                    ),
+                ]
+            )
+        elif media_type == "video":
+            duration = metadata.get("duration", 0)
+            meta_info.extend(
+                [
+                    f"{metadata.get('width', 0)}x{metadata.get('height', 0)}",
+                    f"{format_duration(duration)}",
+                    f"{metadata.get('frame_rate', 0):.1f}fps",
+                ]
+            )
+        elif media_type == "audio":
+            duration = metadata.get("duration", 0)
+            meta_info.extend(
+                [
+                    f"{metadata.get('channels', 0)}ch",
+                    f"{metadata.get('frame_rate', 0):.1f}Hz",
+                    f"{format_duration(duration)}",
+                ]
+            )
+
+        meta_str = ", ".join(filter(None, meta_info))
+        console.print()
+
+        # 使用配置的颜色
+        color = CONSOLE_COLORS.get(media_type, "white")
+        console.print(
+            f"[{color}]{media_type}: {uri} ({meta_str}) saved successfully.[/{color}]"
+        )
         return True
     except Exception as e:
-        console.print(f"[red]Error processing image '{image_path}': {e}[/red]")
+        console.print(f"[red]Error saving {media_type} {uri}: {e}[/red]")
         return False
+
+
+def save_image(
+    image_path: str,
+    blob: Union[bytes, lance.BlobFile],
+    metadata: Dict[str, Any],
+    quality: int = 100,
+) -> bool:
+    """Save image blob to file."""
+    return save_blob(
+        Path(image_path),
+        blob,
+        metadata,
+        "animation" if metadata.get("num_frames", 1) > 1 else "image",
+    )
+
+
+def save_video(
+    uri: Path, blob: Union[bytes, lance.BlobFile], metadata: Dict[str, Any]
+) -> bool:
+    """Save video file with metadata."""
+    return save_blob(uri, blob, metadata, "video")
+
+
+def save_audio(
+    uri: Path, blob: Union[bytes, lance.BlobFile], metadata: Dict[str, Any]
+) -> bool:
+    """Save audio file with metadata."""
+    return save_blob(uri, blob, metadata, "audio")
+
 
 def save_caption(caption_path: str, caption_lines: List[str]) -> bool:
     """Save caption data to disk.
-    
+
     Args:
         caption_path: Path to save the caption
         caption_lines: List of caption lines
-        
+
     Returns:
         bool: True if save successful, False otherwise
     """
     try:
-        os.makedirs(os.path.dirname(caption_path), exist_ok=True)
+        # 先处理字符串，再创建Path对象
+        caption_path = str(caption_path).replace("\\", "/")
+        caption_path = Path(caption_path)
+        caption_path.parent.mkdir(parents=True, exist_ok=True)
+
         with open(caption_path, "w", encoding="utf-8") as f:
             for line in caption_lines:
                 if line and line.strip():
                     f.write(line.strip() + "\n")
-            console.print(f"[yellow]Saving caption to {caption_path}[/yellow]")
+            console.print()
+            console.print(
+                f"[{CONSOLE_COLORS['text']}]text: {caption_path} saved successfully.[/{CONSOLE_COLORS['text']}]"
+            )
         return True
     except Exception as e:
         console.print(f"[red]Error saving caption '{caption_path}': {e}[/red]")
         return False
 
-def extract_from_lance(
-    lance_file: Union[str, lance.LanceDataset],
-    output_dir: str,
-    version: Optional[str] = None
-) -> None:
-    """Extract images and captions from a Lance dataset.
-    
-    Args:
-        lance_file: Path to lance file or LanceDataset object
-        output_dir: Directory to save extracted data
-        version: Optional dataset version
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Open dataset
-    dataset = lance.dataset(lance_file, version=version) if isinstance(lance_file, str) else lance_file
-    
-    total_records = len(dataset)
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("[cyan]Extracting data...", total=total_records)
-        
-        for batch in dataset.to_batches():
-            filepaths = batch.column("filepath").to_pylist()
-            formats = batch.column("format").to_pylist()
-            blobs = batch.column("blob").to_pylist()
-            captions = batch.column("captions").to_pylist()
 
-            for filepath, format, blob, caption in zip(
-                filepaths, formats, blobs, captions
-            ):
-                if not os.path.exists(filepath):
-                    if not save_image(filepath, blob):
+def extract_from_lance(
+    lance_or_path: Union[str, lance.LanceDataset],
+    output_dir: str,
+    version: str = "WDtagger",
+    caption_dir: Optional[str] = None,
+    save_binary: bool = True,
+) -> None:
+    """
+    Extract images and captions from Lance dataset.
+
+    Args:
+        lance_or_path: Path to Lance dataset or Lance dataset object
+        output_dir: Directory to save extracted images
+        caption_dir: Optional directory to save caption files
+        save_binary: Whether to save binary data
+    """
+    ds = (
+        lance.dataset(lance_or_path, version=version)
+        if isinstance(lance_or_path, str)
+        else lance_or_path
+    )
+
+    # Create output directories
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    if caption_dir:
+        captions_dir_path = Path(caption_dir)
+        captions_dir_path.mkdir(parents=True, exist_ok=True)
+
+    with Progress() as progress:
+        task = progress.add_task("[green]Extracting files...", total=ds.count_rows())
+
+        for batch in ds.to_batches():
+            # Get all metadata columns
+            metadata_batch = {
+                field[0]: batch.column(field[0]).to_pylist()
+                for field in DATASET_SCHEMA
+                if field[0] != "blob"  # Skip blob to save memory
+            }
+            indices = list(range(len(batch)))
+            blobs = ds.take_blobs(indices, "blob")
+
+            for i in range(len(batch)):
+                # Create metadata dict for current item
+                metadata = {key: values[i] for key, values in metadata_batch.items()}
+                uri = Path(metadata["uris"])
+                blob = blobs[i]
+
+                if not uri.exists() and blob:
+                    # Check file extension and save accordingly
+                    suffix = uri.suffix.lower()
+                    media_type = None
+                    if suffix in image_extensions:
+                        media_type = "image"
+                    elif suffix in animation_extensions:
+                        media_type = "animation"
+                    elif suffix in video_extensions:
+                        media_type = "video"
+                    elif suffix in audio_extensions:
+                        media_type = "audio"
+
+                    if media_type:
+                        if not save_blob(uri, blob, metadata, media_type):
+                            progress.advance(task)
+                            continue
+                    else:
+                        console.print(
+                            f"[yellow]Unsupported file format: {suffix}[/yellow]"
+                        )
                         progress.advance(task)
                         continue
 
-                caption_path = os.path.splitext(filepath)[0] + ".txt"
+                # Save caption if available
+                caption = metadata.get("captions", [])
                 if caption:
-                    save_caption(caption_path, caption)
-                
+                    caption_file_path = (
+                        captions_dir_path
+                        if caption_dir
+                        else output_path / f"{uri.stem}.txt"
+                    )
+                    save_caption(caption_file_path, caption)
+
                 progress.advance(task)
+
 
 def main():
 
@@ -116,11 +265,13 @@ def main():
     )
     parser.add_argument(
         "--version",
+        default="WDtagger",
         help="Dataset version",
     )
 
     args = parser.parse_args()
     extract_from_lance(args.lance_file, args.output_dir, args.version)
+
 
 if __name__ == "__main__":
     main()
