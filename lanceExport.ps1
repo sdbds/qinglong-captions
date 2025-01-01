@@ -1,8 +1,8 @@
 # Input parameters | 输入参数
 param(
-    [string]$lance_file = "D:\lora-scripts\input\train\aijou karen\dataset.lance",  # Lance dataset path | Lance数据集路径
-    [string]$output_dir = "D:\lora-scripts\input\train\aijou karen",                # Output directory | 输出目录
-    [string]$version = "WDtagger"                                                   # Dataset version (WDtagger/pixtral)
+    [string]$lance_file = "./datasets/dataset.lance",  # Lance dataset path | Lance数据集路径
+    [string]$output_dir = "./datasets",                # Output directory | 输出目录
+    [string]$version = "gemini"                                                   # Dataset version (WDtagger/pixtral)
 )
 
 # Set working directory | 设置工作目录

@@ -463,19 +463,24 @@ def load_data(
             ):
                 continue
 
-            text_file = file.stem + ".txt"
-            text_path = Path(texts_dir) / text_file
+            text_path = Path(texts_dir) / (file.stem + ".txt")
+            srt_path = Path(texts_dir) / (file.stem + ".srt")
 
-            if not text_path.exists():
-                continue
-
-            with open(text_path, "r", encoding="utf-8") as file:
-                caption = file.read().splitlines()
+            caption = None
+            if text_path.exists():
+                with open(text_path, "r", encoding="utf-8") as f:
+                    caption = f.read().splitlines()
+            elif srt_path.exists():
+                with open(srt_path, "r", encoding="utf-8") as f:
+                    caption = [f.read()]  # Store entire SRT content as a single string
+            else:
+                caption = []
 
             data.append({"file_path": str(file), "caption": caption})
     else:
         # Single directory structure
-        for file_path in Path(datasets_dir).rglob("*"):
+        datasets_path = Path(datasets_dir).resolve()  # 转换为绝对路径
+        for file_path in datasets_path.rglob("*"):
             if not file_path.is_file() or not any(
                 str(file_path).endswith(ext)
                 for ext in (
@@ -488,11 +493,17 @@ def load_data(
                 continue
 
             text_path = file_path.with_suffix(".txt")
+            srt_path = file_path.with_suffix(".srt")
 
-            caption = []
+            caption = None
             if text_path.exists():
-                with open(text_path, "r", encoding="utf-8") as file:
-                    caption = file.read().splitlines()
+                with open(text_path, "r", encoding="utf-8") as f:
+                    caption = f.read().splitlines()
+            elif srt_path.exists():
+                with open(srt_path, "r", encoding="utf-8") as f:
+                    caption = [f.read()]  # Store entire SRT content as a single string
+            else:
+                caption = []
 
             data.append({"file_path": str(file_path), "caption": caption})
 

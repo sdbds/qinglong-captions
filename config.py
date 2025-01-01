@@ -140,6 +140,69 @@ def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
     return tuple(extensions)
 
 
+def load_toml_config(config_path: str, section: str) -> Dict[str, Any]:
+    """Load a configuration section from a TOML file.
+
+    Args:
+        config_path: Path to the TOML file
+        section: Name of the section to load
+
+    Returns:
+        Dictionary containing the configuration data
+    """
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    try:
+        config = toml.load(config_path)
+        section_data = config.get(section, {})
+
+        if not section_data:
+            raise ValueError(f"No {section} configuration found in TOML file")
+
+        return section_data
+    except Exception as e:
+        raise ValueError(f"Failed to parse config file: {str(e)}")
+
+
+def load_schema_from_toml(config_path: str) -> List[Tuple[str, str]]:
+    """Load dataset schema from a TOML file.
+
+    Args:
+        config_path: Path to the TOML file containing schema definition
+
+    Returns:
+        List of tuples containing (field_name, field_type)
+    """
+    schema_data = load_toml_config(config_path, "schema")
+    fields = schema_data.get("fields", [])
+    return [(field["name"], field["type"]) for field in fields]
+
+
+def load_colors_from_toml(config_path: str) -> Dict[str, str]:
+    """Load console colors from a TOML file.
+
+    Args:
+        config_path: Path to the TOML file containing colors definition
+
+    Returns:
+        Dictionary mapping media types to color names
+    """
+    return load_toml_config(config_path, "colors")
+
+
+def load_prompts_from_toml(config_path: str) -> Dict[str, str]:
+    """Load prompts from a TOML file.
+
+    Args:
+        config_path: Path to the TOML file containing prompts definition
+
+    Returns:
+        Dictionary containing prompt configurations
+    """
+    return load_toml_config(config_path, "prompts")
+
+
 # Default schema definition
 DEFAULT_DATASET_SCHEMA = [
     ("uris", pa.string()),
@@ -158,8 +221,8 @@ DEFAULT_DATASET_SCHEMA = [
     ("captions", pa.list_(pa.string())),
 ]
 
-# 控制台输出颜色配置
-CONSOLE_COLORS = {
+# Default console colors
+DEFAULT_CONSOLE_COLORS = {
     "image": "green",
     "animation": "bold green",
     "video": "magenta",
@@ -169,47 +232,35 @@ CONSOLE_COLORS = {
     "unknown": "cyan",
 }
 
-def load_schema_from_toml(schema_path: str) -> List[Tuple[str, str]]:
-    """Load a custom dataset schema from a TOML file.
+# Current active configurations - defaults to built-in values
+DATASET_SCHEMA = DEFAULT_DATASET_SCHEMA.copy()
+CONSOLE_COLORS = DEFAULT_CONSOLE_COLORS.copy()
+SYSTEM_PROMPT = ""  # Will be loaded from config
+
+
+def load_config(config_path: str) -> None:
+    """Load all configurations from a TOML file.
 
     Args:
-        schema_path: Path to the TOML file containing schema definition
-
-    Returns:
-        List of tuples containing (field_name, field_type)
-
-    Example TOML format:
-    [schema]
-    fields = [
-        { name = "filepath", type = "string" },
-        { name = "extension", type = "string" },
-        # ... other fields
-    ]
+        config_path: Path to the TOML file containing configurations
     """
-    if not os.path.exists(schema_path):
-        raise FileNotFoundError(f"Schema file not found: {schema_path}")
+    global DATASET_SCHEMA, CONSOLE_COLORS, SYSTEM_PROMPT
+    
+    try:
+        DATASET_SCHEMA = load_schema_from_toml(config_path)
+    except Exception as e:
+        print(f"Warning: Failed to load schema configuration: {e}")
+    
+    try:
+        colors = load_colors_from_toml(config_path)
+        if colors:
+            CONSOLE_COLORS.update(colors)
+    except Exception as e:
+        print(f"Warning: Failed to load colors configuration: {e}")
 
     try:
-        config = toml.load(schema_path)
-        schema_def = config.get("schema", {}).get("fields", [])
-
-        if not schema_def:
-            raise ValueError("No schema definition found in TOML file")
-
-        return [(field["name"], field["type"]) for field in schema_def]
+        prompts = load_prompts_from_toml(config_path)
+        if prompts and "system_prompt" in prompts:
+            SYSTEM_PROMPT = prompts["system_prompt"]
     except Exception as e:
-        raise ValueError(f"Failed to parse schema file: {str(e)}")
-
-
-# Current active schema - defaults to DEFAULT_DATASET_SCHEMA
-DATASET_SCHEMA = DEFAULT_DATASET_SCHEMA.copy()
-
-
-def set_custom_schema(schema_path: str) -> None:
-    """Set a custom schema from a TOML file.
-
-    Args:
-        schema_path: Path to the TOML file containing schema definition
-    """
-    global DATASET_SCHEMA
-    DATASET_SCHEMA = load_schema_from_toml(schema_path)
+        print(f"Warning: Failed to load prompts configuration: {e}")

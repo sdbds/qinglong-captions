@@ -136,42 +136,52 @@ def save_audio(
     return save_blob(uri, blob, metadata, "audio")
 
 
-def save_caption(caption_path: str, caption_lines: List[str]) -> bool:
+def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -> bool:
     """Save caption data to disk.
 
     Args:
-        caption_path: Path to save the caption
+        caption_path: Path to save caption file
         caption_lines: List of caption lines
+        media_type: Type of media (image/video/audio)
 
     Returns:
         bool: True if save successful, False otherwise
     """
     try:
-        # 先处理字符串，再创建Path对象
-        caption_path = str(caption_path).replace("\\", "/")
         caption_path = Path(caption_path)
         caption_path.parent.mkdir(parents=True, exist_ok=True)
 
+        caption_path = (
+            caption_path.parent / f"{caption_path.stem}.txt"
+            if media_type == "image"
+            else caption_path.parent / f"{caption_path.stem}.srt"
+        )
+
         with open(caption_path, "w", encoding="utf-8") as f:
-            for line in caption_lines:
-                if line and line.strip():
-                    f.write(line.strip() + "\n")
+            if caption_path.suffix == '.srt':
+                # For SRT files, preserve all lines including empty ones
+                f.write('\n'.join(caption_lines))
+            else:
+                # For TXT files, strip empty lines and whitespace
+                for line in caption_lines:
+                    if line and line.strip():
+                        f.write(line.strip() + "\n")
+            
             console.print()
             console.print(
                 f"[{CONSOLE_COLORS['text']}]text: {caption_path} saved successfully.[/{CONSOLE_COLORS['text']}]"
             )
         return True
     except Exception as e:
-        console.print(f"[red]Error saving caption '{caption_path}': {e}[/red]")
+        console.print(f"[red]Error saving caption: {e}[/red]")
         return False
 
 
 def extract_from_lance(
     lance_or_path: Union[str, lance.LanceDataset],
     output_dir: str,
-    version: str = "WDtagger",
+    version: str = "gemini",
     caption_dir: Optional[str] = None,
-    save_binary: bool = True,
 ) -> None:
     """
     Extract images and captions from Lance dataset.
@@ -215,19 +225,17 @@ def extract_from_lance(
                 uri = Path(metadata["uris"])
                 blob = blobs[i]
 
+                media_type = None
+                suffix = uri.suffix.lower()
+                if suffix in image_extensions:
+                    media_type = "image"
+                elif suffix in animation_extensions:
+                    media_type = "animation"
+                elif suffix in video_extensions:
+                    media_type = "video"
+                elif suffix in audio_extensions:
+                    media_type = "audio"
                 if not uri.exists() and blob:
-                    # Check file extension and save accordingly
-                    suffix = uri.suffix.lower()
-                    media_type = None
-                    if suffix in image_extensions:
-                        media_type = "image"
-                    elif suffix in animation_extensions:
-                        media_type = "animation"
-                    elif suffix in video_extensions:
-                        media_type = "video"
-                    elif suffix in audio_extensions:
-                        media_type = "audio"
-
                     if media_type:
                         if not save_blob(uri, blob, metadata, media_type):
                             progress.advance(task)
@@ -245,9 +253,10 @@ def extract_from_lance(
                     caption_file_path = (
                         captions_dir_path
                         if caption_dir
-                        else output_path / f"{uri.stem}.txt"
+                        else uri.parent / f"{uri.stem}.txt"
                     )
-                    save_caption(caption_file_path, caption)
+                    caption_file_path.parent.mkdir(parents=True, exist_ok=True)
+                    save_caption(caption_file_path, caption, media_type)
 
                 progress.advance(task)
 
@@ -265,7 +274,7 @@ def main():
     )
     parser.add_argument(
         "--version",
-        default="WDtagger",
+        default="gemini",
         help="Dataset version",
     )
 
