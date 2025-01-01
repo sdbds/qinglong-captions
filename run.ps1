@@ -1,5 +1,5 @@
 $dataset_path="./datasets"
-$api_key="AIzaSyDCwWFJTGtt5i7s-fFe597Fuhz4vKordMo"
+$api_key=""
 $model_path="gemini-exp-1206"
 $dir_name=1
 $mode="long"
