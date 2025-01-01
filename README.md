@@ -40,6 +40,12 @@ A Python toolkit for generating video captions using the Lance database format a
 
 ## Installation
 
+Give unrestricted script access to powershell so venv can work:
+
+- Open an administrator powershell window
+- Type Set-ExecutionPolicy Unrestricted and answer A
+- Close admin powershell window
+
 ### Windows
 Run the following PowerShell script:
 ```powershell
