@@ -1,8 +1,13 @@
---extra-index-url https://download.pytorch.org/whl/cu124
-torch==2.5.1+cu124
-torchvision==0.20.1+cu124
 pylance>=0.20.0
 rich
+rich_pixels
 pandas
 pillow-avif-plugin
+pillow-heif
+pillow-jxl-plugin
+pysrt
 toml
+imageio>=2.31.1
+imageio-ffmpeg>=0.4.8
+pyarrow>=14.0.1
+google-generativeai

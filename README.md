@@ -1,6 +1,8 @@
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
+
 # qinglong-captioner (WIP)
 
-A Python toolkit for managing and processing image-caption datasets using the Lance database format.
+A Python toolkit for managing and processing image-caption datasets using the Lance database format and Gemini API for automatic captioning.
 
 ## Features
 
@@ -8,24 +10,34 @@ A Python toolkit for managing and processing image-caption datasets using the La
 - Export Lance datasets back to image and caption files
 - Support for multiple image formats (PNG, JPG, JPEG, WEBP, BMP)
 - Optional support for advanced formats (AVIF, JPEG-XL) when dependencies are available
+- Automatic image captioning using Google's Gemini API
 - Configurable dataset schema through TOML files
 - PyTorch Dataset integration for machine learning workflows
+- Maintains directory structure during import and export
 
 ## Modules
 
-### Dataset Import (`lancedatasets.py`)
-- `ImageProcessor`: Handles image loading and metadata extraction
-- `QingLongDataset`: PyTorch Dataset implementation for Lance format data
-- `transform2lance()`: Convert raw image-caption data to Lance format
+### Dataset Import (`lanceImport.py`)
+- Convert raw image-caption data to Lance format
+- Preserve original directory structure
+- Support for both single directory and paired directory structures
 
 ### Dataset Export (`lanceexport.py`)
 - Extract images and captions from Lance datasets
 - Maintains original file structure
-- Quality control for image saving
+- Supports exporting captions as SRT or TXT files
 
-### Configuration (`config.py`)
+### Auto Captioning (`captioner.py` & `api_handler.py`)
+- Automatic image captioning using Gemini API
+- Batch processing support
+- SRT format output for video/animation files
+- Robust error handling and retry mechanisms
+- Progress tracking for batch operations
+
+### Configuration (`config.py` & `config.toml`)
 - Extensible image format support
 - Customizable dataset schema through TOML files
+- API configuration management
 - Default schema includes file paths, image metadata, and captions
 
 ## Installation
@@ -60,11 +72,19 @@ Use the PowerShell script to export data from Lance format:
 ./lanceExport.ps1
 ```
 
+### Auto Captioning
+Use the PowerShell script to generate captions for your images:
+```powershell
+./run.ps1
+```
+
+Note: You'll need to configure your Gemini API key in `config.toml` before using the auto-captioning feature.
+
 ---
 
 # 青龙数据集工具 (开发中)
 
-基于 Lance 数据库格式的图像-文字对数据集管理工具。
+基于 Lance 数据库格式的图像-文字对数据集管理工具，支持使用 Gemini API 进行自动字幕生成。
 
 ## 功能特点
 
@@ -72,24 +92,34 @@ Use the PowerShell script to export data from Lance format:
 - 支持将 Lance 数据集导出回图像和文字文件
 - 支持多种图像格式 (PNG, JPG, JPEG, WEBP, BMP)
 - 可选支持高级格式 (AVIF, JPEG-XL)（需要额外依赖）
+- 使用 Google Gemini API 进行自动图像描述生成
 - 通过 TOML 文件配置数据集结构
 - 集成 PyTorch Dataset 接口，方便机器学习应用
+- 导入导出时保持原始目录结构
 
 ## 模块说明
 
-### 数据集导入 (`lancedatasets.py`)
-- `ImageProcessor`: 处理图像加载和元数据提取
-- `QingLongDataset`: Lance 格式数据的 PyTorch Dataset 实现
-- `transform2lance()`: 将原始图像-文字数据转换为 Lance 格式
+### 数据集导入 (`lanceImport.py`)
+- 将原始图像-文字数据转换为 Lance 格式
+- 保持原始目录结构
+- 支持单目录和配对目录结构
 
 ### 数据集导出 (`lanceexport.py`)
 - 从 Lance 数据集中提取图像和文字说明
 - 保持原有文件结构
-- 支持图像保存质量控制
+- 支持导出为 SRT 或 TXT 格式的字幕文件
 
-### 配置模块 (`config.py`)
+### 自动字幕生成 (`captioner.py` & `api_handler.py`)
+- 使用 Gemini API 进行自动图像描述
+- 支持批量处理
+- 为视频/动画文件生成 SRT 格式字幕
+- 健壮的错误处理和重试机制
+- 批处理进度跟踪
+
+### 配置模块 (`config.py` & `config.toml`)
 - 可扩展的图像格式支持
 - 通过 TOML 文件自定义数据集结构
+- API 配置管理
 - 默认结构包含文件路径、图像元数据和文字说明
 
 ## 安装方法
@@ -123,3 +153,11 @@ pwsh ./1、install-uv-qinglong.ps1
 ```powershell
 ./lanceExport.ps1
 ```
+
+### 自动字幕生成
+使用 PowerShell 脚本为图像生成描述：
+```powershell
+./run.ps1
+```
+
+注意：使用自动字幕生成功能前，需要在 `config.toml` 中配置 Gemini API 密钥。

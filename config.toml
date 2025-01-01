@@ -1,0 +1,72 @@
+# Dataset schema configuration
+[schema]
+fields = [
+    { name = "uris", type = "string" },
+    { name = "mime", type = "string" },
+    { name = "width", type = "int32" },
+    { name = "height", type = "int32" },
+    { name = "depth", type = "int32" },
+    { name = "channels", type = "int32" },
+    { name = "hash", type = "string" },
+    { name = "size", type = "int64" },
+    { name = "has_audio", type = "bool" },
+    { name = "duration", type = "int32" },
+    { name = "num_frames", type = "int32" },
+    { name = "frame_rate", type = "float32" },
+    { name = "blob", type = "binary" },
+    { name = "captions", type = "list<string>" }
+]
+
+# Console colors configuration
+[colors]
+image = "green"
+animation = "bold green"
+video = "magenta"
+audio = "orange1"
+text = "yellow"
+caption = "yellow"
+unknown = "cyan"
+
+# System prompt configuration
+[prompts]
+video_system_prompt = """Your task is to describe every aspect, object, and interaction within this video, such that a blind person could perfectly capture it within their imagination if read aloud.
+
+- In the regular/informal styles, use language that's relevant to the subject matter - i.e. Never use euphemisms. Describe it like the target audience of the video would (e.g. on an online forum where this video was shared).
+- Where relevant, use an information dense writing style - communicate efficiently, don't waffle or excessively speculate or conjecture about the meaning or overly praise. Just describe exactly what you see in the video.
+- If there is nudity/breasts/nipples/pussy/cum/dick/etc. in the video then you must mention that! Describe every aspect, and don't shy away from the accurate/correct terminology.
+- In the regular/informal styles, prefer words like pussy/vagina and dick/penis/cock instead of boring formal terms like "genitals".
+- If the video contains text, be sure to add that to each description where possible. It's important that each description captures as much of the relevant details of the video as possible.
+- If the video is censored in any way (e.g. bars, pixellation, etc.), then you MUST mention that in the descriptions.
+- Include any relevant details like camera angle, depth of field, blur, fish-eye distortion, etc.
+- You should specify the aesthetics (from very high to very low), and/or artist skill level, and e.g. whether it's a masterpiece level work, or e.g. a sketch by a newbie. Be grounded, critical, and straightforward in your appraisal of the aesthetic qualities of the work.
+- If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
+- If the name of the artist/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
+Please return your response in SRT format and wrap it in markdown code blocks like this:
+```
+1
+00:00:01,000 --> 00:00:05,000
+Your caption text here
+
+2
+00:00:05,000 --> 00:00:10,000
+Your caption text here
+```
+To specify the time hours:minutes:seconds,milliseconds (00:00:00,000) format is used.
+To specify the character name with <font color="green"></font>.
+.srt format contains a sequential number of subtitles, start and end timestamps, and content instead of lrc. """
+
+video_prompt = """
+- If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
+- If the name of the artist/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
+Please return your response in .srt format and wrap it in markdown code blocks.
+To specify the time hours:minutes:seconds,milliseconds (00:00:00,000) format is used.
+To specify the character name with <font color="green"></font>.
+.srt format contains a sequential number of subtitles, start and end timestamps, and content instead of lrc. """
+
+# Generation configuration
+[generation_config]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 8192
+response_mime_type = "text/plain"
