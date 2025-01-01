@@ -31,9 +31,9 @@ def api_process_batch(
             system_instruction=config["prompts"]["video_system_prompt"],
         )
 
-        # Check existing files
-        target_name = Path(uri).name
-        console.print(f"[blue]Checking files for:[/blue] {target_name}")
+        # # Check existing files
+        # target_name = Path(uri).name
+        # console.print(f"[blue]Checking files for:[/blue] {target_name}")
 
         # existing_files = list(genai.list_files())
 
@@ -92,6 +92,7 @@ def api_process_batch(
                 #     upload_success = True
                 #     break
                 # else:
+                console.print(f"[blue]uploading files for:[/blue] {uri}")
                 files = [
                     upload_to_gemini(path=uri, mime_type=mime),
                 ]

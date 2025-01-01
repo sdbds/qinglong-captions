@@ -10,6 +10,7 @@ from lanceImport import transform2lance
 from lanceexport import extract_from_lance
 import pandas as pd
 import pyarrow as pa
+import re
 
 # from mistralai import Mistral
 import toml
@@ -68,12 +69,20 @@ def process_batch(args, config):
                 # 预处理字幕内容
                 if isinstance(output, list):
                     output = "\n".join(output)
-                
+
                 # 确保字幕内容格式正确
                 output = output.strip()
                 if not output.strip():
                     console.print(f"[red]Empty caption content for {filepath}[/red]")
                     continue
+
+                # 格式化时间戳 - 只处理7位的时间戳 (MM:SS,ZZZ)
+                output = re.sub(
+                    r"(?<!:)(\d{2}):(\d{2}),(\d{3})",
+                    r"00:\1:\2,\3",
+                    output,
+                    flags=re.MULTILINE,
+                )
 
                 results.append(output)
                 processed_filepaths.append(filepath)
@@ -98,7 +107,7 @@ def process_batch(args, config):
                         )
                     except Exception as e:
                         console.print(f"[red]Error saving SRT file: {e}[/red]")
-                    
+
             progress.update(task, advance=len(batch))
 
     # Update dataset with new captions
@@ -111,12 +120,13 @@ def process_batch(args, config):
                 processed_captions.append("\n".join(caption))
             else:
                 processed_captions.append(caption)
-                
+
         table = pa.table(
             {
                 "uris": pa.array(processed_filepaths, type=pa.string()),
                 "captions": pa.array(
-                    [[caption] for caption in processed_captions], type=pa.list_(pa.string())
+                    [[caption] for caption in processed_captions],
+                    type=pa.list_(pa.string()),
                 ),
             }
         )

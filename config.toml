@@ -51,7 +51,7 @@ Your caption text here
 00:00:05,000 --> 00:00:10,000
 Your caption text here
 ```
-To specify the time hours:minutes:seconds,milliseconds (00:00:00,000) format is used.
+To specify the time hours:minutes:seconds,milliseconds (HH:MM:SS,ZZZ) format is used.
 To specify the character name with <font color="green"></font>.
 .srt format contains a sequential number of subtitles, start and end timestamps, and content instead of lrc. """
 
@@ -59,7 +59,7 @@ video_prompt = """
 - If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
 - If the name of the artist/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
 Please return your response in .srt format and wrap it in markdown code blocks.
-To specify the time hours:minutes:seconds,milliseconds (00:00:00,000) format is used.
+To specify the time hours:minutes:seconds,milliseconds (HH:MM:SS,ZZZ) format is used.
 To specify the character name with <font color="green"></font>.
 .srt format contains a sequential number of subtitles, start and end timestamps, and content instead of lrc. """
 
