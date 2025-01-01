@@ -35,70 +35,69 @@ def api_process_batch(
         target_name = Path(uri).name
         console.print(f"[blue]Checking files for:[/blue] {target_name}")
 
-        existing_files = list(genai.list_files())
+        # existing_files = list(genai.list_files())
 
-        def get_url_and_filename(file_id: str) -> tuple:
-            """获取完整 URL 和原始文件名
-            
-            Args:
-                file_id: 文件ID (files/xxx 格式)
-                
-            Returns:
-                (完整URL, 原始文件名)
-            """
-            base_url = "https://generativelanguage.googleapis.com/v1beta"
-            full_url = f"{base_url}/{file_id}"
-            # 从 URL 中提取文件名
-            try:
-                response = requests.head(full_url)
-                console.print(response.headers)
-                filename = response.headers.get('content-disposition', '').split('filename=')[-1]
-                if not filename:
-                    # 如果无法从 header 获取，使用 URL 最后一部分
-                    filename = Path(full_url).name
-            except:
-                filename = Path(full_url).name
-            return full_url, filename
+        # def get_url_and_filename(file_id: str) -> tuple:
+        #     """获取完整 URL 和原始文件名
 
-        # 显示所有文件的信息
-        if existing_files:
-            console.print("[blue]Files in storage:[/blue]")
-            for f in existing_files:
-                full_url, orig_name = get_url_and_filename(f.name)
-                console.print(f"  API ID: {f.name}")
-                console.print(f"  Original Name: {orig_name}")
-                console.print(f"  URL: {full_url}")
-                console.print("---")
+        #     Args:
+        #         file_id: 文件ID (files/xxx 格式)
 
-        # 查找匹配的文件
-        existing_file = next(
-            (f for f in existing_files 
-            if target_name == get_url_and_filename(f.name)[1]), 
-            None
-        )
+        #     Returns:
+        #         (完整URL, 原始文件名)
+        #     """
+        #     base_url = "https://generativelanguage.googleapis.com/v1beta"
+        #     full_url = f"{base_url}/{file_id}"
+        #     # 从 URL 中提取文件名
+        #     try:
+        #         response = requests.head(full_url)
+        #         filename = response.headers.get('content-disposition', '').split('filename=')[-1]
+        #         if not filename:
+        #             # 如果无法从 header 获取，使用 URL 最后一部分
+        #             filename = Path(full_url).name
+        #     except:
+        #         filename = Path(full_url).name
+        #     return full_url, filename
 
-        if existing_file:
-            full_url, orig_name = get_url_and_filename(existing_file.name)
-            console.print(f"[green]Found existing file:[/green] {orig_name}")
-            console.print(f"[green]API ID:[/green] {existing_file.name}")
-            console.print(f"[green]Full URL:[/green] {full_url}")
+        # # 显示所有文件的信息
+        # if existing_files:
+        #     console.print("[blue]Files in storage:[/blue]")
+        #     for f in existing_files:
+        #         full_url, orig_name = get_url_and_filename(f.name)
+        #         console.print(f"  API ID: {f.name}")
+        #         console.print(f"  Original Name: {orig_name}")
+        #         console.print(f"  URL: {full_url}")
+        #         console.print("---")
+
+        # # 查找匹配的文件
+        # existing_file = next(
+        #     (f for f in existing_files
+        #     if target_name == get_url_and_filename(f.name)[1]),
+        #     None
+        # )
+
+        # if existing_file:
+        #     full_url, orig_name = get_url_and_filename(existing_file.name)
+        #     console.print(f"[green]Found existing file:[/green] {orig_name}")
+        #     console.print(f"[green]API ID:[/green] {existing_file.name}")
+        #     console.print(f"[green]Full URL:[/green] {full_url}")
 
         upload_success = False
         files = []
 
         for upload_attempt in range(max_retries):
             try:
-                if existing_file:
-                    files = [existing_file]
-                    upload_success = True
-                    break
-                else:
-                    files = [
-                        upload_to_gemini(path=uri, mime_type=mime),
-                    ]
-                    wait_for_files_active(files)
-                    upload_success = True
-                    break
+                # if existing_file:
+                #     files = [existing_file]
+                #     upload_success = True
+                #     break
+                # else:
+                files = [
+                    upload_to_gemini(path=uri, mime_type=mime),
+                ]
+                wait_for_files_active(files)
+                upload_success = True
+                break
 
             except Exception as e:
                 console.print(
@@ -163,24 +162,26 @@ def api_process_batch(
                             break
                         markers.append(pos)
                         start = pos + 3
-                    
+
                     # 确保找到至少一对标记
                     if len(markers) >= 2:
                         # 获取最后一对标记之间的内容
                         first_marker = markers[-2]
                         second_marker = markers[-1]
                         content = text[first_marker + 3 : second_marker]
-                        
+
                         # Remove "srt" if present at the start
                         if content.startswith("srt"):
                             content = content[3:]
-                        
+
                         console.print(
                             f"[blue]Extracted SRT content length:[/blue] {len(content)}"
                         )
                         console.print(f"[blue]Found {len(markers)} ``` markers[/blue]")
                     else:
-                        console.print(f"[red]Not enough ``` markers: found {len(markers)}[/red]")
+                        console.print(
+                            f"[red]Not enough ``` markers: found {len(markers)}[/red]"
+                        )
                         content = ""
                 else:
                     content = ""
