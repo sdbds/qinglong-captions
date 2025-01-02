@@ -92,6 +92,7 @@ def api_process_batch(
                 #     upload_success = True
                 #     break
                 # else:
+                console.print()
                 console.print(f"[blue]uploading files for:[/blue] {uri}")
                 files = [
                     upload_to_gemini(path=uri, mime_type=mime),
@@ -211,6 +212,7 @@ def upload_to_gemini(path, mime_type=None):
     See https://ai.google.dev/gemini-api/docs/prompting_with_media
     """
     file = genai.upload_file(path, mime_type=mime_type)
+    console.print()
     console.print(f"[blue]Uploaded file[/blue] '{file.display_name}' as: {file.uri}")
     return file
 

@@ -2,6 +2,8 @@
 #    uv pip compile .\requirements.txt -o requirements-uv.txt --index-strategy unsafe-best-match --no-build-isolation
 annotated-types==0.7.0
     # via pydantic
+av==14.0.1
+    # via -r ./requirements.txt
 cachetools==5.5.0
     # via google-auth
 certifi==2024.12.14

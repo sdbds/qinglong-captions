@@ -10,9 +10,12 @@ from rich.progress import (
     TextColumn,
     BarColumn,
     TaskProgressColumn,
+    TimeRemainingColumn,
 )
 from config import get_supported_extensions, DATASET_SCHEMA, CONSOLE_COLORS
 from pathlib import Path
+import pysrt
+import av
 
 console = Console()
 image_extensions = get_supported_extensions("image")
@@ -158,15 +161,15 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
         )
 
         with open(caption_path, "w", encoding="utf-8") as f:
-            if caption_path.suffix == '.srt':
+            if caption_path.suffix == ".srt":
                 # For SRT files, preserve all lines including empty ones
-                f.write('\n'.join(caption_lines))
+                f.write("\n".join(caption_lines))
             else:
                 # For TXT files, strip empty lines and whitespace
                 for line in caption_lines:
                     if line and line.strip():
                         f.write(line.strip() + "\n")
-            
+
             console.print()
             console.print(
                 f"[{CONSOLE_COLORS['text']}]text: {caption_path} saved successfully.[/{CONSOLE_COLORS['text']}]"
@@ -182,6 +185,7 @@ def extract_from_lance(
     output_dir: str,
     version: str = "gemini",
     caption_dir: Optional[str] = None,
+    clip_with_caption: bool = True,
 ) -> None:
     """
     Extract images and captions from Lance dataset.
@@ -257,6 +261,126 @@ def extract_from_lance(
                     )
                     caption_file_path.parent.mkdir(parents=True, exist_ok=True)
                     save_caption(caption_file_path, caption, media_type)
+
+                    color = CONSOLE_COLORS.get(media_type, "white")
+                    if clip_with_caption and (uri.with_suffix(".srt")).exists():
+                        subs = pysrt.open(uri.with_suffix(".srt"), encoding="utf-8")
+                        with av.open(uri) as in_container:
+                            video_stream = in_container.streams.video[0]
+                            # Try to get audio stream if available
+                            audio_stream = next(
+                                (s for s in in_container.streams if s.type == "audio"),
+                                None,
+                            )
+
+                            # 添加字幕片段的进度条
+                            with Progress(
+                                "[progress.description]{task.description}",
+                                BarColumn(),
+                                "[progress.percentage]{task.percentage:>3.0f}%",
+                                TimeRemainingColumn(),
+                                console=console,
+                            ) as sub_progress:
+                                sub_task = sub_progress.add_task(
+                                    f"[cyan]Processing subtitles for {uri.name}",
+                                    total=len(subs),
+                                )
+
+                                for sub in subs:
+                                    clip_path = (
+                                        uri.parent
+                                        / f"{uri.stem}_clip/{uri.stem}_{sub.index}{uri.suffix}"
+                                    )
+                                    clip_path.parent.mkdir(parents=True, exist_ok=True)
+
+                                    with av.open(
+                                        str(clip_path), mode="w"
+                                    ) as out_container:
+                                        # copy encoder settings
+                                        if video_stream:
+                                            out_video_stream = (
+                                                out_container.add_stream_from_template(
+                                                    template=video_stream
+                                                )
+                                            )
+                                        if audio_stream:
+                                            # 为音频流使用特定的设置
+                                            out_audio_stream = out_container.add_stream(
+                                                codec_name="aac",  # 使用 AAC 编码器
+                                                rate=audio_stream.rate,  # 保持原始采样率
+                                            )
+                                            # 复制音频相关参数
+                                            out_audio_stream.layout = (
+                                                audio_stream.layout
+                                            )
+                                            out_audio_stream.format = (
+                                                audio_stream.format
+                                            )
+
+                                        # 正确计算 start 和 end 时间戳, 单位是 video_stream.time_base
+                                        # 使用毫秒并根据 video_stream.time_base 转换
+                                        start_seconds = (
+                                            sub.start.hours * 3600
+                                            + sub.start.minutes * 60
+                                            + sub.start.seconds
+                                        )
+                                        end_seconds = (
+                                            sub.end.hours * 3600
+                                            + sub.end.minutes * 60
+                                            + sub.end.seconds
+                                        )
+                                        start_offset = int(
+                                            start_seconds
+                                            * video_stream.time_base.denominator
+                                            / video_stream.time_base.numerator
+                                        )  # 开始时间戳偏移量 (基于 video_stream.time_base)
+                                        # seek to start
+                                        in_container.seek(
+                                            start_offset,
+                                            stream=video_stream or audio_stream,
+                                        )
+
+                                        # 手动跳过帧 (如果在 seek 之后需要的话)
+                                        for frame in in_container.decode(
+                                            video_stream, audio_stream
+                                        ):
+                                            if frame.time > end_seconds:
+                                                break
+
+                                            if (
+                                                video_stream
+                                                and isinstance(frame, av.VideoFrame)
+                                                and frame.time >= start_seconds
+                                            ):
+                                                for packet in out_video_stream.encode(
+                                                    frame
+                                                ):
+                                                    out_container.mux(packet)
+                                            elif (
+                                                audio_stream
+                                                and isinstance(frame, av.AudioFrame)
+                                                and frame.time >= start_seconds
+                                            ):
+                                                for packet in out_audio_stream.encode(
+                                                    frame
+                                                ):
+                                                    out_container.mux(packet)
+
+                                        # Flush streams
+                                        if out_video_stream:
+                                            for packet in out_video_stream.encode():
+                                                out_container.mux(packet)
+                                        if out_audio_stream:
+                                            for packet in out_audio_stream.encode():
+                                                out_container.mux(packet)
+
+                                    console.print(
+                                        f"[{color}]{media_type}: {str(clip_path)} saved successfully.[/{color}]"
+                                    )
+                                    console.print()
+                                    console.print(f"Saved clip: {sub.text}")
+                                    save_caption(clip_path, [sub.text], "image")
+                                    sub_progress.advance(sub_task)
 
                 progress.advance(task)
 

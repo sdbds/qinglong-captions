@@ -612,7 +612,7 @@ def transform2lance(
     save_binary: bool = True,
     not_save_disk: bool = False,
     import_mode: VideoImportMode = VideoImportMode.ALL,
-    tag: str = "WDtagger",
+    tag: str = "gemini",
     load_condition: Callable[[str, Optional[str]], List[Dict[str, Any]]] = load_data,
 ) -> Optional[lance.LanceDataset]:
     """
@@ -709,7 +709,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--tag",
         type=str,
-        default="WDtagger",
+        default="gemini",
         help="Tag for the dataset",
     )
     return parser
