@@ -1,12 +1,11 @@
 import time
 from typing import List, Optional, Dict, Any, Union, Tuple
-import os
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from rich_pixels import Pixels
 from rich.console import Console
 from rich.text import Text
-import toml
 from pathlib import Path
-import requests
 
 console = Console()
 
@@ -25,10 +24,26 @@ def api_process_batch(
 
         generation_config = config["generation_config"]
 
+        system_prompt = config["prompts"]["system_prompt"]
+        prompt = config["prompts"]["prompt"]
+
+        if mime.startswith("video"):
+            system_prompt = config["prompts"]["video_system_prompt"]
+            prompt = config["prompts"]["video_prompt"]
+        elif mime.startswith("audio"):
+            system_prompt = config["prompts"]["audio_system_prompt"]
+            prompt = config["prompts"]["audio_prompt"]
+        elif mime.startswith("image"):
+            system_prompt = config["prompts"]["image_system_prompt"]
+            prompt = config["prompts"]["image_prompt"]
+
         model = genai.GenerativeModel(
             model_name=model_path,
             generation_config=generation_config,
-            system_instruction=config["prompts"]["video_system_prompt"],
+            system_instruction=system_prompt,
+            safety_settings={
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE
+            },
         )
 
         # # Check existing files
@@ -81,39 +96,43 @@ def api_process_batch(
         #     console.print(f"[green]Found existing file:[/green] {orig_name}")
         #     console.print(f"[green]API ID:[/green] {existing_file.name}")
         #     console.print(f"[green]Full URL:[/green] {full_url}")
+        if (
+            mime.startswith("video")
+            or mime.startswith("audio")
+            and Path(uri).stat().st_size >= 20 * 1024 * 1024
+        ):
+            upload_success = False
+            files = []
 
-        upload_success = False
-        files = []
+            for upload_attempt in range(max_retries):
+                try:
+                    # if existing_file:
+                    #     files = [existing_file]
+                    #     upload_success = True
+                    #     break
+                    # else:
+                    console.print()
+                    console.print(f"[blue]uploading files for:[/blue] {uri}")
+                    files = [
+                        upload_to_gemini(path=uri, mime_type=mime),
+                    ]
+                    wait_for_files_active(files)
+                    upload_success = True
+                    break
 
-        for upload_attempt in range(max_retries):
-            try:
-                # if existing_file:
-                #     files = [existing_file]
-                #     upload_success = True
-                #     break
-                # else:
-                console.print()
-                console.print(f"[blue]uploading files for:[/blue] {uri}")
-                files = [
-                    upload_to_gemini(path=uri, mime_type=mime),
-                ]
-                wait_for_files_active(files)
-                upload_success = True
-                break
+                except Exception as e:
+                    console.print(
+                        f"[yellow]Upload attempt {upload_attempt + 1}/{max_retries} failed: {e}[/yellow]"
+                    )
+                    if upload_attempt < max_retries - 1:
+                        time.sleep(wait_time * 2)  # Increase wait time between retries
+                    else:
+                        console.print("[red]All upload attempts failed[/red]")
+                        return ""
 
-            except Exception as e:
-                console.print(
-                    f"[yellow]Upload attempt {upload_attempt + 1}/{max_retries} failed: {e}[/yellow]"
-                )
-                if upload_attempt < max_retries - 1:
-                    time.sleep(wait_time * 2)  # Increase wait time between retries
-                else:
-                    console.print("[red]All upload attempts failed[/red]")
-                    return ""
-
-        if not upload_success:
-            console.print("[red]Failed to upload file[/red]")
-            return ""
+            if not upload_success:
+                console.print("[red]Failed to upload file[/red]")
+                return ""
 
         # Some files have a processing delay. Wait for them to be ready.
         # wait_for_files_active(files)
@@ -127,9 +146,35 @@ def api_process_batch(
                     history=[],
                 )
 
-                response = chat.send_message(
-                    [files[0], config["prompts"]["video_prompt"]], stream=True
-                )
+                if mime.startswith("video") or (
+                    mime.startswith("audio")
+                    and Path(uri).stat().st_size >= 20 * 1024 * 1024
+                ):
+                    response = chat.send_message([files[0], prompt], stream=True)
+                elif mime.startswith("audio"):
+                    audio_blob = Path(uri).read_bytes()
+                    response = chat.send_message(
+                        [
+                            prompt,
+                            {
+                                "mime_type": mime,
+                                "data": audio_blob,
+                            },
+                        ],
+                        stream=True,
+                    )
+                else:
+                    blob, pixels = encode_image(uri)
+                    response = chat.send_message(
+                        [
+                            {
+                                "mime_type": "image/jpeg",
+                                "data": blob,
+                            },
+                            prompt,
+                        ],
+                        stream=True,
+                    )
 
                 # 收集流式响应
                 chunks = []
@@ -238,3 +283,81 @@ def wait_for_files_active(files):
                 raise Exception(f"File {file.name} failed to process")
     console.print("[green]...all files ready[/green]")
     console.print()
+
+def encode_image(image_path: str) -> Optional[Tuple[str, Pixels]]:
+    """Encode the image to base64 format with size optimization.
+
+    Args:
+        image_path: Path to the image file
+
+    Returns:
+        Base64 encoded string or None if encoding fails
+    """
+    try:
+        with Image.open(image_path) as image:
+            image.load()
+            if "xmp" in image.info:
+                del image.info["xmp"]
+
+            # Calculate dimensions that are multiples of 16
+            max_size = 1024
+            width, height = image.size
+            aspect_ratio = width / height
+
+            def calculate_dimensions(max_size: int) -> Tuple[int, int]:
+                if width > height:
+                    new_width = min(max_size, (width // 16) * 16)
+                    new_height = ((int(new_width / aspect_ratio)) // 16) * 16
+                else:
+                    new_height = min(max_size, (height // 16) * 16)
+                    new_width = ((int(new_height * aspect_ratio)) // 16) * 16
+
+                # Ensure dimensions don't exceed max_size
+                if new_width > max_size:
+                    new_width = max_size
+                    new_height = ((int(new_width / aspect_ratio)) // 16) * 16
+                if new_height > max_size:
+                    new_height = max_size
+                    new_width = ((int(new_height * aspect_ratio)) // 16) * 16
+
+                return new_width, new_height
+
+            new_width, new_height = calculate_dimensions(max_size)
+            image = image.resize((new_width, new_height), Image.LANCZOS).convert("RGB")
+
+            pixels = Pixels.from_image(
+                image,
+                resize=(image.width // 18, image.height // 18),
+            )
+
+            with io.BytesIO() as buffer:
+                image.save(buffer, format="JPEG")
+                return base64.b64encode(buffer.getvalue()).decode("utf-8"), pixels
+
+    except FileNotFoundError:
+        console.print(f"[red]Error:[/red] File not found - {image_path}")
+    except Image.UnidentifiedImageError:
+        console.print(f"[red]Error:[/red] Cannot identify image file - {image_path}")
+    except PermissionError:
+        console.print(
+            f"[red]Error:[/red] Permission denied accessing file - {image_path}"
+        )
+    except OSError as e:
+        # Specifically handle XMP and metadata-related errors
+        if "XMP data is too long" in str(e):
+            console.print(
+                f"[yellow]Warning:[/yellow] Skipping image with XMP data error - {image_path}"
+            )
+        else:
+            console.print(
+                f"[red]Error:[/red] OS error processing file {image_path}: {str(e)}"
+            )
+    except ValueError as e:
+        console.print(
+            f"[red]Error:[/red] Invalid value while processing {image_path}: {str(e)}"
+        )
+    except Exception as e:
+        console.print(
+            f"[red]Error:[/red] Unexpected error processing {image_path}: {str(e)}"
+        )
+    return None, None

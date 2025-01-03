@@ -184,8 +184,8 @@ def extract_from_lance(
     lance_or_path: Union[str, lance.LanceDataset],
     output_dir: str,
     version: str = "gemini",
-    caption_dir: Optional[str] = None,
     clip_with_caption: bool = True,
+    caption_dir: Optional[str] = None,
 ) -> None:
     """
     Extract images and captions from Lance dataset.
@@ -266,7 +266,17 @@ def extract_from_lance(
                     if clip_with_caption and (uri.with_suffix(".srt")).exists():
                         subs = pysrt.open(uri.with_suffix(".srt"), encoding="utf-8")
                         with av.open(uri) as in_container:
-                            video_stream = in_container.streams.video[0]
+                            if media_type != "video":
+                                video_stream = None
+                            else:
+                                video_stream = next(
+                                    (
+                                        s
+                                        for s in in_container.streams
+                                        if s.type == "video"
+                                    ),
+                                    None,
+                                )
                             # Try to get audio stream if available
                             audio_stream = next(
                                 (s for s in in_container.streams if s.type == "audio"),
@@ -287,6 +297,8 @@ def extract_from_lance(
                                 )
 
                                 for sub in subs:
+                                    if len(subs) < 2:
+                                        break
                                     clip_path = (
                                         uri.parent
                                         / f"{uri.stem}_clip/{uri.stem}_{sub.index}{uri.suffix}"
@@ -303,10 +315,18 @@ def extract_from_lance(
                                                     template=video_stream
                                                 )
                                             )
+                                        else:
+                                            out_video_stream = None
                                         if audio_stream:
                                             # 为音频流使用特定的设置
+                                            if media_type == "video":
+                                                codec_name = "aac"
+                                            elif uri.suffix == ".mp3":
+                                                codec_name = "mp3"
+                                            else:
+                                                codec_name = "pcm_s16le"
                                             out_audio_stream = out_container.add_stream(
-                                                codec_name="aac",  # 使用 AAC 编码器
+                                                codec_name=codec_name,
                                                 rate=audio_stream.rate,  # 保持原始采样率
                                             )
                                             # 复制音频相关参数
@@ -316,6 +336,8 @@ def extract_from_lance(
                                             out_audio_stream.format = (
                                                 audio_stream.format
                                             )
+                                        else:
+                                            out_audio_stream = None
 
                                         # 正确计算 start 和 end 时间戳, 单位是 video_stream.time_base
                                         # 使用毫秒并根据 video_stream.time_base 转换
@@ -329,15 +351,26 @@ def extract_from_lance(
                                             + sub.end.minutes * 60
                                             + sub.end.seconds
                                         )
-                                        start_offset = int(
-                                            start_seconds
-                                            * video_stream.time_base.denominator
-                                            / video_stream.time_base.numerator
-                                        )  # 开始时间戳偏移量 (基于 video_stream.time_base)
+                                        if video_stream:
+                                            start_offset = int(
+                                                start_seconds
+                                                * video_stream.time_base.denominator
+                                                / video_stream.time_base.numerator
+                                            )  # 开始时间戳偏移量 (基于 video_stream.time_base)
+                                        else:
+                                            start_offset = int(
+                                                start_seconds
+                                                * audio_stream.time_base.denominator
+                                                / audio_stream.time_base.numerator
+                                            )  # 开始时间戳偏移量 (基于 audio_stream.time_base)
                                         # seek to start
                                         in_container.seek(
                                             start_offset,
-                                            stream=video_stream or audio_stream,
+                                            stream=(
+                                                video_stream
+                                                if video_stream
+                                                else audio_stream
+                                            ),
                                         )
 
                                         # 手动跳过帧 (如果在 seek 之后需要的话)
@@ -402,8 +435,14 @@ def main():
         help="Dataset version",
     )
 
+    parser.add_argument(
+        "--not_clip_with_caption",
+        action="store_true",
+        help="Not clip with caption",
+    )
+
     args = parser.parse_args()
-    extract_from_lance(args.lance_file, args.output_dir, args.version)
+    extract_from_lance(args.lance_file, args.output_dir, args.version, not args.not_clip_with_caption)
 
 
 if __name__ == "__main__":

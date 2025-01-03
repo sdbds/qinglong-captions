@@ -140,7 +140,7 @@ def process_batch(args, config):
 
         console.print("[green]Successfully updated dataset with new captions[/green]")
 
-    extract_from_lance(dataset, args.dataset_dir)
+    extract_from_lance(dataset, args.dataset_dir, clip_with_caption=not args.not_clip_with_caption)
 
 
 def setup_parser() -> argparse.ArgumentParser:
@@ -186,6 +186,12 @@ def setup_parser() -> argparse.ArgumentParser:
         type=str,
         default="config.toml",
         help="Path to config file",
+    )
+
+    parser.add_argument(
+        "--not_clip_with_caption",
+        action="store_true",
+        help="Not clip with caption",
     )
 
     return parser
