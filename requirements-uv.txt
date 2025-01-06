@@ -58,6 +58,8 @@ markdown-it-py==3.0.0
     # via rich
 mdurl==0.1.2
     # via markdown-it-py
+mutagen==1.47.0
+    # via -r ./requirements.txt
 numpy==2.2.1
     # via
     #   imageio

@@ -5,12 +5,10 @@ and accessing the data through PyTorch datasets.
 """
 
 import argparse
-from contextlib import nullcontext
 import hashlib
 import io
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Callable, Tuple, Union
-import wave
 import imageio.v3 as iio
 import lance
 import pyarrow as pa
@@ -25,8 +23,9 @@ from rich.progress import (
 from rich.console import Console
 import mimetypes
 from pathlib import Path
-from enum import Enum, auto
+from enum import Enum
 import numpy as np
+from mutagen import File as MutagenFile
 
 from config import (
     get_supported_extensions,
@@ -383,26 +382,21 @@ class FileProcessor:
                     extension = Path(file_path).suffix.lstrip(".")
                     mime = mime_type or f"audio/{extension}"
 
-                    # Try to get audio metadata using wave module
-                    try:
-                        with wave.open(io.BytesIO(binary_data), "rb") as wav:
-                            channels = wav.getnchannels()
-                            frame_rate = wav.getframerate()
-                            n_frames = wav.getnframes()
-                            duration = int(
-                                (n_frames / frame_rate) * 1000
-                            )  # Convert to milliseconds
-                            depth = wav.getsampwidth() * 8
-                    except Exception as wave_error:
-                        console.print(
-                            f"[yellow]Warning: Could not read wave metadata from {file_path}: {wave_error}[/yellow]"
-                        )
-                        # Fallback to basic metadata
-                        channels = 2  # Assume stereo
-                        frame_rate = 44100  # Assume standard sample rate
-                        depth = 16  # Assume 16-bit
-                        duration = 0
-                        n_frames = 0
+                    # Try to get audio metadata using mutagen first
+                    audio = MutagenFile(file_path)
+                    if audio is not None:
+                        # Get duration in milliseconds
+                        duration = int(audio.info.length * 1000)
+                        # Get sample rate
+                        frame_rate = getattr(audio.info, "sample_rate", 44100)
+                        # Get number of channels
+                        channels = getattr(audio.info, "channels", 2)
+                        # Get bit depth if available
+                        depth = getattr(audio.info, "bits_per_sample", 16)
+                        # Calculate number of frames
+                        n_frames = int(audio.info.length * frame_rate)
+                    else:
+                        raise Exception("Could not read audio metadata")
 
                     return Metadata(
                         uris=file_path,
