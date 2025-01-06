@@ -3,6 +3,7 @@ $api_key=""
 $model_path="gemini-exp-1206"
 $dir_name=1
 $mode="long"
+$not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 
 # ============= DO NOT MODIFY CONTENTS BELOW | 请勿修改下方内容 =====================
 # Activate python venv
@@ -50,6 +51,10 @@ if ($dir_name) {
 
 if ($mode -ine "all") {
   [void]$ext_args.Add("--mode=$mode")
+}
+
+if ($not_clip_with_caption) {
+  [void]$ext_args.Add("--not_clip_with_caption")
 }
 
 # run train

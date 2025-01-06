@@ -8,9 +8,9 @@ from rich.layout import Layout
 import argparse
 from lanceImport import transform2lance
 from lanceexport import extract_from_lance
-import pandas as pd
 import pyarrow as pa
 import re
+from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
 
 # from mistralai import Mistral
 import toml
@@ -33,7 +33,7 @@ def process_batch(args, config):
             dataset = transform2lance(dataset_dir=args.dataset_dir, save_binary=False)
 
     scanner = dataset.scanner(
-        columns=["uris", "blob", "mime", "captions"],
+        columns=["uris", "blob", "mime", "captions", "duration"],
         scan_in_order=True,
         late_materialization=["blob"],
         batch_size=1,
@@ -48,41 +48,134 @@ def process_batch(args, config):
         for batch in scanner.to_batches():
             filepaths = batch["uris"].to_pylist()
             mime = batch["mime"].to_pylist()
+            duration = batch["duration"].to_pylist()
 
-            for filepath, mime in zip(filepaths, mime):
-                output = api_process_batch(
-                    uri=filepath,
-                    mime=mime,
-                    config=config,
-                    api_key=args.api_key,
-                    wait_time=1,
-                    max_retries=100,
-                    model_path=args.model_path,
-                )
+            for filepath, mime, duration in zip(filepaths, mime, duration):
 
-                if not output:
-                    console.print(
-                        f"[red]No caption content generated for {filepath}[/red]"
+                if duration and 0 < duration <= 5 * 60 * 1000:
+
+                    output = api_process_batch(
+                        uri=filepath,
+                        mime=mime,
+                        config=config,
+                        api_key=args.api_key,
+                        wait_time=1,
+                        max_retries=100,
+                        model_path=args.model_path,
                     )
-                    continue
 
-                # 预处理字幕内容
-                if isinstance(output, list):
-                    output = "\n".join(output)
+                    output = _postprocess_caption_content(output, filepath)
 
-                # 确保字幕内容格式正确
-                output = output.strip()
-                if not output.strip():
-                    console.print(f"[red]Empty caption content for {filepath}[/red]")
-                    continue
+                else:
+                    console.print(f"[blue]{filepath} video > 5 minutes [/blue]")
+                    console.print(f"[blue]split video[/blue]")
 
-                # 格式化时间戳 - 只处理7位的时间戳 (MM:SS,ZZZ)
-                output = re.sub(
-                    r"(?<!:)(\d{2}):(\d{2}),(\d{3})",
-                    r"00:\1:\2,\3",
-                    output,
-                    flags=re.MULTILINE,
-                )
+                    # 创建用于分割的字幕文件
+                    subs = pysrt.SubRipFile()
+
+                    # 计算分块
+                    duration_seconds = duration / 1000  # 将毫秒转换为秒
+                    chunk_duration = 300  # 5分钟 = 300秒
+                    num_chunks = int(
+                        (duration_seconds + chunk_duration - 1) // chunk_duration
+                    )
+
+                    # 创建字幕条目
+                    for i in range(num_chunks):
+                        start_time = i * chunk_duration
+                        end_time = min((i + 1) * chunk_duration, duration_seconds)
+
+                        # 创建字幕条目
+                        sub = pysrt.SubRipItem(
+                            index=i,
+                            start=pysrt.SubRipTime(seconds=start_time),
+                            end=pysrt.SubRipTime(seconds=end_time),
+                            text=f"Chunk {i + 1}",
+                        )
+                        subs.append(sub)
+
+                    for sub in subs:
+                        console.print(f"[blue]Subtitles created:[/blue] {sub}")
+                    try:
+                        split_video_with_imageio_ffmpeg(Path(filepath), subs)
+                    except Exception as e:
+                        # 使用字幕分割视频
+                        meta_type = "video" if mime.startswith("video") else "audio"
+                        console.print(
+                            f"[red]Error splitting video with imageio-ffmpeg: {e}[/red]"
+                        )
+                        split_media_stream_clips(Path(filepath), meta_type, subs)
+
+                    pathfile = Path(filepath)
+                    files = sorted(pathfile.parent.glob(f"{pathfile.stem}_clip/{pathfile.stem}_*{pathfile.suffix}"))
+                    merged_subs = pysrt.SubRipFile()
+                    for i in range(num_chunks):
+                        sub_path = Path(filepath).with_suffix(".srt")
+                        if sub_path.exists():
+                            sub = pysrt.open(sub_path, encoding="utf-8")
+                            merged_subs.extend(sub)
+
+                        console.print(
+                            f"[yellow]Processing chunk {i+1}/{num_chunks}[/yellow]"
+                        )
+                        uri = files[i]
+
+                        chunk_output = api_process_batch(
+                            uri=uri,
+                            mime=mime,
+                            config=config,
+                            api_key=args.api_key,
+                            wait_time=1,
+                            max_retries=100,
+                            model_path=args.model_path,
+                        )
+
+                        console.print(
+                            f"[green]API processing complete for chunk {i+1}[/green]"
+                        )
+
+                        console.print(
+                            f"[yellow]Post-processing chunk output...[/yellow]"
+                        )
+                        chunk_output = _postprocess_caption_content(
+                            chunk_output, uri
+                        )
+
+                        uri.unlink(missing_ok=True)
+
+                        chunk_subs = pysrt.from_string(chunk_output)
+                        if len(merged_subs) > 0:
+                            last_end = merged_subs[-1].end
+                            console.print(
+                                f"[yellow]Shifting subtitles by {last_end.hours}h {last_end.minutes}m {last_end.seconds}s {last_end.milliseconds}ms[/yellow]"
+                            )
+                            # Shift all subtitles in the chunk by the end time of the last subtitle
+                            chunk_subs.shift(
+                                minutes=5 * i,
+                            )
+                            # Update indices to continue from the last subtitle
+                            for j, sub in enumerate(
+                                chunk_subs, start=len(merged_subs) + 1
+                            ):
+                                sub.index = j
+
+                        # Extend merged subtitles with the shifted chunk
+                        merged_subs.extend(chunk_subs)
+                        console.print(
+                            f"[green]Successfully merged chunk {i+1}. Total subtitles: {len(merged_subs)}[/green]"
+                        )
+
+                    # 手动构建 SRT 格式
+                    output = ""
+                    for i, sub in enumerate(merged_subs, start=1):
+                        # 格式: 序号 + 时间戳 + 文本
+                        output += f"{i}\n"
+                        output += f"{sub.start} --> {sub.end}\n"
+                        output += f"{sub.text}\n\n"
+                    if output:
+                        console.print(
+                            f"[green]All subtitles merged successfully. Total: {len(merged_subs)}[/green]"
+                        )
 
                 results.append(output)
                 processed_filepaths.append(filepath)
@@ -140,7 +233,37 @@ def process_batch(args, config):
 
         console.print("[green]Successfully updated dataset with new captions[/green]")
 
-    extract_from_lance(dataset, args.dataset_dir, clip_with_caption=not args.not_clip_with_caption)
+    extract_from_lance(
+        dataset, args.dataset_dir, clip_with_caption=not args.not_clip_with_caption
+    )
+
+
+def _postprocess_caption_content(output, filepath):
+    """
+    postprocess_caption_content
+    """
+    if not output:
+        console.print(f"[red]No caption content generated for {filepath}[/red]")
+        return ""
+
+    if isinstance(output, list):
+        output = "\n".join(output)
+
+    # 确保字幕内容格式正确
+    output = output.strip()
+    if not output.strip():
+        console.print(f"[red]Empty caption content for {filepath}[/red]")
+        return ""
+
+    # 格式化时间戳 - 只处理7位的时间戳 (MM:SS,ZZZ)
+    output = re.sub(
+        r"(?<!:)(\d{2}):(\d{2}),(\d{3})",
+        r"00:\1:\2,\3",
+        output,
+        flags=re.MULTILINE,
+    )
+
+    return output
 
 
 def setup_parser() -> argparse.ArgumentParser:

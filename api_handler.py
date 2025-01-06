@@ -230,6 +230,7 @@ def api_process_batch(
                             f"[red]Not enough ``` markers: found {len(markers)}[/red]"
                         )
                         content = ""
+                        continue
                 else:
                     content = ""
 
