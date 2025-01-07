@@ -50,8 +50,8 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None):
             )
 
             for i, sub in enumerate(subs):
-                if len(subs) < 2:
-                    break
+                # if len(subs) < 2:
+                #     break
                 clip_path = (
                     uri.parent / f"{uri.stem}_clip/{uri.stem}_{sub.index}{uri.suffix}"
                 )
@@ -182,8 +182,8 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None):
         )
 
         for i, sub in enumerate(subs):
-            if len(subs) < 2:
-                break
+            # if len(subs) < 2:
+            #     break
             clip_path = (
                 uri.parent / f"{uri.stem}_clip/{uri.stem}_{sub.index}{uri.suffix}"
             )
