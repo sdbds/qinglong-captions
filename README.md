@@ -1,6 +1,6 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (1.0)
+# qinglong-captioner (1.3)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
@@ -59,8 +59,9 @@ Run the following PowerShell script:
 ```
 2. Then run the installation script using PowerShell:
 ```powershell
-pwsh ./1、install-uv-qinglong.ps1
+sudo pwsh ./1、install-uv-qinglong.ps1
 ```
+use sudo pwsh if you in Linux.
 
 ## Usage
 
@@ -78,11 +79,13 @@ Use the PowerShell script to export data from Lance format:
 
 ### Auto Captioning
 Use the PowerShell script to generate captions for your videos:
+
+Just put Video or audio files into datasets folders
 ```powershell
 ./run.ps1
 ```
 
-Note: You'll need to configure your [Gemini API key](https://aistudio.google.com/apikey) in `config.toml` before using the auto-captioning feature.
+Note: You'll need to configure your [Gemini API key](https://aistudio.google.com/apikey) in `run.ps1` before using the auto-captioning feature.
 
 ---
 
@@ -162,4 +165,4 @@ pwsh ./1、install-uv-qinglong.ps1
 ./run.ps1
 ```
 
-注意：使用自动字幕生成功能前，需要在 `config.toml` 中配置 [Gemini API 密钥](https://aistudio.google.com/apikey)。
+注意：使用自动字幕生成功能前，需要在 `run.ps1` 中配置 [Gemini API 密钥](https://aistudio.google.com/apikey)。
