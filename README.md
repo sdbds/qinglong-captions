@@ -65,13 +65,15 @@ use sudo pwsh if you in Linux.
 
 ## Usage
 
-### Importing Videos
+### Just put Video or audio files into datasets folders
+
+### Importing Media
 Use the PowerShell script to import your videos:
 ```powershell
 ./lanceImport.ps1
 ```
 
-### Exporting Data
+### Exporting Media
 Use the PowerShell script to export data from Lance format:
 ```powershell
 ./lanceExport.ps1
@@ -80,13 +82,20 @@ Use the PowerShell script to export data from Lance format:
 ### Auto Captioning
 Use the PowerShell script to generate captions for your videos:
 
-Just put Video or audio files into datasets folders
 ```powershell
 ./run.ps1
 ```
 
 Note: You'll need to configure your [Gemini API key](https://aistudio.google.com/apikey) in `run.ps1` before using the auto-captioning feature.
 
+```
+$dataset_path="./datasets"                   #datasets_path, default is "./datasets"
+$api_key=""
+$model_path="gemini-exp-1206"
+$dir_name=1                                  # no implement
+$mode="long"                                 # no implement
+$not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
+```
 ---
 
 # 青龙数据集工具 (1.0)
@@ -147,6 +156,8 @@ pwsh ./1、install-uv-qinglong.ps1
 
 ## 使用方法
 
+### 把媒体文件放到datasets文件夹下
+
 ### 导入视频
 使用 PowerShell 脚本导入视频：
 ```powershell
@@ -166,3 +177,12 @@ pwsh ./1、install-uv-qinglong.ps1
 ```
 
 注意：使用自动字幕生成功能前，需要在 `run.ps1` 中配置 [Gemini API 密钥](https://aistudio.google.com/apikey)。
+
+```
+$dataset_path="./datasets"                   #datasets_path, default is "./datasets"
+$api_key=""
+$model_path="gemini-exp-1206"
+$dir_name=1                                  # no implement
+$mode="long"                                 # no implement
+$not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
+```
