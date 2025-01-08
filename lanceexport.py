@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.progress import (
     Progress,
 )
-from config import get_supported_extensions, DATASET_SCHEMA, CONSOLE_COLORS
+from config.config import get_supported_extensions, DATASET_SCHEMA, CONSOLE_COLORS
 from pathlib import Path
 import pysrt
 from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
@@ -161,6 +161,8 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
             else:
                 # For TXT files, strip empty lines and whitespace
                 for line in caption_lines:
+                    if "<font color=" in line:
+                        line = line.replace('<font color="green">', '').replace('</font>', '')
                     if line and line.strip():
                         f.write(line.strip() + "\n")
 

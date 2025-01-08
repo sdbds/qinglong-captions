@@ -6,7 +6,6 @@ and accessing the data through PyTorch datasets.
 
 import argparse
 import hashlib
-import io
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Callable, Tuple, Union
 import imageio.v3 as iio
@@ -27,7 +26,7 @@ from enum import Enum
 import numpy as np
 from mutagen import File as MutagenFile
 
-from config import (
+from config.config import (
     get_supported_extensions,
     DATASET_SCHEMA,
     CONSOLE_COLORS,

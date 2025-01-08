@@ -307,7 +307,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         type=str,
-        default="config.toml",
+        default="config/config.toml",
         help="Path to config file",
     )
 
