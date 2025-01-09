@@ -146,10 +146,18 @@ def process_batch(args, config):
                             console.print(
                                 f"[yellow]Shifting subtitles by {last_end.hours}h {last_end.minutes}m {last_end.seconds}s {last_end.milliseconds}ms[/yellow]"
                             )
-                            # Shift all subtitles in the chunk by the end time of the last subtitle
-                            chunk_subs.shift(
-                                minutes=5 * i,
-                            )
+                            if last_end.minutes < 5 * i:
+                                # Shift all subtitles in the chunk by the end time of the last subtitle
+                                chunk_subs.shift(
+                                    minutes=5 * i,
+                                )
+                            else:
+                                # Shift all subtitles in the chunk by the end time of the last subtitle
+                                chunk_subs.shift(
+                                    minutes=last_end.minutes,
+                                    seconds=last_end.seconds,
+                                    milliseconds=last_end.milliseconds,
+                                )
                             # Update indices to continue from the last subtitle
                             for j, sub in enumerate(
                                 chunk_subs, start=len(merged_subs) + 1
