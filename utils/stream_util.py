@@ -191,34 +191,61 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None):
 
             # 计算开始和结束时间
             start_time = f"{int(sub.start.hours):02d}:{int(sub.start.minutes):02d}:{int(sub.start.seconds):02d}.{int(sub.start.milliseconds):03d}"
-            end_time = f"{int(sub.end.hours):02d}:{int(sub.end.minutes):02d}:{int(sub.end.seconds):02d}.{int(sub.end.milliseconds):03d}"
+            duration = (
+                (sub.end.hours - sub.start.hours) * 3600
+                + (sub.end.minutes - sub.start.minutes) * 60
+                + (sub.end.seconds - sub.start.seconds)
+                + (sub.end.milliseconds - sub.start.milliseconds) / 1000
+            )
 
-            if sub.end.minutes - sub.start.minutes == 5:
+            if duration == 300:
                 # 使用segment模式时的输出模板
-                output_template = str(uri.parent / f"{uri.stem}_clip/{uri.stem}_%03d{uri.suffix}")
+                output_template = str(
+                    uri.parent / f"{uri.stem}_clip/{uri.stem}_%03d{uri.suffix}"
+                )
                 command = [
                     ffmpeg_exe,
-                    '-i', str(uri),                 # 输入文件
-                    '-f', 'segment',                # 使用segment模式
-                    '-c', 'copy',                   # 拷贝原始编码，速度更快
-                    '-segment_time', '300',         # 指定片段时长（5分钟）
-                    '-reset_timestamps', '1',        # 重置时间戳
-                    '-y',                           # 覆盖输出文件
-                    output_template                 # 输出文件模板
+                    "-i",
+                    str(uri),  # 输入文件
+                    "-f",
+                    "segment",  # 使用segment模式
+                    "-c",
+                    "copy",  # 拷贝原始编码，速度更快
+                    "-segment_time",
+                    "300",  # 指定片段时长（5分钟）
+                    "-reset_timestamps",
+                    "1",  # 重置时间戳
+                    "-y",  # 覆盖输出文件
+                    output_template,  # 输出文件模板
                 ]
             else:
+                if uri.suffix == ".mp3":
+                    audio_codec = "mp3"
+                elif uri.suffix == ".wav":
+                    audio_codec = "pcm_s16le"
+                else:
+                    audio_codec = "aac"
                 # 根据是否是第一个片段来调整命令
                 # if i == 0:
-                    # 第一个片段，-ss 放在 -i 前面以获得更精确的开始时间
+                # 第一个片段，-ss 放在 -i 前面以获得更精确的开始时间
                 command = [
-                        ffmpeg_exe,
-                        '-ss', start_time,              # 开始时间
-                        '-i', str(uri),                 # 输入文件
-                        '-to', end_time,                # 结束时间
-                        '-c:v', 'libx264',              # 重新编码视频流
-                        '-c:a', 'aac',
-                        '-y',                           # 覆盖输出文件
-                        str(clip_path)                  # 输出文件
+                    ffmpeg_exe,
+                    "-i",
+                    str(uri),  # 输入文件
+                    "-ss",
+                    start_time,  # 开始时间
+                    "-t",
+                    f"{duration}",  # 结束时间
+                    "-c:v",
+                    "libx264",  # 重新编码视频流
+                    "-c:a",
+                    audio_codec,  # 重新编码音频流
+                    "-vf",
+                    "setpts=PTS-STARTPTS",  # 重置视频时间戳
+                    "-af",
+                    "asetpts=PTS-STARTPTS",  # 重置音频时间戳
+                    "-y",  # 覆盖输出文件
+                    str(clip_path),  # 输出文件
                 ]
                 # else:
                 #     # 其他片段，-i 放在前面以确保片段连接
@@ -242,15 +269,15 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
-                    encoding='utf-8',
-                    errors='replace'
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 stdout, stderr = process.communicate()
-                
+
                 if process.returncode != 0:
                     console.print(f"[red]Error running ffmpeg:[/red] {stderr}")
                     raise Exception(f"FFmpeg failed: {stderr}")
-                    
+
             except Exception as e:
                 console.print(f"[red]Failed to run ffmpeg:[/red] {str(e)}")
                 raise
