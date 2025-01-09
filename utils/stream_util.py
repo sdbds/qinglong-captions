@@ -208,32 +208,31 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None):
                 ]
             else:
                 # 根据是否是第一个片段来调整命令
-                if i == 0:
+                # if i == 0:
                     # 第一个片段，-ss 放在 -i 前面以获得更精确的开始时间
-                    command = [
+                command = [
                         ffmpeg_exe,
                         '-ss', start_time,              # 开始时间
                         '-i', str(uri),                 # 输入文件
                         '-to', end_time,                # 结束时间
-                        '-c', 'copy',                   # 拷贝原始编码，速度更快
-                        '-map', '0',                    # 复制所有流
-                        '-force_key_frames', '0',       # 强制第一帧为关键帧
+                        '-c:v', 'libx264',              # 重新编码视频流
+                        '-c:a', 'aac',
                         '-y',                           # 覆盖输出文件
                         str(clip_path)                  # 输出文件
-                    ]
-                else:
-                    # 其他片段，-i 放在前面以确保片段连接
-                    command = [
-                        ffmpeg_exe,
-                        '-i', str(uri),                 # 输入文件
-                        '-ss', start_time,              # 开始时间
-                        '-to', end_time,                # 结束时间
-                        '-c', 'copy',                   # 拷贝原始编码，速度更快
-                        '-map', '0',                    # 复制所有流
-                        '-force_key_frames', '0',       # 强制第一帧为关键帧
-                        '-y',                           # 覆盖输出文件
-                        str(clip_path)                  # 输出文件
-                    ]
+                ]
+                # else:
+                #     # 其他片段，-i 放在前面以确保片段连接
+                #     command = [
+                #         ffmpeg_exe,
+                #         '-i', str(uri),                 # 输入文件
+                #         '-ss', start_time,              # 开始时间
+                #         '-to', end_time,                # 结束时间
+                #         '-c', 'copy',                   # 拷贝原始编码，速度更快
+                #         '-map', '0',                    # 复制所有流
+                #         '-force_key_frames', start_time,# 强制第一帧为关键帧
+                #         '-y',                           # 覆盖输出文件
+                #         str(clip_path)                  # 输出文件
+                #     ]
 
             console.print(f"Running command: {' '.join(command)}")
             try:
