@@ -126,10 +126,7 @@ def process_batch(args, config):
                             uri=uri,
                             mime=mime,
                             config=config,
-                            api_key=args.gemini_api_key,
-                            wait_time=1,
-                            max_retries=100,
-                            model_path=args.gemini_model_path,
+                            args=args,
                         )
 
                         console.print(
