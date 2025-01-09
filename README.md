@@ -6,7 +6,7 @@ A Python toolkit for generating video captions using the Lance database format a
 
 ## Features
 
-- Automatic video scene description using Google's Gemini API
+- Automatic video/audio/image description using Google's Gemini API or only image with pixtral-large 124B
 - Export captions in SRT format
 - Support for multiple video formats
 - Batch processing with progress tracking
@@ -25,16 +25,17 @@ A Python toolkit for generating video captions using the Lance database format a
 - Extract videos and captions from Lance datasets
 - Maintains original file structure
 - Exports captions as SRT files in the same directory as source videos
+- Auto Clip with SRT timestamps
 
 ### Auto Captioning (`captioner.py` & `api_handler.py`)
-- Automatic video scene description using Gemini API
+- Automatic video scene description using Gemini API or Pixtral API
 - Batch processing support
 - SRT format output with timestamps
 - Robust error handling and retry mechanisms
 - Progress tracking for batch operations
 
 ### Configuration (`config.py` & `config.toml`)
-- API configuration management
+- API prompt configuration management
 - Customizable batch processing parameters
 - Default schema includes file paths and metadata
 
@@ -87,13 +88,16 @@ Use the PowerShell script to generate captions for your videos:
 ```
 
 Note: You'll need to configure your [Gemini API key](https://aistudio.google.com/apikey) in `run.ps1` before using the auto-captioning feature.
+[Pixtral API key](https://console.mistral.ai/api-keys/) optional for image caption.
 
 ```
-$dataset_path="./datasets"                   #datasets_path, default is "./datasets"
-$api_key=""
-$model_path="gemini-exp-1206"
-$dir_name=1                                  # no implement
-$mode="long"                                 # no implement
+$dataset_path = "./datasets"
+$gemini_api_key = ""
+$gemini_model_path = "gemini-exp-1206"
+$pixtral_api_key = ""
+$pixtral_model_path = "pixtral-large-2411"
+$dir_name = $true
+$mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 ```
 ---
@@ -177,12 +181,14 @@ pwsh ./1、install-uv-qinglong.ps1
 ```
 
 注意：使用自动字幕生成功能前，需要在 `run.ps1` 中配置 [Gemini API 密钥](https://aistudio.google.com/apikey)。
-
+[Pixtral API 秘钥](https://console.mistral.ai/api-keys/) 可选为图片打标。
 ```
-$dataset_path="./datasets"                   #datasets_path, default is "./datasets"
-$api_key=""
-$model_path="gemini-exp-1206"
-$dir_name=1                                  # no implement
-$mode="long"                                 # no implement
+$dataset_path = "./datasets"
+$gemini_api_key = ""
+$gemini_model_path = "gemini-exp-1206"
+$pixtral_api_key = ""
+$pixtral_model_path = "pixtral-large-2411"
+$dir_name = $true
+$mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 ```
