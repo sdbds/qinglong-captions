@@ -1,8 +1,10 @@
-$dataset_path="./datasets"
-$api_key=""
-$model_path="gemini-exp-1206"
-$dir_name=1
-$mode="long"
+$dataset_path = "./datasets"
+$gemini_api_key = ""
+$gemini_model_path = "gemini-exp-1206"
+$pixtral_api_key = ""
+$pixtral_model_path = "pixtral-large-2411"
+$dir_name = $true
+$mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 
 # ============= DO NOT MODIFY CONTENTS BELOW | 请勿修改下方内容 =====================
@@ -37,12 +39,20 @@ $ext_args = [System.Collections.ArrayList]::new()
 
 
 
-if ($api_key) {
-  [void]$ext_args.Add("--api_key=$api_key")
+if ($gemini_api_key) {
+  [void]$ext_args.Add("--gemini_api_key=$gemini_api_key")
 }
 
-if ($model_path) {
-  [void]$ext_args.Add("--model_path=$model_path")
+if ($gemini_model_path) {
+  [void]$ext_args.Add("--gemini_model_path=$gemini_model_path")
+}
+
+if ($pixtral_api_key) {
+  [void]$ext_args.Add("--pixtral_api_key=$pixtral_api_key")
+}
+
+if ($pixtral_model_path) {
+  [void]$ext_args.Add("--pixtral_model_path=$pixtral_model_path")
 }
 
 if ($dir_name) {

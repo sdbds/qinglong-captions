@@ -2,9 +2,13 @@ import time
 from typing import List, Optional, Dict, Any, Union, Tuple
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from mistralai import Mistral
 from rich_pixels import Pixels
+from rich.progress import Progress
 from rich.console import Console
 from rich.text import Text
+from rich.panel import Panel
+from rich.layout import Layout
 from pathlib import Path
 
 console = Console()
@@ -14,18 +18,21 @@ def api_process_batch(
     uri: str,
     mime: str,
     config,
-    api_key: str,
-    wait_time: int = 1,
-    max_retries: int = 10,
-    model_path: Optional[str] = "gemini-exp-1206",
+    args,
 ) -> str:
-    if model_path.startswith("gemini"):
-        genai.configure(api_key=api_key)
 
-        generation_config = config["generation_config"]
+    system_prompt = config["prompts"]["system_prompt"]
+    prompt = config["prompts"]["prompt"]
 
-        system_prompt = config["prompts"]["system_prompt"]
-        prompt = config["prompts"]["prompt"]
+    if (
+        mime.startswith("video")
+        or mime.startswith("audio")
+        or args.pixtral_api_key == ""
+    ):
+
+        generation_config = config["geimini_generation_config"]
+
+        genai.configure(api_key=args.gemini_api_key)
 
         if mime.startswith("video"):
             system_prompt = config["prompts"]["video_system_prompt"]
@@ -104,7 +111,7 @@ def api_process_batch(
             upload_success = False
             files = []
 
-            for upload_attempt in range(max_retries):
+            for upload_attempt in range(args.max_retries):
                 try:
                     # if existing_file:
                     #     files = [existing_file]
@@ -122,10 +129,12 @@ def api_process_batch(
 
                 except Exception as e:
                     console.print(
-                        f"[yellow]Upload attempt {upload_attempt + 1}/{max_retries} failed: {e}[/yellow]"
+                        f"[yellow]Upload attempt {upload_attempt + 1}/{args.max_retries} failed: {e}[/yellow]"
                     )
-                    if upload_attempt < max_retries - 1:
-                        time.sleep(wait_time * 2)  # Increase wait time between retries
+                    if upload_attempt < args.max_retries - 1:
+                        time.sleep(
+                            args.wait_time * 2
+                        )  # Increase wait time between retries
                     else:
                         console.print("[red]All upload attempts failed[/red]")
                         return ""
@@ -136,7 +145,7 @@ def api_process_batch(
 
         # Some files have a processing delay. Wait for them to be ready.
         # wait_for_files_active(files)
-        for attempt in range(max_retries):
+        for attempt in range(args.max_retries):
             try:
                 console.print(f"[blue]Generating captions...[/blue]")
                 start_time = time.time()
@@ -237,18 +246,193 @@ def api_process_batch(
                 return content
             except Exception as e:
                 console.print(f"[red]Error processing: {e}[/red]")
-                if attempt < max_retries - 1:
+                if attempt < args.max_retries - 1:
                     console.print(
-                        f"[yellow]Retrying in {wait_time} seconds...[/yellow]"
+                        f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]"
                     )
                     elapsed_time = time.time() - start_time
-                    if elapsed_time < wait_time:
-                        time.sleep(wait_time - elapsed_time)
+                    if elapsed_time < args.wait_time:
+                        time.sleep(args.wait_time - elapsed_time)
                 else:
                     console.print(
-                        f"[red]Failed to process after {max_retries} attempts. Skipping.[/red]"
+                        f"[red]Failed to process after {args.max_retries} attempts. Skipping.[/red]"
                     )
                 continue
+        return ""
+
+    elif mime.startswith("image") and args.pixtral_api_key != "":
+
+        system_prompt = config["prompts"]["pixtral_image_system_prompt"]
+        prompt = config["prompts"]["pixtral_image_prompt"]
+
+        base64_image, pixels = encode_image(uri)
+        if base64_image is None or pixels is None:
+            return ""
+
+        client = Mistral(api_key=args.pixtral_api_key)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": f"data:image/jpeg;base64,{base64_image}",
+                    },
+                ],
+            },
+        ]
+
+        for attempt in range(args.max_retries):
+            try:
+                start_time = time.time()
+                chat_response = client.chat.complete(
+                    model=args.pixtral_model_path, messages=messages
+                )
+                content = chat_response.choices[0].message.content
+
+                if "502" in content:
+                    console.print(
+                        f"[yellow]Attempt {attempt + 1}/{args.max_retries}: Received 502 error[/yellow]"
+                    )
+                    continue
+
+                # if character_name:
+                #     clean_char_name = (
+                #         character_name.split(",")[0].split(" from ")[0].strip("<>")
+                #     )
+                #     if clean_char_name not in content:
+                #         console.print()
+                #         console.print(Text(content))
+                #         console.print(
+                #             f"Attempt {attempt + 1}/{args.max_retries}: Character name [green]{clean_char_name}[/green] not found"
+                #         )
+                #         continue
+
+                if "###" not in content:
+                    console.print(Text(content))
+                    console.print(Text("No ###, retrying...", style="yellow"))
+                    continue
+
+                short_description, long_description = process_llm_response(content)
+                tag_description = ""
+                # tag_description = (
+                #     prompt.rsplit("<s>[INST]", 1)[-1]
+                #     .rsplit(">.", 1)[-1]
+                #     .rsplit(").", 1)[-1]
+                #     .replace(" from", ",")
+                # )
+                # tag_description = tag_description.rsplit("[IMG][/INST]", 1)[0].strip()
+                short_highlight_rate = 0
+                long_highlight_rate = 0
+                # short_description, short_highlight_rate = format_description(
+                #     short_description, tag_description
+                # )
+                # long_description, long_highlight_rate = format_description(
+                #     long_description, tag_description
+                # )
+
+                console.print()
+                console.print()
+                # 获取图片实际高度
+                panel_height = 32  # 加上面板的边框高度
+
+                # 创建布局
+                layout = Layout()
+
+                # 创建右侧的垂直布局
+                right_layout = Layout()
+
+                # 创建上半部分的水平布局（tag和short并排）
+                top_layout = Layout()
+                top_layout.split_row(
+                    Layout(
+                        Panel(
+                            Text(tag_description, style="magenta"),
+                            title="tags",
+                            height=panel_height // 2,
+                            padding=0,
+                            expand=True,
+                        ),
+                        ratio=1,
+                    ),
+                    Layout(
+                        Panel(
+                            short_description,
+                            title=f"short_description - [yellow]highlight rate:[/yellow] {short_highlight_rate}",
+                            height=panel_height // 2,
+                            padding=0,
+                            expand=True,
+                        ),
+                        ratio=1,
+                    ),
+                )
+
+                # 将右侧布局分为上下两部分
+                right_layout.split_column(
+                    Layout(top_layout, ratio=1),
+                    Layout(
+                        Panel(
+                            long_description,
+                            title=f"long_description - [yellow]highlight rate:[/yellow] {long_highlight_rate}",
+                            height=panel_height // 2,
+                            padding=0,
+                            expand=True,
+                        )
+                    ),
+                )
+
+                # 主布局分为左右两部分
+                layout.split_row(
+                    Layout(
+                        Panel(pixels, height=panel_height, padding=0, expand=True),
+                        name="image",
+                        ratio=1,
+                    ),
+                    Layout(right_layout, name="caption", ratio=2),
+                )
+
+                # 将整个布局放在一个高度受控的面板中
+                console.print(
+                    Panel(
+                        layout,
+                        title=Path(image_path).with_name,
+                        height=panel_height + 2,
+                        padding=0,
+                    )
+                )
+                del pixels
+
+                # 计算已经消耗的时间，动态调整等待时间
+                elapsed_time = time.time() - start_time
+                if elapsed_time < args.wait_time:
+                    time.sleep(args.wait_time - elapsed_time)
+
+                return content
+
+            except Exception as e:
+                error_msg = Text(str(e), style="red")
+                console.print(
+                    f"[red]Attempt {attempt + 1}/{args.max_retries}: Error - ", end=""
+                )
+                console.print(error_msg)
+                if attempt < args.max_retries - 1:
+                    if "429" in str(e):
+                        wait_time = 59
+                        console.print(
+                            f"[yellow]429 error, waiting {wait_time} seconds and retrying...[/yellow]"
+                        )
+                        with Progress() as progress:
+                            task = progress.add_task(
+                                "[magenta]Waiting...", total=wait_time
+                            )
+                            for _ in range(wait_time):
+                                time.sleep(1)
+                                progress.update(task, advance=1)
+                        console.print("[green]Retrying...[/green]")
+                    time.sleep(wait_time)
+                    continue
         return ""
 
 
@@ -284,6 +468,7 @@ def wait_for_files_active(files):
                 raise Exception(f"File {file.name} failed to process")
     console.print("[green]...all files ready[/green]")
     console.print()
+
 
 def encode_image(image_path: str) -> Optional[Tuple[str, Pixels]]:
     """Encode the image to base64 format with size optimization.
@@ -362,3 +547,24 @@ def encode_image(image_path: str) -> Optional[Tuple[str, Pixels]]:
             f"[red]Error:[/red] Unexpected error processing {image_path}: {str(e)}"
         )
     return None, None
+
+def process_llm_response(result: str) -> tuple[str, str]:
+    """处理LLM返回的结果, 提取短描述和长描述。
+
+    Args:
+        result: LLM返回的原始结果文本
+
+    Returns:
+        tuple[str, str]: 返回 (short_description, long_description) 元组
+    """
+    if result and "###" in result:
+        short_description, long_description = result.split("###")[-2:]
+
+        # 更彻底地清理描述
+        short_description = ' '.join(short_description.split(":", 1)[-1].split())
+        long_description = ' '.join(long_description.split(":", 1)[-1].split())
+    else:
+        short_description = ""
+        long_description = ""
+    
+    return short_description, long_description

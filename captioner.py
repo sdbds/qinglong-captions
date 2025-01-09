@@ -16,7 +16,7 @@ from utils.stream_util import split_media_stream_clips, split_video_with_imageio
 import toml
 from PIL import Image
 import pysrt
-from api_handler import api_process_batch
+from api_handler import api_process_batch, process_llm_response
 from pathlib import Path
 
 Image.MAX_IMAGE_PIXELS = None  # Disable image size limit check
@@ -58,13 +58,12 @@ def process_batch(args, config):
                         uri=filepath,
                         mime=mime,
                         config=config,
-                        api_key=args.api_key,
-                        wait_time=1,
-                        max_retries=100,
-                        model_path=args.model_path,
+                        args=args,
                     )
 
-                    output = _postprocess_caption_content(output, filepath)
+                    output = _postprocess_caption_content(
+                        output, filepath, mode=args.mode
+                    )
 
                 else:
                     console.print(f"[blue]{filepath} video > 5 minutes [/blue]")
@@ -107,7 +106,11 @@ def process_batch(args, config):
                         split_media_stream_clips(Path(filepath), meta_type, subs)
 
                     pathfile = Path(filepath)
-                    files = sorted(pathfile.parent.glob(f"{pathfile.stem}_clip/{pathfile.stem}_*{pathfile.suffix}"))
+                    files = sorted(
+                        pathfile.parent.glob(
+                            f"{pathfile.stem}_clip/{pathfile.stem}_*{pathfile.suffix}"
+                        )
+                    )
                     merged_subs = pysrt.SubRipFile()
                     for i in range(num_chunks):
                         sub_path = Path(filepath).with_suffix(".srt")
@@ -137,9 +140,7 @@ def process_batch(args, config):
                         console.print(
                             f"[yellow]Post-processing chunk output...[/yellow]"
                         )
-                        chunk_output = _postprocess_caption_content(
-                            chunk_output, uri
-                        )
+                        chunk_output = _postprocess_caption_content(chunk_output, uri)
 
                         uri.unlink(missing_ok=True)
 
@@ -181,25 +182,46 @@ def process_batch(args, config):
                 processed_filepaths.append(filepath)
 
                 filepath_path = Path(filepath)
-                caption_path = filepath_path.with_suffix(".srt")
+                caption_path = (
+                    filepath_path.with_suffix(".srt")
+                    if filepath_path.suffix in VIDEO_EXTENSIONS
+                    or filepath_path.suffix in AUDIO_EXTENSIONS
+                    else filepath_path.with_suffix(".txt")
+                )
                 console.print(f"[blue]Processing caption for:[/blue] {filepath_path}")
                 console.print(f"[blue]Caption content length:[/blue] {len(output)}")
 
-                try:
-                    subs = pysrt.from_string(output)
-                    subs.save(str(caption_path), encoding="utf-8")
-                    console.print(f"[green]Saved captions to {caption_path}[/green]")
-                except Exception as e:
-                    console.print(
-                        f"[yellow]pysrt validation failed: {e}, falling back to direct file write[/yellow]"
-                    )
+                if caption_path.suffix == ".srt":
                     try:
-                        caption_path.write_text(output, encoding="utf-8")
+                        subs = pysrt.from_string(output)
+                        subs.save(str(caption_path), encoding="utf-8")
                         console.print(
                             f"[green]Saved captions to {caption_path}[/green]"
                         )
                     except Exception as e:
-                        console.print(f"[red]Error saving SRT file: {e}[/red]")
+                        console.print(
+                            f"[yellow]pysrt validation failed: {e}, falling back to direct file write[/yellow]"
+                        )
+                        try:
+                            caption_path.write_text(output, encoding="utf-8")
+                            console.print(
+                                f"[green]Saved captions to {caption_path}[/green]"
+                            )
+                        except Exception as e:
+                            console.print(f"[red]Error saving SRT file: {e}[/red]")
+                else:
+                    try:
+                        if isinstance(output, list):
+                            with open(caption_path, "w", encoding="utf-8") as f:
+                                for line in output:
+                                    f.write(line + "\n")
+                        else:
+                            caption_path.write_text(output, encoding="utf-8")
+                        console.print(
+                            f"[green]Saved captions to {caption_path}[/green]"
+                        )
+                    except Exception as e:
+                        console.print(f"[red]Error saving TXT file: {e}[/red]")
 
             progress.update(task, advance=len(batch))
 
@@ -238,7 +260,7 @@ def process_batch(args, config):
     )
 
 
-def _postprocess_caption_content(output, filepath):
+def _postprocess_caption_content(output, filepath, mode="all"):
     """
     postprocess_caption_content
     """
@@ -256,12 +278,25 @@ def _postprocess_caption_content(output, filepath):
         return ""
 
     # 格式化时间戳 - 只处理7位的时间戳 (MM:SS,ZZZ)
-    output = re.sub(
-        r"(?<!:)(\d{2}):(\d{2}),(\d{3})",
-        r"00:\1:\2,\3",
-        output,
-        flags=re.MULTILINE,
-    )
+    if (
+        Path(filepath).suffix in VIDEO_EXTENSIONS
+        or Path(filepath).suffix in AUDIO_EXTENSIONS
+    ):
+        output = re.sub(
+            r"(?<!:)(\d{2}):(\d{2}),(\d{3})",
+            r"00:\1:\2,\3",
+            output,
+            flags=re.MULTILINE,
+        )
+    elif Path(filepath).suffix in IMAGE_EXTENSIONS:
+        if "###" in output:
+            shortdescription, long_description = process_llm_response(output)
+            if mode == "all":
+                output = [shortdescription, long_description]
+            elif mode == "long":
+                output = long_description
+            elif mode == "short":
+                output = shortdescription
 
     return output
 
@@ -278,23 +313,37 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--api_key",
+        "--gemini_api_key",
+        type=str,
+        default="",
+        help="API key for gemini API",
+    )
+
+    parser.add_argument(
+        "--gemini_model_path",
+        type=str,
+        default="gemini-exp-1206",
+        help="Model path for gemini",
+    )
+
+    parser.add_argument(
+        "--pixtral_api_key",
         type=str,
         default="",
         help="API key for pixtral API",
     )
 
     parser.add_argument(
-        "--dir_name",
-        action="store_true",
-        help="Use the directory name as the dataset name",
+        "--pixtral_model_path",
+        type=str,
+        default="pixtral-large-2411",
+        help="Model path for pixtral",
     )
 
     parser.add_argument(
-        "--model_path",
-        type=str,
-        default="gemini-exp-1206",
-        help="Model path for gemini",
+        "--dir_name",
+        action="store_true",
+        help="Use the directory name as the dataset name",
     )
 
     parser.add_argument(
@@ -315,6 +364,20 @@ def setup_parser() -> argparse.ArgumentParser:
         "--not_clip_with_caption",
         action="store_true",
         help="Not clip with caption",
+    )
+
+    parser.add_argument(
+        "--wait_time",
+        type=int,
+        default=1,
+        help="Wait time",
+    )
+
+    parser.add_argument(
+        "--max_retries",
+        type=int,
+        default=20,
+        help="Max retries",
     )
 
     return parser
