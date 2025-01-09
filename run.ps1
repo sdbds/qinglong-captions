@@ -68,7 +68,7 @@ if ($not_clip_with_caption) {
 }
 
 # run train
-python captioner.py $dataset_path $ext_args
+python -m module.captioner $dataset_path $ext_args
 
 Write-Output "Captioner finished"
 Read-Host | Out-Null ;

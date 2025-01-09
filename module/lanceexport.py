@@ -1,15 +1,14 @@
 import argparse
 import lance
-from PIL import Image
 from typing import Optional, Union, List, Dict, Any
 from rich.console import Console
 from rich.progress import (
     Progress,
 )
 from config.config import get_supported_extensions, DATASET_SCHEMA, CONSOLE_COLORS
+from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
 from pathlib import Path
 import pysrt
-from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
 
 console = Console()
 image_extensions = get_supported_extensions("image")

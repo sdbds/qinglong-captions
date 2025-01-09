@@ -1,4 +1,6 @@
 import time
+import io
+import base64
 from typing import List, Optional, Dict, Any, Union, Tuple
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -9,6 +11,7 @@ from rich.console import Console
 from rich.text import Text
 from rich.panel import Panel
 from rich.layout import Layout
+from PIL import Image
 from pathlib import Path
 
 console = Console()
@@ -45,7 +48,7 @@ def api_process_batch(
             prompt = config["prompts"]["image_prompt"]
 
         model = genai.GenerativeModel(
-            model_name=model_path,
+            model_name=args.gemini_model_path,
             generation_config=generation_config,
             system_instruction=system_prompt,
             safety_settings={
@@ -397,7 +400,7 @@ def api_process_batch(
                 console.print(
                     Panel(
                         layout,
-                        title=Path(image_path).with_name,
+                        title=Path(uri).name,
                         height=panel_height + 2,
                         padding=0,
                     )
@@ -418,6 +421,7 @@ def api_process_batch(
                 )
                 console.print(error_msg)
                 if attempt < args.max_retries - 1:
+                    wait_time = args.wait_time
                     if "429" in str(e):
                         wait_time = 59
                         console.print(

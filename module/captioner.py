@@ -1,22 +1,21 @@
 import lance
-from rich_pixels import Pixels
 from rich.progress import Progress
 from rich.console import Console
-from rich.text import Text
-from rich.panel import Panel
-from rich.layout import Layout
 import argparse
-from lanceImport import transform2lance
-from lanceexport import extract_from_lance
+from module.lanceImport import transform2lance
+from module.lanceexport import extract_from_lance
+from module.api_handler import api_process_batch, process_llm_response
 import pyarrow as pa
 import re
 from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
+from config.config import (
+    BASE_VIDEO_EXTENSIONS,
+    BASE_AUDIO_EXTENSIONS,
+)
 
-# from mistralai import Mistral
 import toml
 from PIL import Image
 import pysrt
-from api_handler import api_process_batch, process_llm_response
 from pathlib import Path
 
 Image.MAX_IMAGE_PIXELS = None  # Disable image size limit check
@@ -27,7 +26,7 @@ console = Console()
 def process_batch(args, config):
     # Load the dataset
     if not isinstance(args.dataset_dir, lance.LanceDataset):
-        if args.api_key == "":
+        if args.gemini_api_key == "" and args.pixtral_api_key == "":
             dataset = transform2lance(dataset_dir=args.dataset_dir)
         else:
             dataset = transform2lance(dataset_dir=args.dataset_dir, save_binary=False)
@@ -41,7 +40,7 @@ def process_batch(args, config):
     total_rows = dataset.count_rows()
 
     with Progress() as progress:
-        task = progress.add_task("[cyan]Processing videos...", total=total_rows)
+        task = progress.add_task("[cyan]Processing media...", total=total_rows)
 
         results = []
         processed_filepaths = []
@@ -52,7 +51,7 @@ def process_batch(args, config):
 
             for filepath, mime, duration in zip(filepaths, mime, duration):
 
-                if duration and 0 < duration <= 5 * 60 * 1000:
+                if mime.startswith("image") or 0 < duration <= 5 * 60 * 1000:
 
                     output = api_process_batch(
                         uri=filepath,
@@ -127,10 +126,10 @@ def process_batch(args, config):
                             uri=uri,
                             mime=mime,
                             config=config,
-                            api_key=args.api_key,
+                            api_key=args.gemini_api_key,
                             wait_time=1,
                             max_retries=100,
-                            model_path=args.model_path,
+                            model_path=args.gemini_model_path,
                         )
 
                         console.print(
@@ -184,8 +183,8 @@ def process_batch(args, config):
                 filepath_path = Path(filepath)
                 caption_path = (
                     filepath_path.with_suffix(".srt")
-                    if filepath_path.suffix in VIDEO_EXTENSIONS
-                    or filepath_path.suffix in AUDIO_EXTENSIONS
+                    if filepath_path.suffix in BASE_VIDEO_EXTENSIONS
+                    or filepath_path.suffix in BASE_AUDIO_EXTENSIONS
                     else filepath_path.with_suffix(".txt")
                 )
                 console.print(f"[blue]Processing caption for:[/blue] {filepath_path}")
@@ -279,8 +278,8 @@ def _postprocess_caption_content(output, filepath, mode="all"):
 
     # 格式化时间戳 - 只处理7位的时间戳 (MM:SS,ZZZ)
     if (
-        Path(filepath).suffix in VIDEO_EXTENSIONS
-        or Path(filepath).suffix in AUDIO_EXTENSIONS
+        Path(filepath).suffix in BASE_VIDEO_EXTENSIONS
+        or Path(filepath).suffix in BASE_AUDIO_EXTENSIONS
     ):
         output = re.sub(
             r"(?<!:)(\d{2}):(\d{2}),(\d{3})",
@@ -288,7 +287,7 @@ def _postprocess_caption_content(output, filepath, mode="all"):
             output,
             flags=re.MULTILINE,
         )
-    elif Path(filepath).suffix in IMAGE_EXTENSIONS:
+    else:
         if "###" in output:
             shortdescription, long_description = process_llm_response(output)
             if mode == "all":

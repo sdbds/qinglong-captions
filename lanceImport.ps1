@@ -39,7 +39,7 @@ if ($not_save_disk) { $args += "--not_save_disk" }
 $args += "--import_mode=$import_mode"
 $args += "--tag=$tag"
 
-python "./lanceImport.py" @args
+python -m module.lanceImport @args
 
 Write-Output "Import finished"
 Read-Host | Out-Null

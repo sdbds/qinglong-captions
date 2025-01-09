@@ -619,7 +619,7 @@ def transform2lance(
         not_save_disk: If True, don't save to disk
         import_mode: Mode for importing video components:
                     - ALL: Complete video with audio
-                    - VIDEO_ONLY: Video without audio
+                    - VIDEO_ONLY: Video only
                     - AUDIO_ONLY: Audio only
                     - VIDEO_SPLIT_AUDIO: Split video and audio
         load_condition: Function to load data

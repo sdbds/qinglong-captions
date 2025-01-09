@@ -39,7 +39,7 @@ $env:HF_ENDPOINT = "https://hf-mirror.com"
 
 # Prepare arguments | 准备参数
 $arguments = @(
-    "./lanceexport.py",
+    -m module.lanceexport,
     $lance_file,
     "--output_dir=$output_dir"
 )
