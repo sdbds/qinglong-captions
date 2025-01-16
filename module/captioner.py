@@ -105,11 +105,11 @@ def process_batch(args, config):
                         split_media_stream_clips(Path(filepath), meta_type, subs)
 
                     pathfile = Path(filepath)
-                    files = sorted(
-                        pathfile.parent.glob(
-                            f"{pathfile.stem}_clip/{pathfile.stem}_*{pathfile.suffix}"
-                        )
-                    )
+                    clip_dir = pathfile.parent / f"{pathfile.stem}_clip"
+
+                    search_pattern = f"*{pathfile.suffix}"
+                    files = sorted(clip_dir.glob(search_pattern))
+
                     merged_subs = pysrt.SubRipFile()
                     for i in range(num_chunks):
                         sub_path = Path(filepath).with_suffix(".srt")
