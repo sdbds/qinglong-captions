@@ -47,6 +47,9 @@ Give unrestricted script access to powershell so venv can work:
 - Type Set-ExecutionPolicy Unrestricted and answer A
 - Close admin powershell window
 
+[![Installation](https://files.catbox.moe/kn4ynp.mp4)](https://files.catbox.moe/kn4ynp.mp4)
+
+
 ### Windows
 Run the following PowerShell script:
 ```powershell
@@ -65,6 +68,8 @@ sudo pwsh ./1、install-uv-qinglong.ps1
 use sudo pwsh if you in Linux.
 
 ## Usage
+
+[![Usage](https://files.catbox.moe/8fudnf.mp4)](https://files.catbox.moe/8fudnf.mp4)
 
 ### Just put Video or audio files into datasets folders
 
