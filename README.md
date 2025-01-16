@@ -69,7 +69,7 @@ use sudo pwsh if you in Linux.
 
 ## Usage
 
-![Video Preview](https://files.catbox.moe/pdoht0.gif)
+![Usage](https://files.catbox.moe/pdoht0.gif)
 
 ### Just put Video or audio files into datasets folders
 
