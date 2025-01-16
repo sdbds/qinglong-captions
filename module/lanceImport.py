@@ -321,11 +321,10 @@ class FileProcessor:
 
                     # Get first frame for color info
                     try:
-                        first_frame = iio.imread(file_path, index=0)
-                        channels = (
-                            first_frame.shape[2] if len(first_frame.shape) > 2 else 1
-                        )
-                        depth = first_frame.dtype.itemsize * 8
+                        with iio.imopen(file_path, "r") as file:
+                            first_frame = file.read(index=0)
+                            channels = first_frame.shape[2] if len(first_frame.shape) > 2 else 1
+                            depth = first_frame.dtype.itemsize * 8
                     except Exception as e:
                         console.print(
                             f"[yellow]Warning: Could not read first frame from {file_path}: {e}[/yellow]"
