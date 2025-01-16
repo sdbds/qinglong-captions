@@ -47,7 +47,7 @@ Give unrestricted script access to powershell so venv can work:
 - Type Set-ExecutionPolicy Unrestricted and answer A
 - Close admin powershell window
 
-[![Installation](https://files.catbox.moe/kn4ynp.mp4)](https://files.catbox.moe/kn4ynp.mp4)
+![Video Preview](https://files.catbox.moe/jr5n3e.gif)
 
 
 ### Windows
