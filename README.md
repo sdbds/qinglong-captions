@@ -69,9 +69,7 @@ use sudo pwsh if you in Linux.
 
 ## Usage
 
-<video width="720" height="480" controls>
-  <source src="https://files.catbox.moe/8fudnf.mp4" type="video/mp4">
-</video>
+![Video Preview](https://files.catbox.moe/pdoht0.gif)
 
 ### Just put Video or audio files into datasets folders
 
