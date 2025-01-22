@@ -1,7 +1,7 @@
 $dataset_path = "./datasets"
-$gemini_api_key = "AIzaSyCa_Jrs2b1m0lWtnWuvUbDIXCdRuyN5Txo"
+$gemini_api_key = ""
 $gemini_model_path = "gemini-2.0-flash-thinking-exp-01-21"
-$pixtral_api_key = "7RWdmAHdGQS4P0FCEfg1o5jnEXA0bBdw"
+$pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
 $openai_url
 $open_ai_key
