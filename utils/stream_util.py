@@ -9,7 +9,7 @@ import imageio_ffmpeg
 console = Console()
 
 
-def split_media_stream_clips(uri, media_type, subs, save_caption_func=None):
+def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kwargs):
     """
     Process media stream and extract clips based on subtitles.
 
@@ -159,7 +159,9 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None):
                 sub_progress.advance(sub_task)
 
 
-def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None):
+def split_video_with_imageio_ffmpeg(
+    uri, subs, save_caption_func=None, segment_time=120, **kwargs
+):
     """
     Process media stream and extract clips based on subtitles using ffmpeg.
 
@@ -198,7 +200,7 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None):
                 + (sub.end.milliseconds - sub.start.milliseconds) / 1000
             )
 
-            if duration == 300:
+            if duration == segment_time:
                 # 使用segment模式时的输出模板
                 output_template = str(
                     uri.parent / f"{uri.stem}_clip/{uri.stem}_%03d{uri.suffix}"
@@ -212,7 +214,7 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None):
                     "-c",
                     "copy",  # 拷贝原始编码，速度更快
                     "-segment_time",
-                    "300",  # 指定片段时长（5分钟）
+                    str(segment_time),  # 指定片段时长（5分钟）
                     "-reset_timestamps",
                     "1",  # 重置时间戳
                     "-y",  # 覆盖输出文件
@@ -235,7 +237,7 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None):
                     "-ss",
                     start_time,  # 开始时间
                     "-t",
-                    f"{duration}",  # 结束时间
+                    str(duration),  # 结束时间
                     "-c:v",
                     "libx264",  # 重新编码视频流
                     "-c:a",
@@ -286,6 +288,6 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None):
                 save_caption_func(clip_path, [sub.text], "image")
             sub_progress.advance(sub_task)
 
-            if sub.end.minutes - sub.start.minutes == 5:
+            if sub.end.minutes - sub.start.minutes == segment_time / 60:
                 sub_progress.advance(sub_task, advance=4)
                 break

@@ -51,7 +51,7 @@ def process_batch(args, config):
 
             for filepath, mime, duration in zip(filepaths, mime, duration):
 
-                if mime.startswith("image") or 0 < duration <= 5 * 60 * 1000:
+                if mime.startswith("image") or 0 < duration <= args.segment_time * 1000:
 
                     output = api_process_batch(
                         uri=filepath,
@@ -65,7 +65,9 @@ def process_batch(args, config):
                     )
 
                 else:
-                    console.print(f"[blue]{filepath} video > 5 minutes [/blue]")
+                    console.print(
+                        f"[blue]{filepath} video > {args.segment_time} seconds[/blue]"
+                    )
                     console.print(f"[blue]split video[/blue]")
 
                     # 创建用于分割的字幕文件
@@ -73,7 +75,7 @@ def process_batch(args, config):
 
                     # 计算分块
                     duration_seconds = duration / 1000  # 将毫秒转换为秒
-                    chunk_duration = 300  # 5分钟 = 300秒
+                    chunk_duration = args.segment_time
                     num_chunks = int(
                         (duration_seconds + chunk_duration - 1) // chunk_duration
                     )
@@ -95,7 +97,12 @@ def process_batch(args, config):
                     for sub in subs:
                         console.print(f"[blue]Subtitles created:[/blue] {sub}")
                     try:
-                        split_video_with_imageio_ffmpeg(Path(filepath), subs)
+                        split_video_with_imageio_ffmpeg(
+                            Path(filepath),
+                            subs,
+                            save_caption_func=None,
+                            segment_time=args.segment_time,
+                        )
                     except Exception as e:
                         # 使用字幕分割视频
                         meta_type = "video" if mime.startswith("video") else "audio"
@@ -146,10 +153,10 @@ def process_batch(args, config):
                             console.print(
                                 f"[yellow]Shifting subtitles by {last_end.hours}h {last_end.minutes}m {last_end.seconds}s {last_end.milliseconds}ms[/yellow]"
                             )
-                            if last_end.minutes < 5 * i:
+                            if last_end.minutes < args.segment_time / 60 * i:
                                 # Shift all subtitles in the chunk by the end time of the last subtitle
                                 chunk_subs.shift(
-                                    minutes=5 * i,
+                                    minutes=args.segment_time / 60 * i,
                                 )
                             else:
                                 # Shift all subtitles in the chunk by the end time of the last subtitle
@@ -311,12 +318,6 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument("dataset_dir", type=str, help="directory for dataset")
 
     parser.add_argument(
-        "--systemprompt",
-        type=str,
-        help="directory for train images",
-    )
-
-    parser.add_argument(
         "--gemini_api_key",
         type=str,
         default="",
@@ -382,6 +383,13 @@ def setup_parser() -> argparse.ArgumentParser:
         type=int,
         default=20,
         help="Max retries",
+    )
+
+    parser.add_argument(
+        "--segment_time",
+        type=int,
+        default=120,
+        help="Segment time",
     )
 
     return parser

@@ -27,25 +27,31 @@ def api_process_batch(
     system_prompt = config["prompts"]["system_prompt"]
     prompt = config["prompts"]["prompt"]
 
-    if (
+    if mime.startswith("video"):
+        system_prompt = config["prompts"]["video_system_prompt"]
+        prompt = config["prompts"]["video_prompt"]
+    elif mime.startswith("audio"):
+        system_prompt = config["prompts"]["audio_system_prompt"]
+        prompt = config["prompts"]["audio_prompt"]
+    elif mime.startswith("image"):
+        system_prompt = config["prompts"]["image_system_prompt"]
+        prompt = config["prompts"]["image_prompt"]
+
+    if args.gemini_api_key != "" and (
         mime.startswith("video")
         or mime.startswith("audio")
         or args.pixtral_api_key == ""
     ):
 
-        generation_config = config["geimini_generation_config"]
+        generation_config = (
+            config["generation_config"][args.gemini_model_path.replace(".", "_")]
+            if config["generation_config"][args.gemini_model_path.replace(".", "_")]
+            else config["generation_config"]["default"]
+        )
+
+        console.print(f"generation_config: {generation_config}")
 
         genai.configure(api_key=args.gemini_api_key)
-
-        if mime.startswith("video"):
-            system_prompt = config["prompts"]["video_system_prompt"]
-            prompt = config["prompts"]["video_prompt"]
-        elif mime.startswith("audio"):
-            system_prompt = config["prompts"]["audio_system_prompt"]
-            prompt = config["prompts"]["audio_prompt"]
-        elif mime.startswith("image"):
-            system_prompt = config["prompts"]["image_system_prompt"]
-            prompt = config["prompts"]["image_prompt"]
 
         model = genai.GenerativeModel(
             model_name=args.gemini_model_path,
@@ -56,56 +62,6 @@ def api_process_batch(
             },
         )
 
-        # # Check existing files
-        # target_name = Path(uri).name
-        # console.print(f"[blue]Checking files for:[/blue] {target_name}")
-
-        # existing_files = list(genai.list_files())
-
-        # def get_url_and_filename(file_id: str) -> tuple:
-        #     """获取完整 URL 和原始文件名
-
-        #     Args:
-        #         file_id: 文件ID (files/xxx 格式)
-
-        #     Returns:
-        #         (完整URL, 原始文件名)
-        #     """
-        #     base_url = "https://generativelanguage.googleapis.com/v1beta"
-        #     full_url = f"{base_url}/{file_id}"
-        #     # 从 URL 中提取文件名
-        #     try:
-        #         response = requests.head(full_url)
-        #         filename = response.headers.get('content-disposition', '').split('filename=')[-1]
-        #         if not filename:
-        #             # 如果无法从 header 获取，使用 URL 最后一部分
-        #             filename = Path(full_url).name
-        #     except:
-        #         filename = Path(full_url).name
-        #     return full_url, filename
-
-        # # 显示所有文件的信息
-        # if existing_files:
-        #     console.print("[blue]Files in storage:[/blue]")
-        #     for f in existing_files:
-        #         full_url, orig_name = get_url_and_filename(f.name)
-        #         console.print(f"  API ID: {f.name}")
-        #         console.print(f"  Original Name: {orig_name}")
-        #         console.print(f"  URL: {full_url}")
-        #         console.print("---")
-
-        # # 查找匹配的文件
-        # existing_file = next(
-        #     (f for f in existing_files
-        #     if target_name == get_url_and_filename(f.name)[1]),
-        #     None
-        # )
-
-        # if existing_file:
-        #     full_url, orig_name = get_url_and_filename(existing_file.name)
-        #     console.print(f"[green]Found existing file:[/green] {orig_name}")
-        #     console.print(f"[green]API ID:[/green] {existing_file.name}")
-        #     console.print(f"[green]Full URL:[/green] {full_url}")
         if (
             mime.startswith("video")
             or mime.startswith("audio")
@@ -116,11 +72,6 @@ def api_process_batch(
 
             for upload_attempt in range(args.max_retries):
                 try:
-                    # if existing_file:
-                    #     files = [existing_file]
-                    #     upload_success = True
-                    #     break
-                    # else:
                     console.print()
                     console.print(f"[blue]uploading files for:[/blue] {uri}")
                     files = [
@@ -153,19 +104,19 @@ def api_process_batch(
                 console.print(f"[blue]Generating captions...[/blue]")
                 start_time = time.time()
 
-                # 使用 chat 模式
-                chat = model.start_chat(
-                    history=[],
-                )
+                # # 使用 chat 模式
+                # chat = model.start_chat(
+                #     history=[],
+                # )
 
                 if mime.startswith("video") or (
                     mime.startswith("audio")
                     and Path(uri).stat().st_size >= 20 * 1024 * 1024
                 ):
-                    response = chat.send_message([files[0], prompt], stream=True)
+                    response = model.generate_content([files[0], prompt], stream=True)
                 elif mime.startswith("audio"):
                     audio_blob = Path(uri).read_bytes()
-                    response = chat.send_message(
+                    response = model.generate_content(
                         [
                             prompt,
                             {
@@ -177,7 +128,7 @@ def api_process_batch(
                     )
                 else:
                     blob, pixels = encode_image(uri)
-                    response = chat.send_message(
+                    response = model.generate_content(
                         [
                             {
                                 "mime_type": "image/jpeg",
@@ -207,7 +158,10 @@ def api_process_batch(
                 display_text = response_text.replace(
                     '<font color="green">', "[green]"
                 ).replace("</font>", "[/green]")
-                console.print(display_text)
+                try:
+                    console.print(display_text)
+                except Exception as e:
+                    console.print(Text(display_text))
 
                 # Extract SRT content between first and second ```
                 text = response_text
@@ -248,7 +202,8 @@ def api_process_batch(
 
                 return content
             except Exception as e:
-                console.print(f"[red]Error processing: {e}[/red]")
+                error_msg = Text(str(e), style="red")
+                console.print(f"[red]Error processing: {error_msg}[/red]")
                 if attempt < args.max_retries - 1:
                     console.print(
                         f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]"
@@ -552,6 +507,7 @@ def encode_image(image_path: str) -> Optional[Tuple[str, Pixels]]:
         )
     return None, None
 
+
 def process_llm_response(result: str) -> tuple[str, str]:
     """处理LLM返回的结果, 提取短描述和长描述。
 
@@ -565,10 +521,10 @@ def process_llm_response(result: str) -> tuple[str, str]:
         short_description, long_description = result.split("###")[-2:]
 
         # 更彻底地清理描述
-        short_description = ' '.join(short_description.split(":", 1)[-1].split())
-        long_description = ' '.join(long_description.split(":", 1)[-1].split())
+        short_description = " ".join(short_description.split(":", 1)[-1].split())
+        long_description = " ".join(long_description.split(":", 1)[-1].split())
     else:
         short_description = ""
         long_description = ""
-    
+
     return short_description, long_description
