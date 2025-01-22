@@ -15,7 +15,6 @@ from config.config import (
 
 import toml
 from PIL import Image
-from pymediainfo import MediaInfo
 import pysrt
 from pathlib import Path
 
@@ -119,9 +118,6 @@ def process_batch(args, config):
                     files = sorted(clip_dir.glob(search_pattern))
 
                     merged_subs = pysrt.SubRipFile()
-
-                    split_duration = 0
-
                     for i in range(num_chunks):
                         sub_path = Path(filepath).with_suffix(".srt")
                         if sub_path.exists():
@@ -151,34 +147,22 @@ def process_batch(args, config):
 
                         chunk_subs = pysrt.from_string(chunk_output)
                         if len(merged_subs) > 0:
-                            meta = MediaInfo.parse(uri) or {}
-                            split_duration = meta.tracks[0].duration + split_duration
-
-                            shift_hours = split_duration // (1000 * 60 * 60)
-                            remaining_milliseconds_after_hours = split_duration % (
-                                1000 * 60 * 60
-                            )
-                            shift_minutes = (
-                                remaining_milliseconds_after_hours // 1000 // 60
-                            )
-                            remaining_milliseconds_after_minutes = (
-                                remaining_milliseconds_after_hours % (1000 * 60)
-                            )
-                            shift_seconds = remaining_milliseconds_after_minutes // 1000
-                            shift_milliseconds = (
-                                remaining_milliseconds_after_minutes % 1000
-                            )
-
+                            last_end = merged_subs[-1].end
                             console.print(
-                                f"[yellow]Shifting subtitles by {shift_hours}h {shift_minutes}m {shift_seconds}s {shift_milliseconds}ms[/yellow]"
+                                f"[yellow]Shifting subtitles by {last_end.hours}h {last_end.minutes}m {last_end.seconds}s {last_end.milliseconds}ms[/yellow]"
                             )
-
-                            chunk_subs.shift(
-                                hours=shift_hours,
-                                minutes=shift_minutes,
-                                seconds=shift_seconds,
-                                milliseconds=shift_milliseconds,
-                            )
+                            if last_end.minutes < args.segment_time / 60 * i:
+                                # Shift all subtitles in the chunk by the end time of the last subtitle
+                                chunk_subs.shift(
+                                    minutes=args.segment_time / 60 * i,
+                                )
+                            else:
+                                # Shift all subtitles in the chunk by the end time of the last subtitle
+                                chunk_subs.shift(
+                                    minutes=last_end.minutes,
+                                    seconds=last_end.seconds,
+                                    milliseconds=last_end.milliseconds,
+                                )
                             # Update indices to continue from the last subtitle
                             for j, sub in enumerate(
                                 chunk_subs, start=len(merged_subs) + 1
@@ -404,7 +388,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--segment_time",
         type=int,
-        default=120,
+        default=300,
         help="Segment time",
     )
 
