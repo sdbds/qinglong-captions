@@ -10,7 +10,7 @@ $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 $wait_time= 1
 $max_retries = 100
-$segment_time= 120
+$segment_time= 300
 
 # ============= DO NOT MODIFY CONTENTS BELOW | 请勿修改下方内容 =====================
 # Activate python venv

@@ -15,6 +15,7 @@ from config.config import (
 
 import toml
 from PIL import Image
+from pymediainfo import MediaInfo
 import pysrt
 from pathlib import Path
 
@@ -118,6 +119,9 @@ def process_batch(args, config):
                     files = sorted(clip_dir.glob(search_pattern))
 
                     merged_subs = pysrt.SubRipFile()
+
+                    split_duration = 0
+
                     for i in range(num_chunks):
                         sub_path = Path(filepath).with_suffix(".srt")
                         if sub_path.exists():
@@ -145,26 +149,36 @@ def process_batch(args, config):
                         )
                         chunk_output = _postprocess_caption_content(chunk_output, uri)
 
-                        uri.unlink(missing_ok=True)
-
                         chunk_subs = pysrt.from_string(chunk_output)
                         if len(merged_subs) > 0:
-                            last_end = merged_subs[-1].end
-                            console.print(
-                                f"[yellow]Shifting subtitles by {last_end.hours}h {last_end.minutes}m {last_end.seconds}s {last_end.milliseconds}ms[/yellow]"
+                            meta = MediaInfo.parse(uri) or {}
+                            split_duration = meta.tracks[0].duration + split_duration
+
+                            shift_hours = split_duration // (1000 * 60 * 60)
+                            remaining_milliseconds_after_hours = split_duration % (
+                                1000 * 60 * 60
                             )
-                            if last_end.minutes < args.segment_time / 60 * i:
-                                # Shift all subtitles in the chunk by the end time of the last subtitle
-                                chunk_subs.shift(
-                                    minutes=args.segment_time / 60 * i,
-                                )
-                            else:
-                                # Shift all subtitles in the chunk by the end time of the last subtitle
-                                chunk_subs.shift(
-                                    minutes=last_end.minutes,
-                                    seconds=last_end.seconds,
-                                    milliseconds=last_end.milliseconds,
-                                )
+                            shift_minutes = (
+                                remaining_milliseconds_after_hours // 1000 // 60
+                            )
+                            remaining_milliseconds_after_minutes = (
+                                remaining_milliseconds_after_hours % (1000 * 60)
+                            )
+                            shift_seconds = remaining_milliseconds_after_minutes // 1000
+                            shift_milliseconds = (
+                                remaining_milliseconds_after_minutes % 1000
+                            )
+
+                            console.print(
+                                f"[yellow]Shifting subtitles by {shift_hours}h {shift_minutes}m {shift_seconds}s {shift_milliseconds}ms[/yellow]"
+                            )
+
+                            chunk_subs.shift(
+                                hours=shift_hours,
+                                minutes=shift_minutes,
+                                seconds=shift_seconds,
+                                milliseconds=shift_milliseconds,
+                            )
                             # Update indices to continue from the last subtitle
                             for j, sub in enumerate(
                                 chunk_subs, start=len(merged_subs) + 1
@@ -176,6 +190,8 @@ def process_batch(args, config):
                         console.print(
                             f"[green]Successfully merged chunk {i+1}. Total subtitles: {len(merged_subs)}[/green]"
                         )
+
+                        uri.unlink(missing_ok=True)
 
                     # 手动构建 SRT 格式
                     output = ""
@@ -294,7 +310,7 @@ def _postprocess_caption_content(output, filepath, mode="all"):
         or Path(filepath).suffix in BASE_AUDIO_EXTENSIONS
     ):
         output = re.sub(
-            r"(?<!:)(\d{2}):(\d{2}),(\d{3})",
+            r"(?<!:)(\d{2}):(\d{2})[,:.](\d{3})",
             r"00:\1:\2,\3",
             output,
             flags=re.MULTILINE,
