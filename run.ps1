@@ -5,6 +5,8 @@ $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
 $openai_url
 $open_ai_key
+$step_api_key = ""
+$step_model_path = "step-1.5v-mini"
 $dir_name = $true
 $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
