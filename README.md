@@ -1,6 +1,6 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (1.4)
+# qinglong-captioner (1.5)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
@@ -96,15 +96,24 @@ Use the PowerShell script to generate captions for your videos:
 Note: You'll need to configure your [Gemini API key](https://aistudio.google.com/apikey) in `run.ps1` before using the auto-captioning feature.
 [Pixtral API key](https://console.mistral.ai/api-keys/) optional for image caption.
 
+Now we support [step-1.5v-mini](https://platform.stepfun.com/) optional for video captioner.
+
 ```
 $dataset_path = "./datasets"
 $gemini_api_key = ""
-$gemini_model_path = "gemini-exp-1206"
+$gemini_model_path = "gemini-2.0-flash-thinking-exp-01-21"
 $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
+$openai_url
+$open_ai_key
+$step_api_key = ""
+$step_model_path = "step-1.5v-mini"
 $dir_name = $true
 $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
+$wait_time= 1
+$max_retries = 100
+$segment_time= 300
 ```
 ---
 
@@ -188,13 +197,23 @@ pwsh ./1、install-uv-qinglong.ps1
 
 注意：使用自动字幕生成功能前，需要在 `run.ps1` 中配置 [Gemini API 密钥](https://aistudio.google.com/apikey)。
 [Pixtral API 秘钥](https://console.mistral.ai/api-keys/) 可选为图片打标。
+
+现在我们支持使用[阶跃星辰](https://platform.stepfun.com/)的视频模型进行视频标注。
+
 ```
 $dataset_path = "./datasets"
 $gemini_api_key = ""
-$gemini_model_path = "gemini-exp-1206"
+$gemini_model_path = "gemini-2.0-flash-thinking-exp-01-21"
 $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
+$openai_url
+$open_ai_key
+$step_api_key = ""
+$step_model_path = "step-1.5v-mini"
 $dir_name = $true
 $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
+$wait_time= 1
+$max_retries = 100
+$segment_time= 300
 ```
