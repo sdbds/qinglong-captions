@@ -163,11 +163,6 @@ def process_batch(args, config):
                                     seconds=last_end.seconds,
                                     milliseconds=last_end.milliseconds,
                                 )
-                            # Update indices to continue from the last subtitle
-                            for j, sub in enumerate(
-                                chunk_subs, start=len(merged_subs) + 1
-                            ):
-                                sub.index = j
 
                         # Extend merged subtitles with the shifted chunk
                         merged_subs.extend(chunk_subs)
@@ -177,6 +172,8 @@ def process_batch(args, config):
 
                         uri.unlink(missing_ok=True)
 
+                    # Update indices to continue from the last subtitle
+                    merged_subs.clean_indexes()
                     # 手动构建 SRT 格式
                     output = ""
                     for i, sub in enumerate(merged_subs, start=1):
