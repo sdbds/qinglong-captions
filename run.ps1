@@ -3,16 +3,14 @@ $gemini_api_key = ""
 $gemini_model_path = "gemini-2.0-flash-thinking-exp-01-21"
 $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
-$openai_url
-$open_ai_key
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
 $dir_name = $true
 $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
-$wait_time= 1
+$wait_time = 1
 $max_retries = 100
-$segment_time= 300
+$segment_time = 300
 
 # ============= DO NOT MODIFY CONTENTS BELOW | 请勿修改下方内容 =====================
 # Activate python venv
@@ -60,6 +58,14 @@ if ($pixtral_api_key) {
 
 if ($pixtral_model_path) {
   [void]$ext_args.Add("--pixtral_model_path=$pixtral_model_path")
+}
+
+if ($step_api_key) {
+  [void]$ext_args.Add("--step_api_key=$step_api_key")
+}
+
+if ($step_model_path) {
+  [void]$ext_args.Add("--step_model_path=$step_model_path")
 }
 
 if ($dir_name) {
