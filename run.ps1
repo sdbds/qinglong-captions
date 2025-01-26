@@ -38,11 +38,11 @@ elseif (Test-Path "./.venv/bin/activate") {
 
 $Env:HF_HOME = "huggingface"
 $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
-$Env:HF_ENDPOINT = "https://hf-mirror.com"
+#$Env:HF_ENDPOINT = "https://hf-mirror.com"
 $Env:PILLOW_IGNORE_XMP_DATA_IS_TOO_LONG = "1"
 $ext_args = [System.Collections.ArrayList]::new()
-$Env:HTTP_PROXY = "http://127.0.0.1:7890"
-$Env:HTTPS_PROXY = "http://127.0.0.1:7890"
+#$Env:HTTP_PROXY = "http://127.0.0.1:7890"
+#$Env:HTTPS_PROXY = "http://127.0.0.1:7890"
 
 
 
