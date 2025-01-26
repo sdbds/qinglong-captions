@@ -5,6 +5,7 @@ from typing import List, Optional, Dict, Any, Union, Tuple
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from mistralai import Mistral
+from openai import OpenAI
 from rich_pixels import Pixels
 from rich.progress import Progress
 from rich.console import Console
@@ -37,113 +38,56 @@ def api_process_batch(
         system_prompt = config["prompts"]["image_system_prompt"]
         prompt = config["prompts"]["image_prompt"]
 
-    if args.gemini_api_key != "" and (
-        mime.startswith("video")
-        or mime.startswith("audio")
-        or args.pixtral_api_key == ""
-    ):
+    if args.step_api_key != "" and mime.startswith("video"):
 
-        generation_config = (
-            config["generation_config"][args.gemini_model_path.replace(".", "_")]
-            if config["generation_config"][args.gemini_model_path.replace(".", "_")]
-            else config["generation_config"]["default"]
+        system_prompt = config["prompts"]["step_video_system_prompt"]
+        prompt = config["prompts"]["step_video_prompt"]
+
+        client = OpenAI(
+            api_key=args.step_api_key, base_url="https://api.stepfun.com/v1"
         )
 
-        console.print(f"generation_config: {generation_config}")
+        file = client.files.create(file=open(uri, "rb"), purpose="storage")
 
-        genai.configure(api_key=args.gemini_api_key)
+        console.print(f"[blue]Uploaded video file:[/blue] {file}")
 
-        model = genai.GenerativeModel(
-            model_name=args.gemini_model_path,
-            generation_config=generation_config,
-            system_instruction=system_prompt,
-            safety_settings={
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE
-            },
-        )
-
-        if (
-            mime.startswith("video")
-            or mime.startswith("audio")
-            and Path(uri).stat().st_size >= 20 * 1024 * 1024
-        ):
-            upload_success = False
-            files = []
-
-            for upload_attempt in range(args.max_retries):
-                try:
-                    console.print()
-                    console.print(f"[blue]uploading files for:[/blue] {uri}")
-                    files = [
-                        upload_to_gemini(path=uri, mime_type=mime),
-                    ]
-                    wait_for_files_active(files)
-                    upload_success = True
-                    break
-
-                except Exception as e:
-                    console.print(
-                        f"[yellow]Upload attempt {upload_attempt + 1}/{args.max_retries} failed: {e}[/yellow]"
-                    )
-                    if upload_attempt < args.max_retries - 1:
-                        time.sleep(
-                            args.wait_time * 2
-                        )  # Increase wait time between retries
-                    else:
-                        console.print("[red]All upload attempts failed[/red]")
-                        return ""
-
-            if not upload_success:
-                console.print("[red]Failed to upload file[/red]")
-                return ""
-
-        # Some files have a processing delay. Wait for them to be ready.
-        # wait_for_files_active(files)
         for attempt in range(args.max_retries):
             try:
-                console.print(f"[blue]Generating captions...[/blue]")
                 start_time = time.time()
+                completion = client.chat.completions.create(
+                    model=args.step_model_path,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": system_prompt,
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "video_url",
+                                    "video_url": {"url": "stepfile://" + file.id},
+                                },
+                                {
+                                    "type": "text",
+                                    "text": prompt,
+                                },
+                            ],
+                        },
+                    ],
+                    temperature=0.7,
+                    top_p=0.95,
+                    max_tokens=8192,
+                    stream=True,
+                )
 
-                # # 使用 chat 模式
-                # chat = model.start_chat(
-                #     history=[],
-                # )
-
-                if mime.startswith("video") or (
-                    mime.startswith("audio")
-                    and Path(uri).stat().st_size >= 20 * 1024 * 1024
-                ):
-                    response = model.generate_content([files[0], prompt], stream=True)
-                elif mime.startswith("audio"):
-                    audio_blob = Path(uri).read_bytes()
-                    response = model.generate_content(
-                        [
-                            prompt,
-                            {
-                                "mime_type": mime,
-                                "data": audio_blob,
-                            },
-                        ],
-                        stream=True,
-                    )
-                else:
-                    blob, pixels = encode_image(uri)
-                    response = model.generate_content(
-                        [
-                            {
-                                "mime_type": "image/jpeg",
-                                "data": blob,
-                            },
-                            prompt,
-                        ],
-                        stream=True,
-                    )
-
-                # 收集流式响应
                 chunks = []
-                for chunk in response:
-                    if chunk.text:
-                        chunks.append(chunk.text)
+                for chunk in completion:
+                    if (
+                        hasattr(chunk.choices[0].delta, "content")
+                        and chunk.choices[0].delta.content is not None
+                    ):
+                        chunks.append(chunk.choices[0].delta.content)
                         console.print(".", end="", style="blue")
 
                 console.print("\n")
@@ -199,7 +143,6 @@ def api_process_batch(
                         continue
                 else:
                     content = ""
-
                 return content
             except Exception as e:
                 error_msg = Text(str(e), style="red")
@@ -218,7 +161,7 @@ def api_process_batch(
                 continue
         return ""
 
-    elif mime.startswith("image") and args.pixtral_api_key != "":
+    elif args.pixtral_api_key != "" and mime.startswith("image"):
 
         system_prompt = config["prompts"]["pixtral_image_system_prompt"]
         prompt = config["prompts"]["pixtral_image_prompt"]
@@ -392,6 +335,184 @@ def api_process_batch(
                         console.print("[green]Retrying...[/green]")
                     time.sleep(wait_time)
                     continue
+        return ""
+
+    elif args.gemini_api_key != "" and (
+        mime.startswith("video") or mime.startswith("audio")
+    ):
+        generation_config = (
+            config["generation_config"][args.gemini_model_path.replace(".", "_")]
+            if config["generation_config"][args.gemini_model_path.replace(".", "_")]
+            else config["generation_config"]["default"]
+        )
+
+        console.print(f"generation_config: {generation_config}")
+
+        genai.configure(api_key=args.gemini_api_key)
+
+        model = genai.GenerativeModel(
+            model_name=args.gemini_model_path,
+            generation_config=generation_config,
+            system_instruction=system_prompt,
+            safety_settings={
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE
+            },
+        )
+
+        if (
+            mime.startswith("video")
+            or mime.startswith("audio")
+            and Path(uri).stat().st_size >= 20 * 1024 * 1024
+        ):
+            upload_success = False
+            files = []
+
+            for upload_attempt in range(args.max_retries):
+                try:
+                    console.print()
+                    console.print(f"[blue]uploading files for:[/blue] {uri}")
+                    files = [
+                        upload_to_gemini(path=uri, mime_type=mime),
+                    ]
+                    wait_for_files_active(files)
+                    upload_success = True
+                    break
+
+                except Exception as e:
+                    console.print(
+                        f"[yellow]Upload attempt {upload_attempt + 1}/{args.max_retries} failed: {e}[/yellow]"
+                    )
+                    if upload_attempt < args.max_retries - 1:
+                        time.sleep(
+                            args.wait_time * 2
+                        )  # Increase wait time between retries
+                    else:
+                        console.print("[red]All upload attempts failed[/red]")
+                        return ""
+
+            if not upload_success:
+                console.print("[red]Failed to upload file[/red]")
+                return ""
+
+        # Some files have a processing delay. Wait for them to be ready.
+        # wait_for_files_active(files)
+        for attempt in range(args.max_retries):
+            try:
+                console.print(f"[blue]Generating captions...[/blue]")
+                start_time = time.time()
+
+                # # 使用 chat 模式
+                # chat = model.start_chat(
+                #     history=[],
+                # )
+
+                if mime.startswith("video") or (
+                    mime.startswith("audio")
+                    and Path(uri).stat().st_size >= 20 * 1024 * 1024
+                ):
+                    response = model.generate_content([files[0], prompt], stream=True)
+                elif mime.startswith("audio"):
+                    audio_blob = Path(uri).read_bytes()
+                    response = model.generate_content(
+                        [
+                            prompt,
+                            {
+                                "mime_type": mime,
+                                "data": audio_blob,
+                            },
+                        ],
+                        stream=True,
+                    )
+                else:
+                    blob, pixels = encode_image(uri)
+                    response = model.generate_content(
+                        [
+                            {
+                                "mime_type": "image/jpeg",
+                                "data": blob,
+                            },
+                            prompt,
+                        ],
+                        stream=True,
+                    )
+
+                # 收集流式响应
+                chunks = []
+                for chunk in response:
+                    if chunk.text:
+                        chunks.append(chunk.text)
+                        console.print(".", end="", style="blue")
+
+                console.print("\n")
+                response_text = "".join(chunks)
+
+                elapsed_time = time.time() - start_time
+                console.print(
+                    f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
+                )
+
+                # Convert HTML font tags to rich format
+                display_text = response_text.replace(
+                    '<font color="green">', "[green]"
+                ).replace("</font>", "[/green]")
+                try:
+                    console.print(display_text)
+                except Exception as e:
+                    console.print(Text(display_text))
+
+                # Extract SRT content between first and second ```
+                text = response_text
+                if text:
+                    # 查找所有的 ``` 标记位置
+                    markers = []
+                    start = 0
+                    while True:
+                        pos = text.find("```", start)
+                        if pos == -1:
+                            break
+                        markers.append(pos)
+                        start = pos + 3
+
+                    # 确保找到至少一对标记
+                    if len(markers) >= 2:
+                        # 获取最后一对标记之间的内容
+                        first_marker = markers[-2]
+                        second_marker = markers[-1]
+                        content = text[first_marker + 3 : second_marker]
+
+                        # Remove "srt" if present at the start
+                        if content.startswith("srt"):
+                            content = content[3:]
+
+                        console.print(
+                            f"[blue]Extracted SRT content length:[/blue] {len(content)}"
+                        )
+                        console.print(f"[blue]Found {len(markers)} ``` markers[/blue]")
+                    else:
+                        console.print(
+                            f"[red]Not enough ``` markers: found {len(markers)}[/red]"
+                        )
+                        content = ""
+                        continue
+                else:
+                    content = ""
+
+                return content
+            except Exception as e:
+                error_msg = Text(str(e), style="red")
+                console.print(f"[red]Error processing: {error_msg}[/red]")
+                if attempt < args.max_retries - 1:
+                    console.print(
+                        f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]"
+                    )
+                    elapsed_time = time.time() - start_time
+                    if elapsed_time < args.wait_time:
+                        time.sleep(args.wait_time - elapsed_time)
+                else:
+                    console.print(
+                        f"[red]Failed to process after {args.max_retries} attempts. Skipping.[/red]"
+                    )
+                continue
         return ""
 
 

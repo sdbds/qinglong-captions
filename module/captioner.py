@@ -329,6 +329,20 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--step_api_key",
+        type=str,
+        default="",
+        help="API key for step API",
+    )
+
+    parser.add_argument(
+        "--step_model_path",
+        type=str,
+        default="step-1.5v-mini",
+        help="video model for step",
+    )
+
+    parser.add_argument(
         "--pixtral_api_key",
         type=str,
         default="",
