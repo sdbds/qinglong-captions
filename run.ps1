@@ -1,6 +1,6 @@
 $dataset_path = "./datasets"
 $gemini_api_key = ""
-$gemini_model_path = "gemini-2.0-flash-thinking-exp-01-21"
+$gemini_model_path = "gemini-exp-1206"
 $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
