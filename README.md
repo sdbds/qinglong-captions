@@ -104,8 +104,6 @@ $gemini_api_key = ""
 $gemini_model_path = "gemini-2.0-flash-thinking-exp-01-21"
 $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
-$openai_url
-$open_ai_key
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
 $dir_name = $true
@@ -206,8 +204,6 @@ $gemini_api_key = ""
 $gemini_model_path = "gemini-2.0-flash-thinking-exp-01-21"
 $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
-$openai_url
-$open_ai_key
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
 $dir_name = $true
