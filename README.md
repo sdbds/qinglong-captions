@@ -1,8 +1,20 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (1.5)
+# qinglong-captioner (1.6)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
+
+## Changlog
+
+### 1.6
+
+Now the Google gemini SDK has been updated, and the new version of the SDK is suitable for the new model of gemini 2.0!
+
+The new SDK is more powerful and mainly supports the function of verifying uploaded videos.
+
+If you want to repeatedly tag the same video and no longer need to upload it repeatedly, the video name and file size/hash will be automatically verified.
+
+At the same time, the millisecond-level alignment function has been updated. After the subtitles of long video segmentation are merged, the timeline is automatically aligned to milliseconds, which is very neat!
 
 ## Features
 
@@ -101,7 +113,7 @@ Now we support [step-1.5v-mini](https://platform.stepfun.com/) optional for vide
 ```
 $dataset_path = "./datasets"
 $gemini_api_key = ""
-$gemini_model_path = "gemini-2.0-flash-thinking-exp-01-21"
+$gemini_model_path = "gemini-2.0-pro-exp-02-05"
 $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
@@ -201,7 +213,7 @@ pwsh ./1、install-uv-qinglong.ps1
 ```
 $dataset_path = "./datasets"
 $gemini_api_key = ""
-$gemini_model_path = "gemini-2.0-flash-thinking-exp-01-21"
+$gemini_model_path = "gemini-2.0-pro-exp-02-05"
 $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
