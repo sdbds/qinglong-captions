@@ -16,6 +16,7 @@ from config.config import (
 import toml
 from PIL import Image
 import pysrt
+from pymediainfo import MediaInfo
 from pathlib import Path
 
 Image.MAX_IMAGE_PIXELS = None  # Disable image size limit check
@@ -32,7 +33,7 @@ def process_batch(args, config):
             dataset = transform2lance(dataset_dir=args.dataset_dir, save_binary=False)
 
     scanner = dataset.scanner(
-        columns=["uris", "blob", "mime", "captions", "duration"],
+        columns=["uris", "blob", "mime", "captions", "duration", "hash"],
         scan_in_order=True,
         late_materialization=["blob"],
         batch_size=1,
@@ -48,8 +49,11 @@ def process_batch(args, config):
             filepaths = batch["uris"].to_pylist()
             mime = batch["mime"].to_pylist()
             duration = batch["duration"].to_pylist()
+            sha256hash = batch["hash"].to_pylist()
 
-            for filepath, mime, duration in zip(filepaths, mime, duration):
+            for filepath, mime, duration, sha256hash in zip(
+                filepaths, mime, duration, sha256hash
+            ):
 
                 if mime.startswith("image") or 0 < duration <= args.segment_time * 1000:
 
@@ -58,6 +62,7 @@ def process_batch(args, config):
                         mime=mime,
                         config=config,
                         args=args,
+                        sha256hash=sha256hash,
                     )
 
                     output = _postprocess_caption_content(
@@ -118,6 +123,7 @@ def process_batch(args, config):
                     files = sorted(clip_dir.glob(search_pattern))
 
                     merged_subs = pysrt.SubRipFile()
+                    total_duration = 0
                     for i in range(num_chunks):
                         sub_path = Path(filepath).with_suffix(".srt")
                         if sub_path.exists():
@@ -134,6 +140,7 @@ def process_batch(args, config):
                             mime=mime,
                             config=config,
                             args=args,
+                            sha256hash=sha256hash,
                         )
 
                         console.print(
@@ -146,23 +153,29 @@ def process_batch(args, config):
                         chunk_output = _postprocess_caption_content(chunk_output, uri)
 
                         chunk_subs = pysrt.from_string(chunk_output)
-                        if len(merged_subs) > 0:
-                            last_end = merged_subs[-1].end
+                        if i > 0:
+                            for track in MediaInfo.parse(files[i - 1]).tracks:
+                                if track.track_type == "Video":
+                                    last_duration = track.duration
+                                    break
+                                elif track.track_type == "Audio":
+                                    last_duration = track.duration
+
+                            total_duration += int(last_duration)
+                            # 将纯毫秒单位转换为分、秒、毫秒
+                            last_duration_minutes = int(total_duration / 60000)
+                            last_duration_seconds = int((total_duration % 60000) / 1000)
+                            last_duration_milliseconds = total_duration % 1000
+
                             console.print(
-                                f"[yellow]Shifting subtitles by {last_end.hours}h {last_end.minutes}m {last_end.seconds}s {last_end.milliseconds}ms[/yellow]"
+                                f"[yellow]Total shift duration: {last_duration_minutes}m {last_duration_seconds}s {last_duration_milliseconds}ms[/yellow]"
                             )
-                            if last_end.minutes < args.segment_time / 60 * i:
-                                # Shift all subtitles in the chunk by the end time of the last subtitle
-                                chunk_subs.shift(
-                                    minutes=args.segment_time / 60 * i,
-                                )
-                            else:
-                                # Shift all subtitles in the chunk by the end time of the last subtitle
-                                chunk_subs.shift(
-                                    minutes=last_end.minutes,
-                                    seconds=last_end.seconds,
-                                    milliseconds=last_end.milliseconds,
-                                )
+                            # Shift all subtitles in the chunk
+                            chunk_subs.shift(
+                                minutes=last_duration_minutes,
+                                seconds=last_duration_seconds,
+                                milliseconds=last_duration_milliseconds,
+                            )
 
                         # Extend merged subtitles with the shifted chunk
                         merged_subs.extend(chunk_subs)
@@ -170,7 +183,8 @@ def process_batch(args, config):
                             f"[green]Successfully merged chunk {i+1}. Total subtitles: {len(merged_subs)}[/green]"
                         )
 
-                        uri.unlink(missing_ok=True)
+                    for file in files:
+                        file.unlink(missing_ok=True)
 
                     # Update indices to continue from the last subtitle
                     merged_subs.clean_indexes()

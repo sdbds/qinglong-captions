@@ -42,9 +42,12 @@ google-auth==2.37.0
     #   google-api-core
     #   google-api-python-client
     #   google-auth-httplib2
+    #   google-genai
     #   google-generativeai
 google-auth-httplib2==0.2.0
     # via google-api-python-client
+google-genai==1.0.0
+    # via -r ./requirements.txt
 google-generativeai==0.8.3
     # via -r ./requirements.txt
 googleapis-common-protos==1.66.0
@@ -139,6 +142,7 @@ pyasn1-modules==0.4.1
     # via google-auth
 pydantic==2.10.4
     # via
+    #   google-genai
     #   google-generativeai
     #   mistralai
     #   openai
@@ -161,7 +165,9 @@ python-dateutil==2.9.0.post0
 pytz==2024.2
     # via pandas
 requests==2.32.3
-    # via google-api-core
+    # via
+    #   google-api-core
+    #   google-genai
 rich==13.9.4
     # via
     #   -r ./requirements.txt
@@ -202,3 +208,5 @@ uritemplate==4.1.1
     # via google-api-python-client
 urllib3==2.3.0
     # via requests
+websockets==14.2
+    # via google-genai

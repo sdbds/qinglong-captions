@@ -2,8 +2,8 @@ import time
 import io
 import base64
 from typing import List, Optional, Dict, Any, Union, Tuple
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from google import genai
+from google.genai import types
 from mistralai import Mistral
 from openai import OpenAI
 from rich_pixels import Pixels
@@ -14,6 +14,7 @@ from rich.panel import Panel
 from rich.layout import Layout
 from PIL import Image
 from pathlib import Path
+import re
 
 console = Console()
 
@@ -23,6 +24,7 @@ def api_process_batch(
     mime: str,
     config,
     args,
+    sha256hash: str,
 ) -> str:
 
     system_prompt = config["prompts"]["system_prompt"]
@@ -337,27 +339,53 @@ def api_process_batch(
                     continue
         return ""
 
-    elif args.gemini_api_key != "" and (
-        mime.startswith("video") or mime.startswith("audio")
-    ):
+    elif args.gemini_api_key != "":
         generation_config = (
             config["generation_config"][args.gemini_model_path.replace(".", "_")]
             if config["generation_config"][args.gemini_model_path.replace(".", "_")]
             else config["generation_config"]["default"]
         )
 
+        genai_config = types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=generation_config["temperature"],
+            top_p=generation_config["top_p"],
+            top_k=generation_config["top_k"],
+            candidate_count=config["generation_config"]["candidate_count"],
+            max_output_tokens=generation_config["max_output_tokens"],
+            presence_penalty=0.0,
+            frequency_penalty=0.0,
+            # tools=(
+            #     [types.Tool(google_search_retrieval=types.GoogleSearchRetrieval())]
+            #     if mime.startswith("image") or mime.startswith("audio")
+            #     else None
+            # ),
+            # tool_config=(
+            #     types.ToolConfig(
+            #         function_calling_config=types.FunctionCallingConfig(
+            #             mode="AUTO", allowed_function_names=["google_search_retrieval"]
+            #         )
+            #     )
+            #     if mime.startswith("image") or mime.startswith("audio")
+            #     else None
+            # ),
+            response_mime_type=generation_config["response_mime_type"],
+        )
+
         console.print(f"generation_config: {generation_config}")
 
-        genai.configure(api_key=args.gemini_api_key)
-
-        model = genai.GenerativeModel(
-            model_name=args.gemini_model_path,
-            generation_config=generation_config,
-            system_instruction=system_prompt,
-            safety_settings={
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE
-            },
-        )
+        # try:
+        client = genai.Client(api_key=args.gemini_api_key)
+        # except Exception as e:
+        #     genai.configure(api_key=args.gemini_api_key)
+        #     model = genai.GenerativeModel(
+        #         model_name=args.gemini_model_path,
+        #         generation_config=generation_config,
+        #         system_instruction=system_prompt,
+        #         safety_settings={
+        #             HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE
+        #             },
+        #     )
 
         if (
             mime.startswith("video")
@@ -366,17 +394,50 @@ def api_process_batch(
         ):
             upload_success = False
             files = []
+            file = types.File()
 
             for upload_attempt in range(args.max_retries):
                 try:
                     console.print()
-                    console.print(f"[blue]uploading files for:[/blue] {uri}")
-                    files = [
-                        upload_to_gemini(path=uri, mime_type=mime),
-                    ]
-                    wait_for_files_active(files)
-                    upload_success = True
-                    break
+                    console.print(f"[blue]checking files for:[/blue] {uri}")
+                    try:
+                        file = client.files.get(
+                            name=sanitize_filename_for_gemini(Path(uri).name)
+                        )
+
+                        console.print(file)
+                        if file.state.name == "ACTIVE" and (
+                            base64.b64decode(file.sha256_hash).decode("utf-8")
+                            == sha256hash
+                            or file.size_bytes == Path(uri).stat().st_size
+                        ):
+                            console.print()
+                            console.print(
+                                f"[green]File {file.name} is already active at {file.uri}[/green]"
+                            )
+                            files = [file]
+                            upload_success = True
+                            break
+                        else:
+                            console.print()
+                            console.print(
+                                f"[yellow]File {file.name} is already exist but {base64.b64decode(file.sha256_hash).decode('utf-8')} not have same sha256hash {sha256hash}[/yellow]"
+                            )
+                            client.files.delete(
+                                name=sanitize_filename_for_gemini(Path(uri).name)
+                            )
+                            raise Exception("Delete same name file and retry")
+
+                    except Exception as e:
+                        console.print()
+                        console.print(
+                            f"[yellow]File {file.name} is not active[/yellow]"
+                        )
+                        console.print(f"[blue]uploading files for:[/blue] {uri}")
+                        files = [upload_to_gemini(client, uri, mime_type=mime)]
+                        wait_for_files_active(client, files)
+                        upload_success = True
+                        break
 
                 except Exception as e:
                     console.print(
@@ -401,39 +462,37 @@ def api_process_batch(
                 console.print(f"[blue]Generating captions...[/blue]")
                 start_time = time.time()
 
-                # # 使用 chat 模式
-                # chat = model.start_chat(
-                #     history=[],
-                # )
-
                 if mime.startswith("video") or (
                     mime.startswith("audio")
                     and Path(uri).stat().st_size >= 20 * 1024 * 1024
                 ):
-                    response = model.generate_content([files[0], prompt], stream=True)
+                    response = client.models.generate_content_stream(
+                        model=args.gemini_model_path,
+                        contents=[
+                            types.Part.from_uri(file_uri=files[0].uri, mime_type=mime),
+                            types.Part.from_text(text=prompt),
+                        ],
+                        config=genai_config,
+                    )
                 elif mime.startswith("audio"):
                     audio_blob = Path(uri).read_bytes()
-                    response = model.generate_content(
-                        [
-                            prompt,
-                            {
-                                "mime_type": mime,
-                                "data": audio_blob,
-                            },
+                    response = client.models.generate_content_stream(
+                        model=args.gemini_model_path,
+                        contents=[
+                            types.Part.from_bytes(data=audio_blob, mime_type=mime),
+                            types.Part.from_text(text=prompt),
                         ],
-                        stream=True,
+                        config=genai_config,
                     )
                 else:
                     blob, pixels = encode_image(uri)
-                    response = model.generate_content(
-                        [
-                            {
-                                "mime_type": "image/jpeg",
-                                "data": blob,
-                            },
-                            prompt,
+                    response = client.models.generate_content_stream(
+                        model=args.gemini_model_path,
+                        contents=[
+                            types.Part.from_text(text=prompt),
+                            types.Part.from_bytes(data=blob, mime_type="image/jpeg"),
                         ],
-                        stream=True,
+                        config=genai_config,
                     )
 
                 # 收集流式响应
@@ -516,18 +575,35 @@ def api_process_batch(
         return ""
 
 
-def upload_to_gemini(path, mime_type=None):
+def sanitize_filename_for_gemini(name: str) -> str:
+    """Sanitizes filenames for Gemini API."""
+    sanitized = re.sub(r"[^a-z0-9-]", "-", name.lower())
+    sanitized = re.sub(r"-+", "-", sanitized).strip("-")
+    return sanitized[-40:] if len(sanitized) > 40 else sanitized
+
+
+def upload_to_gemini(client, path, mime_type=None):
     """Uploads the given file to Gemini.
 
     See https://ai.google.dev/gemini-api/docs/prompting_with_media
     """
-    file = genai.upload_file(path, mime_type=mime_type)
+    original_name = Path(path).name
+    safe_name = sanitize_filename_for_gemini(original_name)
+
+    file = client.files.upload(
+        file=path,
+        config=types.UploadFileConfig(
+            name=safe_name,
+            mime_type=mime_type,
+            display_name=original_name,
+        ),
+    )
     console.print()
     console.print(f"[blue]Uploaded file[/blue] '{file.display_name}' as: {file.uri}")
     return file
 
 
-def wait_for_files_active(files):
+def wait_for_files_active(client, files):
     """Waits for the given files to be active.
 
     Some files uploaded to the Gemini API need to be processed before they can be
@@ -539,11 +615,11 @@ def wait_for_files_active(files):
     """
     console.print("[yellow]Waiting for file processing...[/yellow]")
     for name in (file.name for file in files):
-        file = genai.get_file(name)
+        file = client.files.get(name=name)
         with console.status("[yellow]Processing...[/yellow]", spinner="dots") as status:
             while file.state.name == "PROCESSING":
                 time.sleep(10)
-                file = genai.get_file(name)
+                file = client.files.get(name=name)
             if file.state.name != "ACTIVE":
                 raise Exception(f"File {file.name} failed to process")
     console.print("[green]...all files ready[/green]")
