@@ -369,23 +369,22 @@ def api_process_batch(
             #     if mime.startswith("image") or mime.startswith("audio")
             #     else None
             # ),
+            safety_settings=[
+                types.SafetySetting(
+                    category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                ),
+                types.SafetySetting(
+                    category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                ),
+            ],
             response_mime_type=generation_config["response_mime_type"],
         )
 
         console.print(f"generation_config: {generation_config}")
 
-        # try:
         client = genai.Client(api_key=args.gemini_api_key)
-        # except Exception as e:
-        #     genai.configure(api_key=args.gemini_api_key)
-        #     model = genai.GenerativeModel(
-        #         model_name=args.gemini_model_path,
-        #         generation_config=generation_config,
-        #         system_instruction=system_prompt,
-        #         safety_settings={
-        #             HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE
-        #             },
-        #     )
 
         if (
             mime.startswith("video")

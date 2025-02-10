@@ -161,7 +161,7 @@ def process_batch(args, config):
                                 elif track.track_type == "Audio":
                                     last_duration = track.duration
 
-                            total_duration += int(last_duration)
+                            total_duration += int(float(last_duration))
                             # 将纯毫秒单位转换为分、秒、毫秒
                             last_duration_minutes = int(total_duration / 60000)
                             last_duration_seconds = int((total_duration % 60000) / 1000)
