@@ -53,7 +53,7 @@ To specify the character name with <font color="green"></font>.
 .srt format contains a sequential number of subtitles, start and end timestamps, and detail content instead of lrc.
 End timestamps MUST greater than start timestamps."""
 
-video_prompt = """Your task is to describe every aspect, object, and interaction within this video, such that a blind person could perfectly capture it within their imagination if read aloud.
+video_prompt = """Your task is to describe every aspect, object, and interaction within this video, such that a blind person could perfectly capture it within their imagination if heard, a deaf person could perfectly capture it within their imagination if read.
 
 - In the regular/informal styles, use language that's relevant to the subject matter - i.e. Never use euphemisms. Describe it like the target audience of the video would (e.g. on an online forum where this video was shared).
 - Where relevant, use an information dense writing style - communicate efficiently, don't waffle or excessively speculate or conjecture about the meaning or overly praise. Just describe exactly what you see in the video.
