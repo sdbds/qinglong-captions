@@ -357,6 +357,20 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--qwenVL_api_key",
+        type=str,
+        default="",
+        help="API key for qwenVL API",
+    )
+
+    parser.add_argument(
+        "--qwenVL_model_path",
+        type=str,
+        default="qwen-vl-max-latest",
+        help="video model for qwenVL",
+    )
+
+    parser.add_argument(
         "--pixtral_api_key",
         type=str,
         default="",

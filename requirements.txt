@@ -15,4 +15,6 @@ mutagen
 pyarrow>=14.0.1
 mistralai
 google-generativeai
+google-genai
 openAI
+dashscope

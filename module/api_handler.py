@@ -163,6 +163,120 @@ def api_process_batch(
                 continue
         return ""
 
+    elif args.qwenVL_api_key != "" and mime.startswith("video"):
+        import dashscope
+
+        system_prompt = config["prompts"]["qwenvl_video_system_prompt"]
+        prompt = config["prompts"]["qwenvl_video_prompt"]
+
+        file = f"file://{Path(uri).resolve().as_posix()}"
+
+        console.print(f"[blue]Uploading video file:[/blue] {file}")
+
+        messages = [
+            {
+                "role": "system",
+                "content": [
+                    {"text": system_prompt},
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "video": file,
+                        # "video": "https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20241115/cqqkru/1.mp4",
+                    },
+                    {"text": prompt},
+                ],
+            },
+        ]
+
+        for attempt in range(args.max_retries):
+            try:
+                start_time = time.time()
+                responses = dashscope.MultiModalConversation.call(
+                    model=args.qwenVL_model_path,
+                    messages=messages,
+                    api_key=args.qwenVL_api_key,
+                    stream=True,
+                )
+
+                chunks = ""
+                for chunk in responses:
+                    chunks += chunk.output.choices[0].message.content[0]["text"]
+                    console.print(chunks)
+                console.print("\n")
+                response_text = chunks
+
+                elapsed_time = time.time() - start_time
+                console.print(
+                    f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
+                )
+
+                # Convert HTML font tags to rich format
+                display_text = response_text.replace(
+                    '<font color="green">', "[green]"
+                ).replace("</font>", "[/green]")
+                try:
+                    console.print(display_text)
+                except Exception as e:
+                    console.print(Text(display_text))
+
+                # Extract SRT content between first and second ```
+                text = response_text
+                if text:
+                    # 查找所有的 ``` 标记位置
+                    markers = []
+                    start = 0
+                    while True:
+                        pos = text.find("```", start)
+                        if pos == -1:
+                            break
+                        markers.append(pos)
+                        start = pos + 3
+
+                    # 确保找到至少一对标记
+                    if len(markers) >= 2:
+                        # 获取最后一对标记之间的内容
+                        first_marker = markers[-2]
+                        second_marker = markers[-1]
+                        content = text[first_marker + 3 : second_marker]
+
+                        # Remove "srt" if present at the start
+                        if content.startswith("srt"):
+                            content = content[3:]
+
+                        console.print(
+                            f"[blue]Extracted SRT content length:[/blue] {len(content)}"
+                        )
+                        console.print(f"[blue]Found {len(markers)} ``` markers[/blue]")
+                    else:
+                        console.print(
+                            f"[red]Not enough ``` markers: found {len(markers)}[/red]"
+                        )
+                        content = ""
+                        continue
+                else:
+                    content = ""
+                return content
+            except Exception as e:
+                error_msg = Text(str(e), style="red")
+                console.print(f"[red]Error processing: {error_msg}[/red]")
+                if attempt < args.max_retries - 1:
+                    console.print(
+                        f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]"
+                    )
+                    elapsed_time = time.time() - start_time
+                    if elapsed_time < args.wait_time:
+                        time.sleep(args.wait_time - elapsed_time)
+                else:
+                    console.print(
+                        f"[red]Failed to process after {args.max_retries} attempts. Skipping.[/red]"
+                    )
+                continue
+        return ""
+
     elif args.pixtral_api_key != "" and mime.startswith("image"):
 
         system_prompt = config["prompts"]["pixtral_image_system_prompt"]

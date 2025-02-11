@@ -5,6 +5,8 @@ $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
+$qwenVL_api_key = ""
+$qwenVL_model_path = "qwen-vl-max-latest" # qwen-vl-max-latest qwen-vl-plus-latest
 $dir_name = $true
 $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
@@ -66,6 +68,14 @@ if ($step_api_key) {
 
 if ($step_model_path) {
   [void]$ext_args.Add("--step_model_path=$step_model_path")
+}
+
+if ($qwenVL_api_key) {
+  [void]$ext_args.Add("--qwenVL_api_key=$qwenVL_api_key")
+}
+
+if ($qwenVL_model_path) {
+  [void]$ext_args.Add("--qwenVL_model_path=$qwenVL_model_path")
 }
 
 if ($dir_name) {
