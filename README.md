@@ -15,6 +15,9 @@ Now we support the qwen-VL series video caption model!
 - qwen2.5-vl-7b-instruct
 - qwen2.5-vl-3b-instruct
 
+qwen2.5-vl has 2 seconds ~ 10 mins, qwen-vl-max-latest has 1 min limit.
+These models are not good at capturing timestamps; it is recommended to use segmented video clips for captions and to modify the prompts.
+
 Video upload feature requires an application to be submitted to the official, please submit the application [here](https://smartservice.console.aliyun.com/service/create-ticket?spm=a2c4g.11186623.0.0.3489b0a8Ql486b).
 
 We consider adding local model inference in the future, such as qwen2.5-vl-7b-instruct, etc.
