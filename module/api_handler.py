@@ -200,12 +200,19 @@ def api_process_batch(
                     messages=messages,
                     api_key=args.qwenVL_api_key,
                     stream=True,
+                    incremental_output=True,
                 )
 
                 chunks = ""
                 for chunk in responses:
+                    print(chunk)
                     chunks += chunk.output.choices[0].message.content[0]["text"]
-                    console.print(chunks)
+                    try:
+                        console.print(chunks, end="", overflow="ellipsis")
+                    except Exception as e:
+                        console.print(Text(chunks), end="", overflow="ellipsis")
+                    finally:
+                        console.file.flush()
                 console.print("\n")
                 response_text = chunks
 
@@ -613,7 +620,13 @@ def api_process_batch(
                 for chunk in response:
                     if chunk.text:
                         chunks.append(chunk.text)
-                        console.print(".", end="", style="blue")
+                        console.print("")
+                        try:
+                            console.print(chunk.text, end="" , overflow="ellipsis")
+                        except Exception as e:
+                            console.print(Text(chunk.text), end="" , overflow="ellipsis")
+                        finally:
+                            console.file.flush()
 
                 console.print("\n")
                 response_text = "".join(chunks)
