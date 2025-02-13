@@ -236,6 +236,7 @@ def split_video_with_imageio_ffmpeg(
                     str(uri),  # 输入文件
                     "-ss",
                     start_time,  # 开始时间
+                    "-copyts",
                     "-t",
                     str(duration),  # 结束时间
                     "-c:v",
