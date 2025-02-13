@@ -1,10 +1,25 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (1.6)
+# qinglong-captioner (1.7)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changlog
+
+### 1.7
+
+Now we support the qwen-VL series video caption model!
+
+- qwen-vl-max-latest
+- qwen2.5-vl-72b-instruct 
+- qwen2.5-vl-7b-instruct
+- qwen2.5-vl-3b-instruct
+
+Video upload feature requires an application to be submitted to the official, please submit the application [here](https://smartservice.console.aliyun.com/service/create-ticket?spm=a2c4g.11186623.0.0.3489b0a8Ql486b).
+
+We consider adding local model inference in the future, such as qwen2.5-vl-7b-instruct, etc.
+
+Additionally, now using streaming inference to output logs, you can see the model's real-time output before the complete output is displayed.
 
 ### 1.6
 
@@ -110,6 +125,8 @@ Note: You'll need to configure your [Gemini API key](https://aistudio.google.com
 
 Now we support [step-1.5v-mini](https://platform.stepfun.com/) optional for video captioner.
 
+Now we support [qwen-VL](https://bailian.console.aliyun.com/#/model-market) series optional for video captioner.
+
 ```
 $dataset_path = "./datasets"
 $gemini_api_key = ""
@@ -118,6 +135,8 @@ $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
+$qwenVL_api_key = ""
+$qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
 $dir_name = $true
 $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
@@ -210,6 +229,8 @@ pwsh ./1、install-uv-qinglong.ps1
 
 现在我们支持使用[阶跃星辰](https://platform.stepfun.com/)的视频模型进行视频标注。
 
+现在我们支持使用[通义千问VL](https://bailian.console.aliyun.com/#/model-market)的视频模型进行视频标注。
+
 ```
 $dataset_path = "./datasets"
 $gemini_api_key = ""
@@ -218,6 +239,8 @@ $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
+$qwenVL_api_key = ""
+$qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
 $dir_name = $true
 $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
