@@ -16,8 +16,6 @@ from PIL import Image
 from pathlib import Path
 import re
 
-console = Console()
-
 
 def api_process_batch(
     uri: str,
@@ -25,7 +23,9 @@ def api_process_batch(
     config,
     args,
     sha256hash: str,
+    progress: Progress = None,
 ) -> str:
+    console = Console() if progress is None else progress
 
     system_prompt = config["prompts"]["system_prompt"]
     prompt = config["prompts"]["prompt"]
@@ -448,13 +448,13 @@ def api_process_batch(
                         console.print(
                             f"[yellow]429 error, waiting {wait_time} seconds and retrying...[/yellow]"
                         )
-                        with Progress() as progress:
-                            task = progress.add_task(
+                        with Progress() as progress2:
+                            task = progress2.add_task(
                                 "[magenta]Waiting...", total=wait_time
                             )
                             for _ in range(wait_time):
                                 time.sleep(1)
-                                progress.update(task, advance=1)
+                                progress2.update(task, advance=1)
                         console.print("[green]Retrying...[/green]")
                     time.sleep(wait_time)
                     continue
@@ -622,9 +622,9 @@ def api_process_batch(
                         chunks.append(chunk.text)
                         console.print("")
                         try:
-                            console.print(chunk.text, end="" , overflow="ellipsis")
+                            console.print(chunk.text, end="", overflow="ellipsis")
                         except Exception as e:
-                            console.print(Text(chunk.text), end="" , overflow="ellipsis")
+                            console.print(Text(chunk.text), end="", overflow="ellipsis")
                         finally:
                             console.file.flush()
 

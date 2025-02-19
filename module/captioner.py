@@ -63,6 +63,7 @@ def process_batch(args, config):
                         config=config,
                         args=args,
                         sha256hash=sha256hash,
+                        progress=progress,
                     )
 
                     output = _postprocess_caption_content(
@@ -141,6 +142,7 @@ def process_batch(args, config):
                             config=config,
                             args=args,
                             sha256hash=sha256hash,
+                            progress=progress,
                         )
 
                         console.print(
