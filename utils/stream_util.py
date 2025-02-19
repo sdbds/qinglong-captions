@@ -232,13 +232,12 @@ def split_video_with_imageio_ffmpeg(
                 # 第一个片段，-ss 放在 -i 前面以获得更精确的开始时间
                 command = [
                     ffmpeg_exe,
-                    "-i",
-                    str(uri),  # 输入文件
                     "-ss",
                     start_time,  # 开始时间
-                    "-copyts",
                     "-t",
-                    str(duration),  # 结束时间
+                    str(duration),  # 持续时间
+                    "-i",
+                    str(uri),  # 输入文件
                     "-c:v",
                     "libx264",  # 重新编码视频流
                     "-c:a",
