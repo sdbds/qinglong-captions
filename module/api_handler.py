@@ -16,6 +16,8 @@ from PIL import Image
 from pathlib import Path
 import re
 
+console = Console()
+
 
 def api_process_batch(
     uri: str,
@@ -25,7 +27,10 @@ def api_process_batch(
     sha256hash: str,
     progress: Progress = None,
 ) -> str:
-    console = Console() if progress is None else progress
+    # Use global console if no progress is provided
+    global console
+    if progress is not None:
+        console = progress.console
 
     system_prompt = config["prompts"]["system_prompt"]
     prompt = config["prompts"]["prompt"]
@@ -526,20 +531,24 @@ def api_process_batch(
                         )
 
                         console.print(file)
-                        if file.state.name == "ACTIVE" and (
+                        if (
                             base64.b64decode(file.sha256_hash).decode("utf-8")
                             == sha256hash
                             or file.size_bytes == Path(uri).stat().st_size
                         ):
                             console.print()
                             console.print(
-                                f"[green]File {file.name} is already active at {file.uri}[/green]"
+                                f"[cyan]File {file.name} is already at {file.uri}[/cyan]"
                             )
                             files = [file]
+                            wait_for_files_active(client, files, console)
+                            console.print()
+                            console.print(
+                                f"[green]File {file.name} is already active at {file.uri}[/green]"
+                            )
                             upload_success = True
                             break
                         else:
-                            console.print()
                             console.print(
                                 f"[yellow]File {file.name} is already exist but {base64.b64decode(file.sha256_hash).decode('utf-8')} not have same sha256hash {sha256hash}[/yellow]"
                             )
@@ -551,11 +560,11 @@ def api_process_batch(
                     except Exception as e:
                         console.print()
                         console.print(
-                            f"[yellow]File {file.name} is not active[/yellow]"
+                            f"[yellow]File {file.name if file.name else ''} is not exist[/yellow]"
                         )
                         console.print(f"[blue]uploading files for:[/blue] {uri}")
                         files = [upload_to_gemini(client, uri, mime_type=mime)]
-                        wait_for_files_active(client, files)
+                        wait_for_files_active(client, files, console)
                         upload_success = True
                         break
 
@@ -702,10 +711,34 @@ def api_process_batch(
 
 
 def sanitize_filename_for_gemini(name: str) -> str:
-    """Sanitizes filenames for Gemini API."""
+    """Sanitizes filenames for Gemini API.
+    
+    Requirements:
+    - Only lowercase alphanumeric characters or dashes (-)
+    - Cannot begin or end with a dash
+    - Max length is 40 characters
+    """
+    # Convert to lowercase and replace non-alphanumeric chars with dash
     sanitized = re.sub(r"[^a-z0-9-]", "-", name.lower())
-    sanitized = re.sub(r"-+", "-", sanitized).strip("-")
-    return sanitized[-40:] if len(sanitized) > 40 else sanitized
+    # Replace multiple dashes with single dash
+    sanitized = re.sub(r"-+", "-", sanitized)
+    # Remove leading and trailing dashes
+    sanitized = sanitized.strip("-")
+    # If empty after sanitization, use a default name
+    if not sanitized:
+        sanitized = "file"
+    # Ensure it starts and ends with alphanumeric character
+    if sanitized[0] == "-":
+        sanitized = "f" + sanitized
+    if sanitized[-1] == "-":
+        sanitized = sanitized + "f"
+    # If length exceeds 40, keep the first 20 and last 19 chars with a dash in between
+    if len(sanitized) > 40:
+        # Take parts that don't end with dash
+        first_part = sanitized[:20].rstrip("-")
+        last_part = sanitized[-19:].rstrip("-")
+        sanitized = first_part + "-" + last_part
+    return sanitized
 
 
 def upload_to_gemini(client, path, mime_type=None):
@@ -729,27 +762,33 @@ def upload_to_gemini(client, path, mime_type=None):
     return file
 
 
-def wait_for_files_active(client, files):
+def wait_for_files_active(client, files, output_console=None):
     """Waits for the given files to be active.
 
     Some files uploaded to the Gemini API need to be processed before they can be
     used as prompt inputs. The status can be seen by querying the file's "state"
     field.
 
-    This implementation uses a simple blocking polling loop. Production code
-    should probably employ a more sophisticated approach.
+    Args:
+        client: The Gemini client
+        files: List of files to wait for
+        output_console: Optional console to use for output. If None, uses global console.
     """
-    console.print("[yellow]Waiting for file processing...[/yellow]")
+    # Use provided console or fall back to global
+    output_console = output_console or console
+    
+    output_console.print("[yellow]Waiting for file processing...[/yellow]")
     for name in (file.name for file in files):
         file = client.files.get(name=name)
-        with console.status("[yellow]Processing...[/yellow]", spinner="dots") as status:
-            while file.state.name == "PROCESSING":
-                time.sleep(10)
-                file = client.files.get(name=name)
-            if file.state.name != "ACTIVE":
+        while file.state.name != "ACTIVE":
+            if file.state.name == "FAILED":
                 raise Exception(f"File {file.name} failed to process")
-    console.print("[green]...all files ready[/green]")
-    console.print()
+            output_console.print(".", end="", style="yellow")
+            time.sleep(10)
+            file = client.files.get(name=name)
+        output_console.print()  # New line after dots
+    output_console.print("[green]...all files ready[/green]")
+    output_console.print()
 
 
 def encode_image(image_path: str) -> Optional[Tuple[str, Pixels]]:
