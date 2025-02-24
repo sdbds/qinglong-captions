@@ -33,6 +33,7 @@ $TagConfig = @{
 #region Environment Setup
 # Activate python venv
 Set-Location $PSScriptRoot
+$env:PYTHONPATH = "$PSScriptRoot;$env:PYTHONPATH"
 $VenvPaths = @(
     "./venv/Scripts/activate",
     "./.venv/Scripts/activate",
@@ -87,7 +88,7 @@ if ($TagConfig.tag_replacement) { [void]$ExtArgs.Add("--tag_replacement=$($TagCo
 Write-Output "Starting tagger..."
 
 # Run tagger
-python -m utils.wdtagger `
+accelerate launch --num_cpu_threads_per_process=8 "./utils/wdtagger.py" `
     $Config.train_data_dir `
     --thresh=$($Config.thresh) `
     --caption_extension .txt `

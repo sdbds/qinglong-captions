@@ -323,7 +323,11 @@ class FileProcessor:
                     try:
                         with iio.imopen(file_path, "r") as file:
                             first_frame = file.read(index=0)
-                            channels = first_frame.shape[2] if len(first_frame.shape) > 2 else 1
+                            channels = (
+                                first_frame.shape[2]
+                                if len(first_frame.shape) > 2
+                                else 1
+                            )
                             depth = first_frame.dtype.itemsize * 8
                     except Exception as e:
                         console.print(
@@ -644,13 +648,14 @@ def transform2lance(
             schema, process(data, save_binary, import_mode)
         )
 
-        if not_save_disk:
-            table = reader.read_all()
-            return lance.dataset(table)
-
         dataset_path = Path(dataset_dir) / f"{output_name}.lance"
+        mode = "append" if dataset_path.exists() else "create"
+
         lancedataset = lance.write_dataset(
-            reader, str(dataset_path), schema, mode="overwrite"
+            reader,
+            str(dataset_path),
+            schema,
+            mode=mode if not_save_disk else "overwrite",
         )
 
         try:

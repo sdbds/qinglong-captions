@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
-from PIL import Image, ImageOps
+import cv2
+from PIL import Image
 from pathlib import Path
 import csv
 import lance
@@ -14,11 +15,14 @@ from rich.progress import (
     BarColumn,
     TaskProgressColumn,
     TimeRemainingColumn,
+    TransferSpeedColumn,
+    TimeElapsedColumn,
 )
 import torch
 import onnxruntime as ort
 from huggingface_hub import hf_hub_download
 from module.lanceImport import transform2lance
+import io
 
 console = Console()
 
@@ -32,26 +36,37 @@ PARENTS_CSV = "tag_implications.csv"
 
 
 def preprocess_image(image):
-    """预处理图像"""
-    # Convert BGR to RGB if needed
-    if image.mode == "RGB":
-        image = ImageOps.invert(
-            ImageOps.invert(image)
-        )  # No-op to ensure we have a copy
+    image = np.array(image)
+    image = image[:, :, ::-1]  # RGB->BGR
+
+    # pad to square
+    size = max(image.shape[0:2])
+    pad_x = size - image.shape[1]
+    pad_y = size - image.shape[0]
+    pad_l = pad_x // 2
+    pad_t = pad_y // 2
+    image = np.pad(
+        image,
+        ((pad_t, pad_y - pad_t), (pad_l, pad_x - pad_l), (0, 0)),
+        mode="constant",
+        constant_values=255,
+    )
+
+    if size > IMAGE_SIZE:
+        image = cv2.resize(image, (IMAGE_SIZE, IMAGE_SIZE), cv2.INTER_AREA)
     else:
-        image = image.convert("RGB")
+        image = Image.fromarray(image)
+        image = image.resize((IMAGE_SIZE, IMAGE_SIZE), Image.LANCZOS)
 
-    # Resize and pad the image while maintaining aspect ratio
-    image = ImageOps.pad(image, (IMAGE_SIZE, IMAGE_SIZE), method=Image.LANCZOS)
-
+    image = image.astype(np.float32)
     return image
 
 
 def process_batch(images, session, input_name):
     """处理图像批次"""
     try:
-        # 准备批处理数据并转换为float32
-        batch_data = np.stack([np.array(img, dtype=np.float32) for img in images])
+        # 图像已经是 numpy 数组，直接堆叠并确保连续
+        batch_data = np.ascontiguousarray(np.stack(images))
         # 执行推理
         outputs = session.run(None, {input_name: batch_data})
         return outputs[0]
@@ -60,27 +75,27 @@ def process_batch(images, session, input_name):
         return None
 
 
-def load_model_and_tags(args, force_download=False):
+def load_model_and_tags(args):
     """加载模型和标签"""
     model_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / "model.onnx"
 
     # 下载模型和标签文件
-    if not model_path.exists() or force_download:
+    if not model_path.exists() or args.force_download:
         for file in FILES:
             file_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / file
-            if not file_path.exists() or force_download:
+            if not file_path.exists() or args.force_download:
                 file_path = Path(
                     hf_hub_download(
                         repo_id=args.repo_id,
                         filename=file,
                         local_dir=file_path.parent,
-                        force_download=force_download,
+                        force_download=args.force_download,
                         force_filename=file,
                     )
                 )
-                print(f"Downloaded {file} to {file_path}")
+                console.print(f"[blue]Downloaded {file} to {file_path}[/blue]")
             else:
-                print(f"Using existing {file}")
+                console.print(f"[green]Using existing {file}[/green]")
 
     # 加载标签
     csv_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / CSV_FILE
@@ -102,38 +117,58 @@ def load_model_and_tags(args, force_download=False):
     general_tags = [row[1] for row in rows if row[2] == "0"]  # general tags
     character_tags = [row[1] for row in rows if row[2] == "4"]  # character tags
 
-    print(
-        f"Tags loaded: {len(rows)} total, {len(rating_tags)} rating, {len(character_tags)} character, {len(general_tags)} general"
+    console.print(
+        f"[blue]Tags loaded: {len(rows)} total, {len(rating_tags)} rating, {len(character_tags)} character, {len(general_tags)} general[/blue]"
     )
 
     # 设置推理提供者
     providers = []
     if "CUDAExecutionProvider" in ort.get_available_providers():
         providers.append("CUDAExecutionProvider")
-        print("Using CUDA for inference")
+        console.print("[green]Using CUDA for inference[/green]")
     elif "ROCMExecutionProvider" in ort.get_available_providers():
         providers.append("ROCMExecutionProvider")
-        print("Using ROCm for inference")
+        console.print("[green]Using ROCm for inference[/green]")
     elif "OpenVINOExecutionProvider" in ort.get_available_providers():
         providers = [("OpenVINOExecutionProvider", {"device_type": "GPU_FP32"})]
-        print("Using OpenVINO for inference")
+        console.print("[green]Using OpenVINO for inference[/green]")
     else:
         providers.append("CPUExecutionProvider")
-        print("Using CPU for inference")
+        console.print("[yellow]Using CPU for inference[/yellow]")
 
-    # 加载模型
-    print("Loading model...")
-    if not model_path.exists():
-        raise Exception(
-            f"ONNX model not found: {model_path}. Please redownload with --force_download"
-        )
+    # 创建推理会话
+    sess_options = ort.SessionOptions()
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL  # 启用所有优化
 
-    try:
-        ort_sess = ort.InferenceSession(str(model_path), providers=providers)
-        input_name = ort_sess.get_inputs()[0].name
-    except Exception as e:
-        raise Exception(f"Failed to create inference session: {str(e)}")
-    print("Model loaded")
+    if "CPUExecutionProvider" in providers:
+        # CPU时启用多线程推理
+        sess_options.execution_mode = ort.ExecutionMode.ORT_PARALLEL  # 启用并行执行
+        sess_options.inter_op_num_threads = 4  # 设置线程数
+        sess_options.intra_op_num_threads = 4  # 设置算子内部并行数
+
+    if "CUDAExecutionProvider" in providers:
+        # CUDA GPU 优化
+        sess_options.enable_mem_pattern = True
+        sess_options.enable_mem_reuse = True
+        # CUDA 特定优化
+        provider_options = {
+            "cudnn_conv_algo_search": "EXHAUSTIVE",
+            "do_copy_in_default_stream": True,
+        }
+        providers_with_options = [
+            ("CUDAExecutionProvider", provider_options),
+            "CPUExecutionProvider"
+        ]
+    else:
+        providers_with_options = providers
+
+    ort_sess = ort.InferenceSession(
+        str(model_path),
+        sess_options=sess_options,
+        providers=providers_with_options
+    )
+    input_name = ort_sess.get_inputs()[0].name
+    console.print("[green]Model loaded[/green]")
 
     return ort_sess, input_name, rating_tags, character_tags, general_tags
 
@@ -157,21 +192,9 @@ def main(args):
         dataset = args.train_data_dir
         console.print("[green]Using existing Lance dataset[/green]")
 
-    # 检查模型位置
-    model_location = Path(args.model_dir)
-    if not model_location.exists() or args.force_download:
-        model_location.parent.mkdir(parents=True, exist_ok=True)
-        console.print(
-            f"[yellow]Downloading WD14 tagger model from HuggingFace. ID: {args.repo_id}[/yellow]"
-        )
-        ort_sess, input_name, rating_tags, character_tags, general_tags = (
-            load_model_and_tags(args, args.force_download)
-        )
-    else:
-        console.print("[green]Using existing WD14 tagger model[/green]")
-        ort_sess, input_name, rating_tags, character_tags, general_tags = (
-            load_model_and_tags(args, False)
-        )
+    ort_sess, input_name, rating_tags, character_tags, general_tags = (
+        load_model_and_tags(args)
+    )
 
     # 处理标签
     if args.character_tag_expand:
@@ -209,7 +232,7 @@ def main(args):
             source, target = [
                 tag.replace("@@@@", ",").replace("####", ";") for tag in tags
             ]
-            console.print(f"replacing tag: {source} -> {target}")
+            console.print(f"[blue]replacing tag: {source} -> {target}[/blue]")
 
             if source in general_tags:
                 general_tags[general_tags.index(source)] = target
@@ -232,9 +255,9 @@ def main(args):
                     repo_type="dataset",
                 )
             )
-            print(f"Downloaded {PARENTS_CSV} to {csv_file_path}")
+            console.print(f"[blue]Downloaded {PARENTS_CSV} to {csv_file_path}[/blue]")
         else:
-            print(f"Using existing {PARENTS_CSV}")
+            console.print(f"[green]Using existing {PARENTS_CSV}[/green]")
 
         parent_to_child_map = {}
         with csv_file_path.open("r", encoding="utf-8") as f:
@@ -253,12 +276,21 @@ def main(args):
 
     # 使用 Lance 扫描器处理图像
     tag_freq = {}
+
+    # 先计算图片总数
+    total_images = len(dataset.to_table(columns=["mime"], filter="mime LIKE 'image/%'"))
+
     # 然后创建带columns的scanner处理数据
     scanner = dataset.scanner(
-        columns=["uris", "mime"], 
-        scan_in_order=True, 
+        columns=["uris", "mime"],
+        filter="mime LIKE 'image/%'",
+        scan_in_order=True,
         batch_size=args.batch_size,
-        filter="mime LIKE 'image/%'"  # 只处理图像类型的文件
+        batch_readahead=8,
+        fragment_readahead=2,
+        io_buffer_size=8 * 1024 * 1024,  # 8MB buffer
+        late_materialization=True,
+        with_row_id=True,
     )
 
     results = []
@@ -268,18 +300,25 @@ def main(args):
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
+        TransferSpeedColumn(),
+        TimeElapsedColumn(),
         TimeRemainingColumn(),
     ) as progress:
-        task = progress.add_task("[cyan]Processing images...", total=scanner.to_table().num_rows)
+        task = progress.add_task("[cyan]Processing images...", total=total_images)
 
         for batch in scanner.to_batches():
-            batch_paths = [Path(uri) for uri in batch["uris"].to_pylist()]
-            batch_images = [preprocess_image(Image.open(path)) for path in batch_paths]
+            row_ids = batch["_rowid"].to_pylist()  # 获取行ID
+            blobs = dataset.take_blobs(row_ids, "blob")
+
+            batch_images = [
+                preprocess_image(Image.open(io.BytesIO(blob.readall())).convert("RGB"))
+                for blob in blobs
+            ]
 
             # 处理批次
             probs = process_batch(batch_images, ort_sess, input_name)
             if probs is not None:
-                for path, prob in zip(batch_paths, probs):
+                for path, prob in zip(batch["uris"].to_pylist(), probs):
                     # 获取高置信度的标签
                     found_tags = []
                     general_confidence = args.general_threshold or args.thresh
@@ -301,7 +340,10 @@ def main(args):
                             found_tags.append(general_tags[i])
                         elif i >= len(general_tags):
                             char_idx = i - len(general_tags)
-                            if char_idx < len(character_tags) and p >= character_confidence:
+                            if (
+                                char_idx < len(character_tags)
+                                and p >= character_confidence
+                            ):
                                 if args.character_tags_first:
                                     found_tags.insert(0, character_tags[char_idx])
                                 else:
@@ -323,7 +365,7 @@ def main(args):
                             tag_freq[tag] = tag_freq.get(tag, 0) + 1
 
                     # 保存结果
-                    output_path = path.with_suffix(args.caption_extension)
+                    output_path = Path(path).with_suffix(args.caption_extension)
                     if args.append_tags and output_path.exists():
                         with output_path.open("r", encoding="utf-8") as f:
                             existing_tags = f.read().strip()
@@ -335,7 +377,7 @@ def main(args):
                     with output_path.open("w", encoding="utf-8") as f:
                         f.write(args.caption_separator.join(found_tags))
 
-            progress.update(task, advance=len(batch_paths))
+            progress.update(task, advance=len(batch["uris"].to_pylist()))
 
     if args.frequency_tags:
         console.print("\n[yellow]Tag frequencies:[/yellow]")
@@ -389,7 +431,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=1,
+        default=4,
         help="Batch size for inference",
     )
     parser.add_argument(
