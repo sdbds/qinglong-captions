@@ -50,7 +50,7 @@ foreach ($Path in $VenvPaths) {
 
 # Set environment variables
 $Env:HF_HOME = "huggingface"
-$Env:HF_ENDPOINT = "https://hf-mirror.com"
+#$Env:HF_ENDPOINT = "https://hf-mirror.com"
 $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
 $Env:CUDA_HOME = "${env:CUDA_PATH}"
 
