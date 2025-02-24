@@ -170,3 +170,4 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 datasets/
+wd14_tagger_model/

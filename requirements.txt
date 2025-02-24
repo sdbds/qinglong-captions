@@ -18,3 +18,9 @@ google-generativeai
 google-genai
 openAI
 dashscope
+pyanimeinfo
+
+#WDtagger
+huggingface_hub
+torch==2.5.1+cu124
+onnxruntime-gpu>=1.20
