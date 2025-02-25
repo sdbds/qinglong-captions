@@ -4,6 +4,14 @@ from typing import Optional, Union, List, Dict, Any
 from rich.console import Console
 from rich.progress import (
     Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+    TimeRemainingColumn,
+    TimeElapsedColumn,
+    TransferSpeedColumn,
+    MofNCompleteColumn,
 )
 from config.config import get_supported_extensions, DATASET_SCHEMA, CONSOLE_COLORS
 from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
@@ -161,7 +169,9 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
                 # For TXT files, strip empty lines and whitespace
                 for line in caption_lines:
                     if "<font color=" in line:
-                        line = line.replace('<font color="green">', '').replace('</font>', '')
+                        line = line.replace('<font color="green">', "").replace(
+                            "</font>", ""
+                        )
                     if line and line.strip():
                         f.write(line.strip() + "\n")
 
@@ -205,7 +215,21 @@ def extract_from_lance(
         captions_dir_path = Path(caption_dir)
         captions_dir_path.mkdir(parents=True, exist_ok=True)
 
-    with Progress() as progress:
+    with Progress(
+        "[progress.description]{task.description}",
+        SpinnerColumn(spinner_name="dots"),
+        MofNCompleteColumn(separator="/"),
+        BarColumn(bar_width=40, complete_style="green", finished_style="bold green"),
+        TextColumn("•"),
+        TaskProgressColumn(),
+        TextColumn("•"),
+        TransferSpeedColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        expand=True,
+    ) as progress:
         task = progress.add_task("[green]Extracting files...", total=ds.count_rows())
 
         for batch in ds.to_batches():
@@ -263,7 +287,9 @@ def extract_from_lance(
                             split_video_with_imageio_ffmpeg(uri, subs, save_caption)
                         except Exception as e:
                             console.print(f"[red]Error splitting video: {e}[/red]")
-                            split_media_stream_clips(uri, media_type, subs, save_caption)
+                            split_media_stream_clips(
+                                uri, media_type, subs, save_caption
+                            )
 
                 progress.advance(task)
 

@@ -15,8 +15,9 @@ from rich.progress import (
     BarColumn,
     TaskProgressColumn,
     TimeRemainingColumn,
-    TransferSpeedColumn,
     TimeElapsedColumn,
+    TransferSpeedColumn,
+    MofNCompleteColumn,
 )
 import torch
 import onnxruntime as ort
@@ -138,7 +139,9 @@ def load_model_and_tags(args):
 
     # 创建推理会话
     sess_options = ort.SessionOptions()
-    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL  # 启用所有优化
+    sess_options.graph_optimization_level = (
+        ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    )  # 启用所有优化
 
     if "CPUExecutionProvider" in providers:
         # CPU时启用多线程推理
@@ -157,15 +160,13 @@ def load_model_and_tags(args):
         }
         providers_with_options = [
             ("CUDAExecutionProvider", provider_options),
-            "CPUExecutionProvider"
+            "CPUExecutionProvider",
         ]
     else:
         providers_with_options = providers
 
     ort_sess = ort.InferenceSession(
-        str(model_path),
-        sess_options=sess_options,
-        providers=providers_with_options
+        str(model_path), sess_options=sess_options, providers=providers_with_options
     )
     input_name = ort_sess.get_inputs()[0].name
     console.print("[green]Model loaded[/green]")
@@ -296,15 +297,21 @@ def main(args):
     results = []
 
     with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
+        "[progress.description]{task.description}",
+        SpinnerColumn(spinner_name="dots"),
+        MofNCompleteColumn(separator="/"),
+        BarColumn(bar_width=40, complete_style="green", finished_style="bold green"),
+        TextColumn("•"),
         TaskProgressColumn(),
+        TextColumn("•"),
         TransferSpeedColumn(),
+        TextColumn("•"),
         TimeElapsedColumn(),
+        TextColumn("•"),
         TimeRemainingColumn(),
+        expand=True,
     ) as progress:
-        task = progress.add_task("[cyan]Processing images...", total=total_images)
+        task = progress.add_task("[bold cyan]Processing images...", total=total_images)
 
         for batch in scanner.to_batches():
             row_ids = batch["_rowid"].to_pylist()  # 获取行ID

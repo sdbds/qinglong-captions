@@ -15,6 +15,7 @@ from rich.layout import Layout
 from PIL import Image
 from pathlib import Path
 import re
+import functools
 
 console = Console()
 
@@ -26,6 +27,7 @@ def api_process_batch(
     args,
     sha256hash: str,
     progress: Progress = None,
+    task_id=None,
 ) -> str:
     # Use global console if no progress is provided
     global console
@@ -88,6 +90,8 @@ def api_process_batch(
                     stream=True,
                 )
 
+                if progress and task_id is not None:
+                    progress.update(task_id, description="Generating captions")
                 chunks = []
                 for chunk in completion:
                     if (
@@ -150,6 +154,8 @@ def api_process_batch(
                         continue
                 else:
                     content = ""
+                if progress and task_id is not None:
+                    progress.update(task_id, description="Processing media...")
                 return content
             except Exception as e:
                 error_msg = Text(str(e), style="red")
@@ -209,6 +215,8 @@ def api_process_batch(
                 )
 
                 chunks = ""
+                if progress and task_id is not None:
+                    progress.update(task_id, description="Generating captions")
                 for chunk in responses:
                     print(chunk)
                     chunks += chunk.output.choices[0].message.content[0]["text"]
@@ -271,6 +279,8 @@ def api_process_batch(
                         continue
                 else:
                     content = ""
+                if progress and task_id is not None:
+                    progress.update(task_id, description="Processing media...")
                 return content
             except Exception as e:
                 error_msg = Text(str(e), style="red")
@@ -624,6 +634,8 @@ def api_process_batch(
                         config=genai_config,
                     )
 
+                if progress and task_id is not None:
+                    progress.update(task_id, description="Generating captions")
                 # 收集流式响应
                 chunks = []
                 for chunk in response:
@@ -691,6 +703,8 @@ def api_process_batch(
                 else:
                     content = ""
 
+                if progress and task_id is not None:
+                    progress.update(task_id, description="Processing media...")
                 return content
             except Exception as e:
                 error_msg = Text(str(e), style="red")
@@ -712,7 +726,7 @@ def api_process_batch(
 
 def sanitize_filename_for_gemini(name: str) -> str:
     """Sanitizes filenames for Gemini API.
-    
+
     Requirements:
     - Only lowercase alphanumeric characters or dashes (-)
     - Cannot begin or end with a dash
@@ -776,7 +790,7 @@ def wait_for_files_active(client, files, output_console=None):
     """
     # Use provided console or fall back to global
     output_console = output_console or console
-    
+
     output_console.print("[yellow]Waiting for file processing...[/yellow]")
     for name in (file.name for file in files):
         file = client.files.get(name=name)
@@ -791,6 +805,7 @@ def wait_for_files_active(client, files, output_console=None):
     output_console.print()
 
 
+@functools.lru_cache(maxsize=128)
 def encode_image(image_path: str) -> Optional[Tuple[str, Pixels]]:
     """Encode the image to base64 format with size optimization.
 

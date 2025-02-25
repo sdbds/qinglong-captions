@@ -18,6 +18,10 @@ from rich.progress import (
     TextColumn,
     BarColumn,
     TaskProgressColumn,
+    TimeRemainingColumn,
+    TimeElapsedColumn,
+    TransferSpeedColumn,
+    MofNCompleteColumn,
 )
 from rich.console import Console
 import mimetypes
@@ -528,7 +532,21 @@ def process(
     """
     processor = FileProcessor()
 
-    with Progress() as progress:
+    with Progress(
+        "[progress.description]{task.description}",
+        SpinnerColumn(spinner_name="dots"),
+        MofNCompleteColumn(separator="/"),
+        BarColumn(bar_width=40, complete_style="green", finished_style="bold green"),
+        TextColumn("•"),
+        TaskProgressColumn(),
+        TextColumn("•"),
+        TransferSpeedColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        expand=True,
+    ) as progress:
         task = progress.add_task("[green]Processing file...", total=len(data))
 
         for item in data:

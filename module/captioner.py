@@ -1,5 +1,15 @@
 import lance
-from rich.progress import Progress
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+    TimeRemainingColumn,
+    TimeElapsedColumn,
+    TransferSpeedColumn,
+    MofNCompleteColumn,
+)
 from rich.console import Console
 import argparse
 from module.lanceImport import transform2lance
@@ -40,8 +50,22 @@ def process_batch(args, config):
     )
     total_rows = dataset.count_rows()
 
-    with Progress() as progress:
-        task = progress.add_task("[cyan]Processing media...", total=total_rows)
+    with Progress(
+        "[progress.description]{task.description}",
+        SpinnerColumn(spinner_name="dots"),
+        MofNCompleteColumn(separator="/"),
+        BarColumn(bar_width=40, complete_style="green", finished_style="bold green"),
+        TextColumn("•"),
+        TaskProgressColumn(),
+        TextColumn("•"),
+        TransferSpeedColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        expand=True,
+    ) as progress:
+        task = progress.add_task("[bold cyan]Processing media...", total=total_rows)
 
         results = []
         processed_filepaths = []
@@ -64,6 +88,7 @@ def process_batch(args, config):
                         args=args,
                         sha256hash=sha256hash,
                         progress=progress,
+                        task_id=task,
                     )
 
                     output = _postprocess_caption_content(
@@ -125,6 +150,28 @@ def process_batch(args, config):
 
                     merged_subs = pysrt.SubRipFile()
                     total_duration = 0
+
+                    # 使用全局变量来存储clip_task_id
+                    global clip_task_id
+
+                    # 检查是否已经存在clip任务
+                    if "clip_task_id" in globals() and clip_task_id in [
+                        task.id for task in progress.tasks
+                    ]:
+                        # 重置已存在的clip任务
+                        progress.reset(
+                            clip_task_id,
+                            total=num_chunks,
+                            visible=True,
+                            description=f"[cyan]Processing clips...",
+                        )
+                        clip_task = clip_task_id
+                    else:
+                        # 创建新的clip任务
+                        clip_task = progress.add_task(
+                            f"[cyan]Processing clips...", total=num_chunks
+                        )
+                        clip_task_id = clip_task
                     for i in range(num_chunks):
                         sub_path = Path(filepath).with_suffix(".srt")
                         if sub_path.exists():
@@ -143,6 +190,7 @@ def process_batch(args, config):
                             args=args,
                             sha256hash=sha256hash,
                             progress=progress,
+                            task_id=task,
                         )
 
                         console.print(
@@ -179,14 +227,24 @@ def process_batch(args, config):
                                 milliseconds=last_duration_milliseconds,
                             )
 
-                        # Extend merged subtitles with the shifted chunk
-                        merged_subs.extend(chunk_subs)
-                        console.print(
-                            f"[green]Successfully merged chunk {i+1}. Total subtitles: {len(merged_subs)}[/green]"
+                            # Extend merged subtitles with the shifted chunk
+                            merged_subs.extend(chunk_subs)
+                            console.print(
+                                f"[green]Successfully merged chunk {i+1}. Total subtitles: {len(merged_subs)}[/green]"
+                            )
+
+                        progress.update(
+                            clip_task,
+                            advance=1,
+                            refresh=True,
+                            description=f"[yellow]merging complete for chunk [/yellow]",
                         )
 
                     for file in files:
                         file.unlink(missing_ok=True)
+
+                    # Mark the clip task as completed and hide it
+                    progress.update(clip_task, completed=num_chunks, visible=False)
 
                     # Update indices to continue from the last subtitle
                     merged_subs.clean_indexes()
@@ -248,6 +306,9 @@ def process_batch(args, config):
                         console.print(f"[red]Error saving TXT file: {e}[/red]")
 
             progress.update(task, advance=len(batch))
+
+    # 处理完所有批次后，将主任务设置为不可见
+    progress.update(task, visible=False)
 
     # Update dataset with new captions
     if results:
