@@ -1,10 +1,26 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (1.7)
+# qinglong-captioner (1.8)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changlog
+
+### 1.8
+
+Now added WDtagger！
+Even if you cannot use the GPU, you can also use the CPU for labeling.
+
+It has multi-threading and various optimizations, processing large-scale data quickly.
+
+Using ONNX processing, model acceleration.
+
+Code reference@kohya-ss 
+https://github.com/sdbds/sd-scripts/blob/main/finetune/tag_images_by_wd14_tagger.py
+
+Version 2.0 will add dual caption functionality, input wdtagger's taggers, then output natural language
+![image](https://github.com/user-attachments/assets/f14d4a69-9c79-4ffb-aff7-84d103dfeff4)
+
 
 ### 1.7
 
