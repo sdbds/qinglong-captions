@@ -227,11 +227,11 @@ def process_batch(args, config):
                                 milliseconds=last_duration_milliseconds,
                             )
 
-                            # Extend merged subtitles with the shifted chunk
-                            merged_subs.extend(chunk_subs)
-                            console.print(
-                                f"[green]Successfully merged chunk {i+1}. Total subtitles: {len(merged_subs)}[/green]"
-                            )
+                        # Extend merged subtitles with the shifted chunk
+                        merged_subs.extend(chunk_subs)
+                        console.print(
+                            f"[green]Successfully merged chunk {i+1}. Total subtitles: {len(merged_subs)}[/green]"
+                        )
 
                         progress.update(
                             clip_task,
