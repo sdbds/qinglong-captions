@@ -18,15 +18,21 @@ def fetch_sankaku_tags():
     """
     print("Fetching tags from Sankaku API...")
     
-    # API base URL
-    base_url = "https://sankakuapi.com/tags"
+    # Try different API endpoints
+    api_endpoints = [
+        "https://sankakuapi.com/tags",  # 原始 API
+        "https://capi-v2.sankakucomplex.com/tags",  # 尝试官方 API
+        "https://beta.sankakucomplex.com/tag/index.json"  # 尝试另一个可能的端点
+    ]
     
     # Headers to mimic a browser
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept': 'application/json',
-        'Connection': 'keep-alive'
+        'Connection': 'keep-alive',
+        'Referer': 'https://chan.sankakucomplex.com/',
+        'Origin': 'https://chan.sankakucomplex.com'
     }
     
     # Setup session with retry strategy
@@ -40,120 +46,141 @@ def fetch_sankaku_tags():
     session.mount("https://", adapter)
     
     all_tags = []
-    page = 1
     last_successful_page = 0
     max_attempts = 3
     
-    try:
-        # Loop through pages to get all tags until failure
-        while True:
-            # Construct URL with page parameter
-            url = f"{base_url}?lang=en&page={page}&limit=1000"
-            print(f"Fetching page {page} with limit=1000...")
-            
-            attempt = 0
-            success = False
-            
-            while attempt < max_attempts and not success:
-                try:
-                    # Make the request
-                    response = session.get(url, headers=headers, timeout=120)
-                    
-                    # Check if the request was successful
-                    if response.status_code == 200:
-                        try:
-                            # Parse JSON response
-                            data = response.json()
-                            
-                            # Debug information
-                            print(f"Page {page} response length: {len(str(data))} characters")
-                            
-                            # Check if we have tag data
-                            if isinstance(data, list):
-                                if len(data) == 0:
-                                    # No more tags, exit the loop
-                                    print(f"No more tags found after page {page-1}")
-                                    success = True
-                                    break
+    # Try each API endpoint
+    for base_url in api_endpoints:
+        print(f"Trying API endpoint: {base_url}")
+        page = 1
+        endpoint_success = False
+        
+        try:
+            # Loop through pages to get all tags until failure
+            while True:
+                # Construct URL with page parameter
+                url = f"{base_url}?lang=en&page={page}&limit=200"
+                print(f"Fetching page {page} with limit=200...")
+                
+                attempt = 0
+                success = False
+                
+                while attempt < max_attempts and not success:
+                    try:
+                        # Make the request
+                        response = session.get(url, headers=headers, timeout=120)
+                        
+                        # Check if the request was successful
+                        if response.status_code == 200:
+                            try:
+                                # Parse JSON response
+                                data = response.json()
                                 
-                                # Add tags to our collection
-                                all_tags.extend(data)
-                                print(f"Added {len(data)} tags from page {page}")
-                                last_successful_page = page
-                                success = True
-                            elif isinstance(data, dict):
-                                # Handle case where API returns a different structure
-                                if 'tags' in data:
-                                    all_tags.extend(data['tags'])
-                                    print(f"Added {len(data['tags'])} tags from page {page}")
+                                # Debug information
+                                print(f"Page {page} response length: {len(str(data))} characters")
+                                
+                                # Check if we have tag data
+                                if isinstance(data, list):
+                                    if len(data) == 0:
+                                        # No more tags, exit the loop
+                                        print(f"No more tags found after page {page-1}")
+                                        success = True
+                                        endpoint_success = True
+                                        break
+                                    
+                                    # Add tags to our collection
+                                    all_tags.extend(data)
+                                    print(f"Added {len(data)} tags from page {page}")
                                     last_successful_page = page
                                     success = True
+                                    endpoint_success = True
+                                elif isinstance(data, dict):
+                                    # Handle case where API returns a different structure
+                                    if 'tags' in data:
+                                        all_tags.extend(data['tags'])
+                                        print(f"Added {len(data['tags'])} tags from page {page}")
+                                        last_successful_page = page
+                                        success = True
+                                        endpoint_success = True
+                                    else:
+                                        print(f"Unexpected response format on page {page}: {data.keys()}")
+                                        break
                                 else:
-                                    print(f"Unexpected response format on page {page}: {data.keys()}")
+                                    print(f"Unexpected response type on page {page}: {type(data)}")
                                     break
-                            else:
-                                print(f"Unexpected response type on page {page}: {type(data)}")
-                                break
-                            
-                            # Go to next page
-                            page += 1
-                            
-                            # Add a short delay to avoid hitting rate limits
-                            time.sleep(1)
-                            
-                        except json.JSONDecodeError:
-                            print(f"Failed to parse JSON from page {page}")
+                                
+                                # Go to next page
+                                page += 1
+                                
+                                # Add a short delay to avoid hitting rate limits
+                                time.sleep(1)
+                                
+                            except json.JSONDecodeError:
+                                print(f"Failed to parse JSON from page {page}")
+                                attempt += 1
+                                if attempt < max_attempts:
+                                    print(f"Retrying... (attempt {attempt+1}/{max_attempts})")
+                                    time.sleep(2)
+                                else:
+                                    break
+                        else:
+                            print(f"Failed to fetch page {page}: HTTP {response.status_code}")
                             attempt += 1
                             if attempt < max_attempts:
                                 print(f"Retrying... (attempt {attempt+1}/{max_attempts})")
                                 time.sleep(2)
                             else:
                                 break
-                    else:
-                        print(f"Failed to fetch page {page}: HTTP {response.status_code}")
+                    except requests.exceptions.RequestException as e:
+                        print(f"Request failed for page {page}: {e}")
                         attempt += 1
                         if attempt < max_attempts:
                             print(f"Retrying... (attempt {attempt+1}/{max_attempts})")
                             time.sleep(2)
                         else:
                             break
-                except requests.exceptions.RequestException as e:
-                    print(f"Request failed for page {page}: {e}")
-                    attempt += 1
-                    if attempt < max_attempts:
-                        print(f"Retrying... (attempt {attempt+1}/{max_attempts})")
-                        time.sleep(2)
-                    else:
-                        break
+                
+                if not success:
+                    break
             
-            if not success:
+            # If we successfully got tags from this endpoint, no need to try others
+            if endpoint_success and all_tags:
+                print(f"Successfully fetched tags from {base_url}")
                 break
-        
-        # Process and organize the tags
-        tags_data = process_tags(all_tags)
-        
-        # Add metadata
-        tags_data['_metadata'] = {
-            'source': base_url,
-            'fetched_at': datetime.now().isoformat(),
-            'total_tags': len(all_tags),
-            'parsing_method': 'api',
-            'pages_fetched': last_successful_page,
-            'last_successful_page': last_successful_page
-        }
-        
-        return tags_data
-        
-    except Exception as e:
-        print(f"Error fetching tags: {e}")
-        return {
-            '_metadata': {
-                'source': base_url,
-                'fetched_at': datetime.now().isoformat(),
-                'error': str(e),
-                'last_successful_page': last_successful_page
-            }
-        }
+                
+        except Exception as e:
+            print(f"Error with endpoint {base_url}: {e}")
+            # Continue to the next endpoint
+    
+    # If we didn't get any tags from any endpoint, try a fallback method
+    if not all_tags:
+        print("All API endpoints failed. Trying to load from local sample file...")
+        try:
+            # Try to load from a sample file if it exists
+            sample_path = os.path.join(os.path.dirname(os.path.dirname(OUTPUT_FILE)), 'data', 'debug', 'sankaku_api_sample.json')
+            if os.path.exists(sample_path):
+                with open(sample_path, 'r', encoding='utf-8') as f:
+                    sample_data = json.load(f)
+                    if sample_data:
+                        print(f"Loaded {len(sample_data)} sample tags")
+                        all_tags = sample_data
+        except Exception as e:
+            print(f"Error loading sample data: {e}")
+    
+    # Process and organize the tags
+    tags_data = process_tags(all_tags)
+    
+    # Add metadata
+    tags_data['_metadata'] = {
+        'source': api_endpoints[0] if not endpoint_success else base_url,
+        'fetched_at': datetime.now().isoformat(),
+        'total_tags': len(all_tags),
+        'parsing_method': 'api',
+        'pages_fetched': last_successful_page,
+        'last_successful_page': last_successful_page
+    }
+    
+    return tags_data
 
 def process_tags(tags_list):
     """
