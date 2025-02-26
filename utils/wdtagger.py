@@ -146,8 +146,8 @@ def load_model_and_tags(args):
     if "CPUExecutionProvider" in providers:
         # CPU时启用多线程推理
         sess_options.execution_mode = ort.ExecutionMode.ORT_PARALLEL  # 启用并行执行
-        sess_options.inter_op_num_threads = 4  # 设置线程数
-        sess_options.intra_op_num_threads = 4  # 设置算子内部并行数
+        sess_options.inter_op_num_threads = 8  # 设置线程数
+        sess_options.intra_op_num_threads = 8  # 设置算子内部并行数
 
     if "CUDAExecutionProvider" in providers:
         # CUDA GPU 优化
@@ -184,7 +184,7 @@ def main(args):
             dataset = transform2lance(
                 args.train_data_dir,
                 output_name="dataset",
-                save_binary=True,
+                save_binary=False,
                 not_save_disk=False,
             )
             console.print("[green]Dataset converted to Lance format[/green]")
@@ -313,13 +313,14 @@ def main(args):
     ) as progress:
         task = progress.add_task("[bold cyan]Processing images...", total=total_images)
 
+        global console
+        console = progress.console
+
         for batch in scanner.to_batches():
-            row_ids = batch["_rowid"].to_pylist()  # 获取行ID
-            blobs = dataset.take_blobs(row_ids, "blob")
+            uris = batch["uris"].to_pylist()  # 获取文件路径
 
             batch_images = [
-                preprocess_image(Image.open(io.BytesIO(blob.readall())).convert("RGB"))
-                for blob in blobs
+                preprocess_image(Image.open(uri).convert("RGB")) for uri in uris
             ]
 
             # 处理批次
@@ -404,9 +405,9 @@ def main(args):
     dataset.merge_insert(on="uris").when_matched_update_all().execute(table)
 
     try:
-        dataset.tags.create("wdtagger", 1)
+        dataset.tags.create("WDtagger", 1)
     except:
-        dataset.tags.update("wdtagger", 1)
+        dataset.tags.update("WDtagger", 1)
 
     console.print("[green]Successfully updated dataset with new captions[/green]")
 

@@ -229,7 +229,13 @@ def extract_from_lance(
         TextColumn("•"),
         TimeRemainingColumn(),
         expand=True,
+        transient=False,  # 防止进度条随刷新滚动
     ) as progress:
+
+        global console
+
+        console = progress.console
+
         task = progress.add_task("[green]Extracting files...", total=ds.count_rows())
 
         for batch in ds.to_batches():

@@ -546,7 +546,13 @@ def process(
         TextColumn("•"),
         TimeRemainingColumn(),
         expand=True,
+        transient=False,  # 防止进度条随刷新滚动
     ) as progress:
+
+        global console
+
+        console = progress.console
+
         task = progress.add_task("[green]Processing file...", total=len(data))
 
         for item in data:
