@@ -171,6 +171,7 @@ cython_debug/
 .pypirc
 datasets/
 wd14_tagger_model/
+data/
 
 # windsurf rules
 .windsurfrules
