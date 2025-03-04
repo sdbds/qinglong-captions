@@ -19,6 +19,7 @@ $Features = @{
     character_tags_first     = $false  # Put character tags first
     character_tag_expand     = $false  # Split character_(series) into character, series
     remove_parents_tag       = $true   # Remove parent tags
+    overwrite            = $true  # Overwrite existing tag files
 }
 
 # Tag settings
@@ -76,6 +77,7 @@ if ($Features.character_tag_expand) { [void]$ExtArgs.Add("--character_tag_expand
 if ($Features.use_rating_tags_as_last_tag) { [void]$ExtArgs.Add("--use_rating_tags_as_last_tag") }
 elseif ($Features.use_rating_tags) { [void]$ExtArgs.Add("--use_rating_tags") }
 if ($Features.remove_parents_tag) { [void]$ExtArgs.Add("--remove_parents_tag") }
+if ($Features.overwrite) { [void]$ExtArgs.Add("--overwrite") }
 
 # Add tag configuration
 if ($TagConfig.undesired_tags) { [void]$ExtArgs.Add("--undesired_tags=$($TagConfig.undesired_tags)") }
