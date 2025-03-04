@@ -570,10 +570,13 @@ def api_process_batch(
                     except Exception as e:
                         console.print()
                         console.print(
-                            f"[yellow]File {file.name if file.name else ''} is not exist[/yellow]"
+                            f"[yellow]File {Path(uri).name} is not exist[/yellow]"
                         )
                         console.print(f"[blue]uploading files for:[/blue] {uri}")
-                        files = [upload_to_gemini(client, uri, mime_type=mime)]
+                        try:
+                            files = [upload_to_gemini(client, uri, mime_type=mime)]
+                        except Exception as uploade:
+                            files = [upload_to_gemini(client, uri, mime_type=mime, name=f"{Path(uri).name}_{int(time.time())}")]
                         wait_for_files_active(client, files, console)
                         upload_success = True
                         break
@@ -755,13 +758,13 @@ def sanitize_filename_for_gemini(name: str) -> str:
     return sanitized
 
 
-def upload_to_gemini(client, path, mime_type=None):
+def upload_to_gemini(client, path, mime_type=None, name=None):
     """Uploads the given file to Gemini.
 
     See https://ai.google.dev/gemini-api/docs/prompting_with_media
     """
     original_name = Path(path).name
-    safe_name = sanitize_filename_for_gemini(original_name)
+    safe_name = sanitize_filename_for_gemini(original_name if name is None else name)
 
     file = client.files.upload(
         file=path,
