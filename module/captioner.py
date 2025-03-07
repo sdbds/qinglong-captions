@@ -21,6 +21,7 @@ from utils.stream_util import split_media_stream_clips, split_video_with_imageio
 from config.config import (
     BASE_VIDEO_EXTENSIONS,
     BASE_AUDIO_EXTENSIONS,
+    BASE_APPLICATION_EXTENSIONS,
 )
 
 import toml
@@ -28,6 +29,7 @@ from PIL import Image
 import pysrt
 from pymediainfo import MediaInfo
 from pathlib import Path
+import base64
 
 Image.MAX_IMAGE_PIXELS = None  # Disable image size limit check
 
@@ -79,7 +81,7 @@ def process_batch(args, config):
                 filepaths, mime, duration, sha256hash
             ):
 
-                if mime.startswith("image") or 0 < duration <= args.segment_time * 1000:
+                if mime.startswith("image") or duration <= args.segment_time * 1000:
 
                     output = api_process_batch(
                         uri=filepath,
@@ -92,7 +94,9 @@ def process_batch(args, config):
                     )
 
                     output = _postprocess_caption_content(
-                        output, filepath, mode=args.mode
+                        output,
+                        filepath,
+                        args,
                     )
 
                 else:
@@ -200,7 +204,9 @@ def process_batch(args, config):
                         console.print(
                             f"[yellow]Post-processing chunk output...[/yellow]"
                         )
-                        chunk_output = _postprocess_caption_content(chunk_output, uri)
+                        chunk_output = _postprocess_caption_content(
+                            chunk_output, uri, args
+                        )
 
                         chunk_subs = pysrt.from_string(chunk_output)
                         if i > 0:
@@ -264,12 +270,16 @@ def process_batch(args, config):
                 processed_filepaths.append(filepath)
 
                 filepath_path = Path(filepath)
-                caption_path = (
-                    filepath_path.with_suffix(".srt")
-                    if filepath_path.suffix in BASE_VIDEO_EXTENSIONS
+                # Determine caption file extension based on media type
+                if (
+                    filepath_path.suffix in BASE_VIDEO_EXTENSIONS
                     or filepath_path.suffix in BASE_AUDIO_EXTENSIONS
-                    else filepath_path.with_suffix(".txt")
-                )
+                ):
+                    caption_path = filepath_path.with_suffix(".srt")
+                elif filepath_path.suffix in BASE_APPLICATION_EXTENSIONS:
+                    caption_path = filepath_path.with_suffix(".md")
+                else:
+                    caption_path = filepath_path.with_suffix(".txt")
                 console.print(f"[blue]Processing caption for:[/blue] {filepath_path}")
                 console.print(f"[blue]Caption content length:[/blue] {len(output)}")
 
@@ -291,6 +301,15 @@ def process_batch(args, config):
                             )
                         except Exception as e:
                             console.print(f"[red]Error saving SRT file: {e}[/red]")
+                elif caption_path.suffix == ".md":
+                    try:
+                        with open(caption_path, "w", encoding="utf-8") as f:
+                            f.write(output)
+                        console.print(
+                            f"[green]Saved captions to {caption_path}[/green]"
+                        )
+                    except Exception as e:
+                        console.print(f"[red]Error saving MD file: {e}[/red]")
                 else:
                     try:
                         if isinstance(output, list):
@@ -345,7 +364,7 @@ def process_batch(args, config):
     )
 
 
-def _postprocess_caption_content(output, filepath, mode="all"):
+def _postprocess_caption_content(output, filepath, args):
     """
     postprocess_caption_content
     """
@@ -354,33 +373,92 @@ def _postprocess_caption_content(output, filepath, mode="all"):
         return ""
 
     if isinstance(output, list):
-        output = "\n".join(output)
+        # 检查是否为OCRPageObject对象列表
+        if (
+            len(output) > 0
+            and hasattr(output[0], "markdown")
+            and hasattr(output[0], "index")
+        ):
+            combined_output = ""
+            for page in output:
+                # 添加页面索引作为HTML页眉和页脚
+                page_index = page.index if hasattr(page, "index") else "unknown"
+                # 添加HTML页眉
+                combined_output += f'<header style="background-color: #f5f5f5; padding: 8px; margin-bottom: 20px; text-align: center; border-bottom: 1px solid #ddd;">\n<strong> Page {page_index+1} </strong>\n</header>\n\n'
+                # 添加页面内容
+                page_markdown = (
+                    page.markdown if hasattr(page, "markdown") else str(page)
+                )
+                combined_output += page_markdown
 
-    # 确保字幕内容格式正确
-    output = output.strip()
-    if not output.strip():
-        console.print(f"[red]Empty caption content for {filepath}[/red]")
-        return ""
+                # 替换图片路径，将图片路径改为上一级目录
+                if hasattr(page, "images") and args.document_image:
+                    # 查找并替换所有图片引用格式 ![...](filename)
+                    img_pattern = r"!\[(.*?)\]\(([^/)]+)\)"
+                    parent_dir = Path(filepath).stem
+                    combined_output = re.sub(
+                        img_pattern,
+                        lambda m: f"![{m.group(1)}]({parent_dir}/{m.group(2)})",
+                        combined_output,
+                    )
+
+                if hasattr(page, "images") and args.document_image:
+                    for image in page.images:
+                        if hasattr(image, "image_base64") and image.image_base64:
+                            try:
+                                base64_str = image.image_base64
+                                # 处理data URL格式
+                                if base64_str.startswith("data:"):
+                                    # 提取实际的base64内容
+                                    base64_content = base64_str.split(",", 1)[1]
+                                    image_data = base64.b64decode(base64_content)
+                                else:
+                                    image_data = base64.b64decode(base64_str)
+
+                                image_filename = image.id
+                                image_dir = Path(filepath).with_suffix("")
+                                image_dir.mkdir(parents=True, exist_ok=True)
+                                image_path = image_dir / image_filename
+                                with open(image_path, "wb") as img_file:
+                                    img_file.write(image_data)
+                            except Exception as e:
+                                console.print(
+                                    f"[yellow]Error saving OCR image: {e}[/yellow]"
+                                )
+                combined_output += f"{page_markdown}\n\n"
+                # 添加HTML页脚和分隔符
+                combined_output += f'<footer style="background-color: #f5f5f5; padding: 8px; margin-top: 20px; text-align: center; border-top: 1px solid #ddd;">\n<strong> Page {page_index+1} </strong>\n</footer>\n\n'
+                combined_output += '<div style="page-break-after: always;"></div>\n\n'
+            output = combined_output
+        else:
+            output = "\n".join(output)
 
     # 格式化时间戳 - 只处理7位的时间戳 (MM:SS,ZZZ)
     if (
         Path(filepath).suffix in BASE_VIDEO_EXTENSIONS
         or Path(filepath).suffix in BASE_AUDIO_EXTENSIONS
     ):
+        # 确保字幕内容格式正确
+        output = output.strip()
+        if not output.strip():
+            console.print(f"[red]Empty caption content for {filepath}[/red]")
+            return ""
         output = re.sub(
             r"(?<!:)(\d{2}):(\d{2})[,:.](\d{3})",
             r"00:\1:\2,\3",
             output,
             flags=re.MULTILINE,
         )
+    elif Path(filepath).suffix in BASE_APPLICATION_EXTENSIONS or args.ocr:
+        pass
     else:
         if "###" in output:
             shortdescription, long_description = process_llm_response(output)
-            if mode == "all":
+            if args.mode == "all":
                 output = [shortdescription, long_description]
-            elif mode == "long":
+            elif args.mode == "long":
                 output = long_description
-            elif mode == "short":
+            elif args.mode == "short":
                 output = shortdescription
 
     return output
@@ -492,6 +570,18 @@ def setup_parser() -> argparse.ArgumentParser:
         type=int,
         default=300,
         help="Segment time",
+    )
+
+    parser.add_argument(
+        "--ocr",
+        action="store_true",
+        help="Use OCR to extract text from image",
+    )
+
+    parser.add_argument(
+        "--document_image",
+        action="store_true",
+        help="Use OCR to extract image from document",
     )
 
     return parser

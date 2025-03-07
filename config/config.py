@@ -234,7 +234,7 @@ DEFAULT_CONSOLE_COLORS = {
     "animation": "bold green",
     "video": "magenta",
     "audio": "orange1",
-    "application": "bright red",
+    "application": "bright_red",
     "text": "yellow",
     "caption": "yellow",
     "unknown": "cyan",

@@ -13,6 +13,8 @@ $not_clip_with_caption = $false              # Not clip with caption | 不根据
 $wait_time = 1
 $max_retries = 100
 $segment_time = 300
+$ocr = $false
+$document_image = $true
 
 # ============= DO NOT MODIFY CONTENTS BELOW | 请勿修改下方内容 =====================
 # Activate python venv
@@ -100,6 +102,14 @@ if ($max_retries -ine 20) {
 
 if ($segment_time -ine 300) {
   [void]$ext_args.Add("--segment_time=$segment_time")
+}
+
+if ($ocr) {
+  [void]$ext_args.Add("--ocr")
+}
+
+if ($document_image) {
+  [void]$ext_args.Add("--document_image")
 }
 
 # run train

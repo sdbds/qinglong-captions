@@ -10,12 +10,11 @@ from rich_pixels import Pixels
 from rich.progress import Progress
 from rich.console import Console
 from rich.text import Text
-from rich.panel import Panel
-from rich.layout import Layout
 from PIL import Image
 from pathlib import Path
 import re
 import functools
+from utils.console_util import CaptionLayout, MarkdownLayout
 
 console = Console()
 
@@ -299,149 +298,208 @@ def api_process_batch(
                 continue
         return ""
 
-    elif args.pixtral_api_key != "" and mime.startswith("image"):
-
-        system_prompt = config["prompts"]["pixtral_image_system_prompt"]
-        prompt = config["prompts"]["pixtral_image_prompt"]
-
-        base64_image, pixels = encode_image(uri)
-        if base64_image is None or pixels is None:
-            return ""
+    elif args.pixtral_api_key != "" and (
+        mime.startswith("image") or mime.startswith("application")
+    ):
 
         client = Mistral(api_key=args.pixtral_api_key)
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": f"data:image/jpeg;base64,{base64_image}",
-                    },
-                ],
-            },
-        ]
+        start_time = time.time()
+
+        if mime.startswith("image"):
+            system_prompt = config["prompts"]["pixtral_image_system_prompt"]
+            prompt = config["prompts"]["pixtral_image_prompt"]
+
+            base64_image, pixels = encode_image(uri)
+            if base64_image is None or pixels is None:
+                return ""
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": f"data:image/jpeg;base64,{base64_image}",
+                        },
+                    ],
+                },
+            ]
+        elif mime.startswith("application"):
+            for upload_attempt in range(args.max_retries):
+                try:
+                    uploaded_pdf = client.files.upload(
+                        file={
+                            "file_name": f"{sanitize_filename(uri)}.pdf",
+                            "content": open(uri, "rb"),
+                        },
+                        purpose="ocr",
+                    )
+                    signed_url = client.files.get_signed_url(file_id=uploaded_pdf.id)
+                    break
+                except Exception as e:
+                    error_msg = Text(str(e), style="red")
+                    console.print(f"[red]Error uploading PDF: {error_msg}[/red]")
+                    if upload_attempt < args.max_retries - 1:
+                        console.print(
+                            f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]"
+                        )
+                        elapsed_time = time.time() - start_time
+                        if elapsed_time < args.wait_time:
+                            time.sleep(args.wait_time - elapsed_time)
+                    else:
+                        console.print(
+                            f"[red]Failed to upload PDF after {args.max_retries} attempts. Skipping.[/red]"
+                        )
+                        return ""
 
         for attempt in range(args.max_retries):
             try:
-                start_time = time.time()
-                chat_response = client.chat.complete(
-                    model=args.pixtral_model_path, messages=messages
-                )
-                content = chat_response.choices[0].message.content
+                if mime.startswith("application"):
+                    ocr_response = client.ocr.process(
+                        model="mistral-ocr-latest",
+                        document={
+                            "type": "document_url",
+                            "document_url": signed_url.url,
+                        },
+                        include_image_base64=args.document_image,
+                    )
+                    content = ocr_response.pages
+                    console.print(f"[bold cyan]PDF共有 {len(content)} 页[/bold cyan]")
+
+                    for page in content:
+                        # Extract the first image from the page if available
+                        if page.images and len(page.images) > 0:
+                            first_image = page.images[0]
+                            if (
+                                hasattr(first_image, "image_base64")
+                                and first_image.image_base64
+                            ):
+                                try:
+                                    base64_str = first_image.image_base64
+                                    # 处理data URL格式
+                                    if base64_str.startswith('data:'):
+                                        # 提取实际的base64内容
+                                        base64_content = base64_str.split(',', 1)[1]
+                                        image_data = base64.b64decode(base64_content)
+                                    else:
+                                        image_data = base64.b64decode(base64_str)
+                                    
+                                    ocr_image = Image.open(io.BytesIO(image_data))
+                                    ocr_pixels = Pixels.from_image(
+                                        ocr_image,
+                                        resize=(
+                                            ocr_image.width // 18,
+                                            ocr_image.height // 18,
+                                        ),
+                                    )
+                                except Exception as e:
+                                    console.print(
+                                        f"[yellow]Error loading image: {e}[/yellow]"
+                                    )
+                                    ocr_pixels = None
+                            else:
+                                console.print(
+                                    "[yellow]Image found but no base64 data available[/yellow]"
+                                )
+                                ocr_pixels = None
+                        else:
+                            ocr_pixels = None
+
+                        markdown_layout = MarkdownLayout(
+                            pixels=ocr_pixels,
+                            markdown_content=page.markdown,
+                            panel_height=32,
+                            console=console,
+                        )
+                        markdown_layout.print(
+                            title=f"{Path(uri).name} -  Page {page.index+1}"
+                        )
+                        if ocr_pixels:
+                            del ocr_pixels
+
+                elif args.ocr:
+                    ocr_response = client.ocr.process(
+                        model="mistral-ocr-latest",
+                        document={
+                            "type": "image_url",
+                            "image_url": f"data:image/jpeg;base64,{base64_image}",
+                        },
+                    )
+                    content = ocr_response.pages[0].markdown
+
+                    # 使用MarkdownLayout显示Markdown内容
+                    markdown_layout = MarkdownLayout(
+                        pixels=pixels,
+                        markdown_content=content,
+                        panel_height=32,
+                        console=console,
+                    )
+                    markdown_layout.print(title=Path(uri).name)
+                    del pixels
+
+                else:
+                    chat_response = client.chat.complete(
+                        model=args.pixtral_model_path, messages=messages
+                    )
+                    content = chat_response.choices[0].message.content
+
+                    # if character_name:
+                    #     clean_char_name = (
+                    #         character_name.split(",")[0].split(" from ")[0].strip("<>")
+                    #     )
+                    #     if clean_char_name not in content:
+                    #         console.print()
+                    #         console.print(Text(content))
+                    #         console.print(
+                    #             f"Attempt {attempt + 1}/{args.max_retries}: Character name [green]{clean_char_name}[/green] not found"
+                    #         )
+                    #         continue
+
+                    if "###" not in content:
+                        console.print(Text(content))
+                        console.print(Text("No ###, retrying...", style="yellow"))
+                        continue
+
+                    short_description, long_description = process_llm_response(content)
+                    tag_description = ""
+                    # tag_description = (
+                    #     prompt.rsplit("<s>[INST]", 1)[-1]
+                    #     .rsplit(">.", 1)[-1]
+                    #     .rsplit(").", 1)[-1]
+                    #     .replace(" from", ",")
+                    # )
+                    # tag_description = tag_description.rsplit("[IMG][/INST]", 1)[0].strip()
+                    short_highlight_rate = 0
+                    long_highlight_rate = 0
+                    # short_description, short_highlight_rate = format_description(
+                    #     short_description, tag_description
+                    # )
+                    # long_description, long_highlight_rate = format_description(
+                    #     long_description, tag_description
+                    # )
+
+                    # 使用CaptionLayout显示图片和字幕
+                    caption_layout = CaptionLayout(
+                        tag_description=tag_description,
+                        short_description=short_description,
+                        long_description=long_description,
+                        pixels=pixels,
+                        short_highlight_rate=short_highlight_rate,
+                        long_highlight_rate=long_highlight_rate,
+                        panel_height=32,
+                        console=console,
+                    )
+
+                    caption_layout.print(title=Path(uri).name)
+                    del pixels
 
                 if "502" in content:
                     console.print(
                         f"[yellow]Attempt {attempt + 1}/{args.max_retries}: Received 502 error[/yellow]"
                     )
                     continue
-
-                # if character_name:
-                #     clean_char_name = (
-                #         character_name.split(",")[0].split(" from ")[0].strip("<>")
-                #     )
-                #     if clean_char_name not in content:
-                #         console.print()
-                #         console.print(Text(content))
-                #         console.print(
-                #             f"Attempt {attempt + 1}/{args.max_retries}: Character name [green]{clean_char_name}[/green] not found"
-                #         )
-                #         continue
-
-                if "###" not in content:
-                    console.print(Text(content))
-                    console.print(Text("No ###, retrying...", style="yellow"))
-                    continue
-
-                short_description, long_description = process_llm_response(content)
-                tag_description = ""
-                # tag_description = (
-                #     prompt.rsplit("<s>[INST]", 1)[-1]
-                #     .rsplit(">.", 1)[-1]
-                #     .rsplit(").", 1)[-1]
-                #     .replace(" from", ",")
-                # )
-                # tag_description = tag_description.rsplit("[IMG][/INST]", 1)[0].strip()
-                short_highlight_rate = 0
-                long_highlight_rate = 0
-                # short_description, short_highlight_rate = format_description(
-                #     short_description, tag_description
-                # )
-                # long_description, long_highlight_rate = format_description(
-                #     long_description, tag_description
-                # )
-
-                console.print()
-                console.print()
-                # 获取图片实际高度
-                panel_height = 32  # 加上面板的边框高度
-
-                # 创建布局
-                layout = Layout()
-
-                # 创建右侧的垂直布局
-                right_layout = Layout()
-
-                # 创建上半部分的水平布局（tag和short并排）
-                top_layout = Layout()
-                top_layout.split_row(
-                    Layout(
-                        Panel(
-                            Text(tag_description, style="magenta"),
-                            title="tags",
-                            height=panel_height // 2,
-                            padding=0,
-                            expand=True,
-                        ),
-                        ratio=1,
-                    ),
-                    Layout(
-                        Panel(
-                            short_description,
-                            title=f"short_description - [yellow]highlight rate:[/yellow] {short_highlight_rate}",
-                            height=panel_height // 2,
-                            padding=0,
-                            expand=True,
-                        ),
-                        ratio=1,
-                    ),
-                )
-
-                # 将右侧布局分为上下两部分
-                right_layout.split_column(
-                    Layout(top_layout, ratio=1),
-                    Layout(
-                        Panel(
-                            long_description,
-                            title=f"long_description - [yellow]highlight rate:[/yellow] {long_highlight_rate}",
-                            height=panel_height // 2,
-                            padding=0,
-                            expand=True,
-                        )
-                    ),
-                )
-
-                # 主布局分为左右两部分
-                layout.split_row(
-                    Layout(
-                        Panel(pixels, height=panel_height, padding=0, expand=True),
-                        name="image",
-                        ratio=1,
-                    ),
-                    Layout(right_layout, name="caption", ratio=2),
-                )
-
-                # 将整个布局放在一个高度受控的面板中
-                console.print(
-                    Panel(
-                        layout,
-                        title=Path(uri).name,
-                        height=panel_height + 2,
-                        padding=0,
-                    )
-                )
-                del pixels
 
                 # 计算已经消耗的时间，动态调整等待时间
                 elapsed_time = time.time() - start_time
@@ -536,9 +594,7 @@ def api_process_batch(
                     console.print()
                     console.print(f"[blue]checking files for:[/blue] {uri}")
                     try:
-                        file = client.files.get(
-                            name=sanitize_filename_for_gemini(Path(uri).name)
-                        )
+                        file = client.files.get(name=sanitize_filename(Path(uri).name))
 
                         console.print(file)
                         if (
@@ -562,9 +618,7 @@ def api_process_batch(
                             console.print(
                                 f"[yellow]File {file.name} is already exist but {base64.b64decode(file.sha256_hash).decode('utf-8')} not have same sha256hash {sha256hash}[/yellow]"
                             )
-                            client.files.delete(
-                                name=sanitize_filename_for_gemini(Path(uri).name)
-                            )
+                            client.files.delete(name=sanitize_filename(Path(uri).name))
                             raise Exception("Delete same name file and retry")
 
                     except Exception as e:
@@ -576,7 +630,14 @@ def api_process_batch(
                         try:
                             files = [upload_to_gemini(client, uri, mime_type=mime)]
                         except Exception as uploade:
-                            files = [upload_to_gemini(client, uri, mime_type=mime, name=f"{Path(uri).name}_{int(time.time())}")]
+                            files = [
+                                upload_to_gemini(
+                                    client,
+                                    uri,
+                                    mime_type=mime,
+                                    name=f"{Path(uri).name}_{int(time.time())}",
+                                )
+                            ]
                         wait_for_files_active(client, files, console)
                         upload_success = True
                         break
@@ -727,8 +788,8 @@ def api_process_batch(
         return ""
 
 
-def sanitize_filename_for_gemini(name: str) -> str:
-    """Sanitizes filenames for Gemini API.
+def sanitize_filename(name: str) -> str:
+    """Sanitizes filenames.
 
     Requirements:
     - Only lowercase alphanumeric characters or dashes (-)
@@ -764,7 +825,7 @@ def upload_to_gemini(client, path, mime_type=None, name=None):
     See https://ai.google.dev/gemini-api/docs/prompting_with_media
     """
     original_name = Path(path).name
-    safe_name = sanitize_filename_for_gemini(original_name if name is None else name)
+    safe_name = sanitize_filename(original_name if name is None else name)
 
     file = client.files.upload(
         file=path,
