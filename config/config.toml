@@ -20,6 +20,7 @@ fields = [
 # Console colors configuration
 [colors]
 animation = "bold green"
+application = "bright red"
 audio = "orange1"
 caption = "yellow"
 image = "green"

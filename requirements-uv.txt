@@ -142,7 +142,7 @@ markupsafe==3.0.1
     # via jinja2
 mdurl==0.1.2
     # via markdown-it-py
-mistralai==1.2.6
+mistralai==1.5.1
     # via -r requirements.txt
 mpmath==1.3.0
     # via sympy

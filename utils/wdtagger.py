@@ -332,7 +332,6 @@ def main(args):
         fragment_readahead=4,
         io_buffer_size=32 * 1024 * 1024,  # 32MB buffer
         late_materialization=True,
-        with_row_id=True,
     )
 
     results = []

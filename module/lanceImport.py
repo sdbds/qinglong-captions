@@ -42,6 +42,7 @@ image_extensions = get_supported_extensions("image")
 animation_extensions = get_supported_extensions("animation")
 video_extensions = get_supported_extensions("video")
 audio_extensions = get_supported_extensions("audio")
+application_extensions = get_supported_extensions("application")
 
 
 @dataclass
@@ -50,9 +51,9 @@ class Metadata:
 
     uris: str  # File path or URL
     mime: str  # MIME type
-    width: int  # Image/video width in pixels
-    height: int  # Image/video height in pixels
-    depth: int  # Sample depth/width in bits
+    width: int = 0  # Image/video width in pixels
+    height: int = 0  # Image/video height in pixels
+    depth: int = 0  # Sample depth/width in bits
     channels: int = 0  # Number of channels (RGB=3, RGBA=4, mono=1, stereo=2)
     hash: str = ""  # SHA256 hash
     size: int = 0  # File size in bytes
@@ -425,7 +426,37 @@ class FileProcessor:
                     )
                     return None
 
-            return None
+            elif file_path.endswith(application_extensions):
+                try:
+                    # Read application file as binary first
+                    binary_data = Path(file_path).read_bytes()
+                    application_hash = hashlib.sha256(binary_data).hexdigest()
+
+                    # Get application MIME type
+                    mime_type, _ = mimetypes.guess_type(file_path)
+                    extension = Path(file_path).suffix.lstrip(".")
+                    mime = mime_type or f"application/{extension}"
+
+                    return Metadata(
+                        uris=file_path,
+                        mime=mime,
+                        width=0,
+                        height=0,
+                        depth=0,
+                        channels=0,
+                        hash=application_hash,
+                        size=Path(file_path).stat().st_size,
+                        has_audio=False,
+                        duration=0,
+                        num_frames=0,
+                        frame_rate=0,
+                        blob=binary_data if save_binary else b"",
+                    )
+                except Exception as e:
+                    console.print(
+                        f"[red]Error processing application {file_path}: {str(e)}[/red]"
+                    )
+                    return None
 
         except Exception as e:
             console.print(
@@ -459,17 +490,22 @@ def load_data(
                     + animation_extensions
                     + video_extensions
                     + audio_extensions
+                    + application_extensions
                 )
             ):
                 continue
 
             text_path = Path(texts_dir) / (file.stem + ".txt")
             srt_path = Path(texts_dir) / (file.stem + ".srt")
+            md_path = Path(texts_dir) / (file.stem + ".md")
 
             caption = None
             if text_path.exists():
                 with open(text_path, "r", encoding="utf-8") as f:
                     caption = f.read().splitlines()
+            elif md_path.exists():
+                with open(md_path, "r", encoding="utf-8") as f:
+                    caption = [f.read()]  # 将整个 Markdown 内容作为单个字符串
             elif srt_path.exists():
                 with open(srt_path, "r", encoding="utf-8") as f:
                     caption = [f.read()]  # Store entire SRT content as a single string
@@ -488,17 +524,22 @@ def load_data(
                     + animation_extensions
                     + video_extensions
                     + audio_extensions
+                    + application_extensions
                 )
             ):
                 continue
 
             text_path = file_path.with_suffix(".txt")
             srt_path = file_path.with_suffix(".srt")
+            md_path = file_path.with_suffix(".md")
 
             caption = None
             if text_path.exists():
                 with open(text_path, "r", encoding="utf-8") as f:
                     caption = f.read().splitlines()
+            elif md_path.exists():
+                with open(md_path, "r", encoding="utf-8") as f:
+                    caption = [f.read()]  # 将整个 Markdown 内容作为单个字符串
             elif srt_path.exists():
                 with open(srt_path, "r", encoding="utf-8") as f:
                     caption = [f.read()]  # Store entire SRT content as a single string
@@ -576,6 +617,9 @@ def process(
             elif suffix in audio_extensions:
                 color = CONSOLE_COLORS["audio"]
                 media_type = "audio"
+            elif suffix in application_extensions:
+                color = CONSOLE_COLORS["application"]
+                media_type = "application"
             else:
                 color = CONSOLE_COLORS["unknown"]
                 media_type = "unknown"

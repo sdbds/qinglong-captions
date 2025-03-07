@@ -13,7 +13,7 @@ imageio-ffmpeg>=0.4.8
 pymediainfo
 mutagen
 pyarrow>=14.0.1
-mistralai
+mistralai>=1.5.1
 google-generativeai
 google-genai
 openAI

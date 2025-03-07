@@ -90,6 +90,11 @@ BASE_AUDIO_EXTENSIONS: List[str] = [
     ".MKA",
 ]
 
+BASE_APPLICATION_EXTENSIONS: List[str] = [
+    ".pdf",
+    ".PDF",
+]
+
 
 def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
     """Get all supported media extensions including optional formats."""
@@ -136,6 +141,8 @@ def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
         extensions = BASE_VIDEO_EXTENSIONS.copy()
     elif media_type == "audio":
         extensions = BASE_AUDIO_EXTENSIONS.copy()
+    elif media_type == "application":
+        extensions = BASE_APPLICATION_EXTENSIONS.copy()
 
     return tuple(extensions)
 
@@ -227,6 +234,7 @@ DEFAULT_CONSOLE_COLORS = {
     "animation": "bold green",
     "video": "magenta",
     "audio": "orange1",
+    "application": "bright red",
     "text": "yellow",
     "caption": "yellow",
     "unknown": "cyan",
@@ -245,12 +253,12 @@ def load_config(config_path: str) -> None:
         config_path: Path to the TOML file containing configurations
     """
     global DATASET_SCHEMA, CONSOLE_COLORS, SYSTEM_PROMPT
-    
+
     try:
         DATASET_SCHEMA = load_schema_from_toml(config_path)
     except Exception as e:
         print(f"Warning: Failed to load schema configuration: {e}")
-    
+
     try:
         colors = load_colors_from_toml(config_path)
         if colors:

@@ -23,6 +23,7 @@ image_extensions = get_supported_extensions("image")
 animation_extensions = get_supported_extensions("animation")
 video_extensions = get_supported_extensions("video")
 audio_extensions = get_supported_extensions("audio")
+application_extensions = get_supported_extensions("application")
 
 
 def format_duration(duration_ms: int) -> str:
@@ -97,6 +98,13 @@ def save_blob(
                 ]
             )
 
+        elif media_type == "application":
+            meta_info.extend(
+                [
+                    f"{metadata.get('size', 0) / (1024 * 1024):.2f} MB",
+                ]
+            )
+
         meta_str = ", ".join(filter(None, meta_info))
         console.print()
 
@@ -109,35 +117,6 @@ def save_blob(
     except Exception as e:
         console.print(f"[red]Error saving {media_type} {uri}: {e}[/red]")
         return False
-
-
-def save_image(
-    image_path: str,
-    blob: Union[bytes, lance.BlobFile],
-    metadata: Dict[str, Any],
-    quality: int = 100,
-) -> bool:
-    """Save image blob to file."""
-    return save_blob(
-        Path(image_path),
-        blob,
-        metadata,
-        "animation" if metadata.get("num_frames", 1) > 1 else "image",
-    )
-
-
-def save_video(
-    uri: Path, blob: Union[bytes, lance.BlobFile], metadata: Dict[str, Any]
-) -> bool:
-    """Save video file with metadata."""
-    return save_blob(uri, blob, metadata, "video")
-
-
-def save_audio(
-    uri: Path, blob: Union[bytes, lance.BlobFile], metadata: Dict[str, Any]
-) -> bool:
-    """Save audio file with metadata."""
-    return save_blob(uri, blob, metadata, "audio")
 
 
 def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -> bool:
@@ -155,16 +134,20 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
         caption_path = Path(caption_path)
         caption_path.parent.mkdir(parents=True, exist_ok=True)
 
-        caption_path = (
-            caption_path.parent / f"{caption_path.stem}.txt"
-            if media_type == "image"
-            else caption_path.parent / f"{caption_path.stem}.srt"
-        )
+        if media_type == "audio" or media_type == "video":
+            caption_path = caption_path.parent / f"{caption_path.stem}.srt"
+        elif media_type == "application":
+            caption_path = caption_path.parent / f"{caption_path.stem}.md"
+        else:
+            caption_path = caption_path.parent / f"{caption_path.stem}.txt"
 
         with open(caption_path, "w", encoding="utf-8") as f:
             if caption_path.suffix == ".srt":
                 # For SRT files, preserve all lines including empty ones
                 f.write("\n".join(caption_lines))
+            elif caption_path.suffix == ".md":
+                # For MD files, preserve original markdown formatting
+                f.write("".join(caption_lines))
             else:
                 # For TXT files, strip empty lines and whitespace
                 for line in caption_lines:
@@ -264,6 +247,8 @@ def extract_from_lance(
                     media_type = "video"
                 elif suffix in audio_extensions:
                     media_type = "audio"
+                elif suffix in application_extensions:
+                    media_type = "application"
                 if not uri.exists() and blob:
                     if media_type:
                         if not save_blob(uri, blob, metadata, media_type):
