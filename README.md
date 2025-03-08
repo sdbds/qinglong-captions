@@ -1,10 +1,19 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (1.8)
+# qinglong-captioner (1.9)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changlog
+
+### 1.9
+
+Now with Mistral OCR functionality!
+Utilizing Mistral's advanced OCR capabilities to extract text information from videos and images.
+
+This feature is particularly useful when processing media files containing subtitles, signs, or other text elements, enhancing the accuracy and completeness of captions.
+
+The OCR functionality is integrated into the existing workflow and can be used without additional configuration.
 
 ### 1.8
 
@@ -146,6 +155,8 @@ Now we support [step-1.5v-mini](https://platform.stepfun.com/) optional for vide
 
 Now we support [qwen-VL](https://bailian.console.aliyun.com/#/model-market) series optional for video captioner.
 
+Now we support [Mistral OCR](https://console.mistral.ai/api-keys/) optional for PDF and image OCR.
+
 ```
 $dataset_path = "./datasets"
 $gemini_api_key = ""
@@ -162,6 +173,8 @@ $not_clip_with_caption = $false              # Not clip with caption | 不根据
 $wait_time= 1
 $max_retries = 100
 $segment_time= 300
+$ocr = $false
+$document_image = $true
 ```
 ---
 
@@ -250,6 +263,8 @@ pwsh ./1、install-uv-qinglong.ps1
 
 现在我们支持使用[通义千问VL](https://bailian.console.aliyun.com/#/model-market)的视频模型进行视频标注。
 
+现在我们支持使用[Mistral OCR](https://console.mistral.ai/api-keys/)的OCR功能进行图片字幕生成。
+
 ```
 $dataset_path = "./datasets"
 $gemini_api_key = ""
@@ -266,4 +281,6 @@ $not_clip_with_caption = $false              # Not clip with caption | 不根据
 $wait_time= 1
 $max_retries = 100
 $segment_time= 300
+$ocr = $false
+$document_image = $true
 ```
