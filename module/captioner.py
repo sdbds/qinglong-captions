@@ -389,17 +389,15 @@ def _postprocess_caption_content(output, filepath, args):
                 page_markdown = (
                     page.markdown if hasattr(page, "markdown") else str(page)
                 )
-                combined_output += page_markdown
-
                 # 替换图片路径，将图片路径改为上一级目录
                 if hasattr(page, "images") and args.document_image:
                     # 查找并替换所有图片引用格式 ![...](filename)
                     img_pattern = r"!\[(.*?)\]\(([^/)]+)\)"
                     parent_dir = Path(filepath).stem
-                    combined_output = re.sub(
+                    page_markdown = re.sub(
                         img_pattern,
                         lambda m: f"![{m.group(1)}]({parent_dir}/{m.group(2)})",
-                        combined_output,
+                        page_markdown,
                     )
 
                 if hasattr(page, "images") and args.document_image:
@@ -425,6 +423,7 @@ def _postprocess_caption_content(output, filepath, args):
                                 console.print(
                                     f"[yellow]Error saving OCR image: {e}[/yellow]"
                                 )
+                # 这里添加页面内容，只添加一次
                 combined_output += f"{page_markdown}\n\n"
                 # 添加HTML页脚和分隔符
                 combined_output += f'<footer style="background-color: #f5f5f5; padding: 8px; margin-top: 20px; text-align: center; border-top: 1px solid #ddd;">\n<strong> Page {page_index+1} </strong>\n</footer>\n\n'

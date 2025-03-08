@@ -503,7 +503,7 @@ def extract_from_lance(
                     caption_file_path = (
                         captions_dir_path
                         if caption_dir
-                        else uri.with_suffix("")
+                        else uri
                     )
                     caption_file_path.parent.mkdir(parents=True, exist_ok=True)
                     save_caption(caption_file_path, caption, media_type)
