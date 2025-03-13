@@ -15,6 +15,8 @@ $max_retries = 100
 $segment_time = 300
 $ocr = $false
 $document_image = $true
+$scene_threshold = 3
+$scene_min_len = 15
 
 # ============= DO NOT MODIFY CONTENTS BELOW | 请勿修改下方内容 =====================
 # Activate python venv
@@ -110,6 +112,14 @@ if ($ocr) {
 
 if ($document_image) {
   [void]$ext_args.Add("--document_image")
+}
+
+if ($scene_threshold -ine 0) {
+  [void]$ext_args.Add("--scene_threshold=$scene_threshold")
+}
+
+if ($scene_min_len -ine 0) {
+  [void]$ext_args.Add("--scene_min_len=$scene_min_len")
 }
 
 # run train

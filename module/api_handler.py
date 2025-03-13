@@ -12,9 +12,9 @@ from rich.console import Console
 from rich.text import Text
 from PIL import Image
 from pathlib import Path
-import re
 import functools
 from utils.console_util import CaptionLayout, MarkdownLayout
+from utils.stream_util import sanitize_filename
 
 console = Console()
 
@@ -379,13 +379,13 @@ def api_process_batch(
                                 try:
                                     base64_str = first_image.image_base64
                                     # 处理data URL格式
-                                    if base64_str.startswith('data:'):
+                                    if base64_str.startswith("data:"):
                                         # 提取实际的base64内容
-                                        base64_content = base64_str.split(',', 1)[1]
+                                        base64_content = base64_str.split(",", 1)[1]
                                         image_data = base64.b64decode(base64_content)
                                     else:
                                         image_data = base64.b64decode(base64_str)
-                                    
+
                                     ocr_image = Image.open(io.BytesIO(image_data))
                                     ocr_pixels = Pixels.from_image(
                                         ocr_image,
@@ -786,37 +786,6 @@ def api_process_batch(
                     )
                 continue
         return ""
-
-
-def sanitize_filename(name: str) -> str:
-    """Sanitizes filenames.
-
-    Requirements:
-    - Only lowercase alphanumeric characters or dashes (-)
-    - Cannot begin or end with a dash
-    - Max length is 40 characters
-    """
-    # Convert to lowercase and replace non-alphanumeric chars with dash
-    sanitized = re.sub(r"[^a-z0-9-]", "-", name.lower())
-    # Replace multiple dashes with single dash
-    sanitized = re.sub(r"-+", "-", sanitized)
-    # Remove leading and trailing dashes
-    sanitized = sanitized.strip("-")
-    # If empty after sanitization, use a default name
-    if not sanitized:
-        sanitized = "file"
-    # Ensure it starts and ends with alphanumeric character
-    if sanitized[0] == "-":
-        sanitized = "f" + sanitized
-    if sanitized[-1] == "-":
-        sanitized = sanitized + "f"
-    # If length exceeds 40, keep the first 20 and last 19 chars with a dash in between
-    if len(sanitized) > 40:
-        # Take parts that don't end with dash
-        first_part = sanitized[:20].rstrip("-")
-        last_part = sanitized[-19:].rstrip("-")
-        sanitized = first_part + "-" + last_part
-    return sanitized
 
 
 def upload_to_gemini(client, path, mime_type=None, name=None):

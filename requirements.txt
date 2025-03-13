@@ -25,3 +25,5 @@ opencv-python
 accelerate
 torch==2.5.1+cu124
 onnxruntime-gpu>=1.20
+
+scenedetect[opencv]

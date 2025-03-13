@@ -1,10 +1,12 @@
 import av
+import re
 from rich.progress import Progress, BarColumn, TimeRemainingColumn
 from rich.console import Console
 from av.audio.format import AudioFormat
 from av.audio.layout import AudioLayout
 import subprocess
 import imageio_ffmpeg
+from pymediainfo import MediaInfo
 
 console = Console()
 
@@ -218,6 +220,8 @@ def split_video_with_imageio_ffmpeg(
                     "-reset_timestamps",
                     "1",  # 重置时间戳
                     "-y",  # 覆盖输出文件
+                    "-break_non_keyframes",
+                    "0",
                     output_template,  # 输出文件模板
                 ]
             else:
@@ -229,7 +233,7 @@ def split_video_with_imageio_ffmpeg(
                     audio_codec = "aac"
                 # 根据是否是第一个片段来调整命令
                 if i == 0:
-                # 第一个片段，-ss 放在 -i 前面以获得更精确的开始时间
+                    # 第一个片段，-ss 放在 -i 前面以获得更精确的开始时间
                     command = [
                         ffmpeg_exe,
                         "-ss",
@@ -299,3 +303,50 @@ def split_video_with_imageio_ffmpeg(
             if sub.end.minutes - sub.start.minutes == segment_time / 60:
                 sub_progress.advance(sub_task, advance=4)
                 break
+
+def sanitize_filename(name: str) -> str:
+    """Sanitizes filenames.
+
+    Requirements:
+    - Only lowercase alphanumeric characters or dashes (-)
+    - Cannot begin or end with a dash
+    - Max length is 40 characters
+    """
+    # Convert to lowercase and replace non-alphanumeric chars with dash
+    sanitized = re.sub(r"[^a-z0-9-]", "-", name.lower())
+    # Replace multiple dashes with single dash
+    sanitized = re.sub(r"-+", "-", sanitized)
+    # Remove leading and trailing dashes
+    sanitized = sanitized.strip("-")
+    # If empty after sanitization, use a default name
+    if not sanitized:
+        sanitized = "file"
+    # Ensure it starts and ends with alphanumeric character
+    if sanitized[0] == "-":
+        sanitized = "f" + sanitized
+    if sanitized[-1] == "-":
+        sanitized = sanitized + "f"
+    # If length exceeds 40, keep the first 20 and last 19 chars with a dash in between
+    if len(sanitized) > 40:
+        # Take parts that don't end with dash
+        first_part = sanitized[:20].rstrip("-")
+        last_part = sanitized[-19:].rstrip("-")
+        sanitized = first_part + "-" + last_part
+    return sanitized
+
+def get_video_duration(file_path):
+    """
+    获取视频片段的精确持续时间，用于字幕偏移计算
+
+    Args:
+        file_path: 视频文件路径
+
+    Returns:
+        float: 视频持续时间（毫秒）
+    """
+    for track in MediaInfo.parse(file_path).tracks:
+        if track.track_type == "Video":
+            return track.duration
+        elif track.track_type == "Audio":
+            return track.duration
+    return 0

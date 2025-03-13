@@ -11,25 +11,29 @@ from rich.progress import (
     MofNCompleteColumn,
 )
 from rich.console import Console
-import argparse
+from PIL import Image
+import pyarrow as pa
 from module.lanceImport import transform2lance
 from module.lanceexport import extract_from_lance
 from module.api_handler import api_process_batch, process_llm_response
-import pyarrow as pa
-import re
-from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
+from module.scenedetect import SceneDetector, run_async_in_thread
+from utils.stream_util import (
+    split_media_stream_clips,
+    split_video_with_imageio_ffmpeg,
+    get_video_duration,
+)
 from config.config import (
     BASE_VIDEO_EXTENSIONS,
     BASE_AUDIO_EXTENSIONS,
     BASE_APPLICATION_EXTENSIONS,
 )
-
+import re
+import argparse
 import toml
-from PIL import Image
 import pysrt
-from pymediainfo import MediaInfo
 from pathlib import Path
 import base64
+import asyncio
 
 Image.MAX_IMAGE_PIXELS = None  # Disable image size limit check
 
@@ -70,6 +74,7 @@ def process_batch(args, config):
         task = progress.add_task("[bold cyan]Processing media...", total=total_rows)
 
         results = []
+        scene_detectors = {}
         processed_filepaths = []
         for batch in scanner.to_batches():
             filepaths = batch["uris"].to_pylist()
@@ -80,8 +85,28 @@ def process_batch(args, config):
             for filepath, mime, duration, sha256hash in zip(
                 filepaths, mime, duration, sha256hash
             ):
+                # 创建场景检测器，但异步初始化它（不阻塞主线程）
+                scene_detector = None
+                if (
+                    args.scene_threshold > 0
+                    and args.scene_min_len > 0
+                    and mime.startswith("video")
+                ):
+                    scene_detector = SceneDetector(
+                        threshold=args.scene_threshold,
+                        min_scene_len=args.scene_min_len,
+                        console=progress,
+                    )
+                    # 启动场景检测，直接使用协程对象
+                    coroutine = scene_detector.detect_scenes_async(filepath)
+                    run_async_in_thread(coroutine)
+                    # 保存检测器实例以便后续使用
+                    scene_detectors[filepath] = scene_detector
 
-                if mime.startswith("image") or duration <= args.segment_time * 1000:
+                if (
+                    mime.startswith("image")
+                    or duration <= (args.segment_time + 1) * 1000
+                ):
 
                     output = api_process_batch(
                         uri=filepath,
@@ -209,13 +234,15 @@ def process_batch(args, config):
                         )
 
                         chunk_subs = pysrt.from_string(chunk_output)
+                        # 检查并删除超时的字幕
+                        for sub in list(chunk_subs):  # 使用list创建副本以便安全删除
+                            if (
+                                sub.start.ordinal > args.segment_time * 1000
+                            ):  # 转换为毫秒比较
+                                chunk_subs.remove(sub)
+
                         if i > 0:
-                            for track in MediaInfo.parse(files[i - 1]).tracks:
-                                if track.track_type == "Video":
-                                    last_duration = track.duration
-                                    break
-                                elif track.track_type == "Audio":
-                                    last_duration = track.duration
+                            last_duration = get_video_duration(files[i - 1])
 
                             total_duration += int(float(last_duration))
                             # 将纯毫秒单位转换为分、秒、毫秒
@@ -246,9 +273,6 @@ def process_batch(args, config):
                             description=f"[yellow]merging complete for chunk [/yellow]",
                         )
 
-                    for file in files:
-                        file.unlink(missing_ok=True)
-
                     # Mark the clip task as completed and hide it
                     progress.update(clip_task, completed=num_chunks, visible=False)
 
@@ -265,6 +289,9 @@ def process_batch(args, config):
                         console.print(
                             f"[green]All subtitles merged successfully. Total: {len(merged_subs)}[/green]"
                         )
+
+                    for file in files:
+                        file.unlink(missing_ok=True)
 
                 results.append(output)
                 processed_filepaths.append(filepath)
@@ -286,6 +313,17 @@ def process_batch(args, config):
                 if caption_path.suffix == ".srt":
                     try:
                         subs = pysrt.from_string(output)
+                        if scene_detector:
+                            # 使用异步await方式获取场景列表
+                            scene_list = asyncio.run(
+                                scene_detectors[filepath].ensure_detection_complete(
+                                    filepath
+                                )
+                            )
+                            # 使用实例方法align_subtitle，传入scene_list参数
+                            subs = scene_detectors[filepath].align_subtitle(
+                                subs, scene_list=scene_list, console=console
+                            )
                         subs.save(str(caption_path), encoding="utf-8")
                         console.print(
                             f"[green]Saved captions to {caption_path}[/green]"
@@ -581,6 +619,20 @@ def setup_parser() -> argparse.ArgumentParser:
         "--document_image",
         action="store_true",
         help="Use OCR to extract image from document",
+    )
+
+    parser.add_argument(
+        "--scene_threshold",
+        type=int,
+        default=3,
+        help="Threshold for scene detection",
+    )
+
+    parser.add_argument(
+        "--scene_min_len",
+        type=int,
+        default=15,
+        help="Minimum length(frames) for scene detection",
     )
 
     return parser
