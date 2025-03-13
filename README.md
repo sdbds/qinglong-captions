@@ -21,6 +21,10 @@ You can customize the task, add the task name in the [`config.toml`](https://git
 Currently, some simple task descriptions are as follows: Welcome the community to continuously optimize these task prompts and provide contributions!
 https://github.com/sdbds/qinglong-captions/blob/12b7750ee0bca7e41168e98775cd95c7b9c57173/config/config.toml#L239-L249
 
+![image](https://github.com/user-attachments/assets/7e5ae1a9-b635-4705-b664-1c20934d12bc)
+
+![image](https://github.com/user-attachments/assets/58527298-34f8-496d-8c4e-1a1c1c965b73)
+
 
 ### 1.9
 
