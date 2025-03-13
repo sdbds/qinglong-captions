@@ -540,6 +540,11 @@ def api_process_batch(
             else config["generation_config"]["default"]
         )
 
+        if args.gemini_task and mime.startswith("image"):
+            args.gemini_model_path = "gemini-2.0-flash-exp"
+            system_prompt = None
+            prompt = config["prompts"]["task"][args.gemini_task]
+
         genai_config = types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=generation_config["temperature"],
@@ -549,20 +554,6 @@ def api_process_batch(
             max_output_tokens=generation_config["max_output_tokens"],
             presence_penalty=0.0,
             frequency_penalty=0.0,
-            # tools=(
-            #     [types.Tool(google_search_retrieval=types.GoogleSearchRetrieval())]
-            #     if mime.startswith("image") or mime.startswith("audio")
-            #     else None
-            # ),
-            # tool_config=(
-            #     types.ToolConfig(
-            #         function_calling_config=types.FunctionCallingConfig(
-            #             mode="AUTO", allowed_function_names=["google_search_retrieval"]
-            #         )
-            #     )
-            #     if mime.startswith("image") or mime.startswith("audio")
-            #     else None
-            # ),
             safety_settings=[
                 types.SafetySetting(
                     category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
@@ -574,6 +565,7 @@ def api_process_batch(
                 ),
             ],
             response_mime_type=generation_config["response_mime_type"],
+            response_modalities=generation_config["response_modalities"],
         )
 
         console.print(f"generation_config: {generation_config}")
@@ -703,6 +695,12 @@ def api_process_batch(
                 # 收集流式响应
                 chunks = []
                 for chunk in response:
+                    if (
+                        not chunk.candidates
+                        or not chunk.candidates[0].content
+                        or not chunk.candidates[0].content.parts
+                    ):
+                        continue
                     if chunk.text:
                         chunks.append(chunk.text)
                         console.print("")
@@ -712,6 +710,16 @@ def api_process_batch(
                             console.print(Text(chunk.text), end="", overflow="ellipsis")
                         finally:
                             console.file.flush()
+                    if chunk.candidates[0].content.parts[0].inline_data:
+                        save_binary_file(
+                            Path(uri).with_stem(Path(uri).stem + "_s"),
+                            chunk.candidates[0].content.parts[0].inline_data.data,
+                        )
+                        console.print(
+                            f"[blue]File of mime type"
+                            f" {chunk.candidates[0].content.parts[0].inline_data.mime_type} saved"
+                            f"to: {Path(uri).with_stem(Path(uri).stem + '_s').name}[/blue]"
+                        )
 
                 console.print("\n")
                 response_text = "".join(chunks)
@@ -730,6 +738,8 @@ def api_process_batch(
                 except Exception as e:
                     console.print(Text(display_text))
 
+                if args.gemini_task:
+                    return response_text
                 # Extract SRT content between first and second ```
                 text = response_text
                 if text:
@@ -938,3 +948,9 @@ def process_llm_response(result: str) -> tuple[str, str]:
         long_description = ""
 
     return short_description, long_description
+
+
+def save_binary_file(file_name, data):
+    f = open(file_name, "wb")
+    f.write(data)
+    f.close()

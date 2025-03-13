@@ -12,6 +12,7 @@ annotated-types==0.7.0
     # via pydantic
 anyio==4.8.0
     # via
+    #   google-genai
     #   httpx
     #   openai
 async-timeout==5.0.1
@@ -88,7 +89,7 @@ google-auth==2.37.0
     #   google-generativeai
 google-auth-httplib2==0.2.0
     # via google-api-python-client
-google-genai==1.0.0
+google-genai==1.5.0
     # via -r requirements.txt
 google-generativeai==0.8.3
     # via -r requirements.txt
@@ -112,8 +113,9 @@ httplib2==0.22.0
     # via
     #   google-api-python-client
     #   google-auth-httplib2
-httpx==0.27.2
+httpx==0.28.1
     # via
+    #   google-genai
     #   mistralai
     #   openai
 huggingface-hub==0.29.1
@@ -298,7 +300,6 @@ six==1.17.0
 sniffio==1.3.1
     # via
     #   anyio
-    #   httpx
     #   openai
 sympy==1.13.1
     # via
@@ -320,6 +321,7 @@ tqdm==4.67.1
 typing-extensions==4.12.2
     # via
     #   anyio
+    #   google-genai
     #   google-generativeai
     #   huggingface-hub
     #   multidict

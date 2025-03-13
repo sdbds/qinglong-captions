@@ -2,6 +2,7 @@ $dataset_path = "./datasets"
 $gemini_api_key = ""
 $gemini_model_path = "gemini-2.0-pro-exp-02-05"
 $pixtral_api_key = ""
+$gemini_task = "removal_watermark_then_caption"
 $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
@@ -52,6 +53,9 @@ $ext_args = [System.Collections.ArrayList]::new()
 
 if ($gemini_api_key) {
   [void]$ext_args.Add("--gemini_api_key=$gemini_api_key")
+  if ($gemini_task) {
+    [void]$ext_args.Add("--gemini_task=$gemini_task")
+  }
 }
 
 if ($gemini_model_path) {

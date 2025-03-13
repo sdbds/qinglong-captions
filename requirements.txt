@@ -15,7 +15,7 @@ mutagen
 pyarrow>=14.0.1
 mistralai>=1.5.1
 google-generativeai
-google-genai
+google-genai>=1.5.0
 openAI
 dashscope
 pyanimeinfo

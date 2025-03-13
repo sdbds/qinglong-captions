@@ -635,6 +635,13 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Minimum length(frames) for scene detection",
     )
 
+    parser.add_argument(
+        "--gemini_task",
+        type=str,
+        default="",
+        help="Task for gemini-2.0-flash-exp",
+    )
+
     return parser
 
 
