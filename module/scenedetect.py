@@ -56,6 +56,7 @@ class SceneDetector:
         self.threshold = threshold
         self.min_scene_len = min_scene_len
         self.scene_list = []
+        self._detection_complete = False
         self.__init_async_attrs()
         self.console = console or Console()
 
@@ -71,7 +72,8 @@ class SceneDetector:
         """
         # 创建异步任务，检测场景
         scene_list = await asyncio.to_thread(self.detect_scenes, video_path)
-
+        self._detection_complete = True
+        self.scene_list = scene_list
         return scene_list
 
     def detect_scenes(self, video_path):
@@ -133,7 +135,9 @@ class SceneDetector:
         # 等待任务完成
         try:
             if self._init_task:
-                return await self._init_task
+                self.scene_list = await self._init_task
+                self._detection_complete = True
+                return self.scene_list
             return []
         except Exception as e:
             self.console.print(f"[red]scene detection failed: {str(e)}[/red]")
@@ -314,7 +318,7 @@ class SceneDetector:
         self._init_task = None
         self._lock = threading.Lock()
 
-    def align_subtitle(self, srt_path, scene_list, segment_time=300, console=None):
+    def align_subtitle(self, srt_path, scene_list, segment_time=600, console=None):
         """
         根据视频场景变化对字幕进行智能对齐，为1帧/秒转写的字幕优化
 
@@ -641,6 +645,9 @@ class SceneDetector:
 
         return subs
 
+
+    def is_detection_complete(self):
+        return self._detection_complete
 
 def setup_parser() -> argparse.ArgumentParser:
     """Setup argument parser."""

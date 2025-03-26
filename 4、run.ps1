@@ -13,7 +13,7 @@ $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 $wait_time = 1
 $max_retries = 100
-$segment_time = 300
+$segment_time = 600
 $ocr = $false
 $document_image = $true
 $scene_threshold = 3
@@ -118,11 +118,11 @@ if ($document_image) {
   [void]$ext_args.Add("--document_image")
 }
 
-if ($scene_threshold -ine 0) {
+if ($scene_threshold -ine 3) {
   [void]$ext_args.Add("--scene_threshold=$scene_threshold")
 }
 
-if ($scene_min_len -ine 0) {
+if ($scene_min_len -ine 15) {
   [void]$ext_args.Add("--scene_min_len=$scene_min_len")
 }
 

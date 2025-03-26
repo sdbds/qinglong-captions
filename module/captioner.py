@@ -314,13 +314,19 @@ def process_batch(args, config):
                     try:
                         subs = pysrt.from_string(output)
                         if scene_detector:
-                            # 使用异步await方式获取场景列表
-                            scene_list = asyncio.run(
-                                scene_detectors[filepath].ensure_detection_complete(
-                                    filepath
+                            # 检查场景检测是否已经完成
+                            if not scene_detectors[filepath].is_detection_complete():
+                                scene_list = asyncio.run(
+                                    scene_detectors[filepath].ensure_detection_complete(
+                                        filepath
+                                    )
                                 )
-                            )
+                            else:
+                                scene_list = scene_detectors[filepath].scene_list
                             # 使用实例方法align_subtitle，传入scene_list参数
+                            console.print(
+                                f"[bold cyan]Aligning subtitles with scene changes...[/bold cyan]"
+                            )
                             subs = scene_detectors[filepath].align_subtitle(
                                 subs, scene_list=scene_list, console=console
                             )
@@ -480,9 +486,29 @@ def _postprocess_caption_content(output, filepath, args):
         if not output.strip():
             console.print(f"[red]Empty caption content for {filepath}[/red]")
             return ""
+        # Fix single-digit minute formats (M:SS,ZZZ -> 00:0M:SS,ZZZ)
+        output = re.sub(
+            r"(?<!:)(\d):(\d{2})[,:.](\d{3})",
+            r"00:0\1:\2,\3",
+            output,
+            flags=re.MULTILINE,
+        )
+        # Fix hours with values over 99 (100:MM:SS,ZZZ -> 00:MM:SS,ZZZ)
+        output = re.sub(
+            r"(?<![0-9:])([1-9][0-9][0-9]+):([0-9]{2}):([0-9]{2})[,:.]([0-9]{3})",
+            r"00:\2:\3,\4",
+            output,
+            flags=re.MULTILINE,
+        )
         output = re.sub(
             r"(?<!:)(\d{2}):(\d{2})[,:.](\d{3})",
             r"00:\1:\2,\3",
+            output,
+            flags=re.MULTILINE,
+        )
+        output = re.sub(
+            r"(?<!:)(\d{2}):(\d{2}):(\d{2})[,:.](\d{3})",
+            r"00:\2:\3,\4",
             output,
             flags=re.MULTILINE,
         )
@@ -605,7 +631,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--segment_time",
         type=int,
-        default=300,
+        default=600,
         help="Segment time",
     )
 
