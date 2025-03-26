@@ -240,7 +240,7 @@ Exceptional captions will be rewarded with $10 per video."""
 
 removal_watermark = "Your task is to remove the watermark from the image."
 
-removal_watermark_then_caption = "Remove any text watermark(include English、Chinese、Japanese and any other language text watermark)、logo、watermark from this image, then generate captions about the new image."
+removal_watermark_then_caption = "Remove all marks、texts、logo  and watermark from this image, then generate captions about the new image."
 
 removal_logo = "Your task is to remove the logo from the image."
 
@@ -299,6 +299,14 @@ top_p = 0.95
 top_k = 40
 max_output_tokens = 8192
 response_modalities = ["image", "text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-2_5-pro-exp-03-25]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
 response_mime_type = "text/plain"
 
 # Dataset schema configuration
