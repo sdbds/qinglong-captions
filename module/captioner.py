@@ -315,20 +315,23 @@ def process_batch(args, config):
                         subs = pysrt.from_string(output)
                         if scene_detector:
                             # 检查场景检测是否已经完成
-                            if not scene_detectors[filepath].is_detection_complete():
+                            console.print(
+                                f"[bold cyan]{scene_detectors[filepath].get_scene_list()}...[/bold cyan]"
+                            )
+                            if scene_detectors[filepath].get_scene_list() is None:
                                 scene_list = asyncio.run(
                                     scene_detectors[filepath].ensure_detection_complete(
                                         filepath
                                     )
                                 )
                             else:
-                                scene_list = scene_detectors[filepath].scene_list
+                                scene_list = scene_detectors[filepath].get_scene_list()
                             # 使用实例方法align_subtitle，传入scene_list参数
                             console.print(
                                 f"[bold cyan]Aligning subtitles with scene changes...[/bold cyan]"
                             )
                             subs = scene_detectors[filepath].align_subtitle(
-                                subs, scene_list=scene_list, console=console
+                                subs, scene_list=scene_list, console=console, segment_time=args.segment_time
                             )
                         subs.save(str(caption_path), encoding="utf-8")
                         console.print(
@@ -476,7 +479,13 @@ def _postprocess_caption_content(output, filepath, args):
         else:
             output = "\n".join(output)
 
-    # 格式化时间戳 - 只处理7位的时间戳 (MM:SS,ZZZ)
+    # 确保字幕内容格式正确
+    output = output.strip()
+    if not output.strip():
+        console.print(f"[red]Empty caption content for {filepath}[/red]")
+        return ""
+
+    # 格式化时间戳 - 只处理视频和音频文件的字幕
     if (
         Path(filepath).suffix in BASE_VIDEO_EXTENSIONS
         or Path(filepath).suffix in BASE_AUDIO_EXTENSIONS
@@ -486,32 +495,38 @@ def _postprocess_caption_content(output, filepath, args):
         if not output.strip():
             console.print(f"[red]Empty caption content for {filepath}[/red]")
             return ""
-        # Fix single-digit minute formats (M:SS,ZZZ -> 00:0M:SS,ZZZ)
-        output = re.sub(
-            r"(?<!:)(\d):(\d{2})[,:.](\d{3})",
-            r"00:0\1:\2,\3",
-            output,
-            flags=re.MULTILINE,
+            
+        # 使用单一的正则表达式和处理函数来修复时间戳格式
+        # 创建一个匹配各种时间戳格式的模式
+        timestamp_pattern = re.compile(
+            # 匹配格式1: M:SS,mmm (单位数分钟)
+            r'(?<!:)(\d):(\d{2})[,:.](\d{3})|'
+            # 匹配格式2: MM:SS,mmm (两位数分钟)
+            r'(?<!:)(\d{2}):(\d{2})[,:.](\d{3})|'
+            # 匹配格式3: HH:MM:SS,mmm (标准时间)
+            r'(?<!:)(\d{2}):(\d{2}):(\d{2})[,:.](\d{3})|'
+            # 匹配格式4: 大于99的小时值
+            r'(?<![0-9:])([1-9][0-9][0-9]+):(\d{2}):(\d{2})[,:.](\d{3})',
+            re.MULTILINE
         )
-        # Fix hours with values over 99 (100:MM:SS,ZZZ -> 00:MM:SS,ZZZ)
-        output = re.sub(
-            r"(?<![0-9:])([1-9][0-9][0-9]+):([0-9]{2}):([0-9]{2})[,:.]([0-9]{3})",
-            r"00:\2:\3,\4",
-            output,
-            flags=re.MULTILINE,
-        )
-        output = re.sub(
-            r"(?<!:)(\d{2}):(\d{2})[,:.](\d{3})",
-            r"00:\1:\2,\3",
-            output,
-            flags=re.MULTILINE,
-        )
-        output = re.sub(
-            r"(?<!:)(\d{2}):(\d{2}):(\d{2})[,:.](\d{3})",
-            r"00:\2:\3,\4",
-            output,
-            flags=re.MULTILINE,
-        )
+        
+        # 定义时间戳处理函数
+        def normalize_timestamp(match):
+            groups = match.groups()
+            # 确定匹配了哪种模式
+            if groups[0] is not None:  # 匹配了 M:SS,mmm
+                return f"00:0{groups[0]}:{groups[1]},{groups[2]}"
+            elif groups[3] is not None:  # 匹配了 MM:SS,mmm
+                return f"00:{groups[3]}:{groups[4]},{groups[5]}"
+            elif groups[6] is not None:  # 匹配了 HH:MM:SS,mmm
+                return f"00:{groups[7]}:{groups[8]},{groups[9]}"
+            elif groups[10] is not None:  # 匹配了超大小时值
+                return f"00:{groups[11]}:{groups[12]},{groups[13]}"
+            return match.group(0)  # 如果不匹配预期格式，返回原始文本
+        
+        # 一次性处理所有时间戳
+        output = timestamp_pattern.sub(normalize_timestamp, output)
+        
     elif Path(filepath).suffix in BASE_APPLICATION_EXTENSIONS or args.ocr:
         pass
     else:

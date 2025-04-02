@@ -649,6 +649,9 @@ class SceneDetector:
     def is_detection_complete(self):
         return self._detection_complete
 
+    def get_scene_list(self):
+        return self.scene_list
+
 def setup_parser() -> argparse.ArgumentParser:
     """Setup argument parser."""
     parser = argparse.ArgumentParser(description="split video")

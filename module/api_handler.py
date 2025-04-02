@@ -741,6 +741,24 @@ def api_process_batch(
                     f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
                 )
 
+                # 添加调试信息，打印原始响应
+                console.print(f"[yellow]Raw response first 500 chars:[/yellow]")
+                console.print(f"[yellow]{response_text[:500]}...[/yellow]")
+                
+                # 检查响应是否可能是JSON格式
+                if response_text.strip().startswith('{') and response_text.strip().endswith('}'):
+                    console.print(f"[yellow]Response appears to be JSON format. Trying to parse...[/yellow]")
+                    try:
+                        import json
+                        json_data = json.loads(response_text)
+                        console.print(f"[green]Successfully parsed JSON response[/green]")
+                        # 如果是JSON，尝试提取内容
+                        if 'text' in json_data:
+                            response_text = json_data['text']
+                            console.print(f"[green]Extracted text content from JSON[/green]")
+                    except json.JSONDecodeError as json_err:
+                        console.print(f"[red]Failed to parse as JSON: {json_err}[/red]")
+
                 # Convert HTML font tags to rich format
                 display_text = response_text.replace(
                     '<font color="green">', "[green]"
@@ -784,10 +802,9 @@ def api_process_batch(
                         console.print(
                             f"[red]Not enough ``` markers: found {len(markers)}[/red]"
                         )
-                        content = ""
                         continue
                 else:
-                    content = ""
+                    continue
 
                 if progress and task_id is not None:
                     progress.update(task_id, description="Processing media...")
