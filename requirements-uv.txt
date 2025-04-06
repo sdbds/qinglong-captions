@@ -70,49 +70,16 @@ fsspec==2025.2.0
     # via
     #   huggingface-hub
     #   torch
-google-ai-generativelanguage==0.6.10
-    # via google-generativeai
-google-api-core==2.24.0
-    # via
-    #   google-ai-generativelanguage
-    #   google-api-python-client
-    #   google-generativeai
-google-api-python-client==2.156.0
-    # via google-generativeai
 google-auth==2.37.0
-    # via
-    #   google-ai-generativelanguage
-    #   google-api-core
-    #   google-api-python-client
-    #   google-auth-httplib2
-    #   google-genai
-    #   google-generativeai
-google-auth-httplib2==0.2.0
-    # via google-api-python-client
+    # via google-genai
 google-genai==1.5.0
     # via -r requirements.txt
-google-generativeai==0.8.3
-    # via -r requirements.txt
-googleapis-common-protos==1.66.0
-    # via
-    #   google-api-core
-    #   grpcio-status
-grpcio==1.68.1
-    # via
-    #   google-api-core
-    #   grpcio-status
-grpcio-status==1.68.1
-    # via google-api-core
 h11==0.14.0
     # via httpcore
 hbutils==0.11.0
     # via pyanimeinfo
 httpcore==1.0.7
     # via httpx
-httplib2==0.22.0
-    # via
-    #   google-api-python-client
-    #   google-auth-httplib2
 httpx==0.28.1
     # via
     #   google-genai
@@ -207,19 +174,8 @@ propcache==0.2.1
     # via
     #   aiohttp
     #   yarl
-proto-plus==1.25.0
-    # via
-    #   google-ai-generativelanguage
-    #   google-api-core
 protobuf==5.29.2
-    # via
-    #   google-ai-generativelanguage
-    #   google-api-core
-    #   google-generativeai
-    #   googleapis-common-protos
-    #   grpcio-status
-    #   onnxruntime-gpu
-    #   proto-plus
+    # via onnxruntime-gpu
 psutil==7.0.0
     # via accelerate
 pyanimeinfo==0.0.4
@@ -237,7 +193,6 @@ pyasn1-modules==0.4.1
 pydantic==2.10.4
     # via
     #   google-genai
-    #   google-generativeai
     #   mistralai
     #   openai
 pydantic-core==2.27.2
@@ -249,9 +204,7 @@ pylance==0.20.0
 pymediainfo==6.1.0
     # via -r requirements.txt
 pyparsing==3.0.9
-    # via
-    #   httplib2
-    #   pyrfc6266
+    # via pyrfc6266
 pyquery==2.0.1
     # via pyanimeinfo
 pyreadline3==3.5.4
@@ -275,7 +228,6 @@ pyyaml==6.0.2
 requests==2.32.3
     # via
     #   dashscope
-    #   google-api-core
     #   google-genai
     #   huggingface-hub
     #   pyanimeinfo
@@ -307,13 +259,12 @@ sympy==1.13.1
     #   torch
 toml==0.10.2
     # via -r requirements.txt
-torch==2.5.1+cu124
+torch==2.6.0
     # via
     #   -r requirements.txt
     #   accelerate
 tqdm==4.67.1
     # via
-    #   google-generativeai
     #   huggingface-hub
     #   openai
     #   pyanimeinfo
@@ -322,7 +273,6 @@ typing-extensions==4.12.2
     # via
     #   anyio
     #   google-genai
-    #   google-generativeai
     #   huggingface-hub
     #   multidict
     #   openai
@@ -335,8 +285,6 @@ typing-inspect==0.9.0
     # via mistralai
 tzdata==2024.2
     # via pandas
-uritemplate==4.1.1
-    # via google-api-python-client
 urllib3==2.3.0
     # via requests
 websocket-client==1.8.0

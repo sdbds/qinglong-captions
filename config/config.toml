@@ -341,3 +341,26 @@ image = "green"
 text = "yellow"
 unknown = "cyan"
 video = "magenta"
+
+[tag_type]
+general = 0
+artist = 1
+studio = 2
+franchise = 3
+character = 4
+genre = 5
+medium = 8
+meta = 9
+fashion = 10
+anatomy = 11
+pose = 12
+activity = 13
+role = 14
+flora = 15
+fauna = 16
+entity = 17
+object = 18
+substance = 19
+setting = 20
+language = 21
+automatic = 22
