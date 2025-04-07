@@ -153,8 +153,10 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
                 # For TXT files, strip empty lines and whitespace
                 for line in caption_lines:
                     if "<font color=" in line:
-                        line = line.replace('<font color="green">', "").replace(
-                            "</font>", ""
+                        line = (
+                            line.replace('<font color="green">', "")
+                            .replace("<font color='green'>", "")
+                            .replace("</font>", "")
                         )
                     if line and line.strip():
                         f.write(line.strip() + "\n")
@@ -189,12 +191,8 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
             combined_text = "\n".join(caption_lines)
 
         # 使用页眉作为分隔符来分割多个页面
-        header_pattern = (
-            r'(?s)<header style="background-color: #f5f5f5;.*?<strong> Page (\d+) </strong>'
-        )
-        footer_pattern = (
-            r'(?s)<footer\s+style="[^"]*">.*?<strong>\s*Page\s+(\d+)\s*</strong>.*?</footer>'
-        )
+        header_pattern = r'(?s)<header style="background-color: #f5f5f5;.*?<strong> Page (\d+) </strong>'
+        footer_pattern = r'(?s)<footer\s+style="[^"]*">.*?<strong>\s*Page\s+(\d+)\s*</strong>.*?</footer>'
         page_break_pattern = r'<div style="page-break-after: always;"></div>'
 
         # 分割所有页面
@@ -209,8 +207,10 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
         if not header_matches:
             # 没有找到页头，尝试其他方式分割内容
             # 尝试使用Markdown标题作为分割点
-            md_header_pattern = r'^#{1,6}\s+(.+?)$'
-            md_headers = list(re.finditer(md_header_pattern, combined_text, re.MULTILINE))
+            md_header_pattern = r"^#{1,6}\s+(.+?)$"
+            md_headers = list(
+                re.finditer(md_header_pattern, combined_text, re.MULTILINE)
+            )
 
             if md_headers:
                 # 使用Markdown标题分割内容
@@ -235,10 +235,12 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
                     section_content = combined_text[start_pos:end_pos]
 
                     # 创建文件名 (使用标题的前20个字符，去除特殊字符)
-                    safe_header = re.sub(r'[^\w\s-]', '', header_text)[:20].strip()
-                    safe_header = re.sub(r'[-\s]+', '_', safe_header)
+                    safe_header = re.sub(r"[^\w\s-]", "", header_text)[:20].strip()
+                    safe_header = re.sub(r"[-\s]+", "_", safe_header)
 
-                    section_filename = f"{caption_path.stem}_{safe_header}{caption_path.suffix}"
+                    section_filename = (
+                        f"{caption_path.stem}_{safe_header}{caption_path.suffix}"
+                    )
                     section_file_path = caption_path.with_suffix("") / section_filename
 
                     # 保存部分内容
@@ -275,7 +277,7 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
             # 计算当前页面内容的结束位置
             # 先尝试查找对应的页脚
             end_pos = None
-            
+
             # 寻找这个页码对应的页脚
             for footer_match in footer_matches:
                 footer_page = int(footer_match.group(1))
@@ -283,7 +285,7 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
                     # 结束位置是这个页脚的结束位置
                     end_pos = footer_match.end()
                     break
-            
+
             # 如果没找到对应页脚，则使用下一个页头作为结束位置
             if end_pos is None:
                 if i < len(header_matches) - 1:
@@ -296,15 +298,21 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
 
             # 移除页面分隔符 (确保使用多行模式)
             page_content = re.sub(page_break_pattern, "", page_content, flags=re.DOTALL)
-            
+
             # 移除页眉
-            page_content = re.sub(r'(?s)<header style="background-color: #f5f5f5;.*?</header>', "", page_content)
-            
+            page_content = re.sub(
+                r'(?s)<header style="background-color: #f5f5f5;.*?</header>',
+                "",
+                page_content,
+            )
+
             # 移除页脚
-            page_content = re.sub(r'(?s)<footer\s+style="[^"]*">.*?</footer>', "", page_content)
-            
+            page_content = re.sub(
+                r'(?s)<footer\s+style="[^"]*">.*?</footer>', "", page_content
+            )
+
             # 清理可能的多余空行
-            page_content = re.sub(r'\n{3,}', '\n\n', page_content)
+            page_content = re.sub(r"\n{3,}", "\n\n", page_content)
 
             # 添加到页面内容列表
             page_contents.append((page_number, page_content))
@@ -317,15 +325,15 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
         for page_number, page_content in page_contents:
             # 处理图片路径，将路径从子文件夹改为同级
             img_pattern = r"!\[(.*?)\]\(([^/]+)/([^/)]+)\)"
-            
+
             # 检查是否有重复引用的图片
             processed_page_content = page_content
             matches = list(re.finditer(img_pattern, page_content))
-            
+
             if matches:
                 # 使用字典记录每个图片第一次出现的位置
                 first_occurrence = {}
-                
+
                 # 找出每个图片第一次出现的位置
                 for match in matches:
                     alt_text = match.group(1)
@@ -333,31 +341,35 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
                     img_name = match.group(3)
                     if img_name not in first_occurrence:
                         first_occurrence[img_name] = match
-                
+
                 # 先处理图片路径，统一格式
-                processed_page_content = re.sub(img_pattern, r"![\1](\3)", processed_page_content)
-                
+                processed_page_content = re.sub(
+                    img_pattern, r"![\1](\3)", processed_page_content
+                )
+
                 # 移除所有重复的图片，但保留第一次出现的位置
                 for img_name, match in first_occurrence.items():
                     # 计算该图片在文本中所有出现的位置
                     all_matches = [m for m in matches if m.group(3) == img_name]
-                    
+
                     # 如果有多次出现，移除除了第一次之外的所有引用
                     if len(all_matches) > 1:
                         # 排序匹配，按位置从前向后处理
                         sorted_matches = sorted(all_matches, key=lambda m: m.start())
-                        
+
                         # 跳过第一次出现的匹配
                         for m in sorted_matches[1:]:
                             # 构建要移除的模式
                             alt_text = m.group(1)
                             pattern_to_remove = f"!\\[{re.escape(alt_text)}\\]\\({re.escape(img_name)}\\)"
                             # 从处理后的内容中移除该模式
-                            processed_page_content = re.sub(pattern_to_remove, "", processed_page_content, count=1)
+                            processed_page_content = re.sub(
+                                pattern_to_remove, "", processed_page_content, count=1
+                            )
             else:
                 # 如果没有匹配到图片，只进行路径格式转换
                 processed_page_content = re.sub(img_pattern, r"![\1](\3)", page_content)
-            
+
             page_filename = f"{caption_path.stem}_{page_number}.md"
             page_file_path = output_dir / page_filename
 
@@ -500,11 +512,7 @@ def extract_from_lance(
                 # Save caption if available
                 caption = metadata.get("captions", [])
                 if caption:
-                    caption_file_path = (
-                        captions_dir_path
-                        if caption_dir
-                        else uri
-                    )
+                    caption_file_path = captions_dir_path if caption_dir else uri
                     caption_file_path.parent.mkdir(parents=True, exist_ok=True)
                     save_caption(caption_file_path, caption, media_type)
 

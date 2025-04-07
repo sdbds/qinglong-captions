@@ -346,11 +346,8 @@ class SceneDetector:
         else:
             subs = srt_path
 
-        # 检测视频场景
-        scene_timestamps = self.get_timestamps(scene_list)
-
-        # 将场景时间戳转换为毫秒，方便与字幕时间戳（毫秒）比较
-        scene_timestamps_ms = [int(ts * 1000) for ts in scene_timestamps]
+        # 检测视频场景并转换时间戳
+        scene_timestamps_ms = [int(ts * 1000) for ts in self.get_timestamps(scene_list)]
 
         # 构建场景块（每个场景的开始和结束时间）
         scene_blocks = []
