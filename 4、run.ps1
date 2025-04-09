@@ -106,7 +106,7 @@ if ($max_retries -ine 20) {
   [void]$ext_args.Add("--max_retries=$max_retries")
 }
 
-if ($segment_time -ine 300) {
+if ($segment_time -ine 600) {
   [void]$ext_args.Add("--segment_time=$segment_time")
 }
 
