@@ -93,8 +93,10 @@ def process_batch(args, config):
                     and mime.startswith("video")
                 ):
                     scene_detector = SceneDetector(
+                        detector=args.scene_detector,
                         threshold=args.scene_threshold,
                         min_scene_len=args.scene_min_len,
+                        luma_only=args.scene_luma_only,
                         console=progress,
                     )
                     # 启动场景检测，直接使用协程对象
@@ -331,7 +333,10 @@ def process_batch(args, config):
                                 f"[bold cyan]Aligning subtitles with scene changes...[/bold cyan]"
                             )
                             subs = scene_detectors[filepath].align_subtitle(
-                                subs, scene_list=scene_list, console=console, segment_time=args.segment_time
+                                subs,
+                                scene_list=scene_list,
+                                console=console,
+                                segment_time=args.segment_time,
                             )
                         subs.save(str(caption_path), encoding="utf-8")
                         console.print(
@@ -495,21 +500,21 @@ def _postprocess_caption_content(output, filepath, args):
         if not output.strip():
             console.print(f"[red]Empty caption content for {filepath}[/red]")
             return ""
-            
+
         # 使用单一的正则表达式和处理函数来修复时间戳格式
         # 创建一个匹配各种时间戳格式的模式
         timestamp_pattern = re.compile(
             # 匹配格式1: M:SS,mmm (单位数分钟)
-            r'(?<!:)(\d):(\d{2})[,:.](\d{3})|'
+            r"(?<!:)(\d):(\d{2})[,:.](\d{3})|"
             # 匹配格式2: MM:SS,mmm (两位数分钟)
-            r'(?<!:)(\d{2}):(\d{2})[,:.](\d{3})|'
+            r"(?<!:)(\d{2}):(\d{2})[,:.](\d{3})|"
             # 匹配格式3: HH:MM:SS,mmm (标准时间)
-            r'(?<!:)(\d{2}):(\d{2}):(\d{2})[,:.](\d{3})|'
+            r"(?<!:)(\d{2}):(\d{2}):(\d{2})[,:.](\d{3})|"
             # 匹配格式4: 大于99的小时值
-            r'(?<![0-9:])([1-9][0-9][0-9]+):(\d{2}):(\d{2})[,:.](\d{3})',
-            re.MULTILINE
+            r"(?<![0-9:])([1-9][0-9][0-9]+):(\d{2}):(\d{2})[,:.](\d{3})",
+            re.MULTILINE,
         )
-        
+
         # 定义时间戳处理函数
         def normalize_timestamp(match):
             groups = match.groups()
@@ -523,10 +528,10 @@ def _postprocess_caption_content(output, filepath, args):
             elif groups[10] is not None:  # 匹配了超大小时值
                 return f"00:{groups[11]}:{groups[12]},{groups[13]}"
             return match.group(0)  # 如果不匹配预期格式，返回原始文本
-        
+
         # 一次性处理所有时间戳
         output = timestamp_pattern.sub(normalize_timestamp, output)
-        
+
     elif Path(filepath).suffix in BASE_APPLICATION_EXTENSIONS or args.ocr:
         pass
     else:
@@ -663,9 +668,23 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--scene_detector",
+        type=str,
+        choices=[
+            "ContentDetector",
+            "AdaptiveDetector",
+            "HashDetector",
+            "HistogramDetector",
+            "ThresholdDetector",
+        ],
+        default="AdaptiveDetector",
+        help="Detector to use for scene detection",
+    )
+
+    parser.add_argument(
         "--scene_threshold",
-        type=int,
-        default=3,
+        type=float,
+        default=0.0,
         help="Threshold for scene detection",
     )
 
@@ -674,6 +693,12 @@ def setup_parser() -> argparse.ArgumentParser:
         type=int,
         default=15,
         help="Minimum length(frames) for scene detection",
+    )
+
+    parser.add_argument(
+        "--scene_luma_only",
+        action="store_true",
+        help="Only use luma (brightness) without color changes for scene detection.",
     )
 
     parser.add_argument(

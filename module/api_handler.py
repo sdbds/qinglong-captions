@@ -819,8 +819,11 @@ def api_process_batch(
                     progress.update(task_id, description="Processing media...")
                 return content
             except Exception as e:
-                error_msg = Text(str(e), style="red")
-                console.print(f"[red]Error processing: {error_msg}[/red]")
+                import traceback
+                error_trace = traceback.format_exc()
+                console.print(f"[red]Error processing:[/red]")
+                console.print(Text(f"{str(e)}", style="red"))
+                console.print(Text(f"Error trace: {error_trace}", style="red"))
                 if attempt < args.max_retries - 1:
                     console.print(
                         f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]"

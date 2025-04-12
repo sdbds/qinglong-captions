@@ -20,9 +20,11 @@ dashscope
 pyanimeinfo
 
 #WDtagger
+accelerate>=1.6.0
+huggingface_hub[hf_xet]>=0.30.2
 opencv-python
-accelerate
 torch
-onnxruntime-gpu>=1.20
+onnxruntime-gpu==1.20.2
+tensorrt==10.7.0.post1
 
-scenedetect[opencv]
+scenedetect[opencv]>=0.6.6

@@ -3,8 +3,10 @@
 $Config = @{
     input_video_dir         = "./datasets"                          # 输入视频目录路径
     output_dir              = ""                                    # 输出目录路径，如果不指定则默认为输入目录
-    threshold               = 3.0                                   # 场景检测阈值，数值越低越敏感
+    detector                = "AdaptiveDetector"                    # 场景检测器，可选"ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"
+    threshold               = 0.0                                   # 场景检测阈值，数值越低越敏感。ContentDetector: 27.0, AdaptiveDetector: 3.0, HashDetector: 0.395, HistogramDetector: 0.05, ThresholdDetector: 12
     min_scene_len           = 16                                    # 最小场景长度，数值越小越敏感
+    luma_only               = $false                                # 是否只使用亮度变化检测
     save_html               = $true                                 # 是否保存HTML报告
     video2images_min_number = 1                                     # 每个场景保存的图像数量，为0则不保存
     recursive               = $false                                # 是否递归搜索子目录
@@ -38,8 +40,10 @@ $ExtArgs = [System.Collections.ArrayList]::new()
 
 # 添加配置参数
 if ($Config.output_dir) { [void]$ExtArgs.Add("--output_dir=$($Config.output_dir)") }
-if ($Config.threshold) { [void]$ExtArgs.Add("--threshold=$($Config.threshold)") }
+if ($Config.detector -ne "AdaptiveDetector") { [void]$ExtArgs.Add("--detector=$($Config.detector)") }
+if ($Config.threshold -ne 0.0) { [void]$ExtArgs.Add("--threshold=$($Config.threshold)") }
 if ($Config.min_scene_len) { [void]$ExtArgs.Add("--min_scene_len=$($Config.min_scene_len)") }
+if ($Config.luma_only) { [void]$ExtArgs.Add("--luma_only") }
 if ($Config.save_html) { [void]$ExtArgs.Add("--save_html") }
 if ($Config.video2images_min_number -gt 0) { [void]$ExtArgs.Add("--video2images_min_number=$($Config.video2images_min_number)") }
 if ($Config.recursive) { [void]$ExtArgs.Add("--recursive") }

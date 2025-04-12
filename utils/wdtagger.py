@@ -7,6 +7,7 @@ import csv
 import lance
 import pyarrow as pa
 from rich.console import Console
+from rich.pretty import Pretty
 from rich.progress import (
     Progress,
     SpinnerColumn,
@@ -145,7 +146,11 @@ def load_model_and_tags(args):
 
     # 设置推理提供者
     providers = []
-    if "CUDAExecutionProvider" in ort.get_available_providers():
+    if "TensorrtExecutionProvider" in ort.get_available_providers():
+        providers.append("TensorrtExecutionProvider")
+        console.print("[green]Using TensorRT for inference[/green]")
+        console.print("[yellow]compile may take a long time, please wait...[/yellow]")
+    elif "CUDAExecutionProvider" in ort.get_available_providers():
         providers.append("CUDAExecutionProvider")
         console.print("[green]Using CUDA for inference[/green]")
     elif "ROCMExecutionProvider" in ort.get_available_providers():
@@ -170,22 +175,55 @@ def load_model_and_tags(args):
         sess_options.inter_op_num_threads = 8  # 设置线程数
         sess_options.intra_op_num_threads = 8  # 设置算子内部并行数
 
-    if "CUDAExecutionProvider" in providers:
+    # TensorRT 优化
+    if "TensorrtExecutionProvider" in providers:
+        sess_options.enable_mem_pattern = True
+        sess_options.enable_mem_reuse = True
+        providers_with_options = [
+            (
+                "TensorrtExecutionProvider",
+                {
+                    "trt_fp16_enable": True,  # Enable FP16 precision for faster inference
+                    "trt_engine_cache_enable": True,
+                    "trt_engine_cache_path": "wd14_tagger_model/trt_engines",
+                    "trt_engine_hw_compatible": True,
+                    "trt_context_memory_sharing_enable": True,
+                    "trt_timing_cache_enable": True,
+                    "trt_timing_cache_path": "wd14_tagger_model",
+                    "trt_sparsity_enable": True,
+                    "trt_min_subgraph_size": 7,
+                    "trt_detailed_build_log": True,
+                },
+            ),
+            (
+                "CUDAExecutionProvider",
+                {
+                    "arena_extend_strategy": "kNextPowerOfTwo",
+                    "cudnn_conv_algo_search": "EXHAUSTIVE",
+                    "do_copy_in_default_stream": True,
+                },
+            ),
+        ]
+
+    elif "CUDAExecutionProvider" in providers:
         # CUDA GPU 优化
         sess_options.enable_mem_pattern = True
         sess_options.enable_mem_reuse = True
-        # CUDA 特定优化
-        provider_options = {
-            "cudnn_conv_algo_search": "EXHAUSTIVE",
-            "do_copy_in_default_stream": True,
-            "arena_extend_strategy": "kNextPowerOfTwo",
-        }
         providers_with_options = [
-            ("CUDAExecutionProvider", provider_options),
-            "CPUExecutionProvider",
+            (
+                "CUDAExecutionProvider",
+                {
+                    "arena_extend_strategy": "kNextPowerOfTwo",
+                    "cudnn_conv_algo_search": "EXHAUSTIVE",
+                    "do_copy_in_default_stream": True,
+                },
+            ),
         ]
     else:
         providers_with_options = providers
+
+    console.print(f"[cyan]Providers with options:[/cyan]")
+    console.print(Pretty(providers_with_options, indent_guides=True, expand_all=True))
 
     ort_sess = ort.InferenceSession(
         str(model_path), sess_options=sess_options, providers=providers_with_options
@@ -203,8 +241,14 @@ def main(args):
     if not isinstance(args.train_data_dir, lance.LanceDataset):
         if args.train_data_dir.endswith(".lance"):
             dataset = lance.dataset(args.train_data_dir)
-        elif any(file.suffix == '.lance' for file in Path(args.train_data_dir).glob('*')):
-            lance_file = next(file for file in Path(args.train_data_dir).glob('*') if file.suffix == '.lance')
+        elif any(
+            file.suffix == ".lance" for file in Path(args.train_data_dir).glob("*")
+        ):
+            lance_file = next(
+                file
+                for file in Path(args.train_data_dir).glob("*")
+                if file.suffix == ".lance"
+            )
             dataset = lance.dataset(str(lance_file))
         else:
             console.print("[yellow]Converting dataset to Lance format...[/yellow]")

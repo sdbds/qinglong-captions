@@ -1,7 +1,16 @@
 import pysrt
 from pathlib import Path
 from PIL import Image
-from scenedetect import detect, AdaptiveDetector, split_video_ffmpeg, open_video
+from scenedetect import (
+    detect,
+    ContentDetector,
+    AdaptiveDetector,
+    HashDetector,
+    HistogramDetector,
+    ThresholdDetector,
+    split_video_ffmpeg,
+    open_video,
+)
 from scenedetect.scene_manager import write_scene_list_html, save_images
 import asyncio
 import threading
@@ -45,20 +54,57 @@ class SceneDetector:
     视频场景检测器类，用于视频场景分割和时间戳提取
     """
 
-    def __init__(self, threshold=3, min_scene_len=1, console=None):
+    def __init__(
+        self,
+        detector="AdaptiveDetector",
+        threshold=0.0,
+        min_scene_len=15,
+        luma_only=False,
+        console=None,
+    ):
         """
         初始化场景检测器
 
         参数:
+            detector (object): 场景检测器对象
             threshold (int): 场景变化检测的阈值，数值越低越敏感
             min_scene_len (int): 场景变化检测的最小场景长度，数值越小越敏感
+            luma_only (bool): 是否只使用亮度变化检测
         """
-        self.threshold = threshold
-        self.min_scene_len = min_scene_len
+        if detector == "AdaptiveDetector":
+            kwargs = {"min_scene_len": min_scene_len}
+            if threshold != 0.0:
+                kwargs["adaptive_threshold"] = threshold
+            if luma_only:
+                kwargs["luma_only"] = True
+            self.detector = AdaptiveDetector(**kwargs)
+        elif detector == "ContentDetector":
+            kwargs = {"min_scene_len": min_scene_len}
+            if threshold != 0.0:
+                kwargs["threshold"] = threshold
+            if luma_only:
+                kwargs["luma_only"] = True
+            self.detector = ContentDetector(**kwargs)
+        elif detector == "HashDetector":
+            kwargs = {"min_scene_len": min_scene_len}
+            if threshold != 0.0:
+                kwargs["threshold"] = threshold
+            self.detector = HashDetector(**kwargs)
+        elif detector == "HistogramDetector":
+            kwargs = {"min_scene_len": min_scene_len}
+            if threshold != 0.0:
+                kwargs["threshold"] = threshold
+            self.detector = HistogramDetector(**kwargs)
+        elif detector == "ThresholdDetector":
+            kwargs = {"min_scene_len": min_scene_len}
+            if threshold != 0.0:
+                kwargs["threshold"] = threshold
+            self.detector = ThresholdDetector(**kwargs)
         self.scene_list = []
         self._detection_complete = False
         self.__init_async_attrs()
         self.console = console or Console()
+        self.console.print(f"[green]Initializing scene detector with {detector}...[/green]")
 
     async def detect_scenes_async(self, video_path):
         """
@@ -87,12 +133,8 @@ class SceneDetector:
             list: 场景列表，每个场景包含开始和结束时间
         """
         try:
-            detector = AdaptiveDetector(
-                adaptive_threshold=self.threshold,
-                min_scene_len=self.min_scene_len,
-            )
             # 使用PySceneDetect的detect接口检测场景
-            scene_list = detect(video_path, detector=detector, show_progress=True)
+            scene_list = detect(video_path, detector=self.detector, show_progress=True)
 
             return scene_list
         except Exception as e:
@@ -126,7 +168,7 @@ class SceneDetector:
         """
         # 将Path对象转换为字符串
         video_path_str = str(video_path) if video_path else None
-        
+
         # 如果没有任务或已完成，则创建新任务
         if self._init_task is None and video_path_str:
             # 直接调用异步方法，不使用create_task
@@ -268,6 +310,9 @@ class SceneDetector:
 
         # 使用ffmpeg分割视频
         try:
+            self.console.print(
+                f"[blue]Splitting video with {len(scene_list)} scenes...[/blue]"
+            )
             return split_video_ffmpeg(
                 video_path,
                 scene_list,
@@ -642,12 +687,12 @@ class SceneDetector:
 
         return subs
 
-
     def is_detection_complete(self):
         return self._detection_complete
 
     def get_scene_list(self):
         return self.scene_list
+
 
 def setup_parser() -> argparse.ArgumentParser:
     """Setup argument parser."""
@@ -655,9 +700,22 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument("input_video_dir", type=str, help="Input video directory")
     parser.add_argument("--output_dir", type=str, default=None, help="Output directory")
     parser.add_argument(
+        "--detector",
+        type=str,
+        choices=[
+            "ContentDetector",
+            "AdaptiveDetector",
+            "HashDetector",
+            "HistogramDetector",
+            "ThresholdDetector",
+        ],
+        default="AdaptiveDetector",
+        help="Detector to use for scene detection, default is AdaptiveDetector",
+    )
+    parser.add_argument(
         "--threshold",
         type=float,
-        default=3,
+        default=0.0,
         help="Threshold (float) that score ratio must exceed to trigger a new scene.",
     )
     parser.add_argument(
@@ -665,6 +723,11 @@ def setup_parser() -> argparse.ArgumentParser:
         type=int,
         default=15,
         help="Once a cut is detected, this many frames must pass before a new one can be added to the scene list.",
+    )
+    parser.add_argument(
+        "--luma_only",
+        action="store_true",
+        help="Only use luma (brightness) without color changes for scene detection.",
     )
     parser.add_argument(
         "--save_html",
@@ -695,7 +758,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # 创建场景检测器实例
-    scene_detector = SceneDetector(args.threshold, args.min_scene_len, console=console)
+    scene_detector = SceneDetector(
+        args.detector, args.threshold, args.min_scene_len, args.luma_only, console=console
+    )
 
     # 获取所有视频文件
     video_files = []

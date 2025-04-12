@@ -86,7 +86,7 @@ if ($env:OS -ilike "*windows*") {
     }
     else {
         Write-Output "Create .venv"
-        ~/.local/bin/uv venv -p 3.10
+        ~/.local/bin/uv venv -p 3.11
         . ./.venv/Scripts/activate
     }
 }
@@ -100,13 +100,13 @@ elseif (Test-Path "./.venv/bin/activate") {
 }
 else {
     Write-Output "Create .venv"
-    ~/.local/bin/uv venv -p 3.10
+    ~/.local/bin/uv venv -p 3.11
     . ./.venv/bin/activate.ps1
 }
 
 Write-Output "Installing main requirements"
 
-~/.local/bin/uv pip install --upgrade setuptools wheel
+~/.local/bin/uv pip install --upgrade setuptools wheel pip wheel_stub
 
 ~/.local/bin/uv pip sync requirements-uv.txt --index-strategy unsafe-best-match
 Check "Install main requirements failed"

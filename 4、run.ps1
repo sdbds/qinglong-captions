@@ -16,8 +16,10 @@ $max_retries = 100
 $segment_time = 600
 $ocr = $false
 $document_image = $true
-$scene_threshold = 3
+$scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
+$scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
 $scene_min_len = 15
+$scene_luma_only = $false
 
 # ============= DO NOT MODIFY CONTENTS BELOW | 请勿修改下方内容 =====================
 # Activate python venv
@@ -118,12 +120,20 @@ if ($document_image) {
   [void]$ext_args.Add("--document_image")
 }
 
-if ($scene_threshold -ine 3) {
+if ($scene_detector -ne "AdaptiveDetector") {
+  [void]$ext_args.Add("--scene_detector=$($scene_detector)")
+}
+
+if ($scene_threshold -ne 0.0) {
   [void]$ext_args.Add("--scene_threshold=$scene_threshold")
 }
 
-if ($scene_min_len -ine 15) {
+if ($scene_min_len -ne 15) {
   [void]$ext_args.Add("--scene_min_len=$scene_min_len")
+}
+
+if ($scene_luma_only) {
+  [void]$ext_args.Add("--scene_luma_only")
 }
 
 # run train
