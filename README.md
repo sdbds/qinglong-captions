@@ -1,6 +1,6 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (2.0)
+# qinglong-captioner (2.3)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
@@ -226,7 +226,7 @@ $scene_luma_only = $false
 ```
 ---
 
-# 青龙数据集工具 (1.0)
+# 青龙数据集工具 (2.3)
 
 基于 Lance 数据库格式的视频自动字幕生成工具，使用 Gemini API 进行场景描述生成。
 
