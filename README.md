@@ -6,6 +6,26 @@ A Python toolkit for generating video captions using the Lance database format a
 
 ## Changlog
 
+### 2.3
+
+Well, we forgot to release version 2.2, so we directly released version 2.3!
+
+Version 2.3 updated the GLM4V model for video captions
+
+### 2.2
+
+Version 2.2 has updated TensorRT for accelerating local ONNX model WDtagger.
+
+After testing, it takes 30 minutes to mark 10,000 samples with the standard CUDA tag,
+
+while using TensorRT, it can be completed in just 15 to 20 minutes.
+
+However, the first time using it will take a longer time to compile.
+
+### 2.1
+
+Added support for Gemini 2.5 Pro Exp. Now uses 600 seconds cut video by default.
+
 ### 2.0 Big Update！
 
 Now we support video segmentation! A new video segmentation module has been added, which detects key timestamps based on scene changes and then outputs the corresponding images and video clips!
@@ -177,6 +197,8 @@ Now we support [qwen-VL](https://bailian.console.aliyun.com/#/model-market) seri
 
 Now we support [Mistral OCR](https://console.mistral.ai/api-keys/) optional for PDF and image OCR.
 
+Now we support [GLM](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) series optional for video captioner.
+
 ```
 $dataset_path = "./datasets"
 $gemini_api_key = ""
@@ -187,14 +209,20 @@ $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
 $qwenVL_api_key = ""
 $qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
+$glm_api_key = ""
+$glm_model_path = "GLM-4V-Plus-0111"
 $dir_name = $true
 $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
-$wait_time= 1
+$wait_time = 1
 $max_retries = 100
-$segment_time= 300
+$segment_time = 600
 $ocr = $false
 $document_image = $true
+$scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
+$scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
+$scene_min_len = 15
+$scene_luma_only = $false
 ```
 ---
 
@@ -285,6 +313,8 @@ pwsh ./1、install-uv-qinglong.ps1
 
 现在我们支持使用[Mistral OCR](https://console.mistral.ai/api-keys/)的OCR功能进行图片字幕生成。
 
+现在我们支持使用[智谱GLM](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys)的视频模型进行视频标注。
+
 ```
 $dataset_path = "./datasets"
 $gemini_api_key = ""
@@ -295,12 +325,18 @@ $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
 $qwenVL_api_key = ""
 $qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
+$glm_api_key = ""
+$glm_model_path = "GLM-4V-Plus-0111"
 $dir_name = $true
 $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
-$wait_time= 1
+$wait_time = 1
 $max_retries = 100
-$segment_time= 300
+$segment_time = 600
 $ocr = $false
 $document_image = $true
+$scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
+$scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
+$scene_min_len = 15
+$scene_luma_only = $false
 ```
