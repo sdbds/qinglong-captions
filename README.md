@@ -22,6 +22,12 @@ while using TensorRT, it can be completed in just 15 to 20 minutes.
 
 However, the first time using it will take a longer time to compile.
 
+If TensorRT fails, it will automatically revert to CUDA without worry.
+
+If it prompts that TensorRT librarys are missing, it may be missing some parts
+
+Please install version 10.7.x manually from [here](https://developer.nvidia.com/tensorrt/download/10x)
+
 ### 2.1
 
 Added support for Gemini 2.5 Pro Exp. Now uses 600 seconds cut video by default.
