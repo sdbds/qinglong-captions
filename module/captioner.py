@@ -609,6 +609,20 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--glm_api_key",
+        type=str,
+        default="",
+        help="API key for glm API",
+    )
+
+    parser.add_argument(
+        "--glm_model_path",
+        type=str,
+        default="glm-4v-plus-0111",
+        help="Model path for glm",
+    )
+
+    parser.add_argument(
         "--dir_name",
         action="store_true",
         help="Use the directory name as the dataset name",

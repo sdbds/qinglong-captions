@@ -55,6 +55,9 @@ $Env:HF_HOME = "huggingface"
 #$Env:HF_ENDPOINT = "https://hf-mirror.com"
 $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
 $Env:CUDA_HOME = "${env:CUDA_PATH}"
+$Env:TF_TRT_ALLOW_ENGINE_NATIVE_SEGMENT_EXECUTION = "1"
+$Env:TF_CUDNN_USE_AUTOTUNE = "1"
+$Env:TF_TRT_ALLOW_TF32 = "1"
 
 #endregion
 

@@ -8,6 +8,8 @@ $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
 $qwenVL_api_key = ""
 $qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
+$glm_api_key = ""
+$glm_model_path = "GLM-4V-Plus-0111"
 $dir_name = $true
 $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
@@ -86,6 +88,14 @@ if ($qwenVL_api_key) {
 
 if ($qwenVL_model_path) {
   [void]$ext_args.Add("--qwenVL_model_path=$qwenVL_model_path")
+}
+
+if ($glm_api_key) {
+  [void]$ext_args.Add("--glm_api_key=$glm_api_key")
+}
+
+if ($glm_model_path) {
+  [void]$ext_args.Add("--glm_model_path=$glm_model_path")
 }
 
 if ($dir_name) {

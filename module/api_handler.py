@@ -117,45 +117,14 @@ def api_process_batch(
                     "[green]", "<font color='green'>"
                 ).replace("[/green]", "</font>")
 
-                # Extract SRT content between first and second ```
-                text = response_text
-                if text:
-                    # 查找所有的 ``` 标记位置
-                    markers = []
-                    start = 0
-                    while True:
-                        pos = text.find("```", start)
-                        if pos == -1:
-                            break
-                        markers.append(pos)
-                        start = pos + 3
+                content = extract_code_block_content(response_text, "srt", console)
+                if not content:
+                    continue
 
-                    # 确保找到至少一对标记
-                    if len(markers) >= 2:
-                        # 获取最后一对标记之间的内容
-                        first_marker = markers[-2]
-                        second_marker = markers[-1]
-                        content = text[first_marker + 3 : second_marker]
-
-                        # Remove "srt" if present at the start
-                        if content.startswith("srt"):
-                            content = content[3:]
-
-                        console.print(
-                            f"[blue]Extracted SRT content length:[/blue] {len(content)}"
-                        )
-                        console.print(f"[blue]Found {len(markers)} ``` markers[/blue]")
-                    else:
-                        console.print(
-                            f"[red]Not enough ``` markers: found {len(markers)}[/red]"
-                        )
-                        content = ""
-                        continue
-                else:
-                    content = ""
                 if progress and task_id is not None:
                     progress.update(task_id, description="Processing media...")
                 return content
+
             except Exception as e:
                 error_msg = Text(str(e), style="red")
                 console.print(f"[red]Error processing: {error_msg}[/red]")
@@ -242,42 +211,10 @@ def api_process_batch(
                     "[green]", "<font color='green'>"
                 ).replace("[/green]", "</font>")
 
-                # Extract SRT content between first and second ```
-                text = response_text
-                if text:
-                    # 查找所有的 ``` 标记位置
-                    markers = []
-                    start = 0
-                    while True:
-                        pos = text.find("```", start)
-                        if pos == -1:
-                            break
-                        markers.append(pos)
-                        start = pos + 3
+                content = extract_code_block_content(response_text, "srt", console)
+                if not content:
+                    continue
 
-                    # 确保找到至少一对标记
-                    if len(markers) >= 2:
-                        # 获取最后一对标记之间的内容
-                        first_marker = markers[-2]
-                        second_marker = markers[-1]
-                        content = text[first_marker + 3 : second_marker]
-
-                        # Remove "srt" if present at the start
-                        if content.startswith("srt"):
-                            content = content[3:]
-
-                        console.print(
-                            f"[blue]Extracted SRT content length:[/blue] {len(content)}"
-                        )
-                        console.print(f"[blue]Found {len(markers)} ``` markers[/blue]")
-                    else:
-                        console.print(
-                            f"[red]Not enough ``` markers: found {len(markers)}[/red]"
-                        )
-                        content = ""
-                        continue
-                else:
-                    content = ""
                 if progress and task_id is not None:
                     progress.update(task_id, description="Processing media...")
                 return content
@@ -297,6 +234,100 @@ def api_process_batch(
                     )
                 continue
         return ""
+
+    elif args.glm_api_key != "" and mime.startswith("video"):
+        from zhipuai import ZhipuAI
+
+        client = ZhipuAI(api_key=args.glm_api_key)
+
+        system_prompt = config["prompts"]["glm_video_system_prompt"]
+        prompt = config["prompts"]["glm_video_prompt"]
+
+        with open(uri, "rb") as video_file:
+            video_base = base64.b64encode(video_file.read()).decode("utf-8")
+
+        messages = (
+            [
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "video_url", "video_url": {"url": video_base}},
+                        {"type": "text", "text": prompt},
+                    ],
+                },
+            ]
+        )
+
+        for attempt in range(args.max_retries):
+            try:
+                start_time = time.time()
+                responses = client.chat.completions.create(
+                    model=args.glm_model_path,
+                    messages=messages,
+                    stream=True,
+                )
+
+                chunks = ""
+                if progress and task_id is not None:
+                    progress.update(task_id, description="Generating captions")
+                for chunk in responses:
+                    print(chunk)
+                    if (
+                        hasattr(chunk.choices[0].delta, "content")
+                        and chunk.choices[0].delta.content is not None
+                    ):
+                        chunks += chunk.choices[0].delta.content
+                    try:
+                        console.print(chunks, end="", overflow="ellipsis")
+                    except Exception as e:
+                        console.print(Text(chunks), end="", overflow="ellipsis")
+                    finally:
+                        console.file.flush()
+                console.print("\n")
+                response_text = chunks
+
+                elapsed_time = time.time() - start_time
+                console.print(
+                    f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
+                )
+
+                try:
+                    console.print(response_text)
+                except Exception as e:
+                    console.print(Text(response_text))
+
+                response_text = response_text.replace(
+                    "[green]", "<font color='green'>"
+                ).replace("[/green]", "</font>")
+
+                content = extract_code_block_content(response_text, "srt", console)
+                if not content:
+                    continue
+
+                if progress and task_id is not None:
+                    progress.update(task_id, description="Processing media...")
+                return content
+            except Exception as e:
+                error_msg = Text(str(e), style="red")
+                console.print(f"[red]Error processing: {error_msg}[/red]")
+                if attempt < args.max_retries - 1:
+                    console.print(
+                        f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]"
+                    )
+                    elapsed_time = time.time() - start_time
+                    if elapsed_time < args.wait_time:
+                        time.sleep(args.wait_time - elapsed_time)
+                else:
+                    console.print(
+                        f"[red]Failed to process after {args.max_retries} attempts. Skipping.[/red]"
+                    )
+                continue
+        return ""
+
 
     elif args.pixtral_api_key != "" and (
         mime.startswith("image") or mime.startswith("application")
@@ -780,39 +811,8 @@ def api_process_batch(
                 if args.gemini_task and mime.startswith("image"):
                     return response_text
                 # Extract SRT content between first and second ```
-                text = response_text
-                if text:
-                    # 查找所有的 ``` 标记位置
-                    markers = []
-                    start = 0
-                    while True:
-                        pos = text.find("```", start)
-                        if pos == -1:
-                            break
-                        markers.append(pos)
-                        start = pos + 3
-
-                    # 确保找到至少一对标记
-                    if len(markers) >= 2:
-                        # 获取最后一对标记之间的内容
-                        first_marker = markers[-2]
-                        second_marker = markers[-1]
-                        content = text[first_marker + 3 : second_marker]
-
-                        # Remove "srt" if present at the start
-                        if content.startswith("srt"):
-                            content = content[3:]
-
-                        console.print(
-                            f"[blue]Extracted SRT content length:[/blue] {len(content)}"
-                        )
-                        console.print(f"[blue]Found {len(markers)} ``` markers[/blue]")
-                    else:
-                        console.print(
-                            f"[red]Not enough ``` markers: found {len(markers)}[/red]"
-                        )
-                        continue
-                else:
+                content = extract_code_block_content(response_text, "srt", console)
+                if not content:
                     continue
 
                 if progress and task_id is not None:
@@ -820,6 +820,7 @@ def api_process_batch(
                 return content
             except Exception as e:
                 import traceback
+
                 error_trace = traceback.format_exc()
                 console.print(f"[red]Error processing:[/red]")
                 console.print(Text(f"{str(e)}", style="red"))
@@ -967,6 +968,51 @@ def encode_image(image_path: str) -> Optional[Tuple[str, Pixels]]:
             f"[red]Error:[/red] Unexpected error processing {image_path}: {str(e)}"
         )
     return None, None
+
+
+def extract_code_block_content(response_text, code_type=None, console=None):
+    """从响应文本中提取被```包围的代码块内容
+
+    Args:
+        response_text (str): API返回的完整响应文本
+        code_type (str, optional): 代码块类型标识符(如'srt')，如果提供则会从内容开头移除
+        console (Console, optional): Rich Console对象，用于输出日志信息
+
+    Returns:
+        str: 提取出的代码块内容，如果没有找到则返回空字符串
+    """
+    if not response_text:
+        return ""
+
+    # 查找所有的 ``` 标记位置
+    markers = []
+    start = 0
+    while True:
+        pos = response_text.find("```", start)
+        if pos == -1:
+            break
+        markers.append(pos)
+        start = pos + 3
+
+    # 确保找到至少一对标记
+    if len(markers) >= 2:
+        # 获取最后一对标记之间的内容
+        first_marker = markers[-2]
+        second_marker = markers[-1]
+        content = response_text[first_marker + 3 : second_marker].strip()
+
+        # 如果指定了代码类型，移除开头的代码类型标识
+        if code_type and content.startswith(code_type):
+            content = content[len(code_type) :].strip()
+
+        if console:
+            console.print(f"[blue]Extracted content length:[/blue] {len(content)}")
+            console.print(f"[blue]Found {len(markers)} ``` markers[/blue]")
+        return content
+    else:
+        if console:
+            console.print(f"[red]Not enough ``` markers: found {len(markers)}[/red]")
+        return ""
 
 
 def process_llm_response(result: str) -> tuple[str, str]:

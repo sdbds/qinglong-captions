@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
 import cv2
+import time
 from PIL import Image
 from pathlib import Path
 import csv
@@ -184,23 +185,29 @@ def load_model_and_tags(args):
                 "TensorrtExecutionProvider",
                 {
                     "trt_fp16_enable": True,  # Enable FP16 precision for faster inference
+                    "trt_builder_optimization_level": 3,
+                    "trt_max_partition_iterations": 1000,
                     "trt_engine_cache_enable": True,
                     "trt_engine_cache_path": "wd14_tagger_model/trt_engines",
                     "trt_engine_hw_compatible": True,
+                    "trt_force_sequential_engine_build": False,
                     "trt_context_memory_sharing_enable": True,
                     "trt_timing_cache_enable": True,
                     "trt_timing_cache_path": "wd14_tagger_model",
                     "trt_sparsity_enable": True,
                     "trt_min_subgraph_size": 7,
-                    "trt_detailed_build_log": True,
+                    # "trt_detailed_build_log": True,
                 },
             ),
             (
                 "CUDAExecutionProvider",
                 {
-                    "arena_extend_strategy": "kNextPowerOfTwo",
+                    "arena_extend_strategy": "kSameAsRequested",
                     "cudnn_conv_algo_search": "EXHAUSTIVE",
                     "do_copy_in_default_stream": True,
+                    "cudnn_conv_use_max_workspace": "1",  # 使用最大工作空间
+                    "tunable_op_enable": True,  # 启用可调优操作
+                    "tunable_op_tuning_enable": True,  # 启用调优
                 },
             ),
         ]
@@ -213,9 +220,12 @@ def load_model_and_tags(args):
             (
                 "CUDAExecutionProvider",
                 {
-                    "arena_extend_strategy": "kNextPowerOfTwo",
+                    "arena_extend_strategy": "kSameAsRequested",
                     "cudnn_conv_algo_search": "EXHAUSTIVE",
                     "do_copy_in_default_stream": True,
+                    "cudnn_conv_use_max_workspace": "1",
+                    "tunable_op_enable": True,
+                    "tunable_op_tuning_enable": True,
                 },
             ),
         ]
@@ -224,13 +234,12 @@ def load_model_and_tags(args):
 
     console.print(f"[cyan]Providers with options:[/cyan]")
     console.print(Pretty(providers_with_options, indent_guides=True, expand_all=True))
-
+    start_time = time.time()
     ort_sess = ort.InferenceSession(
         str(model_path), sess_options=sess_options, providers=providers_with_options
     )
     input_name = ort_sess.get_inputs()[0].name
-    console.print("[green]Model loaded[/green]")
-
+    console.print(f"[green]Model loaded in {time.time() - start_time:.2f} seconds[/green]")
     return ort_sess, input_name, rating_tags, character_tags, general_tags
 
 
