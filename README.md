@@ -1,10 +1,23 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (2.3)
+# qinglong-captioner (2.4)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changlog
+
+### 2.4
+
+We support Gemini image caption and rating.
+It also supports gemini2.5-flash-preview-04-17.
+
+However, after testing, the flash version has poor effects and image review, it is recommended to use the pro version
+
+![image](https://github.com/user-attachments/assets/6ae9ed38-e67a-41d2-aa1d-4caf0e0db394)
+flash↑
+
+![image](https://github.com/user-attachments/assets/c83682aa-3a37-4198-b117-ffe7f74ff812)
+pro ↑
 
 ### 2.3
 
