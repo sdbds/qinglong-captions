@@ -412,7 +412,7 @@ top_k = 64
 max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
-thinking_budget = 2048
+thinking_budget = 2432
 
 # Dataset schema configuration
 [schema]
