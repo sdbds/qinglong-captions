@@ -1,6 +1,6 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (2.3)
+# qinglong-captioner (2.4)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
