@@ -2,6 +2,7 @@ import time
 import io
 import base64
 from typing import List, Optional, Dict, Any, Union, Tuple
+import json
 from google import genai
 from google.genai import types
 from mistralai import Mistral
@@ -13,7 +14,7 @@ from rich.text import Text
 from PIL import Image
 from pathlib import Path
 import functools
-from utils.console_util import CaptionLayout, MarkdownLayout
+from utils.console_util import CaptionLayout, MarkdownLayout, CaptionAndRateLayout
 from utils.stream_util import sanitize_filename
 
 console = Console()
@@ -246,21 +247,19 @@ def api_process_batch(
         with open(uri, "rb") as video_file:
             video_base = base64.b64encode(video_file.read()).decode("utf-8")
 
-        messages = (
-            [
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "video_url", "video_url": {"url": video_base}},
-                        {"type": "text", "text": prompt},
-                    ],
-                },
-            ]
-        )
+        messages = [
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "video_url", "video_url": {"url": video_base}},
+                    {"type": "text", "text": prompt},
+                ],
+            },
+        ]
 
         for attempt in range(args.max_retries):
             try:
@@ -327,7 +326,6 @@ def api_process_batch(
                     )
                 continue
         return ""
-
 
     elif args.pixtral_api_key != "" and (
         mime.startswith("image") or mime.startswith("application")
@@ -576,6 +574,71 @@ def api_process_batch(
             system_prompt = None
             prompt = config["prompts"]["task"][args.gemini_task]
 
+        image_response_schema = genai.types.Schema(
+            type=genai.types.Type.OBJECT,
+            required=["scores", "average_score", "description"],
+            properties={
+                "scores": genai.types.Schema(
+                    type=genai.types.Type.OBJECT,
+                    required=[
+                        "Costume & Makeup & Prop Presentation/Accuracy",
+                        "Character Portrayal & Posing",
+                        "Setting & Environment Integration",
+                        "Lighting & Mood",
+                        "Composition & Framing",
+                        "Storytelling & Concept",
+                        "Level of S*e*x*y",
+                        "Figure",
+                        "Overall Impact & Uniqueness",
+                    ],
+                    properties={
+                        "Costume & Makeup & Prop Presentation/Accuracy": genai.types.Schema(
+                            type=genai.types.Type.INTEGER,
+                        ),
+                        "Character Portrayal & Posing": genai.types.Schema(
+                            type=genai.types.Type.INTEGER,
+                        ),
+                        "Setting & Environment Integration": genai.types.Schema(
+                            type=genai.types.Type.INTEGER,
+                        ),
+                        "Lighting & Mood": genai.types.Schema(
+                            type=genai.types.Type.INTEGER,
+                        ),
+                        "Composition & Framing": genai.types.Schema(
+                            type=genai.types.Type.INTEGER,
+                        ),
+                        "Storytelling & Concept": genai.types.Schema(
+                            type=genai.types.Type.INTEGER,
+                        ),
+                        "Level of S*e*x*y": genai.types.Schema(
+                            type=genai.types.Type.INTEGER,
+                        ),
+                        "Figure": genai.types.Schema(
+                            type=genai.types.Type.INTEGER,
+                        ),
+                        "Overall Impact & Uniqueness": genai.types.Schema(
+                            type=genai.types.Type.INTEGER,
+                        ),
+                    },
+                ),
+                "total_score": genai.types.Schema(
+                    type=genai.types.Type.INTEGER,
+                ),
+                "average_score": genai.types.Schema(
+                    type=genai.types.Type.NUMBER,
+                ),
+                "description": genai.types.Schema(
+                    type=genai.types.Type.STRING,
+                ),
+                "character_name": genai.types.Schema(
+                    type=genai.types.Type.STRING,
+                ),
+                "series": genai.types.Schema(
+                    type=genai.types.Type.STRING,
+                ),
+            },
+        )
+
         genai_config = types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=generation_config["temperature"],
@@ -588,27 +651,39 @@ def api_process_batch(
             safety_settings=[
                 types.SafetySetting(
                     category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    threshold=types.HarmBlockThreshold.OFF,
                 ),
                 types.SafetySetting(
                     category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    threshold=types.HarmBlockThreshold.OFF,
                 ),
                 types.SafetySetting(
                     category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    threshold=types.HarmBlockThreshold.OFF,
                 ),
                 types.SafetySetting(
                     category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    threshold=types.HarmBlockThreshold.OFF,
                 ),
                 types.SafetySetting(
                     category=types.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
-                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    threshold=types.HarmBlockThreshold.OFF,
                 ),
             ],
-            response_mime_type=generation_config["response_mime_type"],
+            response_mime_type=(
+                "application/json"
+                if mime.startswith("image")
+                else generation_config["response_mime_type"]
+            ),
             response_modalities=generation_config["response_modalities"],
+            response_schema=image_response_schema if mime.startswith("image") else None,
+            thinking_config=(
+                types.ThinkingConfig(
+                    thinking_budget=generation_config["thinking_budget"],
+                )
+                if "thinking_budget" in generation_config
+                else None
+            ),
         )
 
         console.print(f"generation_config: {generation_config}")
@@ -766,50 +841,51 @@ def api_process_batch(
 
                 console.print("\n")
                 response_text = "".join(chunks)
+                if mime.startswith("image"):
+                    response_text = response_text.replace("*", "")
 
                 elapsed_time = time.time() - start_time
                 console.print(
                     f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
                 )
 
-                # 添加调试信息，打印原始响应
-                console.print(f"[yellow]Raw response first 500 chars:[/yellow]")
-                console.print(f"[yellow]{response_text[:500]}...[/yellow]")
-
-                # 检查响应是否可能是JSON格式
-                if response_text.strip().startswith(
-                    "{"
-                ) and response_text.strip().endswith("}"):
-                    console.print(
-                        f"[yellow]Response appears to be JSON format. Trying to parse...[/yellow]"
-                    )
-                    try:
-                        import json
-
-                        json_data = json.loads(response_text)
-                        console.print(
-                            f"[green]Successfully parsed JSON response[/green]"
-                        )
-                        # 如果是JSON，尝试提取内容
-                        if "text" in json_data:
-                            response_text = json_data["text"]
-                            console.print(
-                                f"[green]Extracted text content from JSON[/green]"
-                            )
-                    except json.JSONDecodeError as json_err:
-                        console.print(f"[red]Failed to parse as JSON: {json_err}[/red]")
-
                 try:
                     console.print(response_text)
                 except Exception as e:
                     console.print(Text(response_text))
 
+                if mime.startswith("image"):
+                    if isinstance(response_text, str):
+                        try:
+                            captions = json.loads(response_text)
+                        except json.JSONDecodeError as e:
+                            print(f"Error decoding JSON: {e}")
+                            return ""
+                    else:
+                        # If it's already a dict/list, use it directly
+                        captions = response_text
+
+                    description = captions.get("description", "")
+                    scores = captions.get("scores", [])
+                    average_score = captions.get("average_score", 0.0)
+
+                    caption_and_rate_layout = CaptionAndRateLayout(
+                        tag_description="",
+                        rating=scores,
+                        average_score=average_score,
+                        long_description=description,
+                        pixels=pixels,
+                        long_highlight_rate=0,
+                        panel_height=32,
+                        console=console,
+                    )
+                    caption_and_rate_layout.print(title=Path(uri).name)
+                    return response_text
+
                 response_text = response_text.replace(
                     "[green]", "<font color='green'>"
                 ).replace("[/green]", "</font>")
 
-                if args.gemini_task and mime.startswith("image"):
-                    return response_text
                 # Extract SRT content between first and second ```
                 content = extract_code_block_content(response_text, "srt", console)
                 if not content:

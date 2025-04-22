@@ -18,6 +18,7 @@ from config.config import get_supported_extensions, DATASET_SCHEMA, CONSOLE_COLO
 from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
 from pathlib import Path
 import pysrt
+import json
 
 console = Console()
 image_extensions = get_supported_extensions("image")
@@ -132,6 +133,9 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
         bool: True if save successful, False otherwise
     """
     try:
+        if not len(caption_lines):
+            console.print(f"[red]No caption content found for {caption_path}[/red]")
+            return False
         caption_path = Path(caption_path)
         caption_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -158,8 +162,22 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
                             .replace("<font color='green'>", "")
                             .replace("</font>", "")
                         )
-                    if line and line.strip():
-                        f.write(line.strip() + "\n")
+
+                    # Check if the content is in JSON format and parse it if possible
+                    if line.strip().startswith("{") and line.strip().endswith("}"):
+                        try:
+                            json_content = line.strip()
+                            parsed_json = json.loads(json_content)
+                            # Format JSON content with indentation for better readability
+                            with open(
+                                caption_path.with_suffix(".json"), "w", encoding="utf-8"
+                            ) as j:
+                                json.dump(parsed_json, j, indent=2, ensure_ascii=False)
+                            f.write(parsed_json["description"])
+                        except json.JSONDecodeError:
+                            # If not valid JSON, continue with normal text processing
+                            if line and line.strip():
+                                f.write(line.strip() + "\n")
 
             console.print()
             console.print(

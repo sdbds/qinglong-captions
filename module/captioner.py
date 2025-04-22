@@ -12,6 +12,7 @@ from rich.progress import (
 )
 from rich.console import Console
 from PIL import Image
+import json
 import pyarrow as pa
 from module.lanceImport import transform2lance
 from module.lanceexport import extract_from_lance
@@ -310,7 +311,12 @@ def process_batch(args, config):
                 else:
                     caption_path = filepath_path.with_suffix(".txt")
                 console.print(f"[blue]Processing caption for:[/blue] {filepath_path}")
-                console.print(f"[blue]Caption content length:[/blue] {len(output)}")
+                if isinstance(output, dict):
+                    console.print(
+                        f"[blue]Caption content length:[/blue] {len(output['description'])}"
+                    )
+                else:
+                    console.print(f"[blue]Caption content length:[/blue] {len(output)}")
 
                 if caption_path.suffix == ".srt":
                     try:
@@ -368,6 +374,18 @@ def process_batch(args, config):
                             with open(caption_path, "w", encoding="utf-8") as f:
                                 for line in output:
                                     f.write(line + "\n")
+                        elif isinstance(output, dict):
+                            with open(
+                                filepath_path.with_suffix(".json"),
+                                "w",
+                                encoding="utf-8",
+                            ) as f:
+                                json.dump(output, f, indent=2, ensure_ascii=False)
+                            with open(caption_path, "w", encoding="utf-8") as f:
+                                if "description" in output and output["description"]:
+                                    f.write(output["description"])
+                                else:
+                                    f.write("No description available")
                         else:
                             caption_path.write_text(output, encoding="utf-8")
                         console.print(
@@ -389,6 +407,8 @@ def process_batch(args, config):
             if isinstance(caption, list):
                 # 如果是列表，合并为单个字符串
                 processed_captions.append("\n".join(caption))
+            elif isinstance(caption, dict):
+                processed_captions.append(json.dumps(caption, ensure_ascii=False))
             else:
                 processed_captions.append(caption)
 
@@ -535,6 +555,11 @@ def _postprocess_caption_content(output, filepath, args):
     elif Path(filepath).suffix in BASE_APPLICATION_EXTENSIONS or args.ocr:
         pass
     else:
+        try:
+            json_from = json.loads(output)
+            return json_from
+        except json.JSONDecodeError:
+            pass
         if "###" in output:
             shortdescription, long_description = process_llm_response(output)
             if args.mode == "all":

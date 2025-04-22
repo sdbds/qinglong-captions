@@ -10,6 +10,9 @@ from rich.text import Text
 from rich.panel import Panel
 from rich.layout import Layout
 from rich.markdown import Markdown
+from rich.segment import Segment
+from rich.style import Style
+from rich_pixels import Pixels
 
 # 全局控制台实例
 console = Console()
@@ -17,30 +20,30 @@ console = Console()
 
 class BaseLayout:
     """基础布局类，提供创建Rich布局的基本功能"""
-    
+
     def __init__(self, panel_height=32, console=None):
         """
         初始化基础布局
-        
+
         Args:
             panel_height: 面板高度
             console: Rich控制台实例
         """
         self.panel_height = panel_height
-        self.console = console or globals().get('console', Console())
+        self.console = console or globals().get("console", Console())
         self.layout = Layout()
-    
+
     def create_layout(self):
         """创建基本布局结构（由子类实现）"""
         pass
-    
+
     def render(self, title=""):
         """
         渲染布局为面板并返回
-        
+
         Args:
             title: 面板标题
-            
+
         Returns:
             Panel: Rich面板对象
         """
@@ -51,11 +54,11 @@ class BaseLayout:
             padding=0,
         )
         return panel
-    
+
     def print(self, title=""):
         """
         打印布局到控制台
-        
+
         Args:
             title: 面板标题
         """
@@ -67,12 +70,21 @@ class BaseLayout:
 
 class CaptionLayout(BaseLayout):
     """用于显示图片字幕的布局类"""
-    
-    def __init__(self, tag_description, short_description, long_description, pixels,
-                short_highlight_rate=0, long_highlight_rate=0, panel_height=32, console=None):
+
+    def __init__(
+        self,
+        tag_description,
+        short_description,
+        long_description,
+        pixels,
+        short_highlight_rate=0,
+        long_highlight_rate=0,
+        panel_height=32,
+        console=None,
+    ):
         """
         初始化字幕布局
-        
+
         Args:
             tag_description: 标签描述
             short_description: 短描述
@@ -91,12 +103,12 @@ class CaptionLayout(BaseLayout):
         self.short_highlight_rate = short_highlight_rate
         self.long_highlight_rate = long_highlight_rate
         self.create_layout()
-    
+
     def create_layout(self):
         """创建字幕布局结构"""
         # 创建右侧的垂直布局
         right_layout = Layout()
-        
+
         # 创建上半部分的水平布局（tag和short并排）
         top_layout = Layout()
         top_layout.split_row(
@@ -121,7 +133,7 @@ class CaptionLayout(BaseLayout):
                 ratio=1,
             ),
         )
-        
+
         # 将右侧布局分为上下两部分
         right_layout.split_column(
             Layout(top_layout, ratio=1),
@@ -135,7 +147,7 @@ class CaptionLayout(BaseLayout):
                 )
             ),
         )
-        
+
         # 主布局分为左右两部分
         self.layout.split_row(
             Layout(
@@ -149,11 +161,11 @@ class CaptionLayout(BaseLayout):
 
 class MarkdownLayout(BaseLayout):
     """用于显示Markdown内容的布局类"""
-    
+
     def __init__(self, pixels, markdown_content, panel_height=32, console=None):
         """
         初始化Markdown布局
-        
+
         Args:
             pixels: Rich Pixels对象
             markdown_content: Markdown内容
@@ -164,7 +176,7 @@ class MarkdownLayout(BaseLayout):
         self.pixels = pixels
         self.markdown_content = markdown_content
         self.create_layout()
-    
+
     def create_layout(self):
         """创建Markdown布局结构"""
         # 创建右侧布局（单个Markdown窗口）
@@ -176,7 +188,7 @@ class MarkdownLayout(BaseLayout):
                 expand=True,
             )
         )
-        
+
         # 如果pixels为空，直接全局渲染markdown内容，否则分为左右两部分
         if self.pixels is None:
             self.layout.update(
@@ -193,9 +205,178 @@ class MarkdownLayout(BaseLayout):
         else:
             self.layout.split_row(
                 Layout(
-                    Panel(self.pixels, height=self.panel_height, padding=0, expand=True),
+                    Panel(
+                        self.pixels, height=self.panel_height, padding=0, expand=True
+                    ),
                     name="image",
                     ratio=1,
                 ),
                 Layout(right_layout, name="markdown", ratio=2),
             )
+
+
+class CaptionAndRateLayout(BaseLayout):
+    """用于显示图片字幕和评分的布局类"""
+
+    def __init__(
+        self,
+        tag_description,
+        rating,
+        average_score,
+        long_description,
+        pixels,
+        short_highlight_rate=0,
+        long_highlight_rate=0,
+        panel_height=32,
+        console=None,
+    ):
+        """
+        初始化字幕布局
+
+        Args:
+            tag_description: 标签描述
+            rating: 高亮率
+            average_score: 平均评分
+            long_description: 长描述
+            pixels: Rich Pixels对象
+            long_highlight_rate: 长描述高亮率
+            panel_height: 面板高度
+            console: Rich控制台实例
+        """
+        super().__init__(panel_height, console)
+        self.tag_description = tag_description
+        self.long_description = long_description
+        self.long_highlight_rate = long_highlight_rate
+        self.pixels = pixels
+        self.rating_chart = self.create_rating_chart(rating)
+        self.average_score = average_score
+        self.create_layout()
+
+    def create_layout(self):
+        """创建字幕布局结构"""
+        # 创建右侧的垂直布局
+        right_layout = Layout()
+
+        # 创建上半部分的水平布局（tag和short并排）
+        top_layout = Layout()
+        top_layout.split_row(
+            Layout(
+                Panel(
+                    Text(self.tag_description, style="magenta"),
+                    title="tags",
+                    height=self.panel_height // 2,
+                    padding=0,
+                    expand=True,
+                ),
+                ratio=1,
+            ),
+            Layout(
+                Panel(
+                    self.rating_chart,
+                    title=f"rating - [yellow]average score:[/yellow] {self.average_score}",
+                    height=self.panel_height // 2,
+                    padding=0,
+                    expand=True,
+                ),
+                ratio=1,
+            ),
+        )
+
+        # 将右侧布局分为上下两部分
+        right_layout.split_column(
+            Layout(top_layout, ratio=1),
+            Layout(
+                Panel(
+                    self.long_description,
+                    title=f"long_description - [yellow]highlight rate:[/yellow] {self.long_highlight_rate}",
+                    height=self.panel_height // 2,
+                    padding=0,
+                    expand=True,
+                )
+            ),
+        )
+
+        # 主布局分为左右两部分
+        self.layout.split_row(
+            Layout(
+                Panel(self.pixels, height=self.panel_height, padding=0, expand=True),
+                name="image",
+                ratio=1,
+            ),
+            Layout(right_layout, name="caption", ratio=2),
+        )
+
+    def create_rating_chart(self, ratings, max_rating=10):
+        """创建一个简单的评分图
+
+        Args:
+            ratings: 字典，包含维度名称和对应评分
+            max_rating: 最大评分值
+        """
+        if not ratings:
+            return Pixels.from_ascii("No ratings available")
+
+        # 获取维度列表并清理维度名称
+        clean_ratings = {}
+        for key, value in ratings.items():
+            # 移除所有非标准字符，不仅仅是方块字符
+            clean_key = ""
+            for char in key:
+                # 只保留字母、数字、空格和常见标点符号
+                if char.isalnum() or char.isspace() or char in "&/,.:-_()":
+                    clean_key += char
+            # 如果清理后为空，使用原始键
+            if not clean_key:
+                clean_key = f"Dimension {len(clean_ratings) + 1}"
+            clean_ratings[clean_key] = value
+
+        # 创建彩虹颜色映射
+        rainbow_colors = [
+            "bright_red",  # 红色
+            "orange3",  # 橙色
+            "yellow",  # 黄色
+            "green",  # 绿色
+            "spring_green3",  # 青色
+            "bright_blue",  # 蓝色
+            "blue_violet",  # 靛色
+            "purple",  # 紫色
+            "magenta",  # 紫红色
+        ]
+
+        # 准备行和颜色映射
+        lines = []
+        mapping = {}
+
+        # 为每个维度创建一行
+        for i, (dimension, rating) in enumerate(clean_ratings.items()):
+            # 获取对应颜色
+            color_index = min(i, len(rainbow_colors) - 1)
+            color = rainbow_colors[color_index]
+
+            # 处理维度名称，只保留第一个&前的内容
+            short_dim = dimension.split("&")[0].strip()
+            dim_text = f"{short_dim}:"
+            # 评分条长度等于评分值
+            bar_length = int(rating)
+
+            # 使用隐藏的控制字符作为映射键，这些字符在普通文本中不太可能出现
+            # 使用ASCII 01-31的不可见控制字符，每行使用不同的控制字符
+            control_char = chr(1 + i)  # 使用 SOH, STX, ETX 等不可见控制字符
+            mapping[control_char] = Segment("■", Style(color=color))
+
+            # 生成评分条
+            bar = control_char * bar_length
+            
+            # 特殊处理某些维度的最大分数
+            current_max_rating = 5 if dimension in ["Storytelling & Concept", "Setting & Environment Integration"] else max_rating
+            value_text = f" {rating}/{current_max_rating}"
+
+            # 组合行内容
+            line = dim_text + bar + value_text
+            lines.append(line)
+
+        # 组合成ASCII图
+        ascii_grid = "\n".join(lines)
+
+        # 返回Pixels对象
+        return Pixels.from_ascii(ascii_grid, mapping)
