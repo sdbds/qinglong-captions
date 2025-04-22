@@ -842,7 +842,7 @@ def api_process_batch(
                 console.print("\n")
                 response_text = "".join(chunks)
                 if mime.startswith("image"):
-                    response_text = response_text.replace("*", "")
+                    response_text = response_text.replace("*", "").strip()
 
                 elapsed_time = time.time() - start_time
                 console.print(
