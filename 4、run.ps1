@@ -1,7 +1,6 @@
 $dataset_path = "./datasets"
 $gemini_api_key = ""
 $gemini_model_path = "gemini-2.5-pro-exp-03-25"
-$gemini_task = "removal_watermark_then_caption"
 $gemini_task = ""
 $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
