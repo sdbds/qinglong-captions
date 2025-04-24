@@ -24,8 +24,8 @@ zhipuai
 accelerate>=1.6.0
 huggingface_hub[hf_xet]>=0.30.2
 opencv-python
-torch
+torch>=2.7.0
 onnxruntime-gpu==1.20.2
-tensorrt==10.7.0.post1
+tensorrt>=10.9
 
 scenedetect[opencv]>=0.6.6

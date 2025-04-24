@@ -178,6 +178,9 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
                             # If not valid JSON, continue with normal text processing
                             if line and line.strip():
                                 f.write(line.strip() + "\n")
+                    else:
+                        if line and line.strip():
+                            f.write(line.strip() + "\n")
 
             console.print()
             console.print(

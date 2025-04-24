@@ -6,7 +6,7 @@ $Env:PIP_DISABLE_PIP_VERSION_CHECK = 1
 $Env:PIP_NO_CACHE_DIR = 1
 #$Env:PIP_INDEX_URL="https://pypi.mirrors.ustc.edu.cn/simple"
 #$Env:UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple/"
-$Env:UV_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu124"
+$Env:UV_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 $Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
 $Env:UV_NO_BUILD_ISOLATION = 1
 $Env:UV_NO_CACHE = 0
@@ -86,7 +86,7 @@ if ($env:OS -ilike "*windows*") {
     }
     else {
         Write-Output "Create .venv"
-        ~/.local/bin/uv venv -p 3.11
+        ~/.local/bin/uv venv -p 3.11 --seed
         . ./.venv/Scripts/activate
     }
 }
@@ -100,7 +100,7 @@ elseif (Test-Path "./.venv/bin/activate") {
 }
 else {
     Write-Output "Create .venv"
-    ~/.local/bin/uv venv -p 3.11
+    ~/.local/bin/uv venv -p 3.11 --seed
     . ./.venv/bin/activate.ps1
 }
 

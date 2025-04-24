@@ -137,6 +137,8 @@ numpy==1.26.4
     #   pandas
     #   pylance
     #   scenedetect
+nvidia-cuda-runtime-cu12==12.8.90
+    # via tensorrt-cu12-libs
 onnxruntime-gpu==1.20.2
     # via -r requirements.txt
 openai==1.59.7
@@ -257,17 +259,21 @@ sniffio==1.3.1
     # via
     #   anyio
     #   openai
-sympy==1.13.1
+sympy==1.13.3
     # via
     #   onnxruntime-gpu
     #   torch
-tensorrt==10.7.0.post1
+tensorrt==10.9.0.34
     # via -r requirements.txt
-tensorrt-cu12==10.7.0.post1
+tensorrt-cu12==10.9.0.34
     # via tensorrt
+tensorrt-cu12-bindings==10.9.0.34
+    # via tensorrt-cu12
+tensorrt-cu12-libs==10.9.0.34
+    # via tensorrt-cu12
 toml==0.10.2
     # via -r requirements.txt
-torch==2.6.0
+torch==2.7.0
     # via
     #   -r requirements.txt
     #   accelerate
