@@ -23,9 +23,10 @@ zhipuai
 #WDtagger
 accelerate>=1.6.0
 huggingface_hub[hf_xet]>=0.30.2
-opencv-python
+https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.11.0.20250124/opencv_contrib_python_rolling-4.12.0.86-cp37-abi3-win_amd64.whl; sys_platform == 'win32'
+https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.11.0.20250210/opencv_contrib_python_rolling-4.12.0.20250210-cp37-abi3-linux_x86_64.whl; sys_platform == 'linux'
 torch>=2.7.0
 onnxruntime-gpu==1.20.2
 tensorrt>=10.9
 
-scenedetect[opencv]>=0.6.6
+scenedetect>=0.6.6

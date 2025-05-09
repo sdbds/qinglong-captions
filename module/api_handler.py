@@ -1,5 +1,6 @@
 import time
 import io
+import re
 import base64
 from typing import List, Optional, Dict, Any, Union, Tuple
 import json
@@ -16,6 +17,7 @@ from pathlib import Path
 import functools
 from utils.console_util import CaptionLayout, MarkdownLayout, CaptionAndRateLayout
 from utils.stream_util import sanitize_filename
+from utils.wdtagger import format_description, split_name_series
 
 console = Console()
 
@@ -333,10 +335,26 @@ def api_process_batch(
 
         client = Mistral(api_key=args.pixtral_api_key)
         start_time = time.time()
+        captions = []
 
         if mime.startswith("image"):
             system_prompt = config["prompts"]["pixtral_image_system_prompt"]
-            prompt = config["prompts"]["pixtral_image_prompt"]
+            if args.dir_name:
+                dir_prompt = Path(uri).parent.name or ""
+                character_name = split_name_series(dir_prompt)
+                character_prompt = f"If there is a person/character or more in the image you must refer to them as {character_name}.\n"
+                character_name = f"{character_name}, " if character_name else ""
+            config_prompt = config["prompts"]["pixtral_image_prompt"]
+
+            # Read captions from file if it exists
+            captions_path = Path(uri).with_suffix(".txt")
+            if captions_path.exists():
+                with open(captions_path, "r", encoding="utf-8") as f:
+                    captions = [line.strip() for line in f.readlines()]
+
+            prompt = Text(
+                f"<s>[INST]{character_prompt}{character_name}{captions[0] if len(captions) > 0 else config_prompt}\n[IMG][/INST]"
+            ).plain
 
             base64_image, pixels = encode_image(uri)
             if base64_image is None or pixels is None:
@@ -474,17 +492,17 @@ def api_process_batch(
                     )
                     content = chat_response.choices[0].message.content
 
-                    # if character_name:
-                    #     clean_char_name = (
-                    #         character_name.split(",")[0].split(" from ")[0].strip("<>")
-                    #     )
-                    #     if clean_char_name not in content:
-                    #         console.print()
-                    #         console.print(Text(content))
-                    #         console.print(
-                    #             f"Attempt {attempt + 1}/{args.max_retries}: Character name [green]{clean_char_name}[/green] not found"
-                    #         )
-                    #         continue
+                    if character_name:
+                        clean_char_name = (
+                            character_name.split(",")[0].split(" from ")[0].strip("<>")
+                        )
+                        if clean_char_name not in content:
+                            console.print()
+                            console.print(Text(content))
+                            console.print(
+                                f"Attempt {attempt + 1}/{args.max_retries}: Character name [green]{clean_char_name}[/green] not found"
+                            )
+                            continue
 
                     if "###" not in content:
                         console.print(Text(content))
@@ -492,22 +510,28 @@ def api_process_batch(
                         continue
 
                     short_description, long_description = process_llm_response(content)
-                    tag_description = ""
-                    # tag_description = (
-                    #     prompt.rsplit("<s>[INST]", 1)[-1]
-                    #     .rsplit(">.", 1)[-1]
-                    #     .rsplit(").", 1)[-1]
-                    #     .replace(" from", ",")
-                    # )
-                    # tag_description = tag_description.rsplit("[IMG][/INST]", 1)[0].strip()
-                    short_highlight_rate = 0
-                    long_highlight_rate = 0
-                    # short_description, short_highlight_rate = format_description(
-                    #     short_description, tag_description
-                    # )
-                    # long_description, long_highlight_rate = format_description(
-                    #     long_description, tag_description
-                    # )
+
+                    if len(captions) > 0:
+                        tag_description = (
+                            (
+                                prompt.rsplit("<s>[INST]", 1)[-1]
+                                .rsplit(">.", 1)[-1]
+                                .rsplit(").", 1)[-1]
+                                .replace(" from", ",")
+                            )
+                            .rsplit("[IMG][/INST]", 1)[0]
+                            .strip()
+                        )
+                        short_description, short_highlight_rate = format_description(
+                            short_description, tag_description
+                        )
+                        long_description, long_highlight_rate = format_description(
+                            long_description, tag_description
+                        )
+                    else:
+                        tag_description = ""
+                        short_highlight_rate = 0
+                        long_highlight_rate = 0
 
                     # 使用CaptionLayout显示图片和字幕
                     caption_layout = CaptionLayout(
@@ -522,7 +546,15 @@ def api_process_batch(
                     )
 
                     caption_layout.print(title=Path(uri).name)
-                    del pixels
+
+                if (
+                    int(re.search(r"\d+", str(long_highlight_rate)).group())
+                    < args.tags_highlightrate * 100
+                ) and len(captions) > 0:
+                    console.print(
+                        f"[red]long_description highlight rate is too low: {long_highlight_rate}%, retrying...[/red]"
+                    )
+                    continue
 
                 if "502" in content:
                     console.print(
@@ -550,13 +582,10 @@ def api_process_batch(
                         console.print(
                             f"[yellow]429 error, waiting {wait_time} seconds and retrying...[/yellow]"
                         )
-                        with Progress() as progress2:
-                            task = progress2.add_task(
-                                "[magenta]Waiting...", total=wait_time
-                            )
-                            for _ in range(wait_time):
-                                time.sleep(1)
-                                progress2.update(task, advance=1)
+
+                        elapsed_time = time.time() - start_time
+                        if elapsed_time < wait_time:
+                            time.sleep(wait_time - elapsed_time)
                         console.print("[green]Retrying...[/green]")
                     time.sleep(wait_time)
                     continue

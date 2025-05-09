@@ -747,6 +747,13 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Task for gemini-2.0-flash-exp",
     )
 
+    parser.add_argument(
+        "--tags_highlightrate",
+        type=float,
+        default=0.35,
+        help="tags_highlightrate for check captions",
+    )
+
     return parser
 
 

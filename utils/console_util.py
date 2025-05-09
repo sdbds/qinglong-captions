@@ -1,10 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-控制台工具类
-提供Rich布局和显示功能
-"""
-
 from rich.console import Console
 from rich.text import Text
 from rich.panel import Panel
@@ -13,6 +6,7 @@ from rich.markdown import Markdown
 from rich.segment import Segment
 from rich.style import Style
 from rich_pixels import Pixels
+from utils.wdtagger import TagClassifier
 
 # 全局控制台实例
 console = Console()
@@ -96,7 +90,11 @@ class CaptionLayout(BaseLayout):
             console: Rich控制台实例
         """
         super().__init__(panel_height, console)
-        self.tag_description = tag_description
+        tagClassifier = TagClassifier()
+        tag_values = tagClassifier.classify(
+            tag_description.replace("<", "").replace(">", "").split(", ")
+        ).values()
+        self.tag_description = ",".join([",".join(value) for value in tag_values])
         self.short_description = short_description
         self.long_description = long_description
         self.pixels = pixels
@@ -114,7 +112,7 @@ class CaptionLayout(BaseLayout):
         top_layout.split_row(
             Layout(
                 Panel(
-                    Text(self.tag_description, style="magenta"),
+                    self.tag_description,
                     title="tags",
                     height=self.panel_height // 2,
                     padding=0,
@@ -125,7 +123,7 @@ class CaptionLayout(BaseLayout):
             Layout(
                 Panel(
                     self.short_description,
-                    title=f"short_description - [yellow]highlight rate:[/yellow] {self.short_highlight_rate}",
+                    title=f"short_description - [yellow]hr:[/yellow] {self.short_highlight_rate}",
                     height=self.panel_height // 2,
                     padding=0,
                     expand=True,
@@ -366,9 +364,14 @@ class CaptionAndRateLayout(BaseLayout):
 
             # 生成评分条
             bar = control_char * bar_length
-            
+
             # 特殊处理某些维度的最大分数
-            current_max_rating = 5 if dimension in ["Storytelling & Concept", "Setting & Environment Integration"] else max_rating
+            current_max_rating = (
+                5
+                if dimension
+                in ["Storytelling & Concept", "Setting & Environment Integration"]
+                else max_rating
+            )
             value_text = f" {rating}/{current_max_rating}"
 
             # 组合行内容

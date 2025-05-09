@@ -1,6 +1,5 @@
 import argparse
 import numpy as np
-import cv2
 import time
 from PIL import Image
 from pathlib import Path
@@ -21,10 +20,12 @@ from rich.progress import (
     MofNCompleteColumn,
 )
 import torch
+import cv2
 import onnxruntime as ort
 from huggingface_hub import hf_hub_download
 from module.lanceImport import transform2lance
 import concurrent.futures
+import re
 
 console = Console()
 
@@ -50,20 +51,57 @@ def preprocess_image(image):
     pad_t, pad_l = pad_y // 2, pad_x // 2
     pad_b, pad_r = pad_y - pad_t, pad_x - pad_l
 
-    # 使用更高效的填充
-    image = cv2.copyMakeBorder(
-        image, pad_t, pad_b, pad_l, pad_r, cv2.BORDER_CONSTANT, value=[255, 255, 255]
-    )
+    # 检查是否可以使用CUDA
+    use_gpu = cv2.cuda.getCudaEnabledDeviceCount() > 0
 
-    if size > IMAGE_SIZE:
-        image = cv2.resize(image, (IMAGE_SIZE, IMAGE_SIZE), cv2.INTER_AREA)
+    if use_gpu and size > 1024:
+        # 转移到GPU
+        gpu_image = cv2.cuda_GpuMat()
+        gpu_image.upload(image)
+
+        # 使用GPU进行填充操作
+        gpu_image = cv2.cuda.copyMakeBorder(
+            gpu_image,
+            pad_t,
+            pad_b,
+            pad_l,
+            pad_r,
+            cv2.BORDER_CONSTANT,
+            value=[255, 255, 255],
+        )
+
+        if size > IMAGE_SIZE:
+            # GPU调整大小
+            gpu_image = cv2.cuda.resize(
+                gpu_image, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_AREA
+            )
+        else:
+            image = Image.fromarray(image)
+            image = image.resize((IMAGE_SIZE, IMAGE_SIZE), Image.LANCZOS)
+            image = np.array(image)
+
+        # 下载回CPU
+        image = gpu_image.download()
     else:
-        image = Image.fromarray(image)
-        image = image.resize((IMAGE_SIZE, IMAGE_SIZE), Image.LANCZOS)
-        image = np.array(image)
+        # 使用更高效的填充
+        image = cv2.copyMakeBorder(
+            image,
+            pad_t,
+            pad_b,
+            pad_l,
+            pad_r,
+            cv2.BORDER_CONSTANT,
+            value=[255, 255, 255],
+        )
 
-    image = image.astype(np.float32)
-    return image
+        if size > IMAGE_SIZE:
+            image = cv2.resize(image, (IMAGE_SIZE, IMAGE_SIZE), cv2.INTER_AREA)
+        else:
+            image = Image.fromarray(image)
+            image = image.resize((IMAGE_SIZE, IMAGE_SIZE), Image.LANCZOS)
+            image = np.array(image)
+
+    return image.astype(np.float32)
 
 
 def load_and_preprocess_batch(uris):
@@ -239,7 +277,9 @@ def load_model_and_tags(args):
         str(model_path), sess_options=sess_options, providers=providers_with_options
     )
     input_name = ort_sess.get_inputs()[0].name
-    console.print(f"[green]Model loaded in {time.time() - start_time:.2f} seconds[/green]")
+    console.print(
+        f"[green]Model loaded in {time.time() - start_time:.2f} seconds[/green]"
+    )
     return ort_sess, input_name, rating_tags, character_tags, general_tags
 
 
@@ -505,6 +545,232 @@ def main(args):
         dataset.tags.update("WDtagger", 1)
 
     console.print("[green]Successfully updated dataset with new captions[/green]")
+
+
+def split_name_series(names: str) -> str:
+    """Split and format character names and series information.
+
+    Args:
+        names: String containing character names and series info
+
+    Returns:
+        Formatted string with character names and series
+    """
+    name_list = []
+
+    items = [item.strip().replace("_", ":") for item in names.split(",")]
+
+    for item in items:
+        if item.endswith(" (cosplay)"):
+            item = item.replace(" (cosplay)", "")
+        if ("c.c_") in item:
+            item = item.replace("c.c_", "c.c.")
+        if ("k:da") in item:
+            item = item.replace("k:da", "k/da")
+        if ("ranma 1:2") in item:
+            item = item.replace("ranma 1:2", "ranma 1/2")
+        # 匹配最后一对括号作为系列名
+        match = re.match(r"(.*)\((.*?)\)$", item)
+        if match and match.group(2).strip() not in [
+            "female",
+            "male",
+            "character",
+            "beast style",
+            "dangerous beast",
+            "amor caren",
+            "berserker install",
+            "young",
+        ]:
+            # 获取除最后一个括号外的所有内容作为名字
+            full_name = match.group(1).strip()
+            series = match.group(2).strip()
+
+            # 保留名字中的其他括号
+            name_list.append(f"<{full_name}> from ({series})")
+        else:
+            name_list.append(f"<{item}>")
+
+    return ", ".join(name_list)
+
+
+def format_description(text: str, tag_description: str = "") -> str:
+    """Format description text with highlighting.
+
+    Args:
+        text: Input text to format
+        tag_description: Tags to highlight in blue
+
+    Returns:
+        Formatted text with rich markup
+    """
+    # 高亮<>内的内容
+    text = re.sub(r"<([^>]+)>", r"[magenta]\1[/magenta]", text)
+    # 高亮()内的内容
+    text = re.sub(r"\(([^)]+)\)", r"[dark_magenta]\1[/dark_magenta]", text)
+
+    words = text.split()
+
+    tagClassifier = TagClassifier()
+
+    # 高亮与tag_description匹配的单词
+    if tag_description:
+        # 将tag_description分割成单词列表
+        tag_words = set(
+            word.strip().lower()
+            for word in re.sub(r"\d+", "", tag_description).replace(",", " ").split()
+            if word.strip()
+        )
+        blue_words = set()
+        for i, word in enumerate(words):
+            highlight_word = re.sub(r"[^\w\s]", "", word.lower())
+            if highlight_word in tag_words:
+                blue_words.add(highlight_word)
+                words[i] = tagClassifier.get_colored_tag(word)
+        text = " ".join(words)
+
+    # 统计高亮的次数
+    highlight_count = 0
+    has_green = False
+    has_purple = False
+    for word in words:
+        if word.startswith("[magenta]") and word.endswith("[/magenta]"):
+            has_green = True
+        if word.startswith("[dark_magenta]") and word.endswith("[/dark_magenta]"):
+            has_purple = True
+
+    highlight_count = len(blue_words) + int(has_green) + int(has_purple)
+
+    # 打印高亮率
+    colors = ["red", "orange", "yellow", "green", "cyan", "blue", "magenta"]
+    rate = highlight_count / len(tag_description.replace(",", " ").split()) * 100
+    # 将100%平均分配给7种颜色，每个颜色约14.3%
+    color_index = min(int(rate / (100 / len(colors))), len(colors) - 1)
+    color = colors[color_index]
+    # 根据rate值决定是否使用粗体
+    style = f"{color} bold" if rate > 50 else color
+    highlight_rate = f"[{style}]{rate:.2f}%[/{style}]"
+
+    return text, highlight_rate
+
+
+class TagClassifier:
+    """
+    标签分类器，用于根据标签类别对标签进行分类，使用config.toml中定义的数字ID
+    """
+
+    def __init__(self):
+        """
+        初始化标签分类器
+        """
+        # 加载标签类型ID映射
+        self.tag_type = self._load_tag_type()
+
+        # 加载标签到类别的映射
+        csv_path = Path("wd14_tagger_model") / "selected_tags_classified.csv"
+        if not csv_path.exists():
+            hf_hub_download(
+                repo_id="deepghs/sankaku_tags_categorize_for_WD14Tagger",
+                filename="selected_tags_classified.csv",
+                local_dir="wd14_tagger_model",
+                force_download=True,
+                force_filename="selected_tags_classified.csv",
+                repo_type="dataset",
+            )
+
+        self.tag_categories = self._load_tag_categories(csv_path)
+
+    def _load_tag_type(self):
+        """
+        从config.toml加载标签类型ID映射
+
+        Returns:
+            dict: 类别名称到数字ID的映射
+        """
+        import toml
+        from pathlib import Path
+
+        # 使用硬编码的配置文件路径
+        config_path = Path("config/config.toml")
+        config = toml.load(config_path)
+        # 新格式中，tag_type包含一个fields数组
+        tag_type_fields = config["tag_type"]["fields"]
+        # 创建一个字典，将ID映射到字段信息
+        tag_type_dict = {}
+        for field in tag_type_fields:
+            tag_type_dict[str(field["id"])] = field
+        return tag_type_dict
+
+    def _load_tag_categories(self, csv_path):
+        """
+        加载标签到类别的映射
+
+        Returns:
+            dict: 标签到类别的映射字典
+        """
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            tag_categories = {
+                row["name"].replace("_", " "): row["category"] for row in reader
+            }
+        return tag_categories
+
+    def classify(self, tags):
+        """
+        对标签列表进行分类，使用config.toml中定义的数字ID作为类别键
+
+        Args:
+            tags (list): 需要分类的标签列表
+
+        Returns:
+            dict: 按类别ID分组的标签字典，键为类别ID，值为带颜色格式的标签列表
+        """
+        colored_tags = {}
+        for tag in tags:
+            # 获取标签的类别名称，默认为'general'
+            category_id = self.tag_categories.get(tag, "0")
+            # 获取该类别的完整信息（包括颜色）
+            category_info = self.tag_type.get(category_id)
+
+            # 如果类别不存在，使用general（通用）类别
+            if not category_info:
+                color = "orange3"
+            else:
+                color = category_info["color"]
+
+            # 使用rich格式添加颜色
+            colored_tag = f"[{color}]{tag}[/{color}]"
+
+            if category_id not in colored_tags:
+                colored_tags[category_id] = []
+            colored_tags[category_id].append(colored_tag)
+
+        return colored_tags
+
+    def get_colored_tag(self, tag):
+        """
+        对单个标签进行分类，返回带颜色格式的标签
+
+        Args:
+            tag (str): 需要分类的标签
+
+        Returns:
+            str: 带颜色格式的标签
+        """
+        # 获取标签的类别名称，默认为'0'(general)
+        category_id = self.tag_categories.get(tag, "0")
+        # 获取该类别的完整信息（包括颜色）
+        category_info = self.tag_type.get(category_id)
+
+        # 如果类别不存在，使用orange3颜色
+        if not category_info:
+            color = "orange3"
+        else:
+            color = category_info["color"]
+
+        # 使用rich格式添加颜色
+        colored_tag = f"[{color}]{tag}[/{color}]"
+
+        return colored_tag
 
 
 def setup_parser() -> argparse.ArgumentParser:

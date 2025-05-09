@@ -108,8 +108,14 @@ Write-Output "Installing main requirements"
 
 ~/.local/bin/uv pip install --upgrade setuptools wheel pip wheel_stub
 
-~/.local/bin/uv pip sync requirements-uv.txt --index-strategy unsafe-best-match
-Check "Install main requirements failed"
+if ($env:OS -ilike "*windows*") {
+    ~/.local/bin/uv pip sync requirements-uv.txt --index-strategy unsafe-best-match
+    Check "Install main requirements failed"
+}
+else {
+    ~/.local/bin/uv pip sync requirements-uv-linux.txt --index-strategy unsafe-best-match
+    Check "Install main requirements failed"
+}
 
 Write-Output "Install finished"
 Read-Host | Out-Null ;

@@ -515,7 +515,7 @@ def load_data(
             data.append({"file_path": str(file), "caption": caption})
     else:
         # Single directory structure
-        datasets_path = Path(datasets_dir).resolve()  # 转换为绝对路径
+        datasets_path = Path(datasets_dir).absolute()  # 转换为绝对路径
         for file_path in datasets_path.rglob("*"):
             if not file_path.is_file() or not any(
                 str(file_path).endswith(ext)
@@ -639,7 +639,7 @@ def process(
             arrays = []
             for field_name, field_type in DATASET_SCHEMA:
                 if field_name == "filepath":
-                    value = str(Path(file_path).resolve())
+                    value = str(Path(file_path).absolute())
                     array = pa.array([value], type=field_type)
                 elif field_name == "captions":
                     array = pa.array([caption], type=field_type)
