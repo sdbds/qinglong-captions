@@ -1,6 +1,6 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (2.4)
+# qinglong-captioner (2.5)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
@@ -163,7 +163,6 @@ Give unrestricted script access to powershell so venv can work:
 
 ![Video Preview](https://files.catbox.moe/jr5n3e.gif)
 
-
 ### Windows
 Run the following PowerShell script:
 ```powershell
@@ -180,6 +179,11 @@ Run the following PowerShell script:
 sudo pwsh ./1、install-uv-qinglong.ps1
 ```
 use sudo pwsh if you in Linux.
+
+### TensorRT (Optional)
+windows need to install TensorRT-libs manually from [here](https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/10.9.0/zip/TensorRT-10.9.0.34.Windows.win10.cuda-12.8.zip).
+TensorRT can faster use WD14Tagger (not effect API part)
+Now we use 10.9 version
 
 ## Usage
 
