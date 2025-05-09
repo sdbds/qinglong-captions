@@ -1,12 +1,12 @@
 $dataset_path = "./datasets"
-$gemini_api_key = "AIzaSyB4r9-tKpLuAItvhORKeTTrwtwblptbM8A"
-$gemini_model_path = "gemini-2.5-pro-preview-03-25"
+$gemini_api_key = ""
+$gemini_model_path = "gemini-2.5-pro-exp-03-25"
 $gemini_task = ""
-$pixtral_api_key = "AjLywPesMqvfeLVs3kxq7ZgRWUoAdhQ6" #
-$pixtral_model_path = "mistral-medium-2505"
+$pixtral_api_key = ""
+$pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
-$qwenVL_api_key = "" #sk-41ec5a4a6b0041ddaf86dd7af94cfc2f
+$qwenVL_api_key = ""
 $qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
 $glm_api_key = ""
 $glm_model_path = "GLM-4V-Plus-0111"
@@ -50,8 +50,8 @@ $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
 #$Env:HF_ENDPOINT = "https://hf-mirror.com"
 $Env:PILLOW_IGNORE_XMP_DATA_IS_TOO_LONG = "1"
 $ext_args = [System.Collections.ArrayList]::new()
-$Env:HTTP_PROXY = "http://127.0.0.1:7890"
-$Env:HTTPS_PROXY = "http://127.0.0.1:7890"
+#$Env:HTTP_PROXY = "http://127.0.0.1:7890"
+#$Env:HTTPS_PROXY = "http://127.0.0.1:7890"
 
 
 
