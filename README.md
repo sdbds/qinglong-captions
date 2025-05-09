@@ -6,6 +6,23 @@ A Python toolkit for generating video captions using the Lance database format a
 
 ## Changlog
 
+### 2.5
+![image](https://github.com/user-attachments/assets/bffd2120-6868-4a6e-894b-05c4ff5fd98f)
+
+We officially support the tags highlight captions feature! Currently unlocked in the pixtral model, and we are considering adding it to other models such as gemini in the future.
+
+What are tags highlight?
+
+As is well known, non-state-of-the-art VLMs have some inaccuracies, so first use wdtagger for tags annotation, and then input the tags annotation to the VLM for assistance, which can improve accuracy.
+
+Currently, the tags have been categorized, and it is also possible to quickly check the annotation quality (e.g., purple is for character names and copyright, red is for clothing, brown is for body features, light yellow is for actions, etc.)
+
+The annotation quality obtained in the end is comparable to some closed-source models!
+
+Additionally, we have added check parameters, which can specify the parent folder as the character name to designate the character's name, as well as specify the check for the tags highlight rate. Generally, good captions should have a highlight rate of over 35%.
+
+You can also specify different highlight rates to change the default standard.
+
 ### 2.4
 
 We support Gemini image caption and rating.
