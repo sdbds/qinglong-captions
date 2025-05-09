@@ -445,24 +445,26 @@ unknown = "cyan"
 video = "magenta"
 
 [tag_type]
-general = 0
-artist = 1
-studio = 2
-franchise = 3
-character = 4
-genre = 5
-medium = 8
-meta = 9
-fashion = 10
-anatomy = 11
-pose = 12
-activity = 13
-role = 14
-flora = 15
-fauna = 16
-entity = 17
-object = 18
-substance = 19
-setting = 20
-language = 21
-automatic = 22
+fields = [
+    { name = "general", id = 0, color = "orange3" },
+    { name = "artist", id = 1, color = "bright_red" },
+    { name = "studio", id = 2, color = "red" },
+    { name = "franchise", id = 3, color = "dark_magenta" },
+    { name = "character", id = 4, color = "magenta" },
+    { name = "genre", id = 5, color = "bright_magenta" },
+    { name = "medium", id = 8, color = "cornflower_blue" },
+    { name = "meta", id = 9, color = "bright_blue" },
+    { name = "fashion", id = 10, color = "red3" },
+    { name = "anatomy", id = 11, color = "orange4" },
+    { name = "pose", id = 12, color = "yellow" },
+    { name = "activity", id = 13, color = "bright_yellow" },
+    { name = "role", id = 14, color = "cyan" },
+    { name = "flora", id = 15, color = "green" },
+    { name = "fauna", id = 16, color = "bright_green" },
+    { name = "entity", id = 17, color = "grey74" },
+    { name = "object", id = 18, color = "dark_green" },
+    { name = "substance", id = 19, color = "green4" },
+    { name = "setting", id = 20, color = "spring_green4" },
+    { name = "language", id = 21, color = "bright_cyan" },
+    { name = "automatic", id = 22, color = "cyan" },
+]

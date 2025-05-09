@@ -339,6 +339,8 @@ def api_process_batch(
 
         if mime.startswith("image"):
             system_prompt = config["prompts"]["pixtral_image_system_prompt"]
+            character_prompt = ""
+            character_name = ""
             if args.dir_name:
                 dir_prompt = Path(uri).parent.name or ""
                 character_name = split_name_series(dir_prompt)
@@ -547,6 +549,11 @@ def api_process_batch(
 
                     caption_layout.print(title=Path(uri).name)
 
+                # 计算已经消耗的时间，动态调整等待时间
+                elapsed_time = time.time() - start_time
+                if elapsed_time < args.wait_time:
+                    time.sleep(args.wait_time - elapsed_time)
+
                 if (
                     int(re.search(r"\d+", str(long_highlight_rate)).group())
                     < args.tags_highlightrate * 100
@@ -561,11 +568,6 @@ def api_process_batch(
                         f"[yellow]Attempt {attempt + 1}/{args.max_retries}: Received 502 error[/yellow]"
                     )
                     continue
-
-                # 计算已经消耗的时间，动态调整等待时间
-                elapsed_time = time.time() - start_time
-                if elapsed_time < args.wait_time:
-                    time.sleep(args.wait_time - elapsed_time)
 
                 return content
 
