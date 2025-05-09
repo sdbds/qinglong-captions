@@ -23,6 +23,10 @@ Additionally, we have added check parameters, which can specify the parent folde
 
 You can also specify different highlight rates to change the default standard.
 
+How to use？ just use 3、tagger.ps1 first for generate tags for your image datasets,
+
+then use 4、run.ps1 with pixtral apikey
+
 ### 2.4
 
 We support Gemini image caption and rating.
