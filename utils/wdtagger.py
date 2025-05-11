@@ -617,7 +617,10 @@ def format_description(text: str, tag_description: str = "") -> str:
         # 将tag_description分割成单词列表
         tag_words = set(
             word.strip().lower()
-            for word in re.sub(r"\d+", "", tag_description).replace(",", " ").split()
+            for word in re.sub(r"\d+", "", tag_description)
+            .replace(",", " ")
+            .replace(".", " ")
+            .split()
             if word.strip()
         )
         blue_words = set()
@@ -727,7 +730,7 @@ class TagClassifier:
         colored_tags = {}
         for tag in tags:
             # 获取标签的类别名称，默认为'general'
-            category_id = self.tag_categories.get(tag, "0")
+            category_id = self.tag_categories.get(tag.lower(), "0")
             # 获取该类别的完整信息（包括颜色）
             category_info = self.tag_type.get(category_id)
 
@@ -757,7 +760,15 @@ class TagClassifier:
             str: 带颜色格式的标签
         """
         # 获取标签的类别名称，默认为'0'(general)
-        category_id = self.tag_categories.get(tag, "0")
+        addtion = ""
+        if tag.endswith(","):
+            tag = tag[:-1]
+            addtion = ","
+        elif tag.endswith("."):
+            tag = tag[:-1]
+            addtion = "."
+
+        category_id = self.tag_categories.get(tag.lower(), "0")
         # 获取该类别的完整信息（包括颜色）
         category_info = self.tag_type.get(category_id)
 
@@ -768,7 +779,7 @@ class TagClassifier:
             color = category_info["color"]
 
         # 使用rich格式添加颜色
-        colored_tag = f"[{color}]{tag}[/{color}]"
+        colored_tag = f"[{color}]{tag}[/{color}]{addtion}"
 
         return colored_tag
 

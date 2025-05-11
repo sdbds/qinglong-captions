@@ -179,6 +179,9 @@ Short description including main concepts in three sentences and long descriptio
 You should specify the aesthetics (from very high to very low), and/or artist skill level, and e.g. whether it's a masterpiece level work, or e.g. a sketch by a newbie. Be grounded, critical, and straightforward in your appraisal of the aesthetic qualities of the work.
 If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
 If the name of the artist/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
+If the image contains text, be sure to add that to each description where possible.
+If the image is censored in any way (e.g. bars, pixellation, etc.), then you MUST mention that in the descriptions.
+Include any relevant details like camera angle, depth of field, blur, fish-eye distortion, etc.
 Note: Only output the detailed description, do not include any summary or overall description.
 Exceptional tagging will be rewarded with $10 per image.
 Answer format with '###Short:' and '###Long:'."""

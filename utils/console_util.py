@@ -91,9 +91,10 @@ class CaptionLayout(BaseLayout):
         """
         super().__init__(panel_height, console)
         tagClassifier = TagClassifier()
-        tag_values = tagClassifier.classify(
-            tag_description.replace("<", "").replace(">", "").split(", ")
-        ).values()
+        # Process tag_description to handle various spacing and comma combinations
+        cleaned_description = tag_description.replace("<", "").replace(">", "")
+        processed_tags = [tag.strip() for tag in cleaned_description.split(',') if tag.strip()]
+        tag_values = tagClassifier.classify(processed_tags).values()
         self.tag_description = ",".join([",".join(value) for value in tag_values])
         self.short_description = short_description
         self.long_description = long_description
