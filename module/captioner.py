@@ -750,7 +750,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--tags_highlightrate",
         type=float,
-        default=0.35,
+        default=0.4,
         help="tags_highlightrate for check captions",
     )
 

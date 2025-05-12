@@ -555,8 +555,17 @@ def api_process_batch(
                     time.sleep(args.wait_time - elapsed_time)
 
                 if (
+                    any(f"{i}women" in tag_description for i in range(2, 5))
+                    or ("1man" in tag_description and "1woman" in tag_description)
+                    or "multiple girls" in tag_description
+                    or "multiple boys" in tag_description
+                ):
+                    tags_highlightrate = args.tags_highlightrate * 100 / 2
+                else:
+                    tags_highlightrate = args.tags_highlightrate * 100
+                if (
                     int(re.search(r"\d+", str(long_highlight_rate)).group())
-                    < args.tags_highlightrate * 100
+                    < tags_highlightrate
                 ) and len(captions) > 0:
                     console.print(
                         f"[red]long_description highlight rate is too low: {long_highlight_rate}%, retrying...[/red]"

@@ -22,6 +22,7 @@ $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
 $scene_min_len = 15
 $scene_luma_only = $false
+$tags_highlightrate = 0.4
 
 # ============= DO NOT MODIFY CONTENTS BELOW | 请勿修改下方内容 =====================
 # Activate python venv
@@ -144,6 +145,10 @@ if ($scene_min_len -ne 15) {
 
 if ($scene_luma_only) {
   [void]$ext_args.Add("--scene_luma_only")
+}
+
+if ($tags_highlightrate -ne 0.4) {
+  [void]$ext_args.Add("--tags_highlightrate=$tags_highlightrate")
 }
 
 # run train
