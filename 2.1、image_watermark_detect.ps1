@@ -6,8 +6,8 @@ $Config = @{
     # bdsqlsz/joycaption-watermark-detection-onnx
     repo_id            = "bdsqlsz/joycaption-watermark-detection-onnx"  # Model repo ID from Hugging Face
     model_dir          = "watermark_detection"                       # Local model folder path | 本地模型文件夹路径
-    batch_size         = 8                                          # Batch size for inference
-    thresh             = 0.5                                         # Concept threshold
+    batch_size         = 12                                          # Batch size for inference
+    thresh             = 1.0                                         # Concept threshold
 }
 #endregion
 
@@ -48,7 +48,7 @@ $ExtArgs = [System.Collections.ArrayList]::new()
 if ($Config.repo_id) { [void]$ExtArgs.Add("--repo_id=$($Config.repo_id)") }
 if ($Config.model_dir) { [void]$ExtArgs.Add("--model_dir=$($Config.model_dir)") }
 if ($Config.batch_size) { [void]$ExtArgs.Add("--batch_size=$($Config.batch_size)") }
-if ($Config.thresh -ne 0.5) { [void]$ExtArgs.Add("--thresh=$($Config.thresh)") }
+if ($Config.thresh -ne 1.0) { [void]$ExtArgs.Add("--thresh=$($Config.thresh)") }
 
 #endregion
 
