@@ -172,6 +172,8 @@ cython_debug/
 datasets/
 wd14_tagger_model/
 data/
+huggingface/
+watermark_detection/
 
 # windsurf rules
 .windsurfrules

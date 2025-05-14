@@ -334,7 +334,6 @@ def api_process_batch(
     ):
 
         client = Mistral(api_key=args.pixtral_api_key)
-        start_time = time.time()
         captions = []
 
         if mime.startswith("image"):
@@ -404,6 +403,7 @@ def api_process_batch(
                         return ""
 
         for attempt in range(args.max_retries):
+            start_time = time.time()
             try:
                 if mime.startswith("application"):
                     ocr_response = client.ocr.process(
@@ -553,6 +553,9 @@ def api_process_batch(
                 elapsed_time = time.time() - start_time
                 if elapsed_time < args.wait_time:
                     time.sleep(args.wait_time - elapsed_time)
+                console.print(
+                    f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
+                )
 
                 if (
                     any(f"{i}women" in tag_description for i in range(2, 5))
@@ -1025,9 +1028,9 @@ def encode_image(image_path: str) -> Optional[Tuple[str, Pixels]]:
             # Calculate dimensions that are multiples of 16
             max_size = 1024
             width, height = image.size
-            aspect_ratio = width / height
 
-            def calculate_dimensions(max_size: int) -> Tuple[int, int]:
+            def calculate_dimensions(width, height, max_size: int) -> Tuple[int, int]:
+                aspect_ratio = width / height
                 if width > height:
                     new_width = min(max_size, (width // 16) * 16)
                     new_height = ((int(new_width / aspect_ratio)) // 16) * 16
@@ -1045,7 +1048,7 @@ def encode_image(image_path: str) -> Optional[Tuple[str, Pixels]]:
 
                 return new_width, new_height
 
-            new_width, new_height = calculate_dimensions(max_size)
+            new_width, new_height = calculate_dimensions(width, height, max_size)
             image = image.resize((new_width, new_height), Image.LANCZOS).convert("RGB")
 
             pixels = Pixels.from_image(

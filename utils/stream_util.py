@@ -1,5 +1,6 @@
 import av
 import re
+from typing import Tuple
 from rich.progress import Progress, BarColumn, TimeRemainingColumn
 from rich.console import Console
 from av.audio.format import AudioFormat
@@ -304,6 +305,7 @@ def split_video_with_imageio_ffmpeg(
                 sub_progress.advance(sub_task, advance=4)
                 break
 
+
 def sanitize_filename(name: str) -> str:
     """Sanitizes filenames.
 
@@ -334,6 +336,7 @@ def sanitize_filename(name: str) -> str:
         sanitized = first_part + "-" + last_part
     return sanitized
 
+
 def get_video_duration(file_path):
     """
     获取视频片段的精确持续时间，用于字幕偏移计算
@@ -350,3 +353,60 @@ def get_video_duration(file_path):
         elif track.track_type == "Audio":
             return track.duration
     return 0
+
+
+def _round_to_16(value: int) -> int:
+    """将值四舍五入为最接近的16的倍数"""
+    return (value // 16) * 16
+
+
+def calculate_dimensions(
+    width, height, max_long_edge: int = None, max_short_edge: int = None
+) -> Tuple[int, int]:
+    """
+    根据原始尺寸、最长边和最短边的最大值限制计算新尺寸
+    
+    Args:
+        width: 原始宽度
+        height: 原始高度
+        max_long_edge: 最长边的最大值
+        max_short_edge: 最短边的最大值
+        
+    Returns:
+        调整后的宽度和高度组成的元组
+    """
+    # 设置默认值
+    if max_long_edge is None and max_short_edge is None:
+        max_long_edge = 1024
+
+    # 计算原始纵横比
+    aspect_ratio = width / height
+    
+    # 确定长边和短边
+    is_width_longer = width >= height
+    
+    # 将原始尺寸调整为16的倍数
+    new_width = _round_to_16(width)
+    new_height = _round_to_16(height)
+    
+    # 对尺寸进行多轮调整，直到满足所有条件
+    for _ in range(2):  # 最多进行两轮调整就足够了
+        # 处理最长边的最大值限制
+        if max_long_edge is not None:
+            if is_width_longer and new_width > max_long_edge:
+                new_width = max_long_edge
+                new_height = _round_to_16(int(new_width / aspect_ratio))
+            elif not is_width_longer and new_height > max_long_edge:
+                new_height = max_long_edge
+                new_width = _round_to_16(int(new_height * aspect_ratio))
+        
+        # 处理最短边的最大值限制
+        if max_short_edge is not None:
+            if is_width_longer and new_height > max_short_edge:
+                new_height = max_short_edge
+                new_width = _round_to_16(int(new_height * aspect_ratio))
+            elif not is_width_longer and new_width > max_short_edge:
+                new_width = max_short_edge
+                new_height = _round_to_16(int(new_width / aspect_ratio))
+    
+    return new_width, new_height

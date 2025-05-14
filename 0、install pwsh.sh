@@ -8,7 +8,7 @@ then
     echo "PowerShell 未安装，正在安装..."
     
     # 下载 PowerShell '.tar.gz' 压缩包
-    curl -L -o /tmp/powershell.tar.gz https://mirror.ghproxy.com/https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz
+    curl -L -o /tmp/powershell.tar.gz https://github.com/PowerShell/PowerShell/releases/download/v7.5.1/powershell-7.5.1-linux-x64.tar.gz
     
     # 创建目标文件夹
     sudo mkdir -p /opt/microsoft/powershell/7

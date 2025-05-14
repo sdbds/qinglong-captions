@@ -58,6 +58,7 @@ filelock==3.18.0
     # via
     #   huggingface-hub
     #   torch
+    #   transformers
 flatbuffers==25.2.10
     # via onnxruntime-gpu
 frozenlist==1.5.0
@@ -90,6 +91,8 @@ huggingface-hub==0.30.2
     # via
     #   -r requirements.txt
     #   accelerate
+    #   tokenizers
+    #   transformers
 humanfriendly==10.0
     # via coloredlogs
 idna==3.10
@@ -137,6 +140,8 @@ numpy==1.26.4
     #   pandas
     #   pylance
     #   scenedetect
+    #   scipy
+    #   transformers
 nvidia-cuda-runtime-cu12==12.8.90
     # via tensorrt-cu12-libs
 onnxruntime-gpu==1.20.2
@@ -153,6 +158,7 @@ packaging==24.2
     #   huggingface-hub
     #   onnxruntime-gpu
     #   pillow-jxl-plugin
+    #   transformers
 pandas==2.2.3
     # via -r requirements.txt
 pillow==10.4.0
@@ -229,12 +235,16 @@ pyyaml==6.0.2
     # via
     #   accelerate
     #   huggingface-hub
+    #   transformers
+regex==2024.11.6
+    # via transformers
 requests==2.32.3
     # via
     #   dashscope
     #   google-genai
     #   huggingface-hub
     #   pyanimeinfo
+    #   transformers
 rich==13.9.4
     # via
     #   -r requirements.txt
@@ -244,8 +254,12 @@ rich-pixels==3.0.1
 rsa==4.9
     # via google-auth
 safetensors==0.5.3
-    # via accelerate
+    # via
+    #   accelerate
+    #   transformers
 scenedetect==0.6.6
+    # via -r requirements.txt
+scipy==1.15.3
     # via -r requirements.txt
 setuptools==75.6.0
     # via
@@ -269,6 +283,8 @@ tensorrt-cu12-bindings==10.9.0.34
     # via tensorrt-cu12
 tensorrt-cu12-libs==10.9.0.34
     # via tensorrt-cu12
+tokenizers==0.21.1
+    # via transformers
 toml==0.10.2
     # via -r requirements.txt
 torch==2.7.0
@@ -281,6 +297,9 @@ tqdm==4.67.1
     #   openai
     #   pyanimeinfo
     #   scenedetect
+    #   transformers
+transformers==4.51.3
+    # via -r requirements.txt
 typing-extensions==4.12.2
     # via
     #   anyio

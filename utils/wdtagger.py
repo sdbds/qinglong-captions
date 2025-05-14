@@ -152,7 +152,6 @@ def load_model_and_tags(args):
                         filename=file,
                         local_dir=file_path.parent,
                         force_download=args.force_download,
-                        force_filename=file,
                     )
                 )
                 console.print(f"[blue]Downloaded {file} to {file_path}[/blue]")
@@ -625,7 +624,7 @@ def format_description(text: str, tag_description: str = "") -> str:
         )
         blue_words = set()
         for i, word in enumerate(words):
-            highlight_word = re.sub(r"[^\w\s]", "", word.lower())
+            highlight_word = re.sub(r"[^\w\s]", "", word.replace("'s", "").lower())
             if highlight_word in tag_words:
                 blue_words.add(highlight_word)
                 words[i] = tagClassifier.get_colored_tag(word)
