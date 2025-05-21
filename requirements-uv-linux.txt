@@ -137,6 +137,7 @@ numpy==2.2.5
     #   pylance
     #   scenedetect
     #   scipy
+    #   torchvision
     #   transformers
 nvidia-cublas-cu12==12.6.4.1
     # via
@@ -200,6 +201,7 @@ pillow==11.2.1
     #   pillow-heif
     #   pillow-jxl-plugin
     #   rich-pixels
+    #   torchvision
 pillow-avif-plugin==1.5.2
     # via -r requirements.txt
 pillow-heif==0.22.0
@@ -322,6 +324,9 @@ torch==2.7.0
     # via
     #   -r requirements.txt
     #   accelerate
+    #   torchvision
+torchvision==0.22.0
+    # via -r requirements.txt
 tqdm==4.67.1
     # via
     #   huggingface-hub

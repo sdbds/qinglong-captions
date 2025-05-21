@@ -611,6 +611,8 @@ def format_description(text: str, tag_description: str = "") -> str:
 
     tagClassifier = TagClassifier()
 
+    blue_words = set()
+
     # 高亮与tag_description匹配的单词
     if tag_description:
         # 将tag_description分割成单词列表
@@ -622,7 +624,6 @@ def format_description(text: str, tag_description: str = "") -> str:
             .split()
             if word.strip()
         )
-        blue_words = set()
         for i, word in enumerate(words):
             highlight_word = re.sub(r"[^\w\s]", "", word.replace("'s", "").lower())
             if highlight_word in tag_words:

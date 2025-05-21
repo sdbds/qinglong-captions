@@ -494,23 +494,6 @@ def api_process_batch(
                     )
                     content = chat_response.choices[0].message.content
 
-                    if character_name:
-                        clean_char_name = (
-                            character_name.split(",")[0].split(" from ")[0].strip("<>")
-                        )
-                        if clean_char_name not in content:
-                            console.print()
-                            console.print(Text(content))
-                            console.print(
-                                f"Attempt {attempt + 1}/{args.max_retries}: Character name [green]{clean_char_name}[/green] not found"
-                            )
-                            continue
-
-                    if "###" not in content:
-                        console.print(Text(content))
-                        console.print(Text("No ###, retrying...", style="yellow"))
-                        continue
-
                     short_description, long_description = process_llm_response(content)
 
                     if len(captions) > 0:
@@ -556,6 +539,23 @@ def api_process_batch(
                 console.print(
                     f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
                 )
+
+                if character_name:
+                    clean_char_name = (
+                        character_name.split(",")[0].split(" from ")[0].strip("<>")
+                    )
+                    if clean_char_name not in content:
+                        console.print()
+                        console.print(Text(content))
+                        console.print(
+                            f"Attempt {attempt + 1}/{args.max_retries}: Character name [green]{clean_char_name}[/green] not found"
+                        )
+                        continue
+
+                if "###" not in content:
+                    console.print(Text(content))
+                    console.print(Text("No ###, retrying...", style="yellow"))
+                    continue
 
                 if (
                     any(f"{i}women" in tag_description for i in range(2, 5))

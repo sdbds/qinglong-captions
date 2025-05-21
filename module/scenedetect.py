@@ -1,3 +1,4 @@
+import torch
 import pysrt
 from pathlib import Path
 from PIL import Image

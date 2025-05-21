@@ -25,6 +25,7 @@ from module.lanceImport import transform2lance
 import concurrent.futures
 from transformers import AutoImageProcessor
 import shutil
+import json
 
 console = Console()
 
@@ -371,6 +372,12 @@ def main(args):
     # 使用Pretty打印结果树
     console.print("\n[bold green]Results：[/bold green]")
     console.print(Pretty(path_tree, indent_guides=True, expand_all=True))
+    # 保存检测结果树到JSON文件
+    result_json_path = Path(args.train_data_dir) / "watermark_detection_results.json"
+    with open(result_json_path, "w", encoding="utf-8") as f:
+        json.dump(path_tree, f, ensure_ascii=False, indent=2)
+    console.print(f"[bold green]Results saved to:[/bold green] {result_json_path}")
+
     # 打印检测结果统计
     console.print(
         f"🔴Watermarked🔖: {watermark_count} ({watermark_count/total_count*100:.2f}%)"

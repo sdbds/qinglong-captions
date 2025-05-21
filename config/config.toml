@@ -407,7 +407,24 @@ max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
 
+[generation_config.gemini-2_5-pro-preview-05-06]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+
 [generation_config.gemini-2_5-flash-preview-04-17]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+thinking_budget = 8000
+
+[generation_config.gemini-2_5-flash-preview-05-20]
 temperature = 1.0
 top_p = 0.95
 top_k = 64
