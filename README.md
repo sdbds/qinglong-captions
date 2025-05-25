@@ -1,10 +1,21 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (2.5)
+# qinglong-captioner (2.6)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changlog
+
+### 2.6
+![image](https://github.com/user-attachments/assets/34f8150b-3414-4e0c-9ade-b9406cd1602b)
+
+A new watermark detection script has been added, initially supporting two watermark detection models, which can quickly classify images in the dataset into watermarked/unwatermarked categories.
+It will generate two folders, and data separation is done through symbolic links. If needed, you can copy the corresponding folder to transfer data without deleting it, and it does not occupy additional space.
+(As symbolic links require permissions, you must run PowerShell as admin.)
+
+Finally, it will generate a JSON file report listing the watermark detection results for all images in the original path, including detection values and results.
+The watermark threshold can be modified in the script to correspondingly change the detection results.
+
 
 ### 2.5
 ![image](https://github.com/user-attachments/assets/bffd2120-6868-4a6e-894b-05c4ff5fd98f)
@@ -270,7 +281,7 @@ $scene_luma_only = $false
 ```
 ---
 
-# 青龙数据集工具 (2.3)
+# 青龙数据集工具 (2.6)
 
 基于 Lance 数据库格式的视频自动字幕生成工具，使用 Gemini API 进行场景描述生成。
 
