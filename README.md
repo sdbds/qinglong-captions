@@ -204,7 +204,7 @@ Run the following PowerShell script:
 ### Linux
 1. First install PowerShell:
 ```bash
-./0、install pwsh.sh
+sudo sh ./0、install pwsh.sh
 ```
 2. Then run the installation script using PowerShell:
 ```powershell
@@ -330,7 +330,7 @@ $scene_luma_only = $false
 ### Linux 系统
 1. 首先安装 PowerShell：
 ```bash
-./0、install pwsh.sh
+sudo sh ./0、install pwsh.sh
 ```
 2. 然后使用 PowerShell 运行安装脚本：
 ```powershell
