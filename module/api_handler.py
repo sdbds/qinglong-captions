@@ -465,8 +465,6 @@ def api_process_batch(
                         markdown_layout.print(
                             title=f"{Path(uri).name} -  Page {page.index+1}"
                         )
-                        if ocr_pixels:
-                            del ocr_pixels
 
                 elif args.ocr:
                     ocr_response = client.ocr.process(
@@ -486,7 +484,6 @@ def api_process_batch(
                         console=console,
                     )
                     markdown_layout.print(title=Path(uri).name)
-                    del pixels
 
                 else:
                     chat_response = client.chat.complete(
@@ -540,40 +537,41 @@ def api_process_batch(
                     f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
                 )
 
-                if character_name:
-                    clean_char_name = (
-                        character_name.split(",")[0].split(" from ")[0].strip("<>")
-                    )
-                    if clean_char_name not in content:
-                        console.print()
-                        console.print(Text(content))
-                        console.print(
-                            f"Attempt {attempt + 1}/{args.max_retries}: Character name [green]{clean_char_name}[/green] not found"
+                if not args.ocr:
+                    if character_name:
+                        clean_char_name = (
+                            character_name.split(",")[0].split(" from ")[0].strip("<>")
                         )
+                        if clean_char_name not in content:
+                            console.print()
+                            console.print(Text(content))
+                            console.print(
+                                f"Attempt {attempt + 1}/{args.max_retries}: Character name [green]{clean_char_name}[/green] not found"
+                            )
+                            continue
+
+                    if "###" not in content:
+                        console.print(Text(content))
+                        console.print(Text("No ###, retrying...", style="yellow"))
                         continue
 
-                if "###" not in content:
-                    console.print(Text(content))
-                    console.print(Text("No ###, retrying...", style="yellow"))
-                    continue
-
-                if (
-                    any(f"{i}women" in tag_description for i in range(2, 5))
-                    or ("1man" in tag_description and "1woman" in tag_description)
-                    or "multiple girls" in tag_description
-                    or "multiple boys" in tag_description
-                ):
-                    tags_highlightrate = args.tags_highlightrate * 100 / 2
-                else:
-                    tags_highlightrate = args.tags_highlightrate * 100
-                if (
-                    int(re.search(r"\d+", str(long_highlight_rate)).group())
-                    < tags_highlightrate
-                ) and len(captions) > 0:
-                    console.print(
-                        f"[red]long_description highlight rate is too low: {long_highlight_rate}%, retrying...[/red]"
-                    )
-                    continue
+                    if (
+                        any(f"{i}women" in tag_description for i in range(2, 5))
+                        or ("1man" in tag_description and "1woman" in tag_description)
+                        or "multiple girls" in tag_description
+                        or "multiple boys" in tag_description
+                    ):
+                        tags_highlightrate = args.tags_highlightrate * 100 / 2
+                    else:
+                        tags_highlightrate = args.tags_highlightrate * 100
+                    if (
+                        int(re.search(r"\d+", str(long_highlight_rate)).group())
+                        < tags_highlightrate
+                    ) and len(captions) > 0:
+                        console.print(
+                            f"[red]long_description highlight rate is too low: {long_highlight_rate}%, retrying...[/red]"
+                        )
+                        continue
 
                 if "502" in content:
                     console.print(

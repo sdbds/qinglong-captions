@@ -433,6 +433,14 @@ response_modalities = ["text"]
 response_mime_type = "text/plain"
 thinking_budget = 8000
 
+[generation_config.gemini-2_5-pro-preview-06-05]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+
 # Dataset schema configuration
 [schema]
 fields = [
