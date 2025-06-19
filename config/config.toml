@@ -441,6 +441,15 @@ max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
 
+[generation_config.gemini-2.5-flash-lite-preview-06-17]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+thinking_budget = 8192
+
 # Dataset schema configuration
 [schema]
 fields = [
