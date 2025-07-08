@@ -17,13 +17,14 @@
 #region Configuration
 # Script settings - MODIFY THESE VALUES AS NEEDED
 $Config = @{
-    input_dir          = "./datasets"  # REQUIRED: Input directory path for source images
-    align_input_dir    = ""                             # Optional: Path to directory with reference images for alignment
+    input_dir          = "./datasets"                     # REQUIRED: Input directory path for source images
+    align_input_dir    = ""                               # Optional: Path to directory with reference images for alignment
     max_long_edge      = 2048                             # Optional: Maximum value for the longest edge of resized images (e.g., 1024)
+    max_short_edge     = $null                            # Optional: Maximum value for the shortest edge of resized images (e.g., 1024)
     recursive          = $true                            # Optional: Set to $true to recursively process subdirectories
-    workers            = 8                             # Optional: Maximum number of worker threads for processing (e.g., 8)
-    transform_type     = "auto"                            # Optional: Set to "auto" for automatic alignment, "none" for no alignment
-    bg_color           = "255 255 255"                     # Optional: Background color for padding (e.g., 255 255 255 for white)
+    workers            = 8                                # Optional: Maximum number of worker threads for processing (e.g., 8)
+    transform_type     = "auto"                           # Optional: Set to "auto" for automatic alignment, "none" for no alignment
+    bg_color           = "255 255 255"                    # Optional: Background color for padding (e.g., 255 255 255 for white)
     python_script_path = ".\utils\preprocess_datasets.py" # Relative path to the Python script
 }
 #endregion

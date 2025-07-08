@@ -249,7 +249,7 @@ class ImageProcessor:
         h, w = image_cv.shape[:2]
         # If both are None, calculate_dimensions should return original w,h
         new_w, new_h = calculate_dimensions(
-            w, h, max_long_edge=max_long_edge
+            w, h, max_long_edge=max_long_edge, max_short_edge=max_short_edge
         )
 
         if (w, h) == (new_w, new_h) and pil_image.mode == img_for_processing_pil.mode:
@@ -384,7 +384,7 @@ class ImageProcessor:
 
                             orig_w_ref, orig_h_ref = img1_pil.size
                             target_w_for_ref, target_h_for_ref = calculate_dimensions(
-                                orig_w_ref, orig_h_ref, max_long_edge=max_long_edge
+                                orig_w_ref, orig_h_ref, max_long_edge=max_long_edge, max_short_edge=max_short_edge
                             )
 
                             img2_pil = Image.open(ref_img_path)

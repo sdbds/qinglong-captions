@@ -361,6 +361,7 @@ def calculate_dimensions(
     height: int,
     max_pixels: Optional[int] = 1048576,
     max_long_edge: Optional[int] = 2048,
+    max_short_edge: Optional[int] = None,
     img_scale_num: int = 16,
 ) -> Tuple[int, int]:
     """
@@ -372,6 +373,7 @@ def calculate_dimensions(
         height: 原始高度。
         max_pixels: 允许的最大像素总数 (宽 * 高)。
         max_long_edge: 允许的图像长边的最大长度。
+        max_short_edge: 允许的图像短边的最大长度。
         img_scale_num: 最终尺寸必须是此数值的倍数。
 
     Returns:
@@ -389,6 +391,13 @@ def calculate_dimensions(
         long_edge = max(width, height)
         if long_edge > max_long_edge:
             scale_factor_side = max_long_edge / long_edge
+
+    if max_short_edge is not None:
+        short_edge = min(width, height)
+        if short_edge > max_short_edge:
+            short_edge_scale_factor = max_short_edge / short_edge
+            # Use the smaller scaling factor to satisfy both constraints
+            scale_factor_side = min(scale_factor_side, short_edge_scale_factor)
 
     # 2. 根据 max_pixels 计算缩放因子
     scale_factor_pixels = 1.0
