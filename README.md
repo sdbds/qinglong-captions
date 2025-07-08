@@ -6,6 +6,13 @@ A Python toolkit for generating video captions using the Lance database format a
 
 ## Changlog
 
+### 2.7
+
+We've added a script for batch image datasets! It includes pre-scaling resolution and alignment functionality for image pairs!
+If only one path is entered, it will only process the size of the images, and you can set the maximum values for the longest and shortest edges to scale!
+
+If two paths are entered, it will process image pairs, used for training matching of some editing models.
+
 ### 2.6
 ![image](https://github.com/user-attachments/assets/34f8150b-3414-4e0c-9ade-b9406cd1602b)
 
