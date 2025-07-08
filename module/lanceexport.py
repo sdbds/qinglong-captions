@@ -498,7 +498,7 @@ def extract_from_lance(
                 if field[0] != "blob"  # Skip blob to save memory
             }
             indices = list(range(len(batch)))
-            blobs = ds.take_blobs(indices, "blob")
+            blobs = ds.take_blobs("blob", indices=indices)
 
             for i in range(len(batch)):
                 # Create metadata dict for current item
