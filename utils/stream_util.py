@@ -1,6 +1,7 @@
 import av
 import re
-from typing import Tuple
+import math
+from typing import Tuple, Optional
 from rich.progress import Progress, BarColumn, TimeRemainingColumn
 from rich.console import Console
 from av.audio.format import AudioFormat
@@ -355,58 +356,56 @@ def get_video_duration(file_path):
     return 0
 
 
-def _round_to_16(value: int) -> int:
-    """将值四舍五入为最接近的16的倍数"""
-    return (value // 16) * 16
-
-
 def calculate_dimensions(
-    width, height, max_long_edge: int = None, max_short_edge: int = None
+    width: int,
+    height: int,
+    max_pixels: Optional[int] = 1048576,
+    max_long_edge: Optional[int] = 2048,
+    img_scale_num: int = 16,
 ) -> Tuple[int, int]:
     """
-    根据原始尺寸、最长边和最短边的最大值限制计算新尺寸
-    
-    Args:
-        width: 原始宽度
-        height: 原始高度
-        max_long_edge: 最长边的最大值
-        max_short_edge: 最短边的最大值
-        
-    Returns:
-        调整后的宽度和高度组成的元组
-    """
-    # 设置默认值
-    if max_long_edge is None and max_short_edge is None:
-        max_long_edge = 1024
+    根据最大像素数、最大边长和缩放倍数限制，计算新的图像尺寸，同时保持长宽比。
+    该逻辑与 OmniGen2 中的预处理方法一致。
 
-    # 计算原始纵横比
-    aspect_ratio = width / height
-    
-    # 确定长边和短边
-    is_width_longer = width >= height
-    
-    # 将原始尺寸调整为16的倍数
-    new_width = _round_to_16(width)
-    new_height = _round_to_16(height)
-    
-    # 对尺寸进行多轮调整，直到满足所有条件
-    for _ in range(2):  # 最多进行两轮调整就足够了
-        # 处理最长边的最大值限制
-        if max_long_edge is not None:
-            if is_width_longer and new_width > max_long_edge:
-                new_width = max_long_edge
-                new_height = _round_to_16(int(new_width / aspect_ratio))
-            elif not is_width_longer and new_height > max_long_edge:
-                new_height = max_long_edge
-                new_width = _round_to_16(int(new_height * aspect_ratio))
-        
-        # 处理最短边的最大值限制
-        if max_short_edge is not None:
-            if is_width_longer and new_height > max_short_edge:
-                new_height = max_short_edge
-                new_width = _round_to_16(int(new_height * aspect_ratio))
-            elif not is_width_longer and new_width > max_short_edge:
-                new_width = max_short_edge
-                new_height = _round_to_16(int(new_width / aspect_ratio))
-    
-    return new_width, new_height
+    Args:
+        width: 原始宽度。
+        height: 原始高度。
+        max_pixels: 允许的最大像素总数 (宽 * 高)。
+        max_long_edge: 允许的图像长边的最大长度。
+        img_scale_num: 最终尺寸必须是此数值的倍数。
+
+    Returns:
+        一个包含新 (宽度, 高度) 的元组。
+    """
+    if max_pixels is None and max_long_edge is None:
+        # 如果没有提供限制，则仅将尺寸调整为 img_scale_num 的倍数
+        new_width = round(width / img_scale_num) * img_scale_num
+        new_height = round(height / img_scale_num) * img_scale_num
+        return int(new_width), int(new_height)
+
+    # 1. 根据 max_long_edge 计算缩放因子
+    scale_factor_side = 1.0
+    if max_long_edge is not None:
+        long_edge = max(width, height)
+        if long_edge > max_long_edge:
+            scale_factor_side = max_long_edge / long_edge
+
+    # 2. 根据 max_pixels 计算缩放因子
+    scale_factor_pixels = 1.0
+    if max_pixels is not None:
+        current_pixels = width * height
+        if current_pixels > max_pixels:
+            scale_factor_pixels = math.sqrt(max_pixels / current_pixels)
+
+    # 3. 确定最终的缩放因子（取限制性更强的那个）
+    final_scale_factor = min(scale_factor_side, scale_factor_pixels)
+
+    # 4. 计算新尺寸
+    new_width = width * final_scale_factor
+    new_height = height * final_scale_factor
+
+    # 5. 调整尺寸使其为 img_scale_num 的倍数
+    final_width = round(new_width / img_scale_num) * img_scale_num
+    final_height = round(new_height / img_scale_num) * img_scale_num
+
+    return int(final_width), int(final_height)

@@ -105,14 +105,6 @@ def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
             else BASE_ANIMATION_EXTENSIONS.copy()
         )
 
-        # Try to add AVIF support
-        try:
-            import pillow_avif
-
-            extensions.extend([".avif", ".AVIF"])
-        except ImportError:
-            pass
-
         # Try to add JPEG-XL support
         try:
             import pillow_jxl

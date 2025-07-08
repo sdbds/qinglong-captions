@@ -182,9 +182,15 @@ def load_model_and_tags(args):
         f"[blue]Tags loaded: {len(rows)} total, {len(rating_tags)} rating, {len(character_tags)} character, {len(general_tags)} general[/blue]"
     )
 
+    console.print(f"[blue]Providers: {ort.get_available_providers()}[/blue]")
+
     # 设置推理提供者
     providers = []
-    if "TensorrtExecutionProvider" in ort.get_available_providers():
+    if "NvTensorRtRtxExecutionProvider" in ort.get_available_providers():
+        providers.append("NvTensorRtRtxExecutionProvider")
+        console.print("[green]Using TensorRT for inference[/green]")
+        console.print("[yellow]compile may take a long time, please wait...[/yellow]")
+    elif "TensorrtExecutionProvider" in ort.get_available_providers():
         providers.append("TensorrtExecutionProvider")
         console.print("[green]Using TensorRT for inference[/green]")
         console.print("[yellow]compile may take a long time, please wait...[/yellow]")
@@ -207,14 +213,51 @@ def load_model_and_tags(args):
         ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     )  # 启用所有优化
 
-    if "CPUExecutionProvider" in providers:
-        # CPU时启用多线程推理
-        sess_options.execution_mode = ort.ExecutionMode.ORT_PARALLEL  # 启用并行执行
-        sess_options.inter_op_num_threads = 8  # 设置线程数
-        sess_options.intra_op_num_threads = 8  # 设置算子内部并行数
+    if "NvTensorRtRtxExecutionProvider" in providers:
+        sess_options.enable_mem_pattern = True
+        sess_options.enable_mem_reuse = True
+        providers_with_options = [
+            (
+                "NvTensorRtRtxExecutionProvider",
+                {
+                    "nv_dump_subgraphs": False,
+                    "nv_detailed_build_log": True,
+                    "nv_cuda_graph_enable": True,
+                },
+            ),
+            (
+                "TensorrtExecutionProvider",
+                {
+                    "trt_fp16_enable": True,  # Enable FP16 precision for faster inference
+                    "trt_builder_optimization_level": 3,
+                    "trt_max_partition_iterations": 1000,
+                    "trt_engine_cache_enable": True,
+                    "trt_engine_cache_path": "wd14_tagger_model/trt_engines",
+                    "trt_engine_hw_compatible": True,
+                    "trt_force_sequential_engine_build": False,
+                    "trt_context_memory_sharing_enable": True,
+                    "trt_timing_cache_enable": True,
+                    "trt_timing_cache_path": "wd14_tagger_model",
+                    "trt_sparsity_enable": True,
+                    "trt_min_subgraph_size": 7,
+                    # "trt_detailed_build_log": True,
+                },
+            ),
+            (
+                "CUDAExecutionProvider",
+                {
+                    "arena_extend_strategy": "kSameAsRequested",
+                    "cudnn_conv_algo_search": "EXHAUSTIVE",
+                    "do_copy_in_default_stream": True,
+                    "cudnn_conv_use_max_workspace": "1",  # 使用最大工作空间
+                    "tunable_op_enable": True,  # 启用可调优操作
+                    "tunable_op_tuning_enable": True,  # 启用调优
+                },
+            ),
+        ]
 
     # TensorRT 优化
-    if "TensorrtExecutionProvider" in providers:
+    elif "TensorrtExecutionProvider" in providers:
         sess_options.enable_mem_pattern = True
         sess_options.enable_mem_reuse = True
         providers_with_options = [
@@ -266,6 +309,11 @@ def load_model_and_tags(args):
                 },
             ),
         ]
+    elif "CPUExecutionProvider" in providers:
+        # CPU时启用多线程推理
+        sess_options.execution_mode = ort.ExecutionMode.ORT_PARALLEL  # 启用并行执行
+        sess_options.inter_op_num_threads = 8  # 设置线程数
+        sess_options.intra_op_num_threads = 8  # 设置算子内部并行数
     else:
         providers_with_options = providers
 

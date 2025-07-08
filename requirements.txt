@@ -3,7 +3,6 @@ pylance>=0.20.0
 rich
 rich_pixels
 pandas
-pillow-avif-plugin
 pillow-heif
 pillow-jxl-plugin
 pysrt
@@ -34,4 +33,5 @@ scenedetect>=0.6.6
 
 #WatermarkDetect
 transformers>4.50
+torchvision
 scipy
