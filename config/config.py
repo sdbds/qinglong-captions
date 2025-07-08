@@ -16,6 +16,7 @@ BASE_IMAGE_EXTENSIONS: List[str] = [
     ".ico",
     ".tif",
     ".tiff",
+    ".avif",
     ".PNG",
     ".JPG",
     ".JPEG",
@@ -25,13 +26,16 @@ BASE_IMAGE_EXTENSIONS: List[str] = [
     ".ICO",
     ".TIF",
     ".TIFF",
+    ".AVIF",
 ]
 
 BASE_ANIMATION_EXTENSIONS: List[str] = [
     ".gif",
     ".webp",
+    ".avif",
     ".GIF",
     ".WEBP",
+    ".AVIF",
 ]
 
 BASE_VIDEO_EXTENSIONS: List[str] = [
