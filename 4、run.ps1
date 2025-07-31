@@ -52,8 +52,8 @@ $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
 #$Env:HF_ENDPOINT = "https://hf-mirror.com"
 $Env:PILLOW_IGNORE_XMP_DATA_IS_TOO_LONG = "1"
 $ext_args = [System.Collections.ArrayList]::new()
-$Env:HTTP_PROXY = "http://127.0.0.1:7890"
-$Env:HTTPS_PROXY = "http://127.0.0.1:7890"
+#$Env:HTTP_PROXY = "http://127.0.0.1:7890"
+#$Env:HTTPS_PROXY = "http://127.0.0.1:7890"
 
 if ($pair_dir) {
   [void]$ext_args.Add("--pair_dir=$pair_dir")
