@@ -578,6 +578,13 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument("dataset_dir", type=str, help="directory for dataset")
 
     parser.add_argument(
+        "--pair_dir",
+        type=str,
+        default="",
+        help="directory for pair dataset",
+    )
+
+    parser.add_argument(
         "--gemini_api_key",
         type=str,
         default="",

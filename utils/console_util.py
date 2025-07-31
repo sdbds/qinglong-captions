@@ -384,3 +384,51 @@ class CaptionAndRateLayout(BaseLayout):
 
         # 返回Pixels对象
         return Pixels.from_ascii(ascii_grid, mapping)
+
+class CaptionPairImageLayout(BaseLayout):
+    """A layout for displaying two images side-by-side with a description in the middle."""
+
+    def __init__(
+        self,
+        description: str,
+        pixels: "Pixels",
+        pair_pixels: "Pixels",
+        panel_height: int = 32,
+        console: "Console" = None,
+    ):
+        """
+        Initializes the layout for displaying a pair of captions.
+
+        Args:
+            description: The description text.
+            pixels: The Rich Pixels object for the first image.
+            pair_pixels: The Rich Pixels object for the second image.
+            panel_height: The height of the panel.
+            console: The Rich console instance.
+        """
+        super().__init__(panel_height, console)
+        self.description = description
+        self.pixels = pixels
+        self.pair_pixels = pair_pixels
+        self.create_layout()
+
+    def create_layout(self):
+        """Creates the layout structure with three columns."""
+        # Main layout splits into three columns
+        self.layout.split_row(
+            Layout(
+                Panel(self.pixels, title="Original", height=self.panel_height, padding=0, expand=True),
+                name="image1",
+                ratio=2,
+            ),
+            Layout(
+                Panel(Text(self.description, justify="center"), title="Description", height=self.panel_height, padding=1, expand=True),
+                name="description",
+                ratio=1,
+            ),
+            Layout(
+                Panel(self.pair_pixels, title="Edited", height=self.panel_height, padding=0, expand=True),
+                name="image2",
+                ratio=2,
+            ),
+        )

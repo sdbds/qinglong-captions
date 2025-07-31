@@ -1,6 +1,7 @@
 $dataset_path = "./datasets"
 $gemini_api_key = ""
 $gemini_model_path = "gemini-2.5-pro-exp-03-25"
+$pair_dir = ""
 $gemini_task = ""
 $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
@@ -54,7 +55,9 @@ $ext_args = [System.Collections.ArrayList]::new()
 #$Env:HTTP_PROXY = "http://127.0.0.1:7890"
 #$Env:HTTPS_PROXY = "http://127.0.0.1:7890"
 
-
+if ($pair_dir) {
+  [void]$ext_args.Add("--pair_dir=$pair_dir")
+}
 
 if ($gemini_api_key) {
   [void]$ext_args.Add("--gemini_api_key=$gemini_api_key")

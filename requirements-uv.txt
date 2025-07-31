@@ -50,7 +50,7 @@ cryptography==45.0.5
     # via dashscope
 cssselect==1.3.0
     # via pyquery
-dashscope==1.23.7
+dashscope==1.23.8
     # via -r requirements.txt
 deprecation==2.1.0
     # via hbutils
@@ -151,7 +151,7 @@ nvidia-cuda-runtime-cu12==12.9.79
     # via tensorrt-cu12-libs
 onnxruntime-gpu==1.20.2
     # via -r requirements.txt
-openai==1.93.0
+openai==1.93.1
     # via -r requirements.txt
 opencv-contrib-python-rolling @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.11.0.20250124/opencv_contrib_python_rolling-4.12.0.86-cp37-abi3-win_amd64.whl
     # via -r requirements.txt
@@ -164,7 +164,7 @@ packaging==25.0
     #   onnxruntime-gpu
     #   pillow-jxl-plugin
     #   transformers
-pandas==2.3.0
+pandas==2.3.1
     # via -r requirements.txt
 pillow==11.3.0
     # via

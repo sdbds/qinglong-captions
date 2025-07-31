@@ -15,7 +15,12 @@ from rich.text import Text
 from PIL import Image
 from pathlib import Path
 import functools
-from utils.console_util import CaptionLayout, MarkdownLayout, CaptionAndRateLayout
+from utils.console_util import (
+    CaptionLayout,
+    CaptionPairImageLayout,
+    CaptionAndRateLayout,
+    MarkdownLayout,
+)
 from utils.stream_util import sanitize_filename
 from utils.wdtagger import format_description, split_name_series
 
@@ -336,7 +341,7 @@ def api_process_batch(
         client = Mistral(api_key=args.pixtral_api_key)
         captions = []
 
-        if mime.startswith("image"):
+        if mime.startswith("image") and args.pair_dir == "":
             system_prompt = config["prompts"]["pixtral_image_system_prompt"]
             character_prompt = ""
             character_name = ""
@@ -374,6 +379,41 @@ def api_process_batch(
                     ],
                 },
             ]
+
+        elif mime.startswith("image") and args.pair_dir != "":
+            system_prompt = config["prompts"]["pair_image_system_prompt"]
+            prompt = config["prompts"]["pair_image_prompt"]
+
+            base64_image, pixels = encode_image(uri)
+            if base64_image is None or pixels is None:
+                return ""
+
+            uri2_path = Path(args.pair_dir) / Path(uri).name
+            if not uri2_path.exists():
+                return ""
+            uri2 = str(uri2_path)
+            base64_image2, pixels2 = encode_image(uri2)
+            if base64_image2 is None or pixels2 is None:
+                return ""
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": f"data:image/jpeg;base64,{base64_image}",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": f"data:image/jpeg;base64,{base64_image2}",
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                },
+            ]
+
         elif mime.startswith("application"):
             for upload_attempt in range(args.max_retries):
                 try:
@@ -615,70 +655,85 @@ def api_process_batch(
             system_prompt = None
             prompt = config["prompts"]["task"][args.gemini_task]
 
-        image_response_schema = genai.types.Schema(
-            type=genai.types.Type.OBJECT,
-            required=["scores", "average_score", "description"],
-            properties={
-                "scores": genai.types.Schema(
-                    type=genai.types.Type.OBJECT,
-                    required=[
-                        "Costume & Makeup & Prop Presentation/Accuracy",
-                        "Character Portrayal & Posing",
-                        "Setting & Environment Integration",
-                        "Lighting & Mood",
-                        "Composition & Framing",
-                        "Storytelling & Concept",
-                        "Level of S*e*x*y",
-                        "Figure",
-                        "Overall Impact & Uniqueness",
-                    ],
-                    properties={
-                        "Costume & Makeup & Prop Presentation/Accuracy": genai.types.Schema(
-                            type=genai.types.Type.INTEGER,
-                        ),
-                        "Character Portrayal & Posing": genai.types.Schema(
-                            type=genai.types.Type.INTEGER,
-                        ),
-                        "Setting & Environment Integration": genai.types.Schema(
-                            type=genai.types.Type.INTEGER,
-                        ),
-                        "Lighting & Mood": genai.types.Schema(
-                            type=genai.types.Type.INTEGER,
-                        ),
-                        "Composition & Framing": genai.types.Schema(
-                            type=genai.types.Type.INTEGER,
-                        ),
-                        "Storytelling & Concept": genai.types.Schema(
-                            type=genai.types.Type.INTEGER,
-                        ),
-                        "Level of S*e*x*y": genai.types.Schema(
-                            type=genai.types.Type.INTEGER,
-                        ),
-                        "Figure": genai.types.Schema(
-                            type=genai.types.Type.INTEGER,
-                        ),
-                        "Overall Impact & Uniqueness": genai.types.Schema(
-                            type=genai.types.Type.INTEGER,
-                        ),
-                    },
-                ),
-                "total_score": genai.types.Schema(
-                    type=genai.types.Type.INTEGER,
-                ),
-                "average_score": genai.types.Schema(
-                    type=genai.types.Type.NUMBER,
-                ),
-                "description": genai.types.Schema(
-                    type=genai.types.Type.STRING,
-                ),
-                "character_name": genai.types.Schema(
-                    type=genai.types.Type.STRING,
-                ),
-                "series": genai.types.Schema(
-                    type=genai.types.Type.STRING,
-                ),
-            },
-        )
+        if args.pair_dir and mime.startswith("image"):
+            system_prompt = config["prompts"]["pair_image_system_prompt"]
+            prompt = config["prompts"]["pair_image_prompt"]
+            
+
+        if args.pair_dir != "":
+            image_response_schema = genai.types.Schema(
+                type=genai.types.Type.OBJECT,
+                properties={
+                    "prompt": genai.types.Schema(
+                        type=genai.types.Type.STRING,
+                    ),
+                },
+            )
+        else:
+            image_response_schema = genai.types.Schema(
+                type=genai.types.Type.OBJECT,
+                required=["scores", "average_score", "description"],
+                properties={
+                    "scores": genai.types.Schema(
+                        type=genai.types.Type.OBJECT,
+                        required=[
+                            "Costume & Makeup & Prop Presentation/Accuracy",
+                            "Character Portrayal & Posing",
+                            "Setting & Environment Integration",
+                            "Lighting & Mood",
+                            "Composition & Framing",
+                            "Storytelling & Concept",
+                            "Level of S*e*x*y",
+                            "Figure",
+                            "Overall Impact & Uniqueness",
+                        ],
+                        properties={
+                            "Costume & Makeup & Prop Presentation/Accuracy": genai.types.Schema(
+                                type=genai.types.Type.INTEGER,
+                            ),
+                            "Character Portrayal & Posing": genai.types.Schema(
+                                type=genai.types.Type.INTEGER,
+                            ),
+                            "Setting & Environment Integration": genai.types.Schema(
+                                type=genai.types.Type.INTEGER,
+                            ),
+                            "Lighting & Mood": genai.types.Schema(
+                                type=genai.types.Type.INTEGER,
+                            ),
+                            "Composition & Framing": genai.types.Schema(
+                                type=genai.types.Type.INTEGER,
+                            ),
+                            "Storytelling & Concept": genai.types.Schema(
+                                type=genai.types.Type.INTEGER,
+                            ),
+                            "Level of S*e*x*y": genai.types.Schema(
+                                type=genai.types.Type.INTEGER,
+                            ),
+                            "Figure": genai.types.Schema(
+                                type=genai.types.Type.INTEGER,
+                            ),
+                            "Overall Impact & Uniqueness": genai.types.Schema(
+                                type=genai.types.Type.INTEGER,
+                            ),
+                        },
+                    ),
+                    "total_score": genai.types.Schema(
+                        type=genai.types.Type.INTEGER,
+                    ),
+                    "average_score": genai.types.Schema(
+                        type=genai.types.Type.NUMBER,
+                    ),
+                    "description": genai.types.Schema(
+                        type=genai.types.Type.STRING,
+                    ),
+                    "character_name": genai.types.Schema(
+                        type=genai.types.Type.STRING,
+                    ),
+                    "series": genai.types.Schema(
+                        type=genai.types.Type.STRING,
+                    ),
+                },
+            )
 
         genai_config = types.GenerateContentConfig(
             system_instruction=system_prompt,
@@ -720,10 +775,12 @@ def api_process_batch(
             response_schema=image_response_schema if mime.startswith("image") else None,
             thinking_config=(
                 types.ThinkingConfig(
-                    thinking_budget=generation_config["thinking_budget"],
+                    thinking_budget=(
+                        generation_config["thinking_budget"]
+                        if "thinking_budget" in generation_config
+                        else -1
+                    ),
                 )
-                if "thinking_budget" in generation_config
-                else None
             ),
         )
 
@@ -840,15 +897,40 @@ def api_process_batch(
                     )
                 else:
                     blob, pixels = encode_image(uri)
-                    response = client.models.generate_content_stream(
-                        model=args.gemini_model_path,
-                        contents=[
-                            types.Part.from_text(text=prompt),
-                            types.Part.from_bytes(data=blob, mime_type="image/jpeg"),
-                        ],
-                        config=genai_config,
-                    )
-
+                    if args.pair_dir == "":
+                        response = client.models.generate_content_stream(
+                            model=args.gemini_model_path,
+                            contents=[
+                                types.Part.from_text(text=prompt),
+                                types.Part.from_bytes(
+                                    data=blob, mime_type="image/jpeg"
+                                ),
+                            ],
+                            config=genai_config,
+                        )
+                    else:
+                        pair_uri = (Path(args.pair_dir) / Path(uri).name).resolve()
+                        if not pair_uri.exists():
+                            console.print(f"[red]Pair image {pair_uri} not found[/red]")
+                            return ""
+                        else:
+                            console.print(
+                                f"[yellow]Pair image {pair_uri} found[/yellow]"
+                            )
+                        pair_blob, pair_pixels = encode_image(pair_uri)
+                        response = client.models.generate_content_stream(
+                            model=args.gemini_model_path,
+                            contents=[
+                                types.Part.from_bytes(
+                                    data=blob, mime_type="image/jpeg"
+                                ),
+                                types.Part.from_bytes(
+                                    data=pair_blob, mime_type="image/jpeg"
+                                ),
+                                types.Part.from_text(text=prompt),
+                            ],
+                            config=genai_config,
+                        )
                 if progress and task_id is not None:
                     progress.update(task_id, description="Generating captions")
                 # 收集流式响应
@@ -905,23 +987,34 @@ def api_process_batch(
                     else:
                         # If it's already a dict/list, use it directly
                         captions = response_text
+                    if args.pair_dir and pair_pixels:
+                        description = captions.get("prompt", "")
 
-                    description = captions.get("description", "")
-                    scores = captions.get("scores", [])
-                    average_score = captions.get("average_score", 0.0)
+                        caption_and_rate_layout = CaptionPairImageLayout(
+                            description=description,
+                            pixels=pixels,
+                            pair_pixels=pair_pixels,
+                            panel_height=32,
+                            console=console,
+                        )
+                        caption_and_rate_layout.print(title=Path(uri).name)
+                        return captions.get("prompt", "")
+                    else:
+                        description = captions.get("description", "")
+                        scores = captions.get("scores", [])
+                        average_score = captions.get("average_score", 0.0)
 
-                    caption_and_rate_layout = CaptionAndRateLayout(
-                        tag_description="",
-                        rating=scores,
-                        average_score=average_score,
-                        long_description=description,
-                        pixels=pixels,
-                        long_highlight_rate=0,
-                        panel_height=32,
-                        console=console,
-                    )
-                    caption_and_rate_layout.print(title=Path(uri).name)
-                    return response_text
+                        caption_and_rate_layout = CaptionAndRateLayout(
+                            tag_description="",
+                            rating=scores,
+                            average_score=average_score,
+                            long_description=description,
+                            pixels=pixels,
+                            panel_height=32,
+                            console=console,
+                        )
+                        caption_and_rate_layout.print(title=Path(uri).name)
+                        return response_text
 
                 response_text = response_text.replace(
                     "[green]", "<font color='green'>"

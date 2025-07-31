@@ -627,6 +627,10 @@ def split_name_series(names: str) -> str:
             "amor caren",
             "berserker install",
             "young",
+            "swimsuit rider",
+            "2021 outfit",
+            "herrscher of finality",
+            "swimsuit rider",
         ]:
             # 获取除最后一个括号外的所有内容作为名字
             full_name = match.group(1).strip()
