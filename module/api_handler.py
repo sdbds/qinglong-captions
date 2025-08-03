@@ -54,48 +54,127 @@ def api_process_batch(
         system_prompt = config["prompts"]["image_system_prompt"]
         prompt = config["prompts"]["image_prompt"]
 
-    if args.step_api_key != "" and mime.startswith("video"):
+    if args.step_api_key != "":
 
-        system_prompt = config["prompts"]["step_video_system_prompt"]
-        prompt = config["prompts"]["step_video_prompt"]
+        if mime.startswith("video"):
+            system_prompt = config["prompts"]["step_video_system_prompt"]
+            prompt = config["prompts"]["step_video_prompt"]
+        elif mime.startswith("image"):
+            if args.pair_dir != "":
+                system_prompt = config["prompts"]["image_pair_system_prompt"]
+                prompt = config["prompts"]["image_pair_prompt"]
+            else:
+                system_prompt = config["prompts"]["image_system_prompt"]
+                prompt = config["prompts"]["image_prompt"]
 
         client = OpenAI(
             api_key=args.step_api_key, base_url="https://api.stepfun.com/v1"
         )
 
-        file = client.files.create(file=open(uri, "rb"), purpose="storage")
-
-        console.print(f"[blue]Uploaded video file:[/blue] {file}")
+        if mime.startswith("video"):
+            file = client.files.create(file=open(uri, "rb"), purpose="storage")
+            console.print(f"[blue]Uploaded video file:[/blue] {file}")
+        elif mime.startswith("image"):
+            blob, pixels = encode_image(uri)
+            if args.pair_dir != "":
+                pair_uri = (Path(args.pair_dir) / Path(uri).name).resolve()
+                if not pair_uri.exists():
+                    console.print(f"[red]Pair image {pair_uri} not found[/red]")
+                    return ""
+                else:
+                    console.print(f"[yellow]Pair image {pair_uri} found[/yellow]")
+                pair_blob, pair_pixels = encode_image(pair_uri)
 
         for attempt in range(args.max_retries):
             try:
                 start_time = time.time()
-                completion = client.chat.completions.create(
-                    model=args.step_model_path,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": system_prompt,
-                        },
-                        {
-                            "role": "user",
-                            "content": [
+                if mime.startswith("video"):
+                    completion = client.chat.completions.create(
+                        model=args.step_model_path,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": system_prompt,
+                            },
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "video_url",
+                                        "video_url": {"url": "stepfile://" + file.id},
+                                    },
+                                    {
+                                        "type": "text",
+                                        "text": prompt,
+                                    },
+                                ],
+                            },
+                        ],
+                        temperature=0.7,
+                        top_p=0.95,
+                        max_tokens=8192,
+                        stream=True,
+                    )
+
+                elif mime.startswith("image"):
+                    if args.pair_dir != "":
+                        completion = client.chat.completions.create(
+                            model=args.step_model_path,
+                            messages=[
                                 {
-                                    "type": "video_url",
-                                    "video_url": {"url": "stepfile://" + file.id},
+                                    "role": "system",
+                                    "content": system_prompt,
                                 },
                                 {
-                                    "type": "text",
-                                    "text": prompt,
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "image_url",
+                                            "image_url": blob,
+                                        },
+                                        {
+                                            "type": "image_url",
+                                            "image_url": pair_blob,
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": prompt,
+                                        },
+                                    ],
                                 },
                             ],
-                        },
-                    ],
-                    temperature=0.7,
-                    top_p=0.95,
-                    max_tokens=8192,
-                    stream=True,
-                )
+                            temperature=0.7,
+                            top_p=0.95,
+                            max_tokens=8192,
+                            stream=True,
+                        )
+                    else:
+                        completion = client.chat.completions.create(
+                            model=args.step_model_path,
+                            messages=[
+                                {
+                                    "role": "system",
+                                    "content": system_prompt,
+                                },
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "image_url",
+                                            "image_url": blob,
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": prompt,
+                                        },
+                                    ],
+                                },
+                            ],
+                            temperature=0.7,
+                            top_p=0.95,
+                            max_tokens=8192,
+                            stream=True,
+                        )
 
                 if progress and task_id is not None:
                     progress.update(task_id, description="Generating captions")
@@ -125,7 +204,31 @@ def api_process_batch(
                     "[green]", "<font color='green'>"
                 ).replace("[/green]", "</font>")
 
-                content = extract_code_block_content(response_text, "srt", console)
+                if mime.startswith("video"):
+                    content = extract_code_block_content(response_text, "srt", console)
+                elif mime.startswith("image"):
+                    if args.pair_dir and pair_pixels:
+                        caption_and_rate_layout = CaptionPairImageLayout(
+                            description=response_text,
+                            pixels=pixels,
+                            pair_pixels=pair_pixels,
+                            panel_height=32,
+                            console=console,
+                        )
+                        caption_and_rate_layout.print(title=Path(uri).name)
+                        return response_text
+                    else:
+                        caption_and_rate_layout = CaptionAndRateLayout(
+                            tag_description="",
+                            rating=[],
+                            average_score=0,
+                            long_description=response_text,
+                            pixels=pixels,
+                            panel_height=32,
+                            console=console,
+                        )
+                        caption_and_rate_layout.print(title=Path(uri).name)
+                        return response_text
                 if not content:
                     continue
 
@@ -658,7 +761,6 @@ def api_process_batch(
         if args.pair_dir and mime.startswith("image"):
             system_prompt = config["prompts"]["pair_image_system_prompt"]
             prompt = config["prompts"]["pair_image_prompt"]
-            
 
         if args.pair_dir != "":
             image_response_schema = genai.types.Schema(
@@ -865,6 +967,16 @@ def api_process_batch(
             if not upload_success:
                 console.print("[red]Failed to upload file[/red]")
                 return ""
+        elif mime.startswith("image"):
+            blob, pixels = encode_image(uri)
+            if args.pair_dir != "":
+                pair_uri = (Path(args.pair_dir) / Path(uri).name).resolve()
+                if not pair_uri.exists():
+                    console.print(f"[red]Pair image {pair_uri} not found[/red]")
+                    return ""
+                else:
+                    console.print(f"[yellow]Pair image {pair_uri} found[/yellow]")
+                pair_blob, pair_pixels = encode_image(pair_uri)
 
         # Some files have a processing delay. Wait for them to be ready.
         # wait_for_files_active(files)
@@ -895,29 +1007,8 @@ def api_process_batch(
                         ],
                         config=genai_config,
                     )
-                else:
-                    blob, pixels = encode_image(uri)
-                    if args.pair_dir == "":
-                        response = client.models.generate_content_stream(
-                            model=args.gemini_model_path,
-                            contents=[
-                                types.Part.from_text(text=prompt),
-                                types.Part.from_bytes(
-                                    data=blob, mime_type="image/jpeg"
-                                ),
-                            ],
-                            config=genai_config,
-                        )
-                    else:
-                        pair_uri = (Path(args.pair_dir) / Path(uri).name).resolve()
-                        if not pair_uri.exists():
-                            console.print(f"[red]Pair image {pair_uri} not found[/red]")
-                            return ""
-                        else:
-                            console.print(
-                                f"[yellow]Pair image {pair_uri} found[/yellow]"
-                            )
-                        pair_blob, pair_pixels = encode_image(pair_uri)
+                elif mime.startswith("image"):
+                    if args.pair_dir != "":
                         response = client.models.generate_content_stream(
                             model=args.gemini_model_path,
                             contents=[
@@ -931,6 +1022,18 @@ def api_process_batch(
                             ],
                             config=genai_config,
                         )
+                    else:
+                        response = client.models.generate_content_stream(
+                            model=args.gemini_model_path,
+                            contents=[
+                                types.Part.from_text(text=prompt),
+                                types.Part.from_bytes(
+                                    data=blob, mime_type="image/jpeg"
+                                ),
+                            ],
+                            config=genai_config,
+                        )
+
                 if progress and task_id is not None:
                     progress.update(task_id, description="Generating captions")
                 # 收集流式响应
@@ -982,8 +1085,8 @@ def api_process_batch(
                         try:
                             captions = json.loads(response_text)
                         except json.JSONDecodeError as e:
-                            print(f"Error decoding JSON: {e}")
-                            return ""
+                            console.print(f"[red]Error decoding JSON: {e}[/red]")
+                            raise e
                     else:
                         # If it's already a dict/list, use it directly
                         captions = response_text

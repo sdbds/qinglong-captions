@@ -195,8 +195,9 @@ packaging==25.0
     #   transformers
 pandas==2.2.3
     # via -r requirements.txt
-pillow==11.2.1
+pillow==11.3.0
     # via
+    #   -r requirements.txt
     #   imageio
     #   pillow-heif
     #   pillow-jxl-plugin
