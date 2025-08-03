@@ -7,6 +7,7 @@ A Python toolkit for generating video captions using the Lance database format a
 ## Changlog
 
 ### 2.8
+<img width="1078" height="708" alt="image" src="https://github.com/user-attachments/assets/8374d156-1221-41e4-8d72-925a54782dfc" />
 
 We have added support for the `gemini-2.5-pro` model for pair image captions. This allows for more accurate and detailed descriptions of pair of images.
 
