@@ -1,10 +1,24 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (2.7)
+# qinglong-captioner (2.8)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changlog
+
+### 2.8
+
+We have added support for the `gemini-2.5-pro` model for pair image captions. This allows for more accurate and detailed descriptions of pair of images.
+
+**How to use:**
+1. Open the `4、run.ps1` script.
+2. Set your Gemini API key in the `$gemini_api_key` variable.
+3. Set the model path to `gemini-2.5-pro`: `$gemini_model_path = "gemini-2.5-pro"`(pro can do NSFW images,flash only sfw images.)
+4. Place the edited images you want to caption in the folder specified by `$dataset_path`.
+5. Place the original images you want to caption in the folder specified by `$pair_dir`.
+6. Run the script: `./4、run.ps1`
+
+
 
 ### 2.7
 
@@ -288,7 +302,22 @@ $scene_luma_only = $false
 ```
 ---
 
-# 青龙数据集工具 (2.7)
+# 青龙数据集工具 (2.8)
+
+## 更新日志
+
+### 2.8
+
+我们增加了对 `gemini-2.5-pro` 模型的支持，用于图像对标注。这可以为成对的图片生成更准确、更详细的描述。
+
+**如何使用：**
+1. 打开 `4、run.ps1` 脚本。
+2. 在 `$gemini_api_key` 变量中设置您的 Gemini API 密钥。
+3. 将模型路径设置为 `gemini-2.5-pro`: `$gemini_model_path = "gemini-2.5-pro"` (pro版本可以处理NSFW图片，flash版本只能处理SFW图片。)
+4. 将您想要标注的编辑后的图片放入 `$dataset_path` 变量指定的文件夹中。
+5. 将您想要标注的原始图片放入 `$pair_dir` 变量指定的文件夹中。
+6. 运行脚本: `./4、run.ps1`
+
 
 基于 Lance 数据库格式的视频自动字幕生成工具，使用 Gemini API 进行场景描述生成。
 
