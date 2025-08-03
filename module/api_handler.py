@@ -1013,10 +1013,10 @@ def api_process_batch(
                             model=args.gemini_model_path,
                             contents=[
                                 types.Part.from_bytes(
-                                    data=blob, mime_type="image/jpeg"
+                                    data=pair_blob, mime_type="image/jpeg"
                                 ),
                                 types.Part.from_bytes(
-                                    data=pair_blob, mime_type="image/jpeg"
+                                    data=blob, mime_type="image/jpeg"
                                 ),
                                 types.Part.from_text(text=prompt),
                             ],

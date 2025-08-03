@@ -417,7 +417,7 @@ class CaptionPairImageLayout(BaseLayout):
         # Main layout splits into three columns
         self.layout.split_row(
             Layout(
-                Panel(self.pixels, title="Original", height=self.panel_height, padding=0, expand=True),
+                Panel(self.pair_pixels, title="Original", height=self.panel_height, padding=0, expand=True),
                 name="image1",
                 ratio=2,
             ),
@@ -427,7 +427,7 @@ class CaptionPairImageLayout(BaseLayout):
                 ratio=1,
             ),
             Layout(
-                Panel(self.pair_pixels, title="Edited", height=self.panel_height, padding=0, expand=True),
+                Panel(self.pixels, title="Edited", height=self.panel_height, padding=0, expand=True),
                 name="image2",
                 ratio=2,
             ),
