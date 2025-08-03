@@ -16,7 +16,7 @@ We have added support for the `gemini-2.5-pro` model for pair image captions. Th
 2. Set your Gemini API key in the `$gemini_api_key` variable.
 3. Set the model path to `gemini-2.5-pro`: `$gemini_model_path = "gemini-2.5-pro"`(pro can do NSFW images,flash only sfw images.)
 4. Place the edited images you want to caption in the folder specified by `$dataset_path`.
-5. Place the original images you want to caption in the folder specified by `$pair_dir`.
+5. Place the original images you want to caption in the folder specified by `$pair_dir`(with same image name).
 6. Run the script: `./4、run.ps1`
 
 
