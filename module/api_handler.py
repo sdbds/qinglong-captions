@@ -1086,7 +1086,11 @@ def api_process_batch(
                             captions = json.loads(response_text)
                         except json.JSONDecodeError as e:
                             console.print(f"[red]Error decoding JSON: {e}[/red]")
-                            raise e
+                            if "Expecting value: line 1 column 1 (char 0)" in str(e):
+                                console.print("[red]Image was filtered, skipping[/red]")
+                                return ""
+                            else:
+                                raise e
                     else:
                         # If it's already a dict/list, use it directly
                         captions = response_text
