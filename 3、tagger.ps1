@@ -15,6 +15,8 @@ $Features = @{
     frequency_tags           = $false  # Order by frequency tags
     remove_underscore        = $true   # Convert underscore to space
     use_rating_tags          = $false  # Use rating tags
+    use_rating_tags          = $true  # Use rating tags
+    use_quality_tags         = $true  # Use quality tags
     use_rating_tags_as_last_tag = $false  # Put rating tags at the end
     character_tags_first     = $false  # Put character tags first
     character_tag_expand     = $false  # Split character_(series) into character, series
@@ -79,6 +81,7 @@ if ($Features.character_tags_first) { [void]$ExtArgs.Add("--character_tags_first
 if ($Features.character_tag_expand) { [void]$ExtArgs.Add("--character_tag_expand") }
 if ($Features.use_rating_tags_as_last_tag) { [void]$ExtArgs.Add("--use_rating_tags_as_last_tag") }
 elseif ($Features.use_rating_tags) { [void]$ExtArgs.Add("--use_rating_tags") }
+if ($Features.use_quality_tags) { [void]$ExtArgs.Add("--use_quality_tags") }
 if ($Features.remove_parents_tag) { [void]$ExtArgs.Add("--remove_parents_tag") }
 if ($Features.overwrite) { [void]$ExtArgs.Add("--overwrite") }
 
@@ -91,6 +94,8 @@ if ($TagConfig.tag_replacement) { [void]$ExtArgs.Add("--tag_replacement=$($TagCo
 
 #region Execute Tagger
 Write-Output "Starting tagger..."
+
+# Get-ChildItem -Path $env:AGENT_TOOLSDIRECTORY -File -Include msvcp*.dll,concrt*.dll,vccorlib*.dll,vcruntime*.dll -Recurse | Remove-Item -Force -Verbose
 
 # Run tagger
 accelerate launch --num_cpu_threads_per_process=8 "./utils/wdtagger.py" `

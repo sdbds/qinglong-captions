@@ -540,3 +540,14 @@ fields = [
     { name = "language", id = 21, color = "bright_cyan" },
     { name = "automatic", id = 22, color = "cyan" },
 ]
+
+[wdtagger]
+# List of series names to exclude from special parsing in split_name_series.
+# These are terms that appear in parentheses but should not be treated as a series name.
+series_exclude_list = [
+    "female", "male", "character", "atlus character", "beast style", 
+    "dangerous beast", "amor caren", "berserker install", "archer install", 
+    "saber install", "assassin install", "lancer install", "rider install", 
+    "caster install", "young", "swimsuit rider", "2021 outfit", 
+    "herrscher of finality", "winter princess", "creature", "kenjaku"
+]

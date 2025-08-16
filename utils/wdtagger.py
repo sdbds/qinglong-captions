@@ -27,10 +27,32 @@ from module.lanceImport import transform2lance
 import concurrent.futures
 import re
 import json
+import toml
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Tuple
 
 console = Console()
+
+# --- Config Loading ---
+# Load configuration from config.toml
+# This allows for dynamic configuration of the series exclusion list.
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "config.toml"
+SERIES_EXCLUDE_LIST = set()
+try:
+    if CONFIG_PATH.exists():
+        config = toml.load(CONFIG_PATH)
+        SERIES_EXCLUDE_LIST = set(
+            config.get("wdtagger", {}).get("series_exclude_list", [])
+        )
+    else:
+        console.print(
+            f"[yellow]Config file not found at {CONFIG_PATH}, using default empty exclude list.[/yellow]"
+        )
+except Exception as e:
+    console.print(
+        f"[red]Error loading config file: {e}, using default empty exclude list.[/red]"
+    )
+# --- End Config Loading ---
 
 
 @dataclass
@@ -170,6 +192,10 @@ def preprocess_image(image, is_cl_tagger=False):
     if is_cl_tagger:
         image = image.transpose(2, 0, 1)  # HWC -> CHW
         image = image.astype(np.float32) / 255.0
+        # Apply normalization with mean=0.5, std=0.5
+        mean = np.array([0.5, 0.5, 0.5], dtype=np.float32).reshape(3, 1, 1)
+        std = np.array([0.5, 0.5, 0.5], dtype=np.float32).reshape(3, 1, 1)
+        image = (image - mean) / std
     else:
         image = image.astype(np.float32)
 
@@ -214,13 +240,12 @@ def get_tags_official(
     labels: LabelData,
     gen_threshold,
     char_threshold,
-    rating_threshold,
+    use_rating_tags,
+    use_quality_tags,
     processed_names=None,
 ):
     """官方兼容的标签处理函数"""
-    # 使用处理后的标签名称（如果提供的话）
     tag_names = processed_names if processed_names is not None else labels.names
-
     result = {
         "rating": [],
         "general": [],
@@ -231,41 +256,28 @@ def get_tags_official(
         "model": [],
     }
 
-    # Rating (选择最大值)
-    if len(labels.rating) > 0:
+    # --- Pick-highest categories (rating, quality) ---
+    if use_rating_tags and len(labels.rating) > 0:
         valid_indices = labels.rating[labels.rating < len(probs)]
         if len(valid_indices) > 0:
-            rating_probs = probs[valid_indices]
-            if len(rating_probs) > 0:
-                rating_idx_local = np.argmax(rating_probs)
-                rating_idx_global = valid_indices[rating_idx_local]
-                if (
-                    rating_idx_global < len(tag_names)
-                    and tag_names[rating_idx_global] is not None
-                ):
-                    rating_name = tag_names[rating_idx_global]
-                    rating_conf = float(rating_probs[rating_idx_local])
-                    if rating_conf > rating_threshold:  # 添加阈值检查
-                        result["rating"].append((rating_name, rating_conf))
+            category_probs = probs[valid_indices]
+            best_local_idx = np.argmax(category_probs)
+            confidence = category_probs[best_local_idx]
+            global_idx = valid_indices[best_local_idx]
+            tag_name = tag_names[global_idx]
+            result["rating"].append((tag_name, float(confidence)))
 
-    # Quality (选择最大值)
-    if len(labels.quality) > 0:
+    if use_quality_tags and len(labels.quality) > 0:
         valid_indices = labels.quality[labels.quality < len(probs)]
         if len(valid_indices) > 0:
-            quality_probs = probs[valid_indices]
-            if len(quality_probs) > 0:
-                quality_idx_local = np.argmax(quality_probs)
-                quality_idx_global = valid_indices[quality_idx_local]
-                if (
-                    quality_idx_global < len(tag_names)
-                    and tag_names[quality_idx_global] is not None
-                ):
-                    quality_name = tag_names[quality_idx_global]
-                    quality_conf = float(quality_probs[quality_idx_local])
-                    if quality_conf > rating_threshold:  # 使用相同阈值
-                        result["quality"].append((quality_name, quality_conf))
+            category_probs = probs[valid_indices]
+            best_local_idx = np.argmax(category_probs)
+            confidence = category_probs[best_local_idx]
+            global_idx = valid_indices[best_local_idx]
+            tag_name = tag_names[global_idx]
+            result["quality"].append((tag_name, float(confidence)))
 
-    # 阈值筛选的类别
+    # --- Above-threshold categories (general, character, etc.) ---
     category_map = {
         "general": (labels.general, gen_threshold),
         "character": (labels.character, char_threshold),
@@ -274,28 +286,22 @@ def get_tags_official(
         "model": (labels.model, gen_threshold),
     }
 
-    for category, (indices, threshold) in category_map.items():
-        if len(indices) > 0:
-            valid_indices = indices[indices < len(probs)]
-            if len(valid_indices) > 0:
-                category_probs = probs[valid_indices]
-                mask = category_probs >= threshold
-                selected_indices_local = np.where(mask)[0]
-                if len(selected_indices_local) > 0:
-                    selected_indices_global = valid_indices[selected_indices_local]
-                    selected_probs = category_probs[selected_indices_local]
-                    for idx_global, prob_val in zip(
-                        selected_indices_global, selected_probs
-                    ):
-                        if (
-                            idx_global < len(tag_names)
-                            and tag_names[idx_global] is not None
-                        ):
-                            result[category].append(
-                                (tag_names[idx_global], float(prob_val))
-                            )
+    for category_name, (category_indices, threshold) in category_map.items():
+        if len(category_indices) > 0:
+            valid_indices = category_indices[category_indices < len(probs)]
+            if len(valid_indices) == 0:
+                continue
 
-    # 按概率排序
+            # Directly filter probabilities and get the indices that pass the threshold
+            mask = probs[valid_indices] >= threshold
+            passed_indices = valid_indices[mask]
+
+            for idx in passed_indices:
+                tag_name = tag_names[idx]
+                confidence = probs[idx]
+                result[category_name].append((tag_name, float(confidence)))
+
+    # Sort all results by confidence
     for k in result:
         result[k] = sorted(result[k], key=lambda x: x[1], reverse=True)
 
@@ -598,10 +604,181 @@ def load_model_and_tags(args):
         str(model_path), sess_options=sess_options, providers=providers_with_options
     )
     input_name = ort_sess.get_inputs()[0].name
+
+    parent_to_child_map = {}
+    if args.remove_parents_tag:
+        csv_file_path = Path(args.model_dir) / PARENTS_CSV
+        if not csv_file_path.exists() or args.force_download:
+            csv_file_path = Path(
+                hf_hub_download(
+                    repo_id="deepghs/danbooru_wikis_full",
+                    filename=PARENTS_CSV,
+                    local_dir=args.model_dir,
+                    force_download=True,
+                    force_filename=PARENTS_CSV,
+                    repo_type="dataset",
+                )
+            )
+            console.print(f"[blue]Downloaded {PARENTS_CSV} to {csv_file_path}[/blue]")
+        else:
+            console.print(f"[green]Using existing {PARENTS_CSV}[/green]")
+
+        parent_to_child_map = {}
+        with csv_file_path.open("r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            line = [row for row in reader]
+            header = line[0]
+            rows = line[1:]
+        assert (
+            header[3] == "antecedent_name" and header[4] == "consequent_name"
+        ), f"unexpected csv format: {header}"
+        for row in rows[0:]:
+            child_tag, parent_tag = row[3], row[4]
+            if parent_tag not in parent_to_child_map:
+                parent_to_child_map[parent_tag] = []
+            parent_to_child_map[parent_tag].append(child_tag)
+        console.print(f"[green]Loaded {len(parent_to_child_map)} parent tags.[/green]")
+
     console.print(
         f"[green]Model loaded in {time.time() - start_time:.2f} seconds[/green]"
     )
-    return ort_sess, input_name, label_data
+    return ort_sess, input_name, label_data, parent_to_child_map
+
+
+def process_tags(label_data: LabelData, args: argparse.Namespace) -> List[str]:
+    """Process the master tag list based on user arguments before starting the main loop."""
+    processed_names = label_data.names.copy()
+
+    # 1. Handle undesired tags by nullifying them to preserve indices (must be first)
+    if args.undesired_tags:
+        undesired_set = {t.strip() for t in args.undesired_tags.split(",")}
+        console.print(f"[blue]Undesired tags: {undesired_set}[/blue]")
+        console.print(f"[blue]Excluding {len(undesired_set)} undesired tags...[/blue]")
+        for i, name in enumerate(processed_names):
+            if name in undesired_set:
+                processed_names[i] = ""  # Set to empty string
+
+    # 2. Handle tag replacements
+    if args.tag_replacement:
+        replacement_map = {}
+        escaped_replacements = args.tag_replacement.replace("\\,", "<COMMA>").replace(
+            "\\;", "<SEMICOLON>"
+        )
+        for pair in escaped_replacements.split(";"):
+            parts = pair.split(",")
+            if len(parts) == 2:
+                old_tag = (
+                    parts[0].strip().replace("<COMMA>", ",").replace("<SEMICOLON>", ";")
+                )
+                new_tag = (
+                    parts[1].strip().replace("<COMMA>", ",").replace("<SEMICOLON>", ";")
+                )
+                if old_tag:
+                    replacement_map[old_tag] = new_tag
+
+        if replacement_map:
+            console.print(f"[blue]Replacement map: {replacement_map}[/blue]")
+            console.print(
+                f"[blue]Applying {len(replacement_map)} tag replacements...[/blue]"
+            )
+            processed_names = [
+                replacement_map.get(name, name) for name in processed_names
+            ]
+
+    # 2. Handle underscore replacement
+    if args.remove_underscore:
+        console.print("[blue]Removing underscores from tags...[/blue]")
+        processed_names = [
+            name.replace("_", " ") if len(name) > 3 else name
+            for name in processed_names
+        ]
+
+    # 3. Handle character tag expansion
+    if args.character_tag_expand:
+        for i in label_data.character:
+            if i < len(processed_names):
+                tag = processed_names[i]
+                if tag and tag.endswith(")"):
+                    parts = tag.split("(")
+                    if len(parts) > 1:
+                        character_name = "(".join(parts[:-1]).strip()
+                        processed_names[i] = character_name
+
+    return processed_names
+
+
+def assemble_final_tags(
+    tags_result: Dict[str, List[Tuple[str, float]]],
+    args: argparse.Namespace,
+    parent_to_child_map: Dict[str, List[str]],
+    tag_freq: Optional[Dict[str, int]] = None,
+) -> List[str]:
+    """Assemble and sort the final list of tags for a single image."""
+    found_tags = []
+
+    # Initial assembly and filtering of empty tags
+    rating_tags = [tag for tag, conf in tags_result["rating"] if tag]
+    general_tags = [tag for tag, conf in tags_result["general"] if tag]
+    character_tags = [tag for tag, conf in tags_result["character"] if tag]
+    copyright_tags = [tag for tag, conf in tags_result["copyright"] if tag]
+    meta_tags = [tag for tag, conf in tags_result["meta"] if tag]
+    model_tags = [tag for tag, conf in tags_result["model"] if tag]
+    quality_tags = [tag for tag, conf in tags_result["quality"] if tag]
+
+    if args.use_rating_tags and not args.use_rating_tags_as_last_tag:
+        found_tags.extend(rating_tags)
+        found_tags.extend(quality_tags)
+        found_tags.extend(meta_tags)
+        found_tags.extend(model_tags)
+
+    if args.character_tags_first:
+        found_tags.extend(character_tags)
+        found_tags.extend(copyright_tags)
+        found_tags.extend(general_tags)
+    else:
+        found_tags.extend(general_tags)
+        found_tags.extend(character_tags)
+        found_tags.extend(copyright_tags)
+
+    if args.use_rating_tags and args.use_rating_tags_as_last_tag:
+        found_tags.extend(rating_tags)
+        found_tags.extend(quality_tags)
+        found_tags.extend(meta_tags)
+        found_tags.extend(model_tags)
+
+    # Sorting: always_first_tags
+    # Sorting by confidence if requested via frequency_tags flag
+    if args.frequency_tags:
+        # Create a dictionary of tags to their confidence scores for quick lookup
+        confidence_map = {
+            tag: conf for cat in tags_result.values() for tag, conf in cat
+        }
+        # Sort the found_tags list based on the confidence scores
+        found_tags.sort(key=lambda tag: confidence_map.get(tag, 0.0), reverse=True)
+
+    # Sorting: always_first_tags (should run after confidence sort to ensure they are first)
+    if args.always_first_tags:
+        always_first = [tag.strip() for tag in args.always_first_tags.split(",")]
+        existing_first_tags = [tag for tag in always_first if tag in found_tags]
+        other_tags = [tag for tag in found_tags if tag not in existing_first_tags]
+        found_tags = existing_first_tags + other_tags
+
+    # Filtering: remove_parents_tag
+    if args.remove_parents_tag and parent_to_child_map:
+        found_tags_set = set(found_tags)
+        tags_to_remove = set()
+        for parent_tag, child_tags in parent_to_child_map.items():
+            if parent_tag in found_tags_set:
+                if any(child_tag in found_tags_set for child_tag in child_tags):
+                    tags_to_remove.add(parent_tag)
+        if tags_to_remove:
+            found_tags = [tag for tag in found_tags if tag not in tags_to_remove]
+
+    # Update tag frequency (always track for stats)
+    for tag in found_tags:
+        tag_freq[tag] = tag_freq.get(tag, 0) + 1
+
+    return found_tags
 
 
 def main(args):
@@ -635,97 +812,14 @@ def main(args):
         dataset = args.train_data_dir
         console.print("[green]Using existing Lance dataset[/green]")
 
-    ort_sess, input_name, label_data = load_model_and_tags(args)
+    # Load model, tags, and parent-child map
+    ort_sess, input_name, label_data, parent_to_child_map = load_model_and_tags(args)
 
-    # 创建处理后的标签名称数组
-    processed_names = label_data.names.copy()
-
-    # 处理标签扩展
-    if args.character_tag_expand:
-        character_indices = label_data.character
-        for idx in character_indices:
-            if idx < len(processed_names) and processed_names[idx]:
-                tag = processed_names[idx]
-                if tag.endswith(")"):
-                    tags_split = tag.split("(")
-                    character_tag = "(".join(tags_split[:-1])
-                    if character_tag.endswith("_"):
-                        character_tag = character_tag[:-1]
-                    if character_tag.replace("_", " ") != character_tag:
-                        processed_names[idx] = character_tag.replace("_", " ")
-
-    # 处理下划线替换
-    if args.remove_underscore:
-        console.print("[blue]Remove underscore enabled - processing tags...[/blue]")
-        for i, name in enumerate(processed_names):
-            if name and len(name) > 3 and "_" in name:
-                processed_names[i] = name.replace("_", " ")
-
-        # 检查animal_ears是否被处理
-        if "animal ears" in processed_names:
-            console.print(
-                "[green]Successfully processed 'animal_ears' to 'animal ears'[/green]"
-            )
-
-    # 处理标签替换
-    if args.tag_replacement is not None:
-        escaped_tag_replacements = args.tag_replacement.replace("\\,", "@@@@").replace(
-            "\\;", "####"
-        )
-        tag_replacements = escaped_tag_replacements.split(";")
-        for tag_replacement in tag_replacements:
-            tags = tag_replacement.split(",")
-            assert (
-                len(tags) == 2
-            ), f"tag replacement must be in the format of `source,target`: {args.tag_replacement}"
-            source, target = [
-                tag.replace("@@@@", ",").replace("####", ";") for tag in tags
-            ]
-            console.print(f"[blue]replacing tag: {source} -> {target}[/blue]")
-
-            # 在processed_names数组中查找并替换
-            for i, name in enumerate(processed_names):
-                if name == source:
-                    processed_names[i] = target
-                    break
-
-    # 处理父子标签
-    if args.remove_parents_tag:
-        csv_file_path = Path(args.model_dir) / PARENTS_CSV
-        if not csv_file_path.exists() or args.force_download:
-            csv_file_path = Path(
-                hf_hub_download(
-                    repo_id="deepghs/danbooru_wikis_full",
-                    filename=PARENTS_CSV,
-                    local_dir=args.model_dir,
-                    force_download=True,
-                    force_filename=PARENTS_CSV,
-                    repo_type="dataset",
-                )
-            )
-            console.print(f"[blue]Downloaded {PARENTS_CSV} to {csv_file_path}[/blue]")
-        else:
-            console.print(f"[green]Using existing {PARENTS_CSV}[/green]")
-
-        parent_to_child_map = {}
-        with csv_file_path.open("r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            line = [row for row in reader]
-            header = line[0]
-            rows = line[1:]
-        assert (
-            header[3] == "antecedent_name" and header[4] == "consequent_name"
-        ), f"unexpected csv format: {header}"
-        for row in rows[0:]:
-            child_tag, parent_tag = row[3], row[4]
-            if parent_tag not in parent_to_child_map:
-                parent_to_child_map[parent_tag] = []
-            parent_to_child_map[parent_tag].append(child_tag)
+    # Process master tag list once before the loop
+    processed_names = process_tags(label_data, args)
 
     # 使用 Lance 扫描器处理图像
     tag_freq = {}
-
-    # 先计算图片总数
     total_images = len(
         dataset.to_table(
             columns=["mime", "captions"],
@@ -737,7 +831,6 @@ def main(args):
         )
     )
 
-    # 然后创建带columns的scanner处理数据
     scanner = dataset.scanner(
         columns=["uris", "mime", "captions"],
         filter=(
@@ -775,7 +868,7 @@ def main(args):
         console = progress.console
 
         for batch in scanner.to_batches():
-            uris = batch["uris"].to_pylist()  # 获取文件路径
+            uris = batch["uris"].to_pylist()
 
             # 使用并行处理加载和预处理图像
             is_cl_tagger = args.repo_id.startswith("cella110n/cl_tagger")
@@ -787,130 +880,25 @@ def main(args):
 
             # 处理批次
             probs = process_batch(batch_images, ort_sess, input_name)
+            general_confidence = args.general_threshold or args.thresh
+            character_confidence = args.character_threshold or args.thresh
             if probs is not None:
                 for path, prob in zip(uris, probs):
-                    # 统一使用官方兼容方式处理所有格式
-                    general_confidence = args.general_threshold or args.thresh
-                    character_confidence = args.character_threshold or args.thresh
 
                     tags_result = get_tags_official(
                         prob,
                         label_data,
                         general_confidence,
                         character_confidence,
-                        args.thresh,
-                        processed_names,
+                        args.use_rating_tags,
+                        args.use_quality_tags,
+                        processed_names,  # Use the pre-processed names
                     )
 
-                    # 转换为found_tags格式
-                    found_tags = []
-
-                    # 处理不需要的标签
-                    undesired_tags = set()
-                    if args.undesired_tags:
-                        undesired_tags = set(args.undesired_tags.split(","))
-
-                    # Rating tags处理
-                    if args.use_rating_tags and not args.use_rating_tags_as_last_tag:
-                        found_tags.extend(
-                            [
-                                tag
-                                for tag, conf in tags_result["rating"]
-                                if tag not in undesired_tags
-                            ]
-                        )
-
-                    # General tags
-                    found_tags.extend(
-                        [
-                            tag
-                            for tag, conf in tags_result["general"]
-                            if tag not in undesired_tags
-                        ]
+                    found_tags = assemble_final_tags(
+                        tags_result, args, parent_to_child_map, tag_freq
                     )
 
-                    # Character tags
-                    character_list = [
-                        tag
-                        for tag, conf in tags_result["character"]
-                        if tag not in undesired_tags
-                    ]
-                    if args.character_tags_first:
-                        found_tags = character_list + found_tags
-                    else:
-                        found_tags.extend(character_list)
-
-                    # 其他标签类型
-                    found_tags.extend(
-                        [
-                            tag
-                            for tag, conf in tags_result["copyright"]
-                            if tag not in undesired_tags
-                        ]
-                    )
-                    found_tags.extend(
-                        [
-                            tag
-                            for tag, conf in tags_result["meta"]
-                            if tag not in undesired_tags
-                        ]
-                    )
-                    found_tags.extend(
-                        [
-                            tag
-                            for tag, conf in tags_result["model"]
-                            if tag not in undesired_tags
-                        ]
-                    )
-                    found_tags.extend(
-                        [
-                            tag
-                            for tag, conf in tags_result["quality"]
-                            if tag not in undesired_tags
-                        ]
-                    )
-
-                    # Rating tags as last
-                    if args.use_rating_tags and args.use_rating_tags_as_last_tag:
-                        found_tags.extend(
-                            [
-                                tag
-                                for tag, conf in tags_result["rating"]
-                                if tag not in undesired_tags
-                            ]
-                        )
-
-                    # 处理标签频率统计
-                    if args.frequency_tags:
-                        for tag in found_tags:
-                            tag_freq[tag] = tag_freq.get(tag, 0) + 1
-
-                    # 处理always_first_tags
-                    if args.always_first_tags:
-                        always_first = [
-                            tag.strip() for tag in args.always_first_tags.split(",")
-                        ]
-                        # 从found_tags中移除always_first标签，然后添加到开头
-                        found_tags = [
-                            tag for tag in found_tags if tag not in always_first
-                        ]
-                        found_tags = always_first + found_tags
-
-                    # 处理父子标签移除
-                    if args.remove_parents_tag:
-                        found_tags_set = set(found_tags)
-                        tags_to_remove = set()
-                        for parent_tag, child_tags in parent_to_child_map.items():
-                            if parent_tag in found_tags_set:
-                                for child_tag in child_tags:
-                                    if child_tag in found_tags_set:
-                                        tags_to_remove.add(parent_tag)
-                                        break
-                        found_tags = [
-                            tag for tag in found_tags if tag not in tags_to_remove
-                        ]
-
-                    # 保存结果
                     output_path = Path(path).with_suffix(args.caption_extension)
                     if args.append_tags and output_path.exists():
                         with output_path.open("r", encoding="utf-8") as f:
@@ -925,10 +913,22 @@ def main(args):
 
             progress.update(task, advance=len(batch["uris"].to_pylist()))
 
-    if args.frequency_tags:
-        console.print("\n[yellow]Tag frequencies:[/yellow]")
-        for tag, freq in sorted(tag_freq.items(), key=lambda x: x[1], reverse=True):
-            console.print(f"{tag}: {freq}")
+    console.print("\n[yellow]Tag frequencies:[/yellow]")
+    tag_classifier = TagClassifier()
+    # Sort tags by frequency for printing
+    sorted_tags = sorted(tag_freq.items(), key=lambda item: item[1], reverse=True)
+
+    for tag, freq in sorted_tags:
+        # Classify the single tag to get its colored version
+        classified_result = tag_classifier.classify([tag])
+        # The result is a dict like {'category_id': ['[color]tag[/color]']}
+        # Extract the colored tag safely
+        colored_tag = tag  # Default fallback
+        for tag_list in classified_result.values():
+            if tag_list:  # Ensure the list is not empty
+                colored_tag = tag_list[0]
+                break
+        console.print(f"{colored_tag}: {freq}")
 
     table = pa.table(
         {
@@ -974,30 +974,7 @@ def split_name_series(names: str) -> str:
             item = item.replace("ranma 1:2", "ranma 1/2")
         # 匹配最后一对括号作为系列名
         match = re.match(r"(.*)\((.*?)\)$", item)
-        if match and match.group(2).strip() not in [
-            "female",
-            "male",
-            "character",
-            "atlus character",
-            "beast style",
-            "dangerous beast",
-            "amor caren",
-            "berserker install",
-            "archer install",
-            "saber install",
-            "assassin install",
-            "lancer install",
-            "rider install",
-            "caster install",
-            "young",
-            "swimsuit rider",
-            "2021 outfit",
-            "herrscher of finality",
-            "swimsuit rider",
-            "winter princess",
-            "creature",
-            "kenjaku",
-        ]:
+        if match and match.group(2).strip() not in SERIES_EXCLUDE_LIST:
             # 获取除最后一个括号外的所有内容作为名字
             full_name = match.group(1).strip()
             series = match.group(2).strip()
@@ -1267,11 +1244,6 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Replace underscores with spaces in output tags",
     )
     parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode",
-    )
-    parser.add_argument(
         "--undesired_tags",
         type=str,
         default="",
@@ -1280,7 +1252,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--frequency_tags",
         action="store_true",
-        help="Show frequency of tags across all processed images",
+        help="Sort final tags by confidence score instead of default order.",
     )
     parser.add_argument(
         "--append_tags",
@@ -1291,6 +1263,11 @@ def setup_parser() -> argparse.ArgumentParser:
         "--use_rating_tags",
         action="store_true",
         help="Add rating tags as the first tag",
+    )
+    parser.add_argument(
+        "--use_quality_tags",
+        action="store_true",
+        help="Add quality tags to the output.",
     )
     parser.add_argument(
         "--use_rating_tags_as_last_tag",
@@ -1328,7 +1305,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--remove_parents_tag",
         action="store_true",
-        help="Remove parent tags when child tags are present (e.g. remove 'red flowers' if 'red rose' exists)",
+        help="Remove parent tags if a child tag is present (e.g., remove 'uniform' if 'school_uniform' is present).",
     )
 
     return parser
