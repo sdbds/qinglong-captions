@@ -359,7 +359,7 @@ def get_video_duration(file_path):
 def calculate_dimensions(
     width: int,
     height: int,
-    max_pixels: Optional[int] = 1048576,
+    max_pixels: Optional[int] = None,
     max_long_edge: Optional[int] = 2048,
     max_short_edge: Optional[int] = None,
     img_scale_num: int = 16,

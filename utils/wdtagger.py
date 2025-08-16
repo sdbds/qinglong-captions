@@ -26,19 +26,85 @@ from huggingface_hub import hf_hub_download
 from module.lanceImport import transform2lance
 import concurrent.futures
 import re
+import json
+from dataclasses import dataclass
+from typing import Optional, List, Dict, Tuple
 
 console = Console()
+
+
+@dataclass
+class LabelData:
+    """标签数据结构，兼容官方实现"""
+
+    names: List[str]
+    rating: np.ndarray
+    general: np.ndarray
+    character: np.ndarray
+    copyright: np.ndarray
+    meta: np.ndarray
+    quality: np.ndarray
+    model: np.ndarray
+
+    def get_rating_tags(self) -> List[str]:
+        """获取rating标签列表"""
+        return [
+            self.names[i] for i in self.rating if i < len(self.names) and self.names[i]
+        ]
+
+    def get_general_tags(self) -> List[str]:
+        """获取general标签列表"""
+        return [
+            self.names[i] for i in self.general if i < len(self.names) and self.names[i]
+        ]
+
+    def get_character_tags(self) -> List[str]:
+        """获取character标签列表"""
+        return [
+            self.names[i]
+            for i in self.character
+            if i < len(self.names) and self.names[i]
+        ]
+
+    def get_copyright_tags(self) -> List[str]:
+        """获取copyright标签列表"""
+        return [
+            self.names[i]
+            for i in self.copyright
+            if i < len(self.names) and self.names[i]
+        ]
+
+    def get_meta_tags(self) -> List[str]:
+        """获取meta标签列表"""
+        return [
+            self.names[i] for i in self.meta if i < len(self.names) and self.names[i]
+        ]
+
+    def get_model_tags(self) -> List[str]:
+        """获取model标签列表"""
+        return [
+            self.names[i] for i in self.model if i < len(self.names) and self.names[i]
+        ]
+
+    def get_quality_tags(self) -> List[str]:
+        """获取quality标签列表"""
+        return [
+            self.names[i] for i in self.quality if i < len(self.names) and self.names[i]
+        ]
+
 
 # from wd14 tagger
 IMAGE_SIZE = 448
 
 DEFAULT_WD14_TAGGER_REPO = "SmilingWolf/wd-v1-4-moat-tagger-v2"
 FILES = ["model.onnx", "selected_tags.csv"]
+CL_FILES = ["cl_tagger_1_00/model.onnx", "cl_tagger_1_00/tag_mapping.json"]
 CSV_FILE = "selected_tags.csv"
+JSON_FILE = "tag_mapping.json"
 PARENTS_CSV = "tag_implications.csv"
 
 
-def preprocess_image(image):
+def preprocess_image(image, is_cl_tagger=False):
     image = np.array(image)
     image = image[:, :, ::-1]  # RGB->BGR
 
@@ -101,15 +167,21 @@ def preprocess_image(image):
             image = image.resize((IMAGE_SIZE, IMAGE_SIZE), Image.LANCZOS)
             image = np.array(image)
 
-    return image.astype(np.float32)
+    if is_cl_tagger:
+        image = image.transpose(2, 0, 1)  # HWC -> CHW
+        image = image.astype(np.float32) / 255.0
+    else:
+        image = image.astype(np.float32)
+
+    return image
 
 
-def load_and_preprocess_batch(uris):
+def load_and_preprocess_batch(uris, is_cl_tagger=False):
     """并行加载和预处理一批图像"""
 
     def load_single_image(uri):
         try:
-            return preprocess_image(Image.open(uri).convert("RGB"))
+            return preprocess_image(Image.open(uri).convert("RGB"), is_cl_tagger)
         except Exception as e:
             console.print(f"[red]Error processing {uri}: {str(e)}[/red]")
             return None
@@ -137,20 +209,121 @@ def process_batch(images, session, input_name):
         return None
 
 
+def get_tags_official(
+    probs,
+    labels: LabelData,
+    gen_threshold,
+    char_threshold,
+    rating_threshold,
+    processed_names=None,
+):
+    """官方兼容的标签处理函数"""
+    # 使用处理后的标签名称（如果提供的话）
+    tag_names = processed_names if processed_names is not None else labels.names
+
+    result = {
+        "rating": [],
+        "general": [],
+        "character": [],
+        "copyright": [],
+        "meta": [],
+        "quality": [],
+        "model": [],
+    }
+
+    # Rating (选择最大值)
+    if len(labels.rating) > 0:
+        valid_indices = labels.rating[labels.rating < len(probs)]
+        if len(valid_indices) > 0:
+            rating_probs = probs[valid_indices]
+            if len(rating_probs) > 0:
+                rating_idx_local = np.argmax(rating_probs)
+                rating_idx_global = valid_indices[rating_idx_local]
+                if (
+                    rating_idx_global < len(tag_names)
+                    and tag_names[rating_idx_global] is not None
+                ):
+                    rating_name = tag_names[rating_idx_global]
+                    rating_conf = float(rating_probs[rating_idx_local])
+                    if rating_conf > rating_threshold:  # 添加阈值检查
+                        result["rating"].append((rating_name, rating_conf))
+
+    # Quality (选择最大值)
+    if len(labels.quality) > 0:
+        valid_indices = labels.quality[labels.quality < len(probs)]
+        if len(valid_indices) > 0:
+            quality_probs = probs[valid_indices]
+            if len(quality_probs) > 0:
+                quality_idx_local = np.argmax(quality_probs)
+                quality_idx_global = valid_indices[quality_idx_local]
+                if (
+                    quality_idx_global < len(tag_names)
+                    and tag_names[quality_idx_global] is not None
+                ):
+                    quality_name = tag_names[quality_idx_global]
+                    quality_conf = float(quality_probs[quality_idx_local])
+                    if quality_conf > rating_threshold:  # 使用相同阈值
+                        result["quality"].append((quality_name, quality_conf))
+
+    # 阈值筛选的类别
+    category_map = {
+        "general": (labels.general, gen_threshold),
+        "character": (labels.character, char_threshold),
+        "copyright": (labels.copyright, char_threshold),
+        "meta": (labels.meta, gen_threshold),
+        "model": (labels.model, gen_threshold),
+    }
+
+    for category, (indices, threshold) in category_map.items():
+        if len(indices) > 0:
+            valid_indices = indices[indices < len(probs)]
+            if len(valid_indices) > 0:
+                category_probs = probs[valid_indices]
+                mask = category_probs >= threshold
+                selected_indices_local = np.where(mask)[0]
+                if len(selected_indices_local) > 0:
+                    selected_indices_global = valid_indices[selected_indices_local]
+                    selected_probs = category_probs[selected_indices_local]
+                    for idx_global, prob_val in zip(
+                        selected_indices_global, selected_probs
+                    ):
+                        if (
+                            idx_global < len(tag_names)
+                            and tag_names[idx_global] is not None
+                        ):
+                            result[category].append(
+                                (tag_names[idx_global], float(prob_val))
+                            )
+
+    # 按概率排序
+    for k in result:
+        result[k] = sorted(result[k], key=lambda x: x[1], reverse=True)
+
+    return result
+
+
 def load_model_and_tags(args):
     """加载模型和标签"""
-    model_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / "model.onnx"
+    model_path = (
+        Path(args.model_dir) / args.repo_id.replace("/", "_") / CL_FILES[0]
+        if args.repo_id.startswith("cella110n/cl_tagger")
+        else Path(args.model_dir) / args.repo_id.replace("/", "_") / FILES[0]
+    )
 
     # 下载模型和标签文件
     if not model_path.exists() or args.force_download:
-        for file in FILES:
+        # 选择正确的文件列表
+        files_to_download = (
+            CL_FILES if args.repo_id.startswith("cella110n/cl_tagger") else FILES
+        )
+        for file in files_to_download:
             file_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / file
             if not file_path.exists() or args.force_download:
                 file_path = Path(
                     hf_hub_download(
                         repo_id=args.repo_id,
                         filename=file,
-                        local_dir=file_path.parent,
+                        local_dir=Path(args.model_dir) / args.repo_id.replace("/", "_"),
                         force_download=args.force_download,
                     )
                 )
@@ -159,28 +332,129 @@ def load_model_and_tags(args):
                 console.print(f"[green]Using existing {file}[/green]")
 
     # 加载标签
-    csv_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / CSV_FILE
-    if not csv_path.exists():
-        raise Exception(f"Tags file not found: {csv_path}")
+    if args.repo_id.startswith("cella110n/cl_tagger"):
+        # 处理JSON格式的标签文件 - 使用官方兼容方式
+        json_path = (
+            Path(args.model_dir)
+            / args.repo_id.replace("/", "_")
+            / "cl_tagger_1_00"
+            / JSON_FILE
+        )
+        if not json_path.exists():
+            raise Exception(f"Tags file not found: {json_path}")
 
-    with csv_path.open("r", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        line = [row for row in reader]
-        header = line[0]  # tag_id,name,category,count
-        rows = line[1:]
+        with json_path.open("r", encoding="utf-8") as f:
+            tag_data = json.load(f)
 
-    assert (
-        header[0] == "tag_id" and header[1] == "name" and header[2] == "category"
-    ), f"unexpected csv format: {header}"
+        # 创建索引映射（官方兼容）
+        tag_data_int_keys = {int(k): v for k, v in tag_data.items()}
+        idx_to_tag = {idx: data["tag"] for idx, data in tag_data_int_keys.items()}
+        tag_to_category = {
+            data["tag"]: data["category"] for data in tag_data_int_keys.values()
+        }
 
-    # 根据category分类标签
-    rating_tags = [row[1] for row in rows if row[2] == "9"]  # rating tags
-    general_tags = [row[1] for row in rows if row[2] == "0"]  # general tags
-    character_tags = [row[1] for row in rows if row[2] == "4"]  # character tags
+        # 创建names列表
+        max_idx = max(idx_to_tag.keys())
+        names = [None] * (max_idx + 1)
+        for idx, tag in idx_to_tag.items():
+            names[idx] = tag
 
-    console.print(
-        f"[blue]Tags loaded: {len(rows)} total, {len(rating_tags)} rating, {len(character_tags)} character, {len(general_tags)} general[/blue]"
-    )
+        # 创建各类别的索引数组
+        rating_indices, general_indices, character_indices = [], [], []
+        copyright_indices, meta_indices, model_indices, quality_indices = [], [], [], []
+
+        for idx, tag in idx_to_tag.items():
+            category = tag_to_category.get(tag, "Unknown")
+            if category == "Rating":
+                rating_indices.append(idx)
+            elif category == "General":
+                general_indices.append(idx)
+            elif category == "Character":
+                character_indices.append(idx)
+            elif category == "Copyright":
+                copyright_indices.append(idx)
+            elif category == "Meta":
+                meta_indices.append(idx)
+            elif category == "Model":
+                model_indices.append(idx)
+            elif category == "Quality":
+                quality_indices.append(idx)
+
+        # 创建LabelData对象
+        label_data = LabelData(
+            names=names,
+            rating=np.array(rating_indices, dtype=np.int64),
+            general=np.array(general_indices, dtype=np.int64),
+            character=np.array(character_indices, dtype=np.int64),
+            copyright=np.array(copyright_indices, dtype=np.int64),
+            meta=np.array(meta_indices, dtype=np.int64),
+            model=np.array(model_indices, dtype=np.int64),
+            quality=np.array(quality_indices, dtype=np.int64),
+        )
+
+        total_tags = len(tag_data)
+    else:
+        # 处理CSV格式的标签文件 - 保持原有实现
+        csv_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / CSV_FILE
+        if not csv_path.exists():
+            raise Exception(f"Tags file not found: {csv_path}")
+
+        with csv_path.open("r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            line = [row for row in reader]
+            header = line[0]  # tag_id,name,category,count
+            rows = line[1:]
+
+        assert (
+            header[0] == "tag_id" and header[1] == "name" and header[2] == "category"
+        ), f"unexpected csv format: {header}"
+
+        # 为CSV格式创建LabelData结构
+        names = []
+        rating_indices, general_indices, character_indices = [], [], []
+
+        for i, row in enumerate(rows):
+            tag_name = row[1]
+            category = row[2]
+            names.append(tag_name)
+
+            if category == "9":  # rating
+                rating_indices.append(i)
+            elif category == "0":  # general
+                general_indices.append(i)
+            elif category == "4":  # character
+                character_indices.append(i)
+
+        # 创建LabelData对象
+        label_data = LabelData(
+            names=names,
+            rating=np.array(rating_indices, dtype=np.int64),
+            general=np.array(general_indices, dtype=np.int64),
+            character=np.array(character_indices, dtype=np.int64),
+            copyright=np.array([], dtype=np.int64),  # CSV格式没有这些分类
+            meta=np.array([], dtype=np.int64),
+            model=np.array([], dtype=np.int64),
+            quality=np.array([], dtype=np.int64),
+        )
+
+        total_tags = len(rows)
+
+    # 显示标签加载信息
+    if args.repo_id.startswith("cella110n/cl_tagger"):
+        console.print(
+            f"[blue]Tags loaded: {total_tags} total[/blue]\n"
+            f"[blue]  - General: {len(label_data.get_general_tags())} tags[/blue]\n"
+            f"[blue]  - Character: {len(label_data.get_character_tags())} tags[/blue]\n"
+            f"[blue]  - Copyright: {len(label_data.get_copyright_tags())} tags[/blue]\n"
+            f"[blue]  - Meta: {len(label_data.get_meta_tags())} tags[/blue]\n"
+            f"[blue]  - Model: {len(label_data.get_model_tags())} tags[/blue]\n"
+            f"[blue]  - Rating: {len(label_data.get_rating_tags())} tags[/blue]\n"
+            f"[blue]  - Quality: {len(label_data.get_quality_tags())} tags[/blue]"
+        )
+    else:
+        console.print(
+            f"[blue]Tags loaded: {total_tags} total, {len(label_data.get_rating_tags())} rating, {len(label_data.get_character_tags())} character, {len(label_data.get_general_tags())} general[/blue]"
+        )
 
     console.print(f"[blue]Providers: {ort.get_available_providers()}[/blue]")
 
@@ -232,12 +506,12 @@ def load_model_and_tags(args):
                     "trt_builder_optimization_level": 3,
                     "trt_max_partition_iterations": 1000,
                     "trt_engine_cache_enable": True,
-                    "trt_engine_cache_path": "wd14_tagger_model/trt_engines",
+                    "trt_engine_cache_path": f"{Path(args.model_dir) / args.repo_id.replace('/', '_')}/trt_engines",
                     "trt_engine_hw_compatible": True,
                     "trt_force_sequential_engine_build": False,
                     "trt_context_memory_sharing_enable": True,
                     "trt_timing_cache_enable": True,
-                    "trt_timing_cache_path": "wd14_tagger_model",
+                    "trt_timing_cache_path": f"{Path(args.model_dir) / args.repo_id.replace('/', '_')}",
                     "trt_sparsity_enable": True,
                     "trt_min_subgraph_size": 7,
                     # "trt_detailed_build_log": True,
@@ -268,12 +542,12 @@ def load_model_and_tags(args):
                     "trt_builder_optimization_level": 3,
                     "trt_max_partition_iterations": 1000,
                     "trt_engine_cache_enable": True,
-                    "trt_engine_cache_path": "wd14_tagger_model/trt_engines",
+                    "trt_engine_cache_path": f"{Path(args.model_dir) / args.repo_id.replace('/', '_')}/trt_engines",
                     "trt_engine_hw_compatible": True,
                     "trt_force_sequential_engine_build": False,
                     "trt_context_memory_sharing_enable": True,
                     "trt_timing_cache_enable": True,
-                    "trt_timing_cache_path": "wd14_tagger_model",
+                    "trt_timing_cache_path": f"{Path(args.model_dir) / args.repo_id.replace('/', '_')}",
                     "trt_sparsity_enable": True,
                     "trt_min_subgraph_size": 7,
                     # "trt_detailed_build_log": True,
@@ -327,7 +601,7 @@ def load_model_and_tags(args):
     console.print(
         f"[green]Model loaded in {time.time() - start_time:.2f} seconds[/green]"
     )
-    return ort_sess, input_name, rating_tags, character_tags, general_tags
+    return ort_sess, input_name, label_data
 
 
 def main(args):
@@ -361,31 +635,37 @@ def main(args):
         dataset = args.train_data_dir
         console.print("[green]Using existing Lance dataset[/green]")
 
-    ort_sess, input_name, rating_tags, character_tags, general_tags = (
-        load_model_and_tags(args)
-    )
+    ort_sess, input_name, label_data = load_model_and_tags(args)
 
-    # 处理标签
+    # 创建处理后的标签名称数组
+    processed_names = label_data.names.copy()
+
+    # 处理标签扩展
     if args.character_tag_expand:
-        for i, tag in enumerate(character_tags):
-            if tag.endswith(")"):
-                tags = tag.split("(")
-                character_tag = "(".join(tags[:-1])
-                if character_tag.endswith("_"):
-                    character_tag = character_tag[:-1]
-                series_tag = tags[-1].replace(")", "")
-                character_tags[i] = character_tag + args.caption_separator + series_tag
+        character_indices = label_data.character
+        for idx in character_indices:
+            if idx < len(processed_names) and processed_names[idx]:
+                tag = processed_names[idx]
+                if tag.endswith(")"):
+                    tags_split = tag.split("(")
+                    character_tag = "(".join(tags_split[:-1])
+                    if character_tag.endswith("_"):
+                        character_tag = character_tag[:-1]
+                    if character_tag.replace("_", " ") != character_tag:
+                        processed_names[idx] = character_tag.replace("_", " ")
 
+    # 处理下划线替换
     if args.remove_underscore:
-        rating_tags = [
-            tag.replace("_", " ") if len(tag) > 3 else tag for tag in rating_tags
-        ]
-        general_tags = [
-            tag.replace("_", " ") if len(tag) > 3 else tag for tag in general_tags
-        ]
-        character_tags = [
-            tag.replace("_", " ") if len(tag) > 3 else tag for tag in character_tags
-        ]
+        console.print("[blue]Remove underscore enabled - processing tags...[/blue]")
+        for i, name in enumerate(processed_names):
+            if name and len(name) > 3 and "_" in name:
+                processed_names[i] = name.replace("_", " ")
+
+        # 检查animal_ears是否被处理
+        if "animal ears" in processed_names:
+            console.print(
+                "[green]Successfully processed 'animal_ears' to 'animal ears'[/green]"
+            )
 
     # 处理标签替换
     if args.tag_replacement is not None:
@@ -403,12 +683,11 @@ def main(args):
             ]
             console.print(f"[blue]replacing tag: {source} -> {target}[/blue]")
 
-            if source in general_tags:
-                general_tags[general_tags.index(source)] = target
-            elif source in character_tags:
-                character_tags[character_tags.index(source)] = target
-            elif source in rating_tags:
-                rating_tags[rating_tags.index(source)] = target
+            # 在processed_names数组中查找并替换
+            for i, name in enumerate(processed_names):
+                if name == source:
+                    processed_names[i] = target
+                    break
 
     # 处理父子标签
     if args.remove_parents_tag:
@@ -499,7 +778,8 @@ def main(args):
             uris = batch["uris"].to_pylist()  # 获取文件路径
 
             # 使用并行处理加载和预处理图像
-            batch_images = load_and_preprocess_batch(uris)
+            is_cl_tagger = args.repo_id.startswith("cella110n/cl_tagger")
+            batch_images = load_and_preprocess_batch(uris, is_cl_tagger)
 
             if not batch_images:
                 progress.update(task, advance=len(uris))
@@ -509,50 +789,126 @@ def main(args):
             probs = process_batch(batch_images, ort_sess, input_name)
             if probs is not None:
                 for path, prob in zip(uris, probs):
-                    # 获取高置信度的标签
-                    found_tags = []
+                    # 统一使用官方兼容方式处理所有格式
                     general_confidence = args.general_threshold or args.thresh
                     character_confidence = args.character_threshold or args.thresh
 
+                    tags_result = get_tags_official(
+                        prob,
+                        label_data,
+                        general_confidence,
+                        character_confidence,
+                        args.thresh,
+                        processed_names,
+                    )
+
+                    # 转换为found_tags格式
+                    found_tags = []
+
+                    # 处理不需要的标签
+                    undesired_tags = set()
+                    if args.undesired_tags:
+                        undesired_tags = set(args.undesired_tags.split(","))
+
+                    # Rating tags处理
                     if args.use_rating_tags and not args.use_rating_tags_as_last_tag:
-                        # 处理rating tags (前4个)
-                        rating_pred = [
-                            rating_tags[i]
-                            for i, p in enumerate(prob[:4])
-                            if p > args.thresh
+                        found_tags.extend(
+                            [
+                                tag
+                                for tag, conf in tags_result["rating"]
+                                if tag not in undesired_tags
+                            ]
+                        )
+
+                    # General tags
+                    found_tags.extend(
+                        [
+                            tag
+                            for tag, conf in tags_result["general"]
+                            if tag not in undesired_tags
                         ]
-                        if rating_pred:
-                            found_tags.extend(rating_pred)
+                    )
 
-                    # 处理general tags和character tags (第4个之后)
-                    for i, p in enumerate(prob[4:]):
-                        if i < len(general_tags) and p >= general_confidence:
-                            found_tags.append(general_tags[i])
-                        elif i >= len(general_tags):
-                            char_idx = i - len(general_tags)
-                            if (
-                                char_idx < len(character_tags)
-                                and p >= character_confidence
-                            ):
-                                if args.character_tags_first:
-                                    found_tags.insert(0, character_tags[char_idx])
-                                else:
-                                    found_tags.append(character_tags[char_idx])
+                    # Character tags
+                    character_list = [
+                        tag
+                        for tag, conf in tags_result["character"]
+                        if tag not in undesired_tags
+                    ]
+                    if args.character_tags_first:
+                        found_tags = character_list + found_tags
+                    else:
+                        found_tags.extend(character_list)
 
+                    # 其他标签类型
+                    found_tags.extend(
+                        [
+                            tag
+                            for tag, conf in tags_result["copyright"]
+                            if tag not in undesired_tags
+                        ]
+                    )
+                    found_tags.extend(
+                        [
+                            tag
+                            for tag, conf in tags_result["meta"]
+                            if tag not in undesired_tags
+                        ]
+                    )
+                    found_tags.extend(
+                        [
+                            tag
+                            for tag, conf in tags_result["model"]
+                            if tag not in undesired_tags
+                        ]
+                    )
+                    found_tags.extend(
+                        [
+                            tag
+                            for tag, conf in tags_result["quality"]
+                            if tag not in undesired_tags
+                        ]
+                    )
+
+                    # Rating tags as last
                     if args.use_rating_tags and args.use_rating_tags_as_last_tag:
-                        # 处理rating tags (前4个)
-                        rating_pred = [
-                            rating_tags[i]
-                            for i, p in enumerate(prob[:4])
-                            if p > args.thresh
-                        ]
-                        if rating_pred:
-                            found_tags.extend(rating_pred)
+                        found_tags.extend(
+                            [
+                                tag
+                                for tag, conf in tags_result["rating"]
+                                if tag not in undesired_tags
+                            ]
+                        )
 
                     # 处理标签频率统计
                     if args.frequency_tags:
                         for tag in found_tags:
                             tag_freq[tag] = tag_freq.get(tag, 0) + 1
+
+                    # 处理always_first_tags
+                    if args.always_first_tags:
+                        always_first = [
+                            tag.strip() for tag in args.always_first_tags.split(",")
+                        ]
+                        # 从found_tags中移除always_first标签，然后添加到开头
+                        found_tags = [
+                            tag for tag in found_tags if tag not in always_first
+                        ]
+                        found_tags = always_first + found_tags
+
+                    # 处理父子标签移除
+                    if args.remove_parents_tag:
+                        found_tags_set = set(found_tags)
+                        tags_to_remove = set()
+                        for parent_tag, child_tags in parent_to_child_map.items():
+                            if parent_tag in found_tags_set:
+                                for child_tag in child_tags:
+                                    if child_tag in found_tags_set:
+                                        tags_to_remove.add(parent_tag)
+                                        break
+                        found_tags = [
+                            tag for tag in found_tags if tag not in tags_to_remove
+                        ]
 
                     # 保存结果
                     output_path = Path(path).with_suffix(args.caption_extension)
@@ -622,15 +978,25 @@ def split_name_series(names: str) -> str:
             "female",
             "male",
             "character",
+            "atlus character",
             "beast style",
             "dangerous beast",
             "amor caren",
             "berserker install",
+            "archer install",
+            "saber install",
+            "assassin install",
+            "lancer install",
+            "rider install",
+            "caster install",
             "young",
             "swimsuit rider",
             "2021 outfit",
             "herrscher of finality",
             "swimsuit rider",
+            "winter princess",
+            "creature",
+            "kenjaku",
         ]:
             # 获取除最后一个括号外的所有内容作为名字
             full_name = match.group(1).strip()

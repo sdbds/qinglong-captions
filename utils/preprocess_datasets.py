@@ -195,7 +195,7 @@ class ImageProcessor:
         return padded_image
 
     def resize_image(
-        self, image_path: str, max_short_edge: int = None, max_long_edge: int = None
+        self, image_path: str, max_short_edge: int = None, max_long_edge: int = None, max_pixels: int = None
     ) -> bool:
         """
         Resizes an image, ensuring edges do not exceed max_short_edge/max_long_edge,
@@ -205,6 +205,7 @@ class ImageProcessor:
             image_path: Path to the image file.
             max_short_edge: The maximum length of the shorter edge of the image.
             max_long_edge: The maximum length of the longer edge of the image.
+            max_pixels: The maximum number of pixels in the image.
 
         Returns:
             bool: True if processing was successful, False otherwise.
@@ -249,7 +250,7 @@ class ImageProcessor:
         h, w = image_cv.shape[:2]
         # If both are None, calculate_dimensions should return original w,h
         new_w, new_h = calculate_dimensions(
-            w, h, max_long_edge=max_long_edge, max_short_edge=max_short_edge
+            w, h, max_long_edge=max_long_edge, max_short_edge=max_short_edge, max_pixels=max_pixels
         )
 
         if (w, h) == (new_w, new_h) and pil_image.mode == img_for_processing_pil.mode:
@@ -384,7 +385,7 @@ class ImageProcessor:
 
                             orig_w_ref, orig_h_ref = img1_pil.size
                             target_w_for_ref, target_h_for_ref = calculate_dimensions(
-                                orig_w_ref, orig_h_ref, max_long_edge=max_long_edge, max_short_edge=max_short_edge
+                                orig_w_ref, orig_h_ref, max_long_edge=max_long_edge, max_short_edge=max_short_edge, max_pixels=max_pixels
                             )
 
                             img2_pil = Image.open(ref_img_path)
@@ -820,6 +821,13 @@ def main():
         type=int,
         default=None,
         help="Maximum value for the longest edge (default: None)",
+    )
+    parser.add_argument(
+        "-mp",
+        "--max-pixels",
+        type=int,
+        default=None,
+        help="Maximum value for the number of pixels (default: None)",
     )
     parser.add_argument(
         "-r",

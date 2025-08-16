@@ -21,6 +21,7 @@ $Config = @{
     align_input_dir    = ""                               # Optional: Path to directory with reference images for alignment
     max_long_edge      = 2048                             # Optional: Maximum value for the longest edge of resized images (e.g., 1024)
     max_short_edge     = $null                            # Optional: Maximum value for the shortest edge of resized images (e.g., 1024)
+    max_pixels         = $null                            # Optional: Maximum value for the number of pixels in resized images (e.g., 1024)
     recursive          = $true                            # Optional: Set to $true to recursively process subdirectories
     workers            = 8                                # Optional: Maximum number of worker threads for processing (e.g., 8)
     transform_type     = "auto"                           # Optional: Set to "auto" for automatic alignment, "none" for no alignment
@@ -92,6 +93,10 @@ if ($Config.max_short_edge) {
 
 if ($Config.max_long_edge) {
     [void]$ExtArgs.Add("--max-long-edge=$($Config.max_long_edge)")
+}
+
+if ($Config.max_pixels) {
+    [void]$ExtArgs.Add("--max-pixels=$($Config.max_pixels)")
 }
 
 if ($Config.recursive) {
