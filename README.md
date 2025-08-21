@@ -16,7 +16,7 @@ CL EVA02 Tagger model (ONNX), fine-tuned from SmilingWolf/wd-eva02-large-tagger-
 
 Compared to wd-eva02-large-tagger-v3, cl tagger expands the total number of tags from 20,000 to over 40,000.
 
-Added quality tags, meta tags, and support for real person (cosplay) recognition.
+Added quality tags, meta tags, model tags and support for photos (cosplay) recognition.
 
 <img width="901" height="839" alt="image" src="https://github.com/user-attachments/assets/f29312b6-ade0-499e-a2e5-5ecdb4b1022a" />
 
