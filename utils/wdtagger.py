@@ -518,7 +518,7 @@ def load_model_and_tags(args):
             (
                 "TensorrtExecutionProvider",
                 {
-                    "trt_fp16_enable": True if not args.repo_id.startswith("cella110n/cl_tagger") else False,  # Enable FP16 precision for faster inference
+                    "trt_fp16_enable": True,  # Enable FP16 precision for faster inference
                     "trt_builder_optimization_level": 3,
                     "trt_max_partition_iterations": 1000,
                     "trt_engine_cache_enable": True,
