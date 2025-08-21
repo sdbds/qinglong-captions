@@ -1,10 +1,33 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (2.8)
+# qinglong-captioner (2.9)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changlog
+
+### 2.9
+
+We now support and use CL_tagger as the default best tagger model.
+
+What is cl_tagger?
+
+CL EVA02 Tagger model (ONNX), fine-tuned from SmilingWolf/wd-eva02-large-tagger-v3 by cella.
+
+Compared to wd-eva02-large-tagger-v3, cl tagger expands the total number of tags from 20,000 to over 40,000.
+
+Added quality tags, meta tags, and support for real person (cosplay) recognition.
+
+<img width="901" height="839" alt="image" src="https://github.com/user-attachments/assets/f29312b6-ade0-499e-a2e5-5ecdb4b1022a" />
+
+<img width="800" height="1200" alt="image" src="https://github.com/user-attachments/assets/f5b5dfc9-28f9-4168-8786-66383c4b607e" />
+
+
+offical code:
+https://github.com/celll1/tagutl
+
+HF Space demo:
+https://huggingface.co/spaces/cella110n/cl_tagger
 
 ### 2.8
 <img width="1078" height="708" alt="image" src="https://github.com/user-attachments/assets/8374d156-1221-41e4-8d72-925a54782dfc" />
