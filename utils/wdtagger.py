@@ -696,10 +696,23 @@ def assemble_final_tags(
     for category, tags_with_conf in tags_result.items():
         if not tags_with_conf:
             continue
-        if args.add_tags_threshold:
-            all_tags_by_category[category] = [f"{tag}:{conf:.2f}" for tag, conf in tags_with_conf if tag]
+        # Respect switches: skip disabled categories so they won't leak in via remaining categories
+        if category == "quality" and not args.use_quality_tags:
+            continue
+        if category == "rating" and not args.use_rating_tags:
+            continue
+
+        # Collapse to single best tag for quality (and rating if present), before formatting
+        if category in ("quality", "rating"):
+            # tags_with_conf: List[Tuple[tag, confidence]]
+            best_list = [max(tags_with_conf, key=lambda x: x[1])]
         else:
-            all_tags_by_category[category] = [tag for tag, conf in tags_with_conf if tag]
+            best_list = tags_with_conf
+
+        if args.add_tags_threshold:
+            all_tags_by_category[category] = [f"{tag}:{conf:.2f}" for tag, conf in best_list if tag]
+        else:
+            all_tags_by_category[category] = [tag for tag, conf in best_list if tag]
 
     # Define tag groups
     rating_related_tags = ["rating", "quality", "meta", "model"]

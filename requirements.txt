@@ -35,3 +35,6 @@ scenedetect>=0.6.6
 transformers>4.50
 torchvision
 scipy
+
+#rewardmodel
+imscore

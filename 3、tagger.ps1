@@ -5,9 +5,9 @@ $Config = @{
     repo_id            = "cella110n/cl_tagger"      # Model repo ID from Hugging Face
     model_dir          = "wd14_tagger_model"                         # Local model folder path | 本地模型文件夹路径
     batch_size         = 12                                          # Batch size for inference
-    thresh             = 0.7                                         # Concept threshold
-    general_threshold  = 0.7                                         # General threshold
-    character_threshold = 0.7                                        # Character threshold
+    thresh             = 0.6                                         # Concept threshold
+    general_threshold  = 0.55                                         # General threshold
+    character_threshold = 1.0                                        # Character threshold
 }
 
 # Feature flags
@@ -21,7 +21,7 @@ $Features = @{
     character_tag_expand     = $false     # Split character_(series) into character, series
     remove_parents_tag       = $true      # Remove parent tags
     overwrite            = $true          # Overwrite existing tag files
-    add_tags_threshold = $false           # Overwrite existing tag files
+    add_tags_threshold = $false           # Add tags threshold
 }
 
 # Tag settings
