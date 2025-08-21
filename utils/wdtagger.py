@@ -57,62 +57,25 @@ except Exception as e:
 
 @dataclass
 class LabelData:
-    """标签数据结构，兼容官方实现"""
+    """A data structure for holding tag information, designed for compatibility and flexibility."""
 
     names: List[str]
-    rating: np.ndarray
-    general: np.ndarray
-    character: np.ndarray
-    copyright: np.ndarray
-    meta: np.ndarray
-    quality: np.ndarray
-    model: np.ndarray
+    # A dictionary where keys are category names (e.g., 'rating', 'general')
+    # and values are numpy arrays of tag indices for that category.
+    category_indices: Dict[str, np.ndarray]
+    # A dictionary mapping tag index to its category name (lowercase)
+    tag_index_to_category: Dict[int, str]
 
-    def get_rating_tags(self) -> List[str]:
-        """获取rating标签列表"""
-        return [
-            self.names[i] for i in self.rating if i < len(self.names) and self.names[i]
-        ]
+    def __post_init__(self):
+        """Create direct attribute access for backward compatibility with official code."""
+        # Provide direct attribute access for official code compatibility
+        for category, indices in self.category_indices.items():
+            setattr(self, category, indices)
 
-    def get_general_tags(self) -> List[str]:
-        """获取general标签列表"""
-        return [
-            self.names[i] for i in self.general if i < len(self.names) and self.names[i]
-        ]
-
-    def get_character_tags(self) -> List[str]:
-        """获取character标签列表"""
-        return [
-            self.names[i]
-            for i in self.character
-            if i < len(self.names) and self.names[i]
-        ]
-
-    def get_copyright_tags(self) -> List[str]:
-        """获取copyright标签列表"""
-        return [
-            self.names[i]
-            for i in self.copyright
-            if i < len(self.names) and self.names[i]
-        ]
-
-    def get_meta_tags(self) -> List[str]:
-        """获取meta标签列表"""
-        return [
-            self.names[i] for i in self.meta if i < len(self.names) and self.names[i]
-        ]
-
-    def get_model_tags(self) -> List[str]:
-        """获取model标签列表"""
-        return [
-            self.names[i] for i in self.model if i < len(self.names) and self.names[i]
-        ]
-
-    def get_quality_tags(self) -> List[str]:
-        """获取quality标签列表"""
-        return [
-            self.names[i] for i in self.quality if i < len(self.names) and self.names[i]
-        ]
+    def get_tags_by_category(self, category: str) -> List[str]:
+        """Get a list of tags for a given category."""
+        indices = self.category_indices.get(category.lower(), np.array([], dtype=np.int64))
+        return [self.names[i] for i in indices if i < len(self.names) and self.names[i]]
 
 
 # from wd14 tagger
@@ -120,9 +83,9 @@ IMAGE_SIZE = 448
 
 DEFAULT_WD14_TAGGER_REPO = "SmilingWolf/wd-v1-4-moat-tagger-v2"
 FILES = ["model.onnx", "selected_tags.csv"]
-CL_FILES = ["cl_tagger_1_00/model.onnx", "cl_tagger_1_00/tag_mapping.json"]
+CL_FILES = ["cl_tagger_1_01/model.onnx", "cl_tagger_1_01/tag_mapping.json"]
 CSV_FILE = "selected_tags.csv"
-JSON_FILE = "tag_mapping.json"
+JSON_FILE = "cl_tagger_1_01/tag_mapping.json"
 PARENTS_CSV = "tag_implications.csv"
 
 
@@ -229,7 +192,13 @@ def process_batch(images, session, input_name):
         batch_data = np.ascontiguousarray(np.stack(images))
         # 执行推理
         outputs = session.run(None, {input_name: batch_data})
-        return outputs[0]
+        # Apply sigmoid (outputs are likely logits)
+        # Use a stable sigmoid implementation
+        def stable_sigmoid(x):
+            return 1 / (1 + np.exp(-np.clip(x, -30, 30)))  # Clip to avoid overflow
+        
+        probs = stable_sigmoid(outputs[0])
+        return probs
     except Exception as e:
         console.print(f"[red]Batch processing error: {str(e)}[/red]")
         return None
@@ -257,34 +226,37 @@ def get_tags_official(
     }
 
     # --- Pick-highest categories (rating, quality) ---
-    if use_rating_tags and len(labels.rating) > 0:
-        valid_indices = labels.rating[labels.rating < len(probs)]
-        if len(valid_indices) > 0:
-            category_probs = probs[valid_indices]
-            best_local_idx = np.argmax(category_probs)
-            confidence = category_probs[best_local_idx]
-            global_idx = valid_indices[best_local_idx]
-            tag_name = tag_names[global_idx]
-            result["rating"].append((tag_name, float(confidence)))
+    pick_highest_categories = []
+    if use_rating_tags:
+        pick_highest_categories.append("rating")
+    if use_quality_tags:
+        pick_highest_categories.append("quality")
 
-    if use_quality_tags and len(labels.quality) > 0:
-        valid_indices = labels.quality[labels.quality < len(probs)]
-        if len(valid_indices) > 0:
-            category_probs = probs[valid_indices]
-            best_local_idx = np.argmax(category_probs)
-            confidence = category_probs[best_local_idx]
-            global_idx = valid_indices[best_local_idx]
-            tag_name = tag_names[global_idx]
-            result["quality"].append((tag_name, float(confidence)))
+    for category_name in pick_highest_categories:
+        category_indices = labels.category_indices.get(category_name)
+        if category_indices is not None and len(category_indices) > 0:
+            valid_indices = category_indices[category_indices < len(probs)]
+            if len(valid_indices) > 0:
+                category_probs = probs[valid_indices]
+                best_local_idx = np.argmax(category_probs)
+                confidence = category_probs[best_local_idx]
+                global_idx = valid_indices[best_local_idx]
+                tag_name = tag_names[global_idx]
+                result[category_name].append((tag_name, float(confidence)))
 
     # --- Above-threshold categories (general, character, etc.) ---
-    category_map = {
-        "general": (labels.general, gen_threshold),
-        "character": (labels.character, char_threshold),
-        "copyright": (labels.copyright, char_threshold),
-        "meta": (labels.meta, gen_threshold),
-        "model": (labels.model, gen_threshold),
-    }
+    # Dynamically create the map from the available categories in LabelData
+    category_map = {}
+    for category_name, category_indices in labels.category_indices.items():
+        if category_name in pick_highest_categories:
+            continue  # Skip categories that are already processed
+
+        # Determine the threshold for the current category
+        if category_name in ["character", "copyright", "artist"]:
+            threshold = char_threshold
+        else:
+            threshold = gen_threshold
+        category_map[category_name] = (category_indices, threshold)
 
     for category_name, (category_indices, threshold) in category_map.items():
         if len(category_indices) > 0:
@@ -297,9 +269,11 @@ def get_tags_official(
             passed_indices = valid_indices[mask]
 
             for idx in passed_indices:
-                tag_name = tag_names[idx]
-                confidence = probs[idx]
-                result[category_name].append((tag_name, float(confidence)))
+                # Check if global index is valid for names list
+                if idx < len(tag_names) and tag_names[idx] is not None:
+                    tag_name = tag_names[idx]
+                    confidence = probs[idx]
+                    result[category_name].append((tag_name, float(confidence)))
 
     # Sort all results by confidence
     for k in result:
@@ -343,7 +317,6 @@ def load_model_and_tags(args):
         json_path = (
             Path(args.model_dir)
             / args.repo_id.replace("/", "_")
-            / "cl_tagger_1_00"
             / JSON_FILE
         )
         if not json_path.exists():
@@ -352,50 +325,50 @@ def load_model_and_tags(args):
         with json_path.open("r", encoding="utf-8") as f:
             tag_data = json.load(f)
 
-        # 创建索引映射（官方兼容）
+        # Correctly handle potentially sparse tag indices from JSON.
+        # The following logic creates a sparse list (`names`) that correctly maps
+        # a model's output index to its tag name, even if indices are not contiguous.
         tag_data_int_keys = {int(k): v for k, v in tag_data.items()}
-        idx_to_tag = {idx: data["tag"] for idx, data in tag_data_int_keys.items()}
-        tag_to_category = {
-            data["tag"]: data["category"] for data in tag_data_int_keys.values()
-        }
+        idx_to_tag = {idx: data['tag'] for idx, data in tag_data_int_keys.items()}
+        tag_to_category = {data['tag']: data['category'] for data in tag_data_int_keys.values()}
 
-        # 创建names列表
+        # Create a sparse list for `names` to ensure correct index mapping.
         max_idx = max(idx_to_tag.keys())
         names = [None] * (max_idx + 1)
         for idx, tag in idx_to_tag.items():
             names[idx] = tag
 
-        # 创建各类别的索引数组
-        rating_indices, general_indices, character_indices = [], [], []
-        copyright_indices, meta_indices, model_indices, quality_indices = [], [], [], []
+        # Invert tag_to_category for faster lookups and prepare for categorization
+        category_to_tags = {}
+        for tag, category in tag_to_category.items():
+            if category not in category_to_tags:
+                category_to_tags[category] = []
+            category_to_tags[category].append(tag)
 
-        for idx, tag in idx_to_tag.items():
-            category = tag_to_category.get(tag, "Unknown")
-            if category == "Rating":
-                rating_indices.append(idx)
-            elif category == "General":
-                general_indices.append(idx)
-            elif category == "Character":
-                character_indices.append(idx)
-            elif category == "Copyright":
-                copyright_indices.append(idx)
-            elif category == "Meta":
-                meta_indices.append(idx)
-            elif category == "Model":
-                model_indices.append(idx)
-            elif category == "Quality":
-                quality_indices.append(idx)
+        # Create a reverse map from tag to index for efficient lookup
+        tag_to_idx = {tag: i for i, tag in idx_to_tag.items()}
 
-        # 创建LabelData对象
+        # Dynamically create category_indices from the data
+        category_indices = {}
+        for category, tags_in_category in category_to_tags.items():
+            # Use the lowercase version of the category name as the key for consistency
+            category_key = category.lower()
+            indices = [tag_to_idx[tag] for tag in tags_in_category if tag in tag_to_idx]
+            category_indices[category_key] = np.array(indices, dtype=np.int64)
+
+        # Create a mapping from tag index to its category name (lowercase)
+        tag_index_to_category = {
+            idx: category.lower()
+            for category, tags in category_to_tags.items()
+            for tag in tags
+            if (idx := tag_to_idx.get(tag)) is not None
+        }
+
+        # Create LabelData object
         label_data = LabelData(
             names=names,
-            rating=np.array(rating_indices, dtype=np.int64),
-            general=np.array(general_indices, dtype=np.int64),
-            character=np.array(character_indices, dtype=np.int64),
-            copyright=np.array(copyright_indices, dtype=np.int64),
-            meta=np.array(meta_indices, dtype=np.int64),
-            model=np.array(model_indices, dtype=np.int64),
-            quality=np.array(quality_indices, dtype=np.int64),
+            category_indices=category_indices,
+            tag_index_to_category=tag_index_to_category,
         )
 
         total_tags = len(tag_data)
@@ -432,35 +405,36 @@ def load_model_and_tags(args):
                 character_indices.append(i)
 
         # 创建LabelData对象
+        # Create LabelData object for CSV format
+        category_indices = {
+            "rating": np.array(rating_indices, dtype=np.int64),
+            "general": np.array(general_indices, dtype=np.int64),
+            "character": np.array(character_indices, dtype=np.int64),
+            # CSV format doesn't have these, so initialize as empty
+            "copyright": np.array([], dtype=np.int64),
+            "artist": np.array([], dtype=np.int64),
+            "meta": np.array([], dtype=np.int64),
+            "quality": np.array([], dtype=np.int64),
+            "model": np.array([], dtype=np.int64),
+        }
+        tag_index_to_category = {}
+        for cat, indices in category_indices.items():
+            for idx in indices:
+                tag_index_to_category[idx] = cat
+
         label_data = LabelData(
             names=names,
-            rating=np.array(rating_indices, dtype=np.int64),
-            general=np.array(general_indices, dtype=np.int64),
-            character=np.array(character_indices, dtype=np.int64),
-            copyright=np.array([], dtype=np.int64),  # CSV格式没有这些分类
-            meta=np.array([], dtype=np.int64),
-            model=np.array([], dtype=np.int64),
-            quality=np.array([], dtype=np.int64),
+            category_indices=category_indices,
+            tag_index_to_category=tag_index_to_category,
         )
 
         total_tags = len(rows)
 
     # 显示标签加载信息
-    if args.repo_id.startswith("cella110n/cl_tagger"):
-        console.print(
-            f"[blue]Tags loaded: {total_tags} total[/blue]\n"
-            f"[blue]  - General: {len(label_data.get_general_tags())} tags[/blue]\n"
-            f"[blue]  - Character: {len(label_data.get_character_tags())} tags[/blue]\n"
-            f"[blue]  - Copyright: {len(label_data.get_copyright_tags())} tags[/blue]\n"
-            f"[blue]  - Meta: {len(label_data.get_meta_tags())} tags[/blue]\n"
-            f"[blue]  - Model: {len(label_data.get_model_tags())} tags[/blue]\n"
-            f"[blue]  - Rating: {len(label_data.get_rating_tags())} tags[/blue]\n"
-            f"[blue]  - Quality: {len(label_data.get_quality_tags())} tags[/blue]"
-        )
-    else:
-        console.print(
-            f"[blue]Tags loaded: {total_tags} total, {len(label_data.get_rating_tags())} rating, {len(label_data.get_character_tags())} character, {len(label_data.get_general_tags())} general[/blue]"
-        )
+    console.print(f"[blue]Tags loaded: {total_tags} total[/blue]")
+    for category, indices in sorted(label_data.category_indices.items()):
+        if len(indices) > 0:
+            console.print(f"[blue]  - {category.capitalize()}: {len(indices)} tags[/blue]")
 
     console.print(f"[blue]Providers: {ort.get_available_providers()}[/blue]")
 
@@ -544,7 +518,7 @@ def load_model_and_tags(args):
             (
                 "TensorrtExecutionProvider",
                 {
-                    "trt_fp16_enable": True,  # Enable FP16 precision for faster inference
+                    "trt_fp16_enable": True if not args.repo_id.startswith("cella110n/cl_tagger") else False,  # Enable FP16 precision for faster inference
                     "trt_builder_optimization_level": 3,
                     "trt_max_partition_iterations": 1000,
                     "trt_engine_cache_enable": True,
@@ -695,7 +669,8 @@ def process_tags(label_data: LabelData, args: argparse.Namespace) -> List[str]:
 
     # 3. Handle character tag expansion
     if args.character_tag_expand:
-        for i in label_data.character:
+        character_indices = label_data.category_indices.get("character", np.array([]))
+        for i in character_indices:
             if i < len(processed_names):
                 tag = processed_names[i]
                 if tag and tag.endswith(")"):
@@ -716,35 +691,43 @@ def assemble_final_tags(
     """Assemble and sort the final list of tags for a single image."""
     found_tags = []
 
-    # Initial assembly and filtering of empty tags
-    rating_tags = [tag for tag, conf in tags_result["rating"] if tag]
-    general_tags = [tag for tag, conf in tags_result["general"] if tag]
-    character_tags = [tag for tag, conf in tags_result["character"] if tag]
-    copyright_tags = [tag for tag, conf in tags_result["copyright"] if tag]
-    meta_tags = [tag for tag, conf in tags_result["meta"] if tag]
-    model_tags = [tag for tag, conf in tags_result["model"] if tag]
-    quality_tags = [tag for tag, conf in tags_result["quality"] if tag]
+    # Process all tags from the result, formatting them based on the threshold flag.
+    all_tags_by_category = {}
+    for category, tags_with_conf in tags_result.items():
+        if not tags_with_conf:
+            continue
+        if args.add_tags_threshold:
+            all_tags_by_category[category] = [f"{tag}:{conf:.2f}" for tag, conf in tags_with_conf if tag]
+        else:
+            all_tags_by_category[category] = [tag for tag, conf in tags_with_conf if tag]
 
+    # Define tag groups
+    rating_related_tags = ["rating", "quality", "meta", "model"]
+    character_related_tags = ["character", "copyright", "artist"]
+
+    # Assemble tags based on defined order and arguments
     if args.use_rating_tags and not args.use_rating_tags_as_last_tag:
-        found_tags.extend(rating_tags)
-        found_tags.extend(quality_tags)
-        found_tags.extend(meta_tags)
-        found_tags.extend(model_tags)
+        for category in rating_related_tags:
+            found_tags.extend(all_tags_by_category.get(category, []))
 
     if args.character_tags_first:
-        found_tags.extend(character_tags)
-        found_tags.extend(copyright_tags)
-        found_tags.extend(general_tags)
+        for category in character_related_tags:
+            found_tags.extend(all_tags_by_category.get(category, []))
+        found_tags.extend(all_tags_by_category.get("general", []))
     else:
-        found_tags.extend(general_tags)
-        found_tags.extend(character_tags)
-        found_tags.extend(copyright_tags)
+        found_tags.extend(all_tags_by_category.get("general", []))
+        for category in character_related_tags:
+            found_tags.extend(all_tags_by_category.get(category, []))
 
     if args.use_rating_tags and args.use_rating_tags_as_last_tag:
-        found_tags.extend(rating_tags)
-        found_tags.extend(quality_tags)
-        found_tags.extend(meta_tags)
-        found_tags.extend(model_tags)
+        for category in rating_related_tags:
+            found_tags.extend(all_tags_by_category.get(category, []))
+
+    # Add any remaining categories that were not in the ordered list to ensure no data is lost.
+    processed_categories = set(rating_related_tags) | set(character_related_tags) | {"general"}
+    remaining_categories = set(all_tags_by_category.keys()) - processed_categories
+    for category in sorted(list(remaining_categories)):
+        found_tags.extend(all_tags_by_category[category])
 
     # Sorting: always_first_tags
     # Sorting by confidence if requested via frequency_tags flag
@@ -776,7 +759,9 @@ def assemble_final_tags(
 
     # Update tag frequency (always track for stats)
     for tag in found_tags:
-        tag_freq[tag] = tag_freq.get(tag, 0) + 1
+        # Use clean tag name for frequency counting (remove threshold suffix if present)
+        clean_tag = tag.split(':')[0] if ':' in tag else tag
+        tag_freq[clean_tag] = tag_freq.get(clean_tag, 0) + 1
 
     return found_tags
 
@@ -919,7 +904,7 @@ def main(args):
     sorted_tags = sorted(tag_freq.items(), key=lambda item: item[1], reverse=True)
 
     for tag, freq in sorted_tags:
-        # Classify the single tag to get its colored version
+        # Classify the tag to get its colored version
         classified_result = tag_classifier.classify([tag])
         # The result is a dict like {'category_id': ['[color]tag[/color]']}
         # Extract the colored tag safely
@@ -1253,6 +1238,11 @@ def setup_parser() -> argparse.ArgumentParser:
         "--frequency_tags",
         action="store_true",
         help="Sort final tags by confidence score instead of default order.",
+    )
+    parser.add_argument(
+        "--add_tags_threshold",
+        action="store_true",
+        help="Add confidence threshold after each tag in output",
     )
     parser.add_argument(
         "--append_tags",

@@ -2,26 +2,26 @@
 # Model settings
 $Config = @{
     train_data_dir     = "./datasets"                                # Input images path | 图片输入路径
-    repo_id            = "SmilingWolf/wd-eva02-large-tagger-v3"      # Model repo ID from Hugging Face
+    repo_id            = "cella110n/cl_tagger"      # Model repo ID from Hugging Face
     model_dir          = "wd14_tagger_model"                         # Local model folder path | 本地模型文件夹路径
     batch_size         = 12                                          # Batch size for inference
-    thresh             = 0.3                                         # Concept threshold
-    general_threshold  = 0.3                                         # General threshold
-    character_threshold = 1.0                                        # Character threshold
+    thresh             = 0.7                                         # Concept threshold
+    general_threshold  = 0.7                                         # General threshold
+    character_threshold = 0.7                                        # Character threshold
 }
 
 # Feature flags
 $Features = @{
-    frequency_tags           = $false  # Order by frequency tags
-    remove_underscore        = $true   # Convert underscore to space
-    use_rating_tags          = $false  # Use rating tags
-    use_rating_tags          = $true  # Use rating tags
-    use_quality_tags         = $true  # Use quality tags
+    frequency_tags           = $false     # Order by frequency tags
+    remove_underscore        = $true      # Convert underscore to space
+    use_rating_tags          = $true      # Use rating tags
+    use_quality_tags         = $true      # Use quality tags
     use_rating_tags_as_last_tag = $false  # Put rating tags at the end
-    character_tags_first     = $false  # Put character tags first
-    character_tag_expand     = $false  # Split character_(series) into character, series
-    remove_parents_tag       = $true   # Remove parent tags
-    overwrite            = $true  # Overwrite existing tag files
+    character_tags_first     = $false     # Put character tags first
+    character_tag_expand     = $false     # Split character_(series) into character, series
+    remove_parents_tag       = $true      # Remove parent tags
+    overwrite            = $true          # Overwrite existing tag files
+    add_tags_threshold = $false           # Overwrite existing tag files
 }
 
 # Tag settings
@@ -84,6 +84,7 @@ elseif ($Features.use_rating_tags) { [void]$ExtArgs.Add("--use_rating_tags") }
 if ($Features.use_quality_tags) { [void]$ExtArgs.Add("--use_quality_tags") }
 if ($Features.remove_parents_tag) { [void]$ExtArgs.Add("--remove_parents_tag") }
 if ($Features.overwrite) { [void]$ExtArgs.Add("--overwrite") }
+if ($Features.add_tags_threshold) { [void]$ExtArgs.Add("--add_tags_threshold") }
 
 # Add tag configuration
 if ($TagConfig.undesired_tags) { [void]$ExtArgs.Add("--undesired_tags=$($TagConfig.undesired_tags)") }
