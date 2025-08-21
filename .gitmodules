@@ -1,7 +1,3 @@
 [submodule "dotsocr"]
 	path = third_party/dots_ocr
 	url = https://github.com/rednote-hilab/dots.ocr
-[submodule "third_party/HPSv3"]
-	path = third_party/HPSv3
-	url = https://github.com/MizzenAI/HPSv3.git
-	branch = main
