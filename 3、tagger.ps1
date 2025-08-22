@@ -16,6 +16,7 @@ $Features = @{
     remove_underscore        = $true      # Convert underscore to space
     use_rating_tags          = $true      # Use rating tags
     use_quality_tags         = $false      # Use quality tags
+    use_model_tags           = $false      # Use model tags
     use_rating_tags_as_last_tag = $false  # Put rating tags at the end
     character_tags_first     = $false     # Put character tags first
     character_tag_expand     = $false     # Split character_(series) into character, series
@@ -82,6 +83,7 @@ if ($Features.character_tag_expand) { [void]$ExtArgs.Add("--character_tag_expand
 if ($Features.use_rating_tags_as_last_tag) { [void]$ExtArgs.Add("--use_rating_tags_as_last_tag") }
 elseif ($Features.use_rating_tags) { [void]$ExtArgs.Add("--use_rating_tags") }
 if ($Features.use_quality_tags) { [void]$ExtArgs.Add("--use_quality_tags") }
+if ($Features.use_model_tags) { [void]$ExtArgs.Add("--use_model_tags") }
 if ($Features.remove_parents_tag) { [void]$ExtArgs.Add("--remove_parents_tag") }
 if ($Features.overwrite) { [void]$ExtArgs.Add("--overwrite") }
 if ($Features.add_tags_threshold) { [void]$ExtArgs.Add("--add_tags_threshold") }

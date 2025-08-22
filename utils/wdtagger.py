@@ -211,6 +211,7 @@ def get_tags_official(
     char_threshold,
     use_rating_tags,
     use_quality_tags,
+    use_model_tags,
     processed_names=None,
 ):
     """官方兼容的标签处理函数"""
@@ -231,6 +232,8 @@ def get_tags_official(
         pick_highest_categories.append("rating")
     if use_quality_tags:
         pick_highest_categories.append("quality")
+    if use_model_tags:
+        pick_highest_categories.append("model")
 
     for category_name in pick_highest_categories:
         category_indices = labels.category_indices.get(category_name)
@@ -701,9 +704,11 @@ def assemble_final_tags(
             continue
         if category == "rating" and not args.use_rating_tags:
             continue
+        if category == "model" and not args.use_model_tags:
+            continue
 
         # Collapse to single best tag for quality (and rating if present), before formatting
-        if category in ("quality", "rating"):
+        if category in ("quality", "rating", "model"):
             # tags_with_conf: List[Tuple[tag, confidence]]
             best_list = [max(tags_with_conf, key=lambda x: x[1])]
         else:
@@ -890,6 +895,7 @@ def main(args):
                         character_confidence,
                         args.use_rating_tags,
                         args.use_quality_tags,
+                        args.use_model_tags,
                         processed_names,  # Use the pre-processed names
                     )
 
@@ -1271,6 +1277,11 @@ def setup_parser() -> argparse.ArgumentParser:
         "--use_quality_tags",
         action="store_true",
         help="Add quality tags to the output.",
+    )
+    parser.add_argument(
+        "--use_model_tags",
+        action="store_true",
+        help="Add model tags to the output.",
     )
     parser.add_argument(
         "--use_rating_tags_as_last_tag",
