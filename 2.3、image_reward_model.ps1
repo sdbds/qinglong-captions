@@ -30,9 +30,10 @@ $Config = @{
     # "RE-N-Y/ava-rating-siglip-sampled-False"
     # "RE-N-Y/ava-rating-dinov2-sampled-True"
     # "RE-N-Y/ava-rating-dinov2-sampled-False"
-    repo_id            = "RE-N-Y/evalmuse"                          # Model repo ID from Hugging Face
+    repo_id            = "RE-N-Y/hpsv3"                          # Model repo ID from Hugging Face
     batch_size         = 1                                          # Batch size for inference
     device             = "cuda"                                     # Device to use for inference
+    dtype              = "auto"                                     # Data type for inference
 }
 #endregion
 
@@ -73,6 +74,7 @@ $ExtArgs = [System.Collections.ArrayList]::new()
 if ($Config.repo_id) { [void]$ExtArgs.Add("--repo_id=$($Config.repo_id)") }
 if ($Config.batch_size) { [void]$ExtArgs.Add("--batch_size=$($Config.batch_size)") }
 if ($Config.device) { [void]$ExtArgs.Add("--device=$($Config.device)") }
+if ($Config.dtype) { [void]$ExtArgs.Add("--dtype=$($Config.dtype)") }
 
 #endregion
 

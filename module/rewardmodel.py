@@ -18,6 +18,7 @@ from rich.progress import (
     TransferSpeedColumn,
     MofNCompleteColumn,
 )
+from rich.tree import Tree
 import torch
 from huggingface_hub import hf_hub_download
 from module.lanceImport import transform2lance
@@ -35,7 +36,11 @@ from imscore.aesthetic.model import (
 )
 from imscore.hps.model import HPSv2
 from imscore.mps.model import MPS
-from imscore.preference.model import SiglipPreferenceScorer, CLIPPreferenceScorer, CLIPScore
+from imscore.preference.model import (
+    SiglipPreferenceScorer,
+    CLIPPreferenceScorer,
+    CLIPScore,
+)
 from imscore.pickscore.model import PickScorer
 from imscore.imreward.model import ImageReward
 from imscore.vqascore.model import VQAScore
@@ -45,28 +50,33 @@ from imscore.hpsv3.model import HPSv3
 
 console = Console()
 
+
 def preprocess_image(image):
-    """将图片转为奖励模型需要的像素张量: [1, C, H, W], float32, [0,1]"""
+    """将输入统一转换为 RGB 的 np.ndarray（uint8, H×W×C）。其余预处理交由各模型内部完成。
+
+    返回：np.ndarray 或 None
+    """
     try:
         # 统一为 PIL Image RGB
         if isinstance(image, np.ndarray):
             image = Image.fromarray(image).convert("RGB")
         elif isinstance(image, (str, Path)):
             image = Image.open(image).convert("RGB")
-        elif not isinstance(image, Image.Image):
+        elif isinstance(image, Image.Image):
+            image = image.convert("RGB")
+        else:
             raise TypeError("Input must be a PIL image, numpy array, or file path")
-
-        arr = np.array(image)  # H W C, uint8
-        # 转 torch，并归一化到 [0,1]
-        tensor = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).float() / 255.0  # 1 C H W
-        return tensor
+        return np.array(image)
     except Exception as e:
         console.print(f"[red]preprocess_image error: {str(e)}[/red]")
         return None
 
 
 def load_and_preprocess_batch(uris):
-    """并行加载和预处理一批图像"""
+    """并行加载和预处理一批图像，返回 List[np.ndarray] 和有效索引。
+
+    每张图像：RGB、dtype=uint8、H×W×C。
+    """
 
     def load_single_image(uri):
         try:
@@ -87,10 +97,11 @@ def load_and_preprocess_batch(uris):
     return images, indices
 
 
+@torch.inference_mode()
 def process_batch(pixel_tensors, model, prompts):
     """使用奖励模型计算分数（逐张处理，避免尺寸不一致拼接）。
 
-    pixel_tensors: List[torch.Tensor]，每个形状为 [1, C, H, W]
+    pixel_tensors: List[np.ndarray]（RGB、uint8、H×W×C）
     prompts: List[str]，与 pixel_tensors 对齐
     返回：list 或 np.ndarray，分数（logits）
     """
@@ -98,43 +109,36 @@ def process_batch(pixel_tensors, model, prompts):
         if not pixel_tensors:
             return []
         out = []
-        # 推断模型所在设备
-        try:
-            model_device = next(model.parameters()).device
-        except Exception:
-            model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
         for px, pr in zip(pixel_tensors, prompts):
-            # HPSv3 期望 images: list[Tensor]，内部会 ToPILImage 并在 prepare() 中把 batch 移到 self.device
-            if isinstance(model, HPSv3):
-                if isinstance(px, torch.Tensor):
-                    px_list = [px.squeeze(0).to("cpu")]  # ToPILImage 需要 CPU tensor，且形状为 C H W
-                else:
-                    px_list = [px]
-                s = model.score(px_list, [pr])
-            else:
-                # 其它模型通常接受 [B,C,H,W] 的张量；逐张处理时 B=1，需与模型设备一致
-                if isinstance(px, torch.Tensor):
-                    px = px.to(model_device)
-                s = model.score(px, [pr])
+            # 该模型期望 ndarray，无其他预处理
+            try:
+                s = model.score([px], [pr])
+            except Exception:
+                # 回退：若 ndarray 路径异常，尝试直接传入 PIL
+                s = model.score([px], [pr])
             console.print(f"[bold green]Score: {s}[/bold green]")
             if isinstance(s, torch.Tensor):
-                # 统一为标量或单元素数组
-                s = s.detach().cpu().numpy()
-                # 支持形如 [1] 或 [[1]] 的返回
-                try:
-                    s = float(s.squeeze())
-                except Exception:
-                    s = float(s.ravel()[0])
+                s = (
+                    float(s.detach().to("cpu").squeeze().item())
+                    if s.numel() == 1
+                    else float(s.detach().to("cpu").flatten()[0].item())
+                )
             elif isinstance(s, (list, tuple)):
                 s = float(s[0])
             else:
                 s = float(s)
             out.append(s)
+
+            del px, pr
+
+            if torch.cuda.is_available() and (len(out) % 32 == 0):
+                torch.cuda.empty_cache()
+
         return np.array(out, dtype=np.float32)
     except Exception as e:
         console.print(f"[red]Batch processing error: {str(e)}[/red]")
         return None
+
 
 def load_model(args):
     """加载模型和标签"""
@@ -179,6 +183,7 @@ def load_model(args):
 
     return cls.from_pretrained(args.repo_id)
 
+
 def main(args):
     global console
 
@@ -187,14 +192,47 @@ def main(args):
     config_path = project_root / "config" / "config.toml"
     try:
         cfg = toml.load(config_path)
-        thresholds_cfg = cfg.get("reward_model", {}).get("quality_threshold", [])
+        rm_cfg = cfg.get("reward_model", {}) if isinstance(cfg, dict) else {}
+
+        # 新格式：reward_model.quality = [{ name, score, color }]
+        quality_cfg = rm_cfg.get("quality")
+        if isinstance(quality_cfg, list) and quality_cfg:
+            # 保留原始顺序或按得分排序（与旧逻辑一致，按 score 升序）
+            quality_cfg = sorted(
+                [q for q in quality_cfg if isinstance(q, dict) and "name" in q and "score" in q],
+                key=lambda x: float(x["score"]),
+            )
+            thresholds_cfg = [
+                {"name": str(q["name"]), "score": float(q["score"])} for q in quality_cfg
+            ]
+            # 颜色序列与阈值一一对应；缺失则给默认
+            default_palette = ["bold red", "bold yellow", "bold blue", "bold green"]
+            colors_by_rank = [
+                str(q.get("color", default_palette[min(i, len(default_palette) - 1)]))
+                for i, q in enumerate(quality_cfg)
+            ]
+        else:
+            # 旧格式回退：quality_threshold + colors_by_rank
+            thresholds_cfg = rm_cfg.get("quality_threshold", [])
+            colors_by_rank = rm_cfg.get(
+                "colors_by_rank", ["bold red", "bold yellow", "bold blue", "bold green"]
+            )
+            if not isinstance(colors_by_rank, list) or not all(
+                isinstance(c, str) and c for c in colors_by_rank
+            ):
+                colors_by_rank = ["bold red", "bold yellow", "bold blue", "bold green"]
     except Exception as e:
         console.print(f"[red]Failed to read config.toml: {e}[/red]")
         thresholds_cfg = []
+        colors_by_rank = ["bold red", "bold yellow", "bold blue", "bold green"]
 
     # 组装阈值与目录：按 score 升序排序；目录名用 name 将下划线替换为空格
     thresholds_cfg = sorted(
-        [t for t in thresholds_cfg if isinstance(t, dict) and "name" in t and "score" in t],
+        [
+            t
+            for t in thresholds_cfg
+            if isinstance(t, dict) and "name" in t and "score" in t
+        ],
         key=lambda x: float(x["score"]),
     )
     quality_dirs = []  # List[Tuple[name, score, Path]]
@@ -212,7 +250,9 @@ def main(args):
             ("normal_quality", 7.5),
             ("best_quality", 9.0),
         ]
-        quality_dirs = [(n, s, Path(args.train_data_dir) / n.replace("_", " ")) for n, s in defaults]
+        quality_dirs = [
+            (n, s, Path(args.train_data_dir) / n.replace("_", " ")) for n, s in defaults
+        ]
 
     # 清理已有软链接并确保目录存在
     for _, _, root in quality_dirs:
@@ -253,7 +293,38 @@ def main(args):
     model = load_model(args)
     if args.device == "auto":
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
-    model.to(device=args.device)
+    if args.dtype == "auto":
+        inferred = None
+        # 1) 优先 transformers 的配置
+        torch_dtype_cfg = getattr(getattr(model, "config", None), "torch_dtype", None)
+        if torch_dtype_cfg is not None:
+            inferred = torch_dtype_cfg
+        else:
+            # 2) 回退到首个参数 dtype
+            p0 = next(model.parameters(), None)
+            if p0 is not None:
+                inferred = p0.dtype
+
+        # 3) 环境约束与兜底
+        if inferred is None:
+            inferred = torch.float16 if torch.cuda.is_available() else torch.float32
+        if args.device == "cpu" and inferred in (torch.float16, torch.bfloat16):
+            inferred = torch.float32
+        if args.repo_id.endswith("hpsv3"):
+            inferred = torch.bfloat16
+    elif args.dtype == "float16" or args.dtype == "fp16":
+        inferred = torch.float16
+    elif args.dtype == "bfloat16" or args.dtype == "bf16":
+        inferred = torch.bfloat16
+    elif args.dtype == "float32" or args.dtype == "fp32":
+        inferred = torch.float32
+    else:
+        inferred = torch.float32
+    args.dtype = inferred
+    console.print(f"[green]Using device: {args.device}[/green]")
+    console.print(f"[green]Using dtype: {args.dtype}[/green]")
+    model.to(device=args.device, dtype=args.dtype)
+    model.eval()
     if model is None:
         return
 
@@ -308,7 +379,10 @@ def main(args):
             else:
                 if "captions" in batch.schema.names:
                     raw_caps = batch["captions"].to_pylist()
-                    prompts = [c if isinstance(c, str) and c.strip() else "" for c in raw_caps]
+                    prompts = [
+                        c if isinstance(c, str) and c.strip() else ""
+                        for c in raw_caps[0]
+                    ]
                 else:
                     prompts = [""] * len(uris)
 
@@ -324,8 +398,8 @@ def main(args):
             eff_uris = [uris[i] for i in valid_idx]
             scores = process_batch(batch_pixels, model, eff_prompts)
             if scores is not None:
-                for path, score in zip(eff_uris, scores):
-                    detection_results.append((path, float(score)))
+                for path, prompt, score in zip(eff_uris, eff_prompts, scores):
+                    detection_results.append((path, prompt, float(score)))
 
             progress.update(task, advance=len(batch["uris"].to_pylist()))
 
@@ -334,9 +408,11 @@ def main(args):
 
     # 按配置阈值分配质量并创建软链接/拷贝
     if total_count:
-        for path, score in detection_results:
+        for path, _, score in detection_results:
             source_path = Path(path).absolute()
-            relative_path = source_path.relative_to(Path(args.train_data_dir).absolute())
+            relative_path = source_path.relative_to(
+                Path(args.train_data_dir).absolute()
+            )
 
             # 找到第一个 score <= 阈值 的档位；若都不满足，归到最后一个（最高档）
             target_root = None
@@ -355,27 +431,65 @@ def main(args):
                 console.print(f"[red]Unable to create symlink for {path}: {e}[/red]")
                 try:
                     shutil.copy2(source_path, target_path)
-                    console.print(f"[yellow]Created copy instead of symlink for {path}[/yellow]")
+                    console.print(
+                        f"[yellow]Created copy instead of symlink for {path}[/yellow]"
+                    )
                 except Exception as copy_err:
                     console.print(f"[red]Failed to copy file: {copy_err}[/red]")
 
     # 按路径层次结构组织结果
     path_tree = {}
-    for path, prob in detection_results:
+    for path, prompt, score in detection_results:
         parts = Path(path).relative_to(Path(args.train_data_dir).absolute()).parts
         current = path_tree
         for i, part in enumerate(parts):
             if i == len(parts) - 1:
                 # 最后一层是文件名，存储分数
-                current[part] = f"{prob:.4f} (score)"
+                current[part] = f"{score:.4f}|{prompt}"
             else:
                 if part not in current:
                     current[part] = {}
                 current = current[part]
 
-    # 使用Pretty打印结果树
+    # 使用 Tree 打印结果树（带颜色）
     console.print("\n[bold green]Reward Scores：[/bold green]")
-    console.print(Pretty(path_tree, indent_guides=True, expand_all=True))
+
+    # 基于质量阈值选择颜色：按阈值档位由差到优映射为配置中的颜色序列
+
+    def color_for_score(s: float) -> str:
+        # 找到属于的档位索引
+        idx = None
+        for i, (_, thr, _) in enumerate(quality_dirs):
+            if s <= thr:
+                idx = i
+                break
+        if idx is None:
+            idx = len(quality_dirs) - 1
+        # 映射到颜色表
+        return colors_by_rank[min(idx, len(colors_by_rank) - 1)]
+
+    # 构建目录树
+    root = Tree("[bold]Reward Scores[/]")
+    nodes = {(): root}  # key: 累积路径元组 -> Tree 节点
+
+    for path, prompt, score in detection_results:
+        rel_parts = Path(path).relative_to(Path(args.train_data_dir).absolute()).parts
+        acc = ()
+        parent = root
+        for i, part in enumerate(rel_parts):
+            acc = acc + (part,)
+            if acc not in nodes:
+                if i < len(rel_parts) - 1:
+                    nodes[acc] = parent.add(part)
+                else:
+                    style = color_for_score(score)
+                    # 叶子节点：文件名 + 颜色分数 + prompt
+                    nodes[acc] = parent.add(
+                        f"{part}  [bold {style}]{score:.4f}[/] | {prompt}"
+                    )
+            parent = nodes[acc]
+
+    console.print(root)
     # 保存检测结果树到JSON文件
     result_json_path = Path(args.train_data_dir) / "reward_scores.json"
     with open(result_json_path, "w", encoding="utf-8") as f:
@@ -418,6 +532,13 @@ def setup_parser() -> argparse.ArgumentParser:
         default="auto",
         choices=["auto", "cuda", "cpu"],
         help="Device to use for inference",
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        default="auto",
+        choices=["auto", "float32", "float16", "bfloat16", "fp16", "fp32", "fp64"],
+        help="Data type for inference",
     )
 
     return parser
