@@ -1,7 +1,7 @@
 #region Configuration
 # Model settings
 $Config = @{
-    train_data_dir     = "D:\CPL3\1"                                   # Input images path | 图片输入路径
+    train_data_dir     = "./datasets"                                   # Input images path | 图片输入路径
     # "RE-N-Y/aesthetic-shadow-v2"
     # "RE-N-Y/clipscore-vit-large-patch14"
     # "RE-N-Y/pickscore"
