@@ -307,6 +307,7 @@ class ImageProcessor:
         align_dir: str = None,
         max_short_edge: int = None,
         max_long_edge: int = None,
+        max_pixels: int = None,
     ) -> Tuple[int, int]:
         """
         Processes all image files in a directory, with optional alignment.
@@ -444,6 +445,7 @@ class ImageProcessor:
                                 str(img_path_obj),
                                 max_short_edge,
                                 max_long_edge,
+                                max_pixels,
                             )
                             for img_path_obj in batch_paths
                         ]
@@ -866,6 +868,7 @@ def main():
     global_console.print(f"Input directory: {args.input}")
     global_console.print(f"Max short edge: {args.max_short_edge}")
     global_console.print(f"Max long edge: {args.max_long_edge}")
+    global_console.print(f"Max pixels: {args.max_pixels}")
     global_console.print(f"Recursive processing: {'Yes' if args.recursive else 'No'}")
     global_console.print(
         f"Number of workers: {args.workers if args.workers is not None else 16}"
@@ -892,6 +895,7 @@ def main():
         align_dir=args.align_input,
         max_short_edge=args.max_short_edge,
         max_long_edge=args.max_long_edge,
+        max_pixels=args.max_pixels,
     )
 
     elapsed_time = time.time() - start_time
