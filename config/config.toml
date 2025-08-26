@@ -338,15 +338,15 @@ Answer format with '###Prompt:'."""
 
 [prompts.task]
 
-removal_watermark = "Your task is to remove the watermark from the image."
+removal_watermark = "Remove the watermark from the image."
 
 removal_watermark_then_caption = "Remove all marks、texts、logo  and watermark from this image, then generate captions about the new image."
 
-removal_logo = "Your task is to remove the logo from the image."
+removal_logo = "Remove the logo from the image."
 
-removal_background = "Your task is to remove the background from the image."
+removal_background = "Remove the background from the image."
 
-removal_text = "Your task is to remove the text from the image."
+removal_text = "Remove the text from the image."
 
 # Generation configuration
 [generation_config]
@@ -477,12 +477,21 @@ response_modalities = ["text"]
 response_mime_type = "text/plain"
 thinking_budget = 8000
 
-[generation_config.gemini-2.5-flash-lite]
+[generation_config.gemini-2_5-flash-lite]
 temperature = 1.0
 top_p = 0.95
 top_k = 64
 max_output_tokens = 65536
 response_modalities = ["text"]
+response_mime_type = "text/plain"
+thinking_budget = 8192
+
+[generation_config.gemini-2_5-flash-image-preview]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["image","text"]
 response_mime_type = "text/plain"
 thinking_budget = 8192
 

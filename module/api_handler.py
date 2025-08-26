@@ -754,9 +754,13 @@ def api_process_batch(
         )
 
         if args.gemini_task and mime.startswith("image"):
-            args.gemini_model_path = "gemini-2.0-flash-exp"
+            args.gemini_model_path = "gemini-2.5-flash-image-preview"
             system_prompt = None
-            prompt = config["prompts"]["task"][args.gemini_task]
+            prompt = (
+                config["prompts"]["task"][args.gemini_task]
+                if config["prompts"]["task"][args.gemini_task]
+                else args.gemini_task
+            )
 
         if args.pair_dir and mime.startswith("image"):
             system_prompt = config["prompts"]["pair_image_system_prompt"]
