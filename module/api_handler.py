@@ -747,12 +747,6 @@ def api_process_batch(
         return ""
 
     elif args.gemini_api_key != "":
-        generation_config = (
-            config["generation_config"][args.gemini_model_path.replace(".", "_")]
-            if config["generation_config"][args.gemini_model_path.replace(".", "_")]
-            else config["generation_config"]["default"]
-        )
-
         if args.gemini_task and mime.startswith("image"):
             args.gemini_model_path = "gemini-2.5-flash-image-preview"
             system_prompt = None
@@ -761,6 +755,12 @@ def api_process_batch(
                 if config["prompts"]["task"][args.gemini_task]
                 else args.gemini_task
             )
+
+        generation_config = (
+            config["generation_config"][args.gemini_model_path.replace(".", "_")]
+            if config["generation_config"][args.gemini_model_path.replace(".", "_")]
+            else config["generation_config"]["default"]
+        )
 
         if args.pair_dir and mime.startswith("image"):
             system_prompt = config["prompts"]["pair_image_system_prompt"]
@@ -874,19 +874,23 @@ def api_process_batch(
             ],
             response_mime_type=(
                 "application/json"
-                if mime.startswith("image")
+                if mime.startswith("image") and args.gemini_task == ""
                 else generation_config["response_mime_type"]
             ),
             response_modalities=generation_config["response_modalities"],
-            response_schema=image_response_schema if mime.startswith("image") else None,
+            response_schema=image_response_schema if mime.startswith("image") and args.gemini_task == "" else None,
             thinking_config=(
-                types.ThinkingConfig(
-                    thinking_budget=(
-                        generation_config["thinking_budget"]
-                        if "thinking_budget" in generation_config
-                        else -1
-                    ),
+                (
+                    types.ThinkingConfig(
+                        thinking_budget=(
+                            generation_config["thinking_budget"]
+                            if "thinking_budget" in generation_config
+                            else -1
+                        ),
+                    )
                 )
+                if args.gemini_task == ""
+                else None
             ),
         )
 
