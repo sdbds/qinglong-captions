@@ -749,12 +749,10 @@ def api_process_batch(
     elif args.gemini_api_key != "":
         if args.gemini_task and mime.startswith("image"):
             args.gemini_model_path = "gemini-2.5-flash-image-preview"
-            system_prompt = None
-            prompt = (
-                config["prompts"]["task"][args.gemini_task]
-                if config["prompts"]["task"][args.gemini_task]
-                else args.gemini_task
-            )
+            system_prompt = config["prompts"]["task_system_prompt"]
+            # 如果在配置中找不到对应key，直接使用 args.gemini_task 作为提示词
+            prompt = config["prompts"]["task"].get(args.gemini_task) or args.gemini_task
+            console.print(f"[blue]prompt: {prompt}[/blue]")
 
         generation_config = (
             config["generation_config"][args.gemini_model_path.replace(".", "_")]
@@ -848,8 +846,6 @@ def api_process_batch(
             top_k=generation_config["top_k"],
             candidate_count=config["generation_config"]["candidate_count"],
             max_output_tokens=generation_config["max_output_tokens"],
-            presence_penalty=0.0,
-            frequency_penalty=0.0,
             safety_settings=[
                 types.SafetySetting(
                     category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
@@ -871,6 +867,22 @@ def api_process_batch(
                     category=types.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
                     threshold=types.HarmBlockThreshold.OFF,
                 ),
+                # types.SafetySetting(
+                #     category=types.HarmCategory.HARM_CATEGORY_IMAGE_HATE,
+                #     threshold=types.HarmBlockThreshold.OFF,
+                # ),
+                # types.SafetySetting(
+                #     category=types.HarmCategory.HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT,
+                #     threshold=types.HarmBlockThreshold.OFF,
+                # ),
+                # types.SafetySetting(
+                #     category=types.HarmCategory.HARM_CATEGORY_IMAGE_HARASSMENT,
+                #     threshold=types.HarmBlockThreshold.OFF,
+                # ),
+                # types.SafetySetting(
+                #     category=types.HarmCategory.HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT,
+                #     threshold=types.HarmBlockThreshold.OFF,
+                # ),
             ],
             response_mime_type=(
                 "application/json"
@@ -878,7 +890,11 @@ def api_process_batch(
                 else generation_config["response_mime_type"]
             ),
             response_modalities=generation_config["response_modalities"],
-            response_schema=image_response_schema if mime.startswith("image") and args.gemini_task == "" else None,
+            response_schema=(
+                image_response_schema
+                if mime.startswith("image") and args.gemini_task == ""
+                else None
+            ),
             thinking_config=(
                 (
                     types.ThinkingConfig(
@@ -1046,6 +1062,10 @@ def api_process_batch(
                     progress.update(task_id, description="Generating captions")
                 # 收集流式响应
                 chunks = []
+                # 统一的 part 编号，跨所有 chunk 递增，确保不覆盖且文本/图片对齐
+                part_index = 0
+                # 累积文本缓冲区，直到遇到一张图片（inline_data）再一起落盘
+                text_buffer: list[str] = []
                 for chunk in response:
                     if (
                         not chunk.candidates
@@ -1062,16 +1082,39 @@ def api_process_batch(
                             console.print(Text(chunk.text), end="", overflow="ellipsis")
                         finally:
                             console.file.flush()
-                    if chunk.candidates[0].content.parts[0].inline_data:
-                        save_binary_file(
-                            Path(uri).with_stem(Path(uri).stem + "_s"),
-                            chunk.candidates[0].content.parts[0].inline_data.data,
-                        )
-                        console.print(
-                            f"[blue]File of mime type"
-                            f" {chunk.candidates[0].content.parts[0].inline_data.mime_type} saved"
-                            f"to: {Path(uri).with_stem(Path(uri).stem + '_s').name}[/blue]"
-                        )
+                    # 遍历所有 part，保存文本与 inline_data（二进制）
+                    for part in chunk.candidates[0].content.parts:
+                        # 累积文本
+                        if getattr(part, "text", None):
+                            text_content = str(part.text)
+                            if text_content:
+                                console.print(text_content)
+                                text_buffer.append(text_content)
+                        # 碰到图片则进行一次对齐落盘
+                        if getattr(part, "inline_data", None):
+                            part_index += 1
+                            # 写出累计文本（非空才写）
+                            clean_text = "".join(text_buffer).strip()
+                            if clean_text:
+                                text_path = Path(uri).with_name(
+                                    f"{Path(uri).stem}_{part_index}.txt"
+                                )
+                                save_binary_file(
+                                    text_path, clean_text.encode("utf-8")
+                                )
+                                console.print(
+                                    f"[blue]Text part saved to: {text_path.name}[/blue]"
+                                )
+                            # 写出图片
+                            image_path = Path(uri).with_stem(
+                                f"{Path(uri).stem}_{part_index}"
+                            )
+                            save_binary_file(image_path, part.inline_data.data)
+                            console.print(
+                                f"[blue]File of mime type {part.inline_data.mime_type} saved to: {image_path.name}[/blue]"
+                            )
+                            # 清空文本缓冲，开始下一轮累积
+                            text_buffer.clear()
 
                 console.print("\n")
                 response_text = "".join(chunks)
@@ -1089,7 +1132,7 @@ def api_process_batch(
                     console.print(Text(response_text))
 
                 if mime.startswith("image"):
-                    if isinstance(response_text, str):
+                    if isinstance(response_text, str) and args.gemini_task == "":
                         try:
                             captions = json.loads(response_text)
                         except json.JSONDecodeError as e:
@@ -1114,6 +1157,18 @@ def api_process_batch(
                         )
                         caption_and_rate_layout.print(title=Path(uri).name)
                         return captions.get("prompt", "")
+                    elif args.gemini_task != "":
+                        caption_and_rate_layout = CaptionAndRateLayout(
+                            tag_description="",
+                            rating=[],
+                            average_score=0.0,
+                            long_description=response_text,
+                            pixels=pixels,
+                            panel_height=32,
+                            console=console,
+                        )
+                        caption_and_rate_layout.print(title=Path(uri).name)
+                        return response_text
                     else:
                         description = captions.get("description", "")
                         scores = captions.get("scores", [])

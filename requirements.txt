@@ -13,7 +13,7 @@ pymediainfo
 mutagen
 pyarrow>=14.0.1
 mistralai>=1.6.0
-google-genai>=1.29.0
+google-genai>=1.32.0
 openAI
 dashscope
 pyanimeinfo

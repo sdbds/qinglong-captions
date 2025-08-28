@@ -784,6 +784,81 @@ def assemble_final_tags(
     return found_tags
 
 
+def assemble_tags_json(
+    tags_result: Dict[str, List[Tuple[str, float]]],
+    *,
+    add_tags_threshold: bool,
+    remove_parents_tag: bool,
+    parent_to_child_map: Optional[Dict[str, List[str]]] = None,
+) -> Dict[str, List[str]]:
+    """Assemble tags per category for JSON output.
+
+    Differences to `assemble_final_tags`:
+    - Never consult any use_*_tags switches; include all categories present in `tags_result` as-is.
+    - Preserve only two features:
+      1) remove_parents_tag: remove parent tag if any of its children exist in the same image tag set
+      2) add_tags_threshold: output string as "tag:0.97" when True, otherwise just "tag"
+    - Keep all tags of each category; do not collapse to single best for rating/quality/model.
+
+    Returns a dict mapping category -> list[str].
+    """
+    # 1) Build raw category mapping with explicit category coverage and optional collapsing
+    category_to_tags: Dict[str, List[str]] = {}
+    flat_tags_set: set = set()  # for parent removal
+
+    all_categories = [
+        "rating",
+        "general",
+        "character",
+        "copyright",
+        "artist",
+        "meta",
+        "quality",
+        "model",
+    ]
+
+    for category in all_categories:
+        tags_with_conf = tags_result.get(category, [])
+        if not tags_with_conf:
+            category_to_tags[category] = []
+            continue
+
+        # Collapse to best for rating/quality/model
+        if category in ("quality", "rating", "model"):
+            best_list = [max(tags_with_conf, key=lambda x: x[1])]
+        else:
+            best_list = tags_with_conf
+
+        if add_tags_threshold:
+            tags = [f"{t}:{c:.2f}" for t, c in best_list if t]
+        else:
+            tags = [t for t, _ in best_list if t]
+
+        category_to_tags[category] = tags
+        for t in tags:
+            clean = t.split(":")[0] if ":" in t else t
+            flat_tags_set.add(clean)
+
+    # 2) Remove parent tags if any child present
+    if remove_parents_tag and parent_to_child_map:
+        tags_to_remove = set()
+        for parent_tag, child_tags in parent_to_child_map.items():
+            if parent_tag in flat_tags_set and any(child in flat_tags_set for child in child_tags):
+                tags_to_remove.add(parent_tag)
+
+        if tags_to_remove:
+            # purge from each category list (consider threshold suffix preservation)
+            for category, tags in list(category_to_tags.items()):
+                kept = []
+                for t in tags:
+                    clean = t.split(":")[0] if ":" in t else t
+                    if clean not in tags_to_remove:
+                        kept.append(t)
+                category_to_tags[category] = kept
+
+    return category_to_tags
+
+
 def main(args):
     global console
 
@@ -850,6 +925,8 @@ def main(args):
     )
 
     results = []
+    # Aggregate JSON for all images: { image_path: {category: [tags]} }
+    all_json_tags: Dict[str, Dict[str, List[str]]] = {}
 
     with Progress(
         "[progress.description]{task.description}",
@@ -915,6 +992,15 @@ def main(args):
                     with output_path.open("w", encoding="utf-8") as f:
                         f.write(args.caption_separator.join(found_tags))
 
+                    # Build JSON-ready categorized tags for this image
+                    categorized = assemble_tags_json(
+                        tags_result,
+                        add_tags_threshold=args.add_tags_threshold,
+                        remove_parents_tag=args.remove_parents_tag,
+                        parent_to_child_map=parent_to_child_map,
+                    )
+                    all_json_tags[str(Path(path))] = categorized
+
             progress.update(task, advance=len(batch["uris"].to_pylist()))
 
     console.print("\n[yellow]Tag frequencies:[/yellow]")
@@ -933,6 +1019,14 @@ def main(args):
                 colored_tag = tag_list[0]
                 break
         console.print(f"{colored_tag}: {freq}")
+
+    try:
+        json_output_path = Path(args.train_data_dir) / "tags.json"
+        with json_output_path.open("w", encoding="utf-8") as jf:
+            json.dump(all_json_tags, jf, ensure_ascii=False, indent=2)
+        console.print(f"[bold green]JSON saved to:[/bold green] {json_output_path}")
+    except Exception as e:
+        console.print(f"[red]Failed to save JSON: {e}[/red]")
 
     table = pa.table(
         {
