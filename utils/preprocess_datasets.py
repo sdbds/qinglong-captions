@@ -499,6 +499,16 @@ class ImageProcessor:
             pad_color=self.bg_color # self.bg_color is now guaranteed to be (R, G, B)
         )
 
+        # If no transformation is requested, skip feature detection/matching entirely
+        if self.transform_type == "none":
+            self.console.print(
+                "[cyan]transform_type is 'none'; skipping alignment and returning resized images.[/cyan]"
+            )
+            return (
+                image_to_warp_pil_padded_to_target_dims,
+                reference_image_pil_resized_to_target,
+            )
+
         # Convert PIL images to OpenCV format (numpy arrays)
         # For image_to_warp, use the version resized to reference_image's original size for feature detection
         warped_cv_gray = cv2.cvtColor(
@@ -558,14 +568,20 @@ class ImageProcessor:
                     descriptors_warped_gpu, descriptors_ref_gpu, k=2
                 )
 
-                # Apply ratio test as per Lowe's paper for good matches
+                # Apply ratio test as per Lowe's paper for good matches (robust to tuple/list structures)
                 good_matches = []
-                for m, n in matches_gpu:
-                    if m.distance < 0.85 * n.distance:
-                        good_matches.append(m)
+                for item in matches_gpu:
+                    # KNN case: item is a list/tuple of DMatch
+                    if isinstance(item, (list, tuple)) and len(item) >= 2:
+                        m, n = item[0], item[1]
+                        if m.distance < 0.85 * n.distance:
+                            good_matches.append(m)
+                    # Non-KNN (rare here): single DMatch
+                    elif hasattr(item, 'distance'):
+                        good_matches.append(item)
 
                 # We need at least 3 points for affine, 4 for homography.
-                if len(good_matches) < 5 or self.transform_type == "none":
+                if len(good_matches) < 5:
                     self.console.print(
                         f"[yellow]Not enough good matches found ({len(good_matches)}). Returning unaligned.[/yellow]"
                     )
@@ -693,18 +709,17 @@ class ImageProcessor:
             matches = bf.knnMatch(descriptors_warped, descriptors_ref, k=2)
 
             good_matches = []
-            # Apply ratio test as per Lowe's paper
-            if (
-                matches
-                and len(matches) > 0
-                and isinstance(matches[0], list)
-                and len(matches[0]) == 2
-            ):
-                for m, n in matches:
-                    if m.distance < 0.85 * n.distance:
-                        good_matches.append(m)
-            elif matches and len(matches) > 0 and not isinstance(matches[0], list):
-                good_matches = matches
+            # Apply ratio test as per Lowe's paper (robust to tuple/list/single DMatch)
+            if matches and len(matches) > 0:
+                for item in matches:
+                    # KNN case: item is (m, n) or [m, n]
+                    if isinstance(item, (list, tuple)) and len(item) >= 2:
+                        m, n = item[0], item[1]
+                        if m.distance < 0.85 * n.distance:
+                            good_matches.append(m)
+                    # Non-KNN: item is a single DMatch
+                    elif hasattr(item, 'distance'):
+                        good_matches.append(item)
             else:
                 self.console.print(
                     "[yellow]Not enough matches or match pairs for CPU ratio test. Returning unaligned.[/yellow]"

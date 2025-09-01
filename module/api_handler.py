@@ -24,7 +24,7 @@ from utils.console_util import (
 from utils.stream_util import sanitize_filename
 from utils.wdtagger import format_description, split_name_series
 
-console = Console()
+console = Console(color_system="truecolor", force_terminal=True)
 
 
 def api_process_batch(

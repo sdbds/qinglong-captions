@@ -9,7 +9,7 @@ from rich_pixels import Pixels
 from utils.wdtagger import TagClassifier
 
 # 全局控制台实例
-console = Console()
+console = Console(color_system="truecolor", force_terminal=True)
 
 
 class BaseLayout:

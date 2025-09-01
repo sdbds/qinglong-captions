@@ -38,7 +38,7 @@ import asyncio
 
 Image.MAX_IMAGE_PIXELS = None  # Disable image size limit check
 
-console = Console()
+console = Console(color_system="truecolor", force_terminal=True)
 
 
 def process_batch(args, config):
