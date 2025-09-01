@@ -747,20 +747,66 @@ def api_process_batch(
         return ""
 
     elif args.gemini_api_key != "":
-        if args.gemini_task and mime.startswith("image"):
-            args.gemini_model_path = "gemini-2.5-flash-image-preview"
-            system_prompt = config["prompts"]["task_system_prompt"]
-            # 如果在配置中找不到对应key，直接使用 args.gemini_task 作为提示词
-            prompt = config["prompts"]["task"].get(args.gemini_task) or args.gemini_task
-            console.print(f"[blue]prompt: {prompt}[/blue]")
-
         generation_config = (
             config["generation_config"][args.gemini_model_path.replace(".", "_")]
             if config["generation_config"][args.gemini_model_path.replace(".", "_")]
             else config["generation_config"]["default"]
         )
 
-        if args.pair_dir and mime.startswith("image"):
+        if args.gemini_task and mime.startswith("image"):
+            args.gemini_model_path = "gemini-2.5-flash-image-preview"
+            system_prompt = config["prompts"]["task_system_prompt"]
+            # 任务语义解析：支持诸如 "change apple to banana" 自动映射到模板 key: change_a_to_b
+            task_prompts = config["prompts"].get("task", {})
+            raw_task = str(args.gemini_task)
+
+            prompt = None
+            def apply_template(template_key: str, a_val: str, b_val: str) -> str | None:
+                template = task_prompts.get(template_key)
+                if not template:
+                    return None
+                p = template
+                if "{a}" in p or "{b}" in p or "<a>" in p or "<b>" in p:
+                    p = p.replace("{a}", a_val).replace("{b}", b_val)
+                    p = p.replace("<a>", a_val).replace("<b>", b_val)
+                else:
+                    p = re.sub(r"\ba\b", a_val, p)
+                    p = re.sub(r"\bb\b", b_val, p)
+                return p
+
+            # change a to b
+            m = re.match(r"^\s*change\s+(.+?)\s+to\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
+            if m and prompt is None:
+                a_val = m.group(1).strip()
+                b_val = m.group(2).strip()
+                prompt = apply_template("change_a_to_b", a_val, b_val)
+
+            # transform style a to b
+            m = re.match(r"^\s*(transform|convert)\s+style\s+(.+?)\s+to\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
+            if m and prompt is None:
+                a_val = m.group(2).strip()
+                b_val = m.group(3).strip()
+                prompt = apply_template("transform_style_a_to_b", a_val, b_val)
+
+            # combine a and b / combine a with b
+            m = re.match(r"^\s*combine\s+(.+?)\s+(and|with)\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
+            if m and prompt is None:
+                a_val = m.group(1).strip()
+                b_val = m.group(3).strip()
+                prompt = apply_template("combine_a_and_b", a_val, b_val)
+
+            # add a to b
+            m = re.match(r"^\s*add\s+(.+?)\s+to\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
+            if m and prompt is None:
+                a_val = m.group(1).strip()
+                b_val = m.group(2).strip()
+                prompt = apply_template("add_a_to_b", a_val, b_val)
+
+            # 若未匹配到语义模板，回退到原始键查找
+            if prompt is None:
+                prompt = task_prompts.get(raw_task) or raw_task
+            console.print(f"[blue]prompt: {prompt}[/blue]")
+        elif args.pair_dir and mime.startswith("image"):
             system_prompt = config["prompts"]["pair_image_system_prompt"]
             prompt = config["prompts"]["pair_image_prompt"]
 
@@ -914,6 +960,8 @@ def api_process_batch(
 
         client = genai.Client(api_key=args.gemini_api_key)
 
+        pair_blob_list = []
+
         if (
             mime.startswith("video")
             or mime.startswith("audio")
@@ -1001,6 +1049,37 @@ def api_process_batch(
                 else:
                     console.print(f"[yellow]Pair image {pair_uri} found[/yellow]")
                 pair_blob, pair_pixels = encode_image(pair_uri)
+                # Additionally scan for files matching '<stem>_*' in pair_dir and add to pair_blob_list
+                try:
+                    base_dir = Path(args.pair_dir).resolve()
+                    stem = Path(uri).stem
+                    primary_ext = Path(uri).suffix.lower()
+                    # Collect extras with pattern '<stem>_<number><ext>' and sort by numeric suffix
+                    extras: list[tuple[int, Path]] = []
+                    for p in base_dir.iterdir():
+                        if (
+                            p.is_file()
+                            and p.name.startswith(f"{stem}_")
+                            and p.suffix.lower() == primary_ext
+                            and p.resolve() != pair_uri
+                        ):
+                            name_stem = p.stem
+                            # Expect name like '<stem>_<num>'
+                            if len(name_stem) > len(stem) + 1 and name_stem[len(stem)] == "_":
+                                num_part = name_stem[len(stem) + 1 :]
+                                if num_part.isdigit():
+                                    extras.append((int(num_part), p))
+
+                    extras.sort(key=lambda t: t[0])
+                    for _, p in extras:
+                        try:
+                            extra_blob, _ = encode_image(p)
+                            pair_blob_list.append(extra_blob)
+                            console.print(f"[blue]Paired extra: {p.name}[/blue]")
+                        except Exception as ee:
+                            console.print(f"[red]Failed to encode paired extra {p}: {ee}[/red]")
+                except Exception as scan_err:
+                    console.print(f"[yellow]Scan pair_dir extras failed: {scan_err}[/yellow]")
 
         # Some files have a processing delay. Wait for them to be ready.
         # wait_for_files_active(files)
@@ -1033,17 +1112,26 @@ def api_process_batch(
                     )
                 elif mime.startswith("image"):
                     if args.pair_dir != "":
+                        # Build contents with all pair images first, then the primary image, then the prompt
+                        image_parts = [
+                            types.Part.from_bytes(
+                                data=pair_blob, mime_type="image/jpeg"
+                            )
+                        ]
+                        if pair_blob_list:
+                            image_parts.extend(
+                                [
+                                    types.Part.from_bytes(data=b, mime_type="image/jpeg")
+                                    for b in pair_blob_list
+                                ]
+                            )
+                        image_parts.append(
+                            types.Part.from_bytes(data=blob, mime_type="image/jpeg")
+                        )
+                        image_parts.append(types.Part.from_text(text=prompt))
                         response = client.models.generate_content_stream(
                             model=args.gemini_model_path,
-                            contents=[
-                                types.Part.from_bytes(
-                                    data=pair_blob, mime_type="image/jpeg"
-                                ),
-                                types.Part.from_bytes(
-                                    data=blob, mime_type="image/jpeg"
-                                ),
-                                types.Part.from_text(text=prompt),
-                            ],
+                            contents=image_parts,
                             config=genai_config,
                         )
                     else:
@@ -1099,9 +1187,7 @@ def api_process_batch(
                                 text_path = Path(uri).with_name(
                                     f"{Path(uri).stem}_{part_index}.txt"
                                 )
-                                save_binary_file(
-                                    text_path, clean_text.encode("utf-8")
-                                )
+                                save_binary_file(text_path, clean_text.encode("utf-8"))
                                 console.print(
                                     f"[blue]Text part saved to: {text_path.name}[/blue]"
                                 )
@@ -1145,19 +1231,7 @@ def api_process_batch(
                     else:
                         # If it's already a dict/list, use it directly
                         captions = response_text
-                    if args.pair_dir and pair_pixels:
-                        description = captions.get("prompt", "")
-
-                        caption_and_rate_layout = CaptionPairImageLayout(
-                            description=description,
-                            pixels=pixels,
-                            pair_pixels=pair_pixels,
-                            panel_height=32,
-                            console=console,
-                        )
-                        caption_and_rate_layout.print(title=Path(uri).name)
-                        return captions.get("prompt", "")
-                    elif args.gemini_task != "":
+                    if args.gemini_task != "":
                         caption_and_rate_layout = CaptionAndRateLayout(
                             tag_description="",
                             rating=[],
@@ -1169,6 +1243,18 @@ def api_process_batch(
                         )
                         caption_and_rate_layout.print(title=Path(uri).name)
                         return response_text
+                    elif args.pair_dir and pair_pixels:
+                        description = captions.get("prompt", "")
+
+                        caption_and_rate_layout = CaptionPairImageLayout(
+                            description=description,
+                            pixels=pixels,
+                            pair_pixels=pair_pixels,
+                            panel_height=32,
+                            console=console,
+                        )
+                        caption_and_rate_layout.print(title=Path(uri).name)
+                        return captions.get("prompt", "")
                     else:
                         description = captions.get("description", "")
                         scores = captions.get("scores", [])

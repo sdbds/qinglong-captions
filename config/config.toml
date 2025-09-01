@@ -362,6 +362,14 @@ removal_background = "Remove the background from the image."
 
 removal_text = "Remove the text from the image."
 
+change_a_to_b = """Using the provided image, change only the {a} to {b}. Keep everything else in the image exactly the same,preserving the original style, lighting, and composition."""
+
+transform_style_a_to_b = """Transform the provided photograph of {a} into the artistic style of {b}. Preserve the original composition but render it with {b} style."""
+
+combine_a_and_b = """Create a new image by combining the elements from the provided images. Take from the first image and place it with/on the second image."""
+
+add_a_to_b = """Using the provided images, take the first image of {a} onto the second image of {b}. Ensure that the features of {b} remain completely unchanged. The added element should look natural and seamless, with no visible editing traces."""
+
 # Generation configuration
 [generation_config]
 
@@ -505,7 +513,7 @@ temperature = 1.0
 top_p = 0.95
 top_k = 64
 max_output_tokens = 8192
-response_modalities = ["image","text"]
+response_modalities = ["image", "text"]
 response_mime_type = "text/plain"
 
 # Dataset schema configuration
@@ -567,11 +575,27 @@ fields = [
 # List of series names to exclude from special parsing in split_name_series.
 # These are terms that appear in parentheses but should not be treated as a series name.
 series_exclude_list = [
-    "female", "male", "character", "atlus character", "beast style", 
-    "dangerous beast", "amor caren", "berserker install", "archer install", 
-    "saber install", "assassin install", "lancer install", "rider install", 
-    "caster install", "young", "swimsuit rider", "2021 outfit", 
-    "herrscher of finality", "winter princess", "creature", "kenjaku"
+    "female",
+    "male",
+    "character",
+    "atlus character",
+    "beast style",
+    "dangerous beast",
+    "amor caren",
+    "berserker install",
+    "archer install",
+    "saber install",
+    "assassin install",
+    "lancer install",
+    "rider install",
+    "caster install",
+    "young",
+    "swimsuit rider",
+    "2021 outfit",
+    "herrscher of finality",
+    "winter princess",
+    "creature",
+    "kenjaku",
 ]
 
 [reward_model]
