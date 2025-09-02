@@ -20,6 +20,7 @@ A Python toolkit for generating video captions using the Lance database format a
 3. We have supported nano banana as a new image editing and processing task, and it supports multiple inputs and outputs.
 
 <img width="714" height="231" alt="image" src="https://github.com/user-attachments/assets/c4b64472-d364-469b-bc25-258bc68ea073" />
+
 If the prompt indicates outputting multiple images, they will also be saved separately and the corresponding text content will be saved.
 If you add pair-dir, you can input more images for multimodal context interleaving!
 
