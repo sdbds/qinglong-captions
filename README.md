@@ -1,10 +1,19 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (2.9)
+# qinglong-captioner (3.0)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changlog
+
+### 3.0
+
+1. We support tagger JSON format files, and now a tags.json file will be generated in the root directory of the data after marking, which will be classified according to tag categories
+2. We have added image_deward_madelps1! Using imscore as an interface to call many aesthetic and performance models!
+3. We have supported nano banana as a new image editing and processing task, and it supports multiple inputs and outputs.
+If the prompt indicates outputting multiple images, they will also be saved separately and the corresponding text content will be saved.
+If you add pair-dir, you can input more images for multimodal context interleaving!
+
 
 ### 2.9
 
