@@ -9,12 +9,15 @@ A Python toolkit for generating video captions using the Lance database format a
 ### 3.0
 
 1. We support tagger JSON format files, and now a tags.json file will be generated in the root directory of the data after marking, which will be classified according to tag categories
-2. 
+ 
 <img width="681" height="694" alt="image" src="https://github.com/user-attachments/assets/beb6a383-5144-49d4-b128-ba516525b55c" />
 
-3. We have added image_deward_madel.ps1! Using [imscore](https://github.com/RE-N-Y/imscore) as an interface to call many aesthetic and performance models!
-  
-4. We have supported nano banana as a new image editing and processing task, and it supports multiple inputs and outputs.
+2. We have added image_deward_madel.ps1! Using [imscore](https://github.com/RE-N-Y/imscore) as an interface to call many aesthetic and performance models!
+
+<img width="1006" height="882" alt="image" src="https://github.com/user-attachments/assets/7e8d0aba-d677-482a-91fe-1f89d3603210" />
+
+
+3. We have supported nano banana as a new image editing and processing task, and it supports multiple inputs and outputs.
 
 <img width="714" height="231" alt="image" src="https://github.com/user-attachments/assets/c4b64472-d364-469b-bc25-258bc68ea073" />
 If the prompt indicates outputting multiple images, they will also be saved separately and the corresponding text content will be saved.
