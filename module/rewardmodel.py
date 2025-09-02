@@ -48,7 +48,7 @@ from imscore.cyclereward.model import CycleReward
 from imscore.evalmuse.model import EvalMuse
 from imscore.hpsv3.model import HPSv3
 
-console = Console()
+console = Console(color_system="truecolor", force_terminal=True)
 
 
 def preprocess_image(image):
@@ -109,13 +109,56 @@ def process_batch(pixel_tensors, model, prompts):
         if not pixel_tensors:
             return []
         out = []
+        # 推断目标设备
+        try:
+            model_device = next(model.parameters()).device  # type: ignore[attr-defined]
+        except Exception:
+            model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         for px, pr in zip(pixel_tensors, prompts):
-            # 该模型期望 ndarray，无其他预处理
+            # 统一为 torch.FloatTensor [C,H,W] on model_device, 0..1
             try:
-                s = model.score([px], [pr])
+                if isinstance(px, torch.Tensor):
+                    t = px
+                    if t.dim() == 3 and t.shape[-1] == 3:
+                        # HWC -> CHW
+                        t = t.permute(2, 0, 1)
+                    elif t.dim() == 4:
+                        # [N,C,H,W] -> take first
+                        t = t[0]
+                    t = t.to(dtype=torch.float32)
+                    if t.max() > 1.0:
+                        t = t / 255.0
+                elif isinstance(px, np.ndarray):
+                    if px.ndim != 3 or px.shape[2] != 3:
+                        raise ValueError(f"Expected ndarray HxWx3, got shape={px.shape}")
+                    t = torch.from_numpy(px).permute(2, 0, 1).contiguous().to(dtype=torch.float32) / 255.0
+                elif isinstance(px, Image.Image):
+                    arr = np.array(px.convert("RGB"), dtype=np.float32)
+                    t = torch.from_numpy(arr).permute(2, 0, 1).contiguous() / 255.0
+                else:
+                    raise TypeError(f"Unsupported pixel type: {type(px)}")
+
+                t = t.to(model_device, non_blocking=True)
+                # 增加 batch 维度 -> [1,C,H,W]
+                if t.dim() == 3:
+                    t = t.unsqueeze(0)
+
+                # 仅走单样本张量路径，满足 PickScorer/CLIP 家族对 4D 的要求
+                s = model.score(t, pr)
             except Exception:
-                # 回退：若 ndarray 路径异常，尝试直接传入 PIL
-                s = model.score([px], [pr])
+                console.print(
+                    f"[red]score(tensor single) failed[/red] model={type(model).__name__}, px_type={type(px).__name__}, pr_type={type(pr).__name__}, device={model_device}"
+                )
+                if isinstance(px, np.ndarray):
+                    console.print(f"[yellow]ndarray shape={px.shape}, dtype={px.dtype}[/yellow]")
+                elif isinstance(px, torch.Tensor):
+                    console.print(f"[yellow]tensor shape={tuple(px.shape)}, dtype={px.dtype}, device={px.device}[/yellow]")
+                # 最后兜底：再尝试原始对象（可能某些实现内部做转换）
+                try:
+                    s = model.score(px, pr)
+                except Exception:
+                    raise Exception
             console.print(f"[bold green]Score: {s}[/bold green]")
             if isinstance(s, torch.Tensor):
                 s = (
@@ -537,7 +580,7 @@ def setup_parser() -> argparse.ArgumentParser:
         "--dtype",
         type=str,
         default="auto",
-        choices=["auto", "float32", "float16", "bfloat16", "fp16", "fp32", "fp64"],
+        choices=["auto", "float32", "float16", "bfloat16", "fp16", "fp32", "bf16"],
         help="Data type for inference",
     )
 
