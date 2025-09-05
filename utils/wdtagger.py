@@ -83,9 +83,9 @@ IMAGE_SIZE = 448
 
 DEFAULT_WD14_TAGGER_REPO = "SmilingWolf/wd-v1-4-moat-tagger-v2"
 FILES = ["model.onnx", "selected_tags.csv"]
-CL_FILES = ["cl_tagger_1_01/model.onnx", "cl_tagger_1_01/tag_mapping.json"]
+CL_FILES = ["cl_tagger_1_02/model.onnx", "cl_tagger_1_02/tag_mapping.json"]
 CSV_FILE = "selected_tags.csv"
-JSON_FILE = "cl_tagger_1_01/tag_mapping.json"
+JSON_FILE = "cl_tagger_1_02/tag_mapping.json"
 PARENTS_CSV = "tag_implications.csv"
 
 
