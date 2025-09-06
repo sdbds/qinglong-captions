@@ -16,14 +16,17 @@ from PIL import Image
 from pathlib import Path
 import functools
 import random
-from utils.console_util import (
-    CaptionLayout,
-    CaptionPairImageLayout,
-    CaptionAndRateLayout,
-    MarkdownLayout,
-)
+from utils.stream_util import sanitize_filename
 from utils.wdtagger import format_description, split_name_series
 from module.providers.gemini_utils import upload_or_get
+from utils.parse_display import (
+    extract_code_block_content,
+    display_caption_and_rate,
+    display_pair_image_description,
+    display_markdown,
+    process_llm_response,
+    display_caption_layout,
+)
 
 console = Console(color_system="truecolor", force_terminal=True)
 
@@ -374,26 +377,26 @@ def api_process_batch(
                 return content
             elif mime.startswith("image"):
                 if args.pair_dir and pair_pixels:
-                    caption_and_rate_layout = CaptionPairImageLayout(
+                    display_pair_image_description(
+                        title=Path(uri).name,
                         description=response_text,
                         pixels=pixels,
                         pair_pixels=pair_pixels,
                         panel_height=32,
                         console=console,
                     )
-                    caption_and_rate_layout.print(title=Path(uri).name)
                     return response_text
                 else:
-                    caption_and_rate_layout = CaptionAndRateLayout(
+                    display_caption_and_rate(
+                        title=Path(uri).name,
                         tag_description="",
-                        rating=[],
-                        average_score=0,
                         long_description=response_text,
                         pixels=pixels,
+                        rating=[],
+                        average_score=0,
                         panel_height=32,
                         console=console,
                     )
-                    caption_and_rate_layout.print(title=Path(uri).name)
                     return response_text
 
         result = with_retry(
@@ -710,14 +713,12 @@ def api_process_batch(
                     else:
                         ocr_pixels = None
 
-                    markdown_layout = MarkdownLayout(
-                        pixels=ocr_pixels,
+                    display_markdown(
+                        title=f"{Path(uri).name} -  Page {page.index+1}",
                         markdown_content=page.markdown,
+                        pixels=ocr_pixels,
                         panel_height=32,
                         console=console,
-                    )
-                    markdown_layout.print(
-                        title=f"{Path(uri).name} -  Page {page.index+1}"
                     )
 
             elif args.ocr:
@@ -730,14 +731,14 @@ def api_process_batch(
                 )
                 content = ocr_response.pages[0].markdown
 
-                # 使用MarkdownLayout显示Markdown内容
-                markdown_layout = MarkdownLayout(
-                    pixels=pixels,
+                # 使用统一的 display_markdown 显示Markdown内容
+                display_markdown(
+                    title=Path(uri).name,
                     markdown_content=content,
+                    pixels=pixels,
                     panel_height=32,
                     console=console,
                 )
-                markdown_layout.print(title=Path(uri).name)
 
             else:
                 chat_response = client.chat.complete(
@@ -769,8 +770,9 @@ def api_process_batch(
                     short_highlight_rate = 0
                     long_highlight_rate = 0
 
-                # 使用CaptionLayout显示图片和字幕
-                caption_layout = CaptionLayout(
+                # 使用统一的 display_caption_layout 显示图片和字幕
+                display_caption_layout(
+                    title=Path(uri).name,
                     tag_description=tag_description,
                     short_description=short_description,
                     long_description=long_description,
@@ -780,8 +782,6 @@ def api_process_batch(
                     panel_height=32,
                     console=console,
                 )
-
-                caption_layout.print(title=Path(uri).name)
 
             # 计算已经消耗的时间，动态调整等待时间
             elapsed_time = time.time() - start_time
@@ -1145,42 +1145,42 @@ def api_process_batch(
                 else:
                     captions = response_text
                 if args.gemini_task != "":
-                    caption_and_rate_layout = CaptionAndRateLayout(
+                    display_caption_and_rate(
+                        title=Path(uri).name,
                         tag_description="",
-                        rating=[],
-                        average_score=0.0,
                         long_description=response_text,
                         pixels=pixels,
+                        rating=[],
+                        average_score=0.0,
                         panel_height=32,
                         console=console,
                     )
-                    caption_and_rate_layout.print(title=Path(uri).name)
                     return response_text
                 elif args.pair_dir and pair_pixels:
                     description = captions.get("prompt", "")
-                    caption_and_rate_layout = CaptionPairImageLayout(
+                    display_pair_image_description(
+                        title=Path(uri).name,
                         description=description,
                         pixels=pixels,
                         pair_pixels=pair_pixels,
                         panel_height=32,
                         console=console,
                     )
-                    caption_and_rate_layout.print(title=Path(uri).name)
                     return captions.get("prompt", "")
                 else:
                     description = captions.get("description", "")
                     scores = captions.get("scores", [])
                     average_score = captions.get("average_score", 0.0)
-                    caption_and_rate_layout = CaptionAndRateLayout(
+                    display_caption_and_rate(
+                        title=Path(uri).name,
                         tag_description="",
-                        rating=scores,
-                        average_score=average_score,
                         long_description=description,
                         pixels=pixels,
+                        rating=scores,
+                        average_score=average_score,
                         panel_height=32,
                         console=console,
                     )
-                    caption_and_rate_layout.print(title=Path(uri).name)
                     return response_text
 
             response_text = response_text.replace("[green]", "<font color='green'>").replace("[/green]", "</font>")
@@ -1279,51 +1279,6 @@ def encode_image(image_path: str) -> Optional[Tuple[str, Pixels]]:
             f"[red]Error:[/red] Unexpected error processing {image_path}: {str(e)}"
         )
     return None, None
-
-
-def extract_code_block_content(response_text, code_type=None, console=None):
-    """从响应文本中提取被```包围的代码块内容
-
-    Args:
-        response_text (str): API返回的完整响应文本
-        code_type (str, optional): 代码块类型标识符(如'srt')，如果提供则会从内容开头移除
-        console (Console, optional): Rich Console对象，用于输出日志信息
-
-    Returns:
-        str: 提取出的代码块内容，如果没有找到则返回空字符串
-    """
-    if not response_text:
-        return ""
-
-    # 查找所有的 ``` 标记位置
-    markers = []
-    start = 0
-    while True:
-        pos = response_text.find("```", start)
-        if pos == -1:
-            break
-        markers.append(pos)
-        start = pos + 3
-
-    # 确保找到至少一对标记
-    if len(markers) >= 2:
-        # 获取最后一对标记之间的内容
-        first_marker = markers[-2]
-        second_marker = markers[-1]
-        content = response_text[first_marker + 3 : second_marker].strip()
-
-        # 如果指定了代码类型，移除开头的代码类型标识
-        if code_type and content.startswith(code_type):
-            content = content[len(code_type) :].strip()
-
-        if console:
-            console.print(f"[blue]Extracted content length:[/blue] {len(content)}")
-            console.print(f"[blue]Found {len(markers)} ``` markers[/blue]")
-        return content
-    else:
-        if console:
-            console.print(f"[red]Not enough ``` markers: found {len(markers)}[/red]")
-        return ""
 
 
 def with_retry(
@@ -1485,28 +1440,6 @@ def collect_stream_gemini(response: Iterable[Any], uri: str, console: Console) -
                 text_buffer.clear()
     console.print("\n")
     return "".join(chunks)
-
-
-def process_llm_response(result: str) -> tuple[str, str]:
-    """处理LLM返回的结果, 提取短描述和长描述。
-
-    Args:
-        result: LLM返回的原始结果文本
-
-    Returns:
-        tuple[str, str]: 返回 (short_description, long_description) 元组
-    """
-    if result and "###" in result:
-        short_description, long_description = result.split("###")[-2:]
-
-        # 更彻底地清理描述
-        short_description = " ".join(short_description.split(":", 1)[-1].split())
-        long_description = " ".join(long_description.split(":", 1)[-1].split())
-    else:
-        short_description = ""
-        long_description = ""
-
-    return short_description, long_description
 
 
 def save_binary_file(file_name, data):
