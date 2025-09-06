@@ -16,7 +16,8 @@ import json
 import pyarrow as pa
 from module.lanceImport import transform2lance
 from module.lanceexport import extract_from_lance
-from module.api_handler import api_process_batch, process_llm_response
+from module.api_handler import api_process_batch
+from utils.parse_display import process_llm_response
 from module.scenedetect import SceneDetector, run_async_in_thread
 from utils.stream_util import (
     split_media_stream_clips,
