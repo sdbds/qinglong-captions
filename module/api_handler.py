@@ -22,8 +22,8 @@ from utils.console_util import (
     CaptionAndRateLayout,
     MarkdownLayout,
 )
-from utils.stream_util import sanitize_filename
 from utils.wdtagger import format_description, split_name_series
+from module.providers.gemini_utils import upload_or_get
 
 console = Console(color_system="truecolor", force_terminal=True)
 
@@ -258,10 +258,37 @@ def api_process_batch(
                 pair_blob = image_media["pair"]["blob"]
                 pair_pixels = image_media["pair"]["pixels"]
 
-        for attempt in range(args.max_retries):
-            try:
-                start_time = time.time()
-                if mime.startswith("video"):
+        def _attempt_stepfun() -> str:
+            start_time = time.time()
+            if mime.startswith("video"):
+                completion = client.chat.completions.create(
+                    model=args.step_model_path,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": system_prompt,
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "video_url",
+                                    "video_url": {"url": "stepfile://" + file.id},
+                                },
+                                {
+                                    "type": "text",
+                                    "text": prompt,
+                                },
+                            ],
+                        },
+                    ],
+                    temperature=0.7,
+                    top_p=0.95,
+                    max_tokens=8192,
+                    stream=True,
+                )
+            elif mime.startswith("image"):
+                if args.pair_dir != "":
                     completion = client.chat.completions.create(
                         model=args.step_model_path,
                         messages=[
@@ -273,8 +300,39 @@ def api_process_batch(
                                 "role": "user",
                                 "content": [
                                     {
-                                        "type": "video_url",
-                                        "video_url": {"url": "stepfile://" + file.id},
+                                        "type": "image_url",
+                                        "image_url": blob,
+                                    },
+                                    {
+                                        "type": "image_url",
+                                        "image_url": pair_blob,
+                                    },
+                                    {
+                                        "type": "text",
+                                        "text": prompt,
+                                    },
+                                ],
+                            },
+                        ],
+                        temperature=0.7,
+                        top_p=0.95,
+                        max_tokens=8192,
+                        stream=True,
+                    )
+                else:
+                    completion = client.chat.completions.create(
+                        model=args.step_model_path,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": system_prompt,
+                            },
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "image_url",
+                                        "image_url": blob,
                                     },
                                     {
                                         "type": "text",
@@ -289,132 +347,63 @@ def api_process_batch(
                         stream=True,
                     )
 
-                elif mime.startswith("image"):
-                    if args.pair_dir != "":
-                        completion = client.chat.completions.create(
-                            model=args.step_model_path,
-                            messages=[
-                                {
-                                    "role": "system",
-                                    "content": system_prompt,
-                                },
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {
-                                            "type": "image_url",
-                                            "image_url": blob,
-                                        },
-                                        {
-                                            "type": "image_url",
-                                            "image_url": pair_blob,
-                                        },
-                                        {
-                                            "type": "text",
-                                            "text": prompt,
-                                        },
-                                    ],
-                                },
-                            ],
-                            temperature=0.7,
-                            top_p=0.95,
-                            max_tokens=8192,
-                            stream=True,
-                        )
-                    else:
-                        completion = client.chat.completions.create(
-                            model=args.step_model_path,
-                            messages=[
-                                {
-                                    "role": "system",
-                                    "content": system_prompt,
-                                },
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {
-                                            "type": "image_url",
-                                            "image_url": blob,
-                                        },
-                                        {
-                                            "type": "text",
-                                            "text": prompt,
-                                        },
-                                    ],
-                                },
-                            ],
-                            temperature=0.7,
-                            top_p=0.95,
-                            max_tokens=8192,
-                            stream=True,
-                        )
+            if progress and task_id is not None:
+                progress.update(task_id, description="Generating captions")
+            response_text = collect_stream_stepfun(completion, console)
 
-                if progress and task_id is not None:
-                    progress.update(task_id, description="Generating captions")
-                response_text = collect_stream_stepfun(completion, console)
+            elapsed_time = time.time() - start_time
+            console.print(
+                f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
+            )
 
-                elapsed_time = time.time() - start_time
-                console.print(
-                    f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
-                )
+            try:
+                console.print(response_text)
+            except Exception:
+                console.print(Text(response_text))
 
-                try:
-                    console.print(response_text)
-                except Exception as e:
-                    console.print(Text(response_text))
+            response_text = response_text.replace(
+                "[green]", "<font color='green'>"
+            ).replace("[/green]", "</font>")
 
-                response_text = response_text.replace(
-                    "[green]", "<font color='green'>"
-                ).replace("[/green]", "</font>")
-
-                if mime.startswith("video"):
-                    content = extract_code_block_content(response_text, "srt", console)
-                elif mime.startswith("image"):
-                    if args.pair_dir and pair_pixels:
-                        caption_and_rate_layout = CaptionPairImageLayout(
-                            description=response_text,
-                            pixels=pixels,
-                            pair_pixels=pair_pixels,
-                            panel_height=32,
-                            console=console,
-                        )
-                        caption_and_rate_layout.print(title=Path(uri).name)
-                        return response_text
-                    else:
-                        caption_and_rate_layout = CaptionAndRateLayout(
-                            tag_description="",
-                            rating=[],
-                            average_score=0,
-                            long_description=response_text,
-                            pixels=pixels,
-                            panel_height=32,
-                            console=console,
-                        )
-                        caption_and_rate_layout.print(title=Path(uri).name)
-                        return response_text
+            if mime.startswith("video"):
+                content = extract_code_block_content(response_text, "srt", console)
                 if not content:
-                    continue
-
+                    raise Exception("RETRY_EMPTY_CONTENT")
                 if progress and task_id is not None:
                     progress.update(task_id, description="Processing media...")
                 return content
-
-            except Exception as e:
-                error_msg = Text(str(e), style="red")
-                console.print(f"[red]Error processing: {error_msg}[/red]")
-                if attempt < args.max_retries - 1:
-                    console.print(
-                        f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]"
+            elif mime.startswith("image"):
+                if args.pair_dir and pair_pixels:
+                    caption_and_rate_layout = CaptionPairImageLayout(
+                        description=response_text,
+                        pixels=pixels,
+                        pair_pixels=pair_pixels,
+                        panel_height=32,
+                        console=console,
                     )
-                    elapsed_time = time.time() - start_time
-                    if elapsed_time < args.wait_time:
-                        time.sleep(args.wait_time - elapsed_time)
+                    caption_and_rate_layout.print(title=Path(uri).name)
+                    return response_text
                 else:
-                    console.print(
-                        f"[red]Failed to process after {args.max_retries} attempts. Skipping.[/red]"
+                    caption_and_rate_layout = CaptionAndRateLayout(
+                        tag_description="",
+                        rating=[],
+                        average_score=0,
+                        long_description=response_text,
+                        pixels=pixels,
+                        panel_height=32,
+                        console=console,
                     )
-                continue
-        return ""
+                    caption_and_rate_layout.print(title=Path(uri).name)
+                    return response_text
+
+        result = with_retry(
+            _attempt_stepfun,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: (59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)),
+        )
+        return result
 
     elif provider == "qwenvl":
         import dashscope
@@ -442,58 +431,51 @@ def api_process_batch(
             },
         ]
 
-        for attempt in range(args.max_retries):
+        def _attempt_qwenvl() -> str:
+            start_time = time.time()
+            responses = dashscope.MultiModalConversation.call(
+                model=args.qwenVL_model_path,
+                messages=messages,
+                api_key=args.qwenVL_api_key,
+                stream=True,
+                incremental_output=True,
+            )
+
+            if progress and task_id is not None:
+                progress.update(task_id, description="Generating captions")
+            response_text = collect_stream_qwen(responses, console)
+
+            elapsed_time = time.time() - start_time
+            console.print(
+                f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
+            )
+
             try:
-                start_time = time.time()
-                responses = dashscope.MultiModalConversation.call(
-                    model=args.qwenVL_model_path,
-                    messages=messages,
-                    api_key=args.qwenVL_api_key,
-                    stream=True,
-                    incremental_output=True,
-                )
+                console.print(response_text)
+            except Exception:
+                console.print(Text(response_text))
 
-                if progress and task_id is not None:
-                    progress.update(task_id, description="Generating captions")
-                response_text = collect_stream_qwen(responses, console)
+            response_text = response_text.replace(
+                "[green]", "<font color='green'>"
+            ).replace("[/green]", "</font>")
 
-                elapsed_time = time.time() - start_time
-                console.print(
-                    f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
-                )
+            content = extract_code_block_content(response_text, "srt", console)
+            if not content:
+                # Trigger retry when content is empty
+                raise Exception("RETRY_EMPTY_CONTENT")
 
-                try:
-                    console.print(response_text)
-                except Exception as e:
-                    console.print(Text(response_text))
+            if progress and task_id is not None:
+                progress.update(task_id, description="Processing media...")
+            return content
 
-                response_text = response_text.replace(
-                    "[green]", "<font color='green'>"
-                ).replace("[/green]", "</font>")
-
-                content = extract_code_block_content(response_text, "srt", console)
-                if not content:
-                    continue
-
-                if progress and task_id is not None:
-                    progress.update(task_id, description="Processing media...")
-                return content
-            except Exception as e:
-                error_msg = Text(str(e), style="red")
-                console.print(f"[red]Error processing: {error_msg}[/red]")
-                if attempt < args.max_retries - 1:
-                    console.print(
-                        f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]"
-                    )
-                    elapsed_time = time.time() - start_time
-                    if elapsed_time < args.wait_time:
-                        time.sleep(args.wait_time - elapsed_time)
-                else:
-                    console.print(
-                        f"[red]Failed to process after {args.max_retries} attempts. Skipping.[/red]"
-                    )
-                continue
-        return ""
+        content = with_retry(
+            _attempt_qwenvl,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: (59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)),
+        )
+        return content
 
     elif provider == "glm":
         from zhipuai import ZhipuAI
@@ -517,56 +499,48 @@ def api_process_batch(
             },
         ]
 
-        for attempt in range(args.max_retries):
+        def _attempt_glm() -> str:
+            start_time = time.time()
+            responses = client.chat.completions.create(
+                model=args.glm_model_path,
+                messages=messages,
+                stream=True,
+            )
+
+            if progress and task_id is not None:
+                progress.update(task_id, description="Generating captions")
+            response_text = collect_stream_glm(responses, console)
+
+            elapsed_time = time.time() - start_time
+            console.print(
+                f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
+            )
+
             try:
-                start_time = time.time()
-                responses = client.chat.completions.create(
-                    model=args.glm_model_path,
-                    messages=messages,
-                    stream=True,
-                )
+                console.print(response_text)
+            except Exception:
+                console.print(Text(response_text))
 
-                if progress and task_id is not None:
-                    progress.update(task_id, description="Generating captions")
-                response_text = collect_stream_glm(responses, console)
+            response_text = response_text.replace(
+                "[green]", "<font color='green'>"
+            ).replace("[/green]", "</font>")
 
-                elapsed_time = time.time() - start_time
-                console.print(
-                    f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
-                )
+            content = extract_code_block_content(response_text, "srt", console)
+            if not content:
+                raise Exception("RETRY_EMPTY_CONTENT")
 
-                try:
-                    console.print(response_text)
-                except Exception as e:
-                    console.print(Text(response_text))
+            if progress and task_id is not None:
+                progress.update(task_id, description="Processing media...")
+            return content
 
-                response_text = response_text.replace(
-                    "[green]", "<font color='green'>"
-                ).replace("[/green]", "</font>")
-
-                content = extract_code_block_content(response_text, "srt", console)
-                if not content:
-                    continue
-
-                if progress and task_id is not None:
-                    progress.update(task_id, description="Processing media...")
-                return content
-            except Exception as e:
-                error_msg = Text(str(e), style="red")
-                console.print(f"[red]Error processing: {error_msg}[/red]")
-                if attempt < args.max_retries - 1:
-                    console.print(
-                        f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]"
-                    )
-                    elapsed_time = time.time() - start_time
-                    if elapsed_time < args.wait_time:
-                        time.sleep(args.wait_time - elapsed_time)
-                else:
-                    console.print(
-                        f"[red]Failed to process after {args.max_retries} attempts. Skipping.[/red]"
-                    )
-                continue
-        return ""
+        content = with_retry(
+            _attempt_glm,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: (59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)),
+        )
+        return content
 
     elif provider == "pixtral" and (
         mime.startswith("image") or mime.startswith("application")
@@ -681,206 +655,208 @@ def api_process_batch(
                         )
                         return ""
 
-        for attempt in range(args.max_retries):
+        attempt_counter = {"i": 0}
+
+        def _attempt_pixtral() -> str:
+            attempt_counter["i"] += 1
+            attempt = attempt_counter["i"]
             start_time = time.time()
-            try:
-                if mime.startswith("application"):
-                    ocr_response = client.ocr.process(
-                        model="mistral-ocr-latest",
-                        document={
-                            "type": "document_url",
-                            "document_url": signed_url.url,
-                        },
-                        include_image_base64=args.document_image,
-                    )
-                    content = ocr_response.pages
-                    console.print(f"[bold cyan]PDF共有 {len(content)} 页[/bold cyan]")
+            if mime.startswith("application"):
+                ocr_response = client.ocr.process(
+                    model="mistral-ocr-latest",
+                    document={
+                        "type": "document_url",
+                        "document_url": signed_url.url,
+                    },
+                    include_image_base64=args.document_image,
+                )
+                content = ocr_response.pages
+                console.print(f"[bold cyan]PDF共有 {len(content)} 页[/bold cyan]")
 
-                    for page in content:
-                        # Extract the first image from the page if available
-                        if page.images and len(page.images) > 0:
-                            first_image = page.images[0]
-                            if (
-                                hasattr(first_image, "image_base64")
-                                and first_image.image_base64
-                            ):
-                                try:
-                                    base64_str = first_image.image_base64
-                                    # 处理data URL格式
-                                    if base64_str.startswith("data:"):
-                                        # 提取实际的base64内容
-                                        base64_content = base64_str.split(",", 1)[1]
-                                        image_data = base64.b64decode(base64_content)
-                                    else:
-                                        image_data = base64.b64decode(base64_str)
+                for page in content:
+                    # Extract the first image from the page if available
+                    if page.images and len(page.images) > 0:
+                        first_image = page.images[0]
+                        if (
+                            hasattr(first_image, "image_base64")
+                            and first_image.image_base64
+                        ):
+                            try:
+                                base64_str = first_image.image_base64
+                                # 处理data URL格式
+                                if base64_str.startswith("data:"):
+                                    # 提取实际的base64内容
+                                    base64_content = base64_str.split(",", 1)[1]
+                                    image_data = base64.b64decode(base64_content)
+                                else:
+                                    image_data = base64.b64decode(base64_str)
 
-                                    ocr_image = Image.open(io.BytesIO(image_data))
-                                    ocr_pixels = Pixels.from_image(
-                                        ocr_image,
-                                        resize=(
-                                            ocr_image.width // 18,
-                                            ocr_image.height // 18,
-                                        ),
-                                    )
-                                except Exception as e:
-                                    console.print(
-                                        f"[yellow]Error loading image: {e}[/yellow]"
-                                    )
-                                    ocr_pixels = None
-                            else:
-                                console.print(
-                                    "[yellow]Image found but no base64 data available[/yellow]"
+                                ocr_image = Image.open(io.BytesIO(image_data))
+                                ocr_pixels = Pixels.from_image(
+                                    ocr_image,
+                                    resize=(
+                                        ocr_image.width // 18,
+                                        ocr_image.height // 18,
+                                    ),
                                 )
+                            except Exception as e:
+                                console.print(f"[yellow]Error loading image: {e}[/yellow]")
                                 ocr_pixels = None
                         else:
-                            ocr_pixels = None
-
-                        markdown_layout = MarkdownLayout(
-                            pixels=ocr_pixels,
-                            markdown_content=page.markdown,
-                            panel_height=32,
-                            console=console,
-                        )
-                        markdown_layout.print(
-                            title=f"{Path(uri).name} -  Page {page.index+1}"
-                        )
-
-                elif args.ocr:
-                    ocr_response = client.ocr.process(
-                        model="mistral-ocr-latest",
-                        document={
-                            "type": "image_url",
-                            "image_url": f"data:image/jpeg;base64,{base64_image}",
-                        },
-                    )
-                    content = ocr_response.pages[0].markdown
-
-                    # 使用MarkdownLayout显示Markdown内容
-                    markdown_layout = MarkdownLayout(
-                        pixels=pixels,
-                        markdown_content=content,
-                        panel_height=32,
-                        console=console,
-                    )
-                    markdown_layout.print(title=Path(uri).name)
-
-                else:
-                    chat_response = client.chat.complete(
-                        model=args.pixtral_model_path, messages=messages
-                    )
-                    content = chat_response.choices[0].message.content
-
-                    short_description, long_description = process_llm_response(content)
-
-                    if len(captions) > 0:
-                        tag_description = (
-                            (
-                                prompt.rsplit("<s>[INST]", 1)[-1]
-                                .rsplit(">.", 1)[-1]
-                                .rsplit(").", 1)[-1]
-                                .replace(" from", ",")
-                            )
-                            .rsplit("[IMG][/INST]", 1)[0]
-                            .strip()
-                        )
-                        short_description, short_highlight_rate = format_description(
-                            short_description, tag_description
-                        )
-                        long_description, long_highlight_rate = format_description(
-                            long_description, tag_description
-                        )
-                    else:
-                        tag_description = ""
-                        short_highlight_rate = 0
-                        long_highlight_rate = 0
-
-                    # 使用CaptionLayout显示图片和字幕
-                    caption_layout = CaptionLayout(
-                        tag_description=tag_description,
-                        short_description=short_description,
-                        long_description=long_description,
-                        pixels=pixels,
-                        short_highlight_rate=short_highlight_rate,
-                        long_highlight_rate=long_highlight_rate,
-                        panel_height=32,
-                        console=console,
-                    )
-
-                    caption_layout.print(title=Path(uri).name)
-
-                # 计算已经消耗的时间，动态调整等待时间
-                elapsed_time = time.time() - start_time
-                if elapsed_time < args.wait_time:
-                    time.sleep(args.wait_time - elapsed_time)
-                console.print(
-                    f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
-                )
-
-                if not args.ocr:
-                    if character_name:
-                        clean_char_name = (
-                            character_name.split(",")[0].split(" from ")[0].strip("<>")
-                        )
-                        if clean_char_name not in content:
-                            console.print()
-                            console.print(Text(content))
                             console.print(
-                                f"Attempt {attempt + 1}/{args.max_retries}: Character name [green]{clean_char_name}[/green] not found"
+                                "[yellow]Image found but no base64 data available[/yellow]"
                             )
-                            continue
-
-                    if "###" not in content:
-                        console.print(Text(content))
-                        console.print(Text("No ###, retrying...", style="yellow"))
-                        continue
-
-                    if (
-                        any(f"{i}women" in tag_description for i in range(2, 5))
-                        or ("1man" in tag_description and "1woman" in tag_description)
-                        or "multiple girls" in tag_description
-                        or "multiple boys" in tag_description
-                    ):
-                        tags_highlightrate = args.tags_highlightrate * 100 / 2
+                            ocr_pixels = None
                     else:
-                        tags_highlightrate = args.tags_highlightrate * 100
-                    if (
-                        int(re.search(r"\d+", str(long_highlight_rate)).group())
-                        < tags_highlightrate
-                    ) and len(captions) > 0:
-                        console.print(
-                            f"[red]long_description highlight rate is too low: {long_highlight_rate}%, retrying...[/red]"
-                        )
-                        continue
+                        ocr_pixels = None
 
-                if "502" in content:
-                    console.print(
-                        f"[yellow]Attempt {attempt + 1}/{args.max_retries}: Received 502 error[/yellow]"
+                    markdown_layout = MarkdownLayout(
+                        pixels=ocr_pixels,
+                        markdown_content=page.markdown,
+                        panel_height=32,
+                        console=console,
                     )
-                    continue
+                    markdown_layout.print(
+                        title=f"{Path(uri).name} -  Page {page.index+1}"
+                    )
 
-                return content
-
-            except Exception as e:
-                error_msg = Text(str(e), style="red")
-                console.print(
-                    f"[red]Attempt {attempt + 1}/{args.max_retries}: Error - ", end=""
+            elif args.ocr:
+                ocr_response = client.ocr.process(
+                    model="mistral-ocr-latest",
+                    document={
+                        "type": "image_url",
+                        "image_url": f"data:image/jpeg;base64,{base64_image}",
+                    },
                 )
-                console.print(error_msg)
-                if attempt < args.max_retries - 1:
-                    wait_time = args.wait_time
-                    if "429" in str(e):
-                        wait_time = 59
-                        console.print(
-                            f"[yellow]429 error, waiting {wait_time} seconds and retrying...[/yellow]"
-                        )
+                content = ocr_response.pages[0].markdown
 
-                        elapsed_time = time.time() - start_time
-                        if elapsed_time < wait_time:
-                            time.sleep(wait_time - elapsed_time)
-                        console.print("[green]Retrying...[/green]")
-                    time.sleep(wait_time)
-                    continue
-        return ""
+                # 使用MarkdownLayout显示Markdown内容
+                markdown_layout = MarkdownLayout(
+                    pixels=pixels,
+                    markdown_content=content,
+                    panel_height=32,
+                    console=console,
+                )
+                markdown_layout.print(title=Path(uri).name)
+
+            else:
+                chat_response = client.chat.complete(
+                    model=args.pixtral_model_path, messages=messages
+                )
+                content = chat_response.choices[0].message.content
+
+                short_description, long_description = process_llm_response(content)
+
+                if len(captions) > 0:
+                    tag_description = (
+                        (
+                            prompt.rsplit("<s>[INST]", 1)[-1]
+                            .rsplit(">.", 1)[-1]
+                            .rsplit(").", 1)[-1]
+                            .replace(" from", ",")
+                        )
+                        .rsplit("[IMG][/INST]", 1)[0]
+                        .strip()
+                    )
+                    short_description, short_highlight_rate = format_description(
+                        short_description, tag_description
+                    )
+                    long_description, long_highlight_rate = format_description(
+                        long_description, tag_description
+                    )
+                else:
+                    tag_description = ""
+                    short_highlight_rate = 0
+                    long_highlight_rate = 0
+
+                # 使用CaptionLayout显示图片和字幕
+                caption_layout = CaptionLayout(
+                    tag_description=tag_description,
+                    short_description=short_description,
+                    long_description=long_description,
+                    pixels=pixels,
+                    short_highlight_rate=short_highlight_rate,
+                    long_highlight_rate=long_highlight_rate,
+                    panel_height=32,
+                    console=console,
+                )
+
+                caption_layout.print(title=Path(uri).name)
+
+            # 计算已经消耗的时间，动态调整等待时间
+            elapsed_time = time.time() - start_time
+            if elapsed_time < args.wait_time:
+                time.sleep(args.wait_time - elapsed_time)
+            console.print(
+                f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
+            )
+
+            # 校验，仅针对非 OCR 情况
+            if not args.ocr:
+                try:
+                    cn = character_name
+                except Exception:
+                    cn = ""
+                if cn:
+                    clean_char_name = cn.split(",")[0].split(" from ")[0].strip("<>")
+                    if clean_char_name not in content:
+                        console.print()
+                        console.print(Text(content))
+                        console.print(
+                            f"Attempt {attempt}/{args.max_retries}: Character name [green]{clean_char_name}[/green] not found"
+                        )
+                        raise Exception("RETRY_PIXTRAL_CHAR")
+
+                if "###" not in content:
+                    console.print(Text(content))
+                    console.print(Text("No ###, retrying...", style="yellow"))
+                    raise Exception("RETRY_PIXTRAL_NO_MARK")
+
+                if (
+                    any(f"{i}women" in tag_description for i in range(2, 5))
+                    or ("1man" in tag_description and "1woman" in tag_description)
+                    or "multiple girls" in tag_description
+                    or "multiple boys" in tag_description
+                ):
+                    tags_highlightrate = args.tags_highlightrate * 100 / 2
+                else:
+                    tags_highlightrate = args.tags_highlightrate * 100
+                if (
+                    int(re.search(r"\d+", str(long_highlight_rate)).group())
+                    < tags_highlightrate
+                ) and len(captions) > 0:
+                    console.print(
+                        f"[red]long_description highlight rate is too low: {long_highlight_rate}%, retrying...[/red]"
+                    )
+                    raise Exception("RETRY_PIXTRAL_RATE")
+
+            if isinstance(content, str) and "502" in content:
+                console.print(
+                    f"[yellow]Attempt {attempt}/{args.max_retries}: Received 502 error[/yellow]"
+                )
+                raise Exception("RETRY_PIXTRAL_502")
+
+            return content
+
+        result = with_retry(
+            _attempt_pixtral,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: (
+                59.0
+                if "429" in str(e)
+                else (
+                    args.wait_time
+                    if (
+                        "502" in str(e)
+                        or "RETRY_PIXTRAL_" in str(e)
+                    )
+                    else None
+                )
+            ),
+        )
+        return result
 
     elif provider == "gemini":
         generation_config = (
@@ -1054,77 +1030,21 @@ def api_process_batch(
             or mime.startswith("audio")
             and Path(uri).stat().st_size >= 20 * 1024 * 1024
         ):
-            upload_success = False
-            files = []
-            file = types.File()
-
-            for upload_attempt in range(args.max_retries):
-                try:
-                    console.print()
-                    console.print(f"[blue]checking files for:[/blue] {uri}")
-                    try:
-                        file = client.files.get(name=sanitize_filename(Path(uri).name))
-
-                        console.print(file)
-                        if (
-                            base64.b64decode(file.sha256_hash).decode("utf-8")
-                            == sha256hash
-                            or file.size_bytes == Path(uri).stat().st_size
-                        ):
-                            console.print()
-                            console.print(
-                                f"[cyan]File {file.name} is already at {file.uri}[/cyan]"
-                            )
-                            files = [file]
-                            wait_for_files_active(client, files, console)
-                            console.print()
-                            console.print(
-                                f"[green]File {file.name} is already active at {file.uri}[/green]"
-                            )
-                            upload_success = True
-                            break
-                        else:
-                            console.print(
-                                f"[yellow]File {file.name} is already exist but {base64.b64decode(file.sha256_hash).decode('utf-8')} not have same sha256hash {sha256hash}[/yellow]"
-                            )
-                            client.files.delete(name=sanitize_filename(Path(uri).name))
-                            raise Exception("Delete same name file and retry")
-
-                    except Exception as e:
-                        console.print()
-                        console.print(
-                            f"[yellow]File {Path(uri).name} is not exist[/yellow]"
-                        )
-                        console.print(f"[blue]uploading files for:[/blue] {uri}")
-                        try:
-                            files = [upload_to_gemini(client, uri, mime_type=mime)]
-                        except Exception as uploade:
-                            files = [
-                                upload_to_gemini(
-                                    client,
-                                    uri,
-                                    mime_type=mime,
-                                    name=f"{Path(uri).name}_{int(time.time())}",
-                                )
-                            ]
-                        wait_for_files_active(client, files, console)
-                        upload_success = True
-                        break
-
-                except Exception as e:
-                    console.print(
-                        f"[yellow]Upload attempt {upload_attempt + 1}/{args.max_retries} failed: {e}[/yellow]"
-                    )
-                    if upload_attempt < args.max_retries - 1:
-                        time.sleep(
-                            args.wait_time * 2
-                        )  # Increase wait time between retries
-                    else:
-                        console.print("[red]All upload attempts failed[/red]")
-                        return ""
-
+            upload_success, files = with_retry(
+                lambda: upload_or_get(
+                    client=client,
+                    uri=uri,
+                    mime=mime,
+                    sha256hash=sha256hash,
+                    max_retries=args.max_retries,
+                    wait_time=args.wait_time,
+                    output_console=console,
+                ),
+                max_retries=args.max_retries,
+                base_wait=args.wait_time,
+                console=console,
+            )
             if not upload_success:
-                console.print("[red]Failed to upload file[/red]")
                 return ""
         elif mime.startswith("image"):
             media = prepare_media(uri, mime, args, console, scan_pair_extras=True)
@@ -1141,225 +1061,144 @@ def api_process_batch(
                 # Additionally load extras collected by prepare_media
                 pair_blob_list = image_media.get("pair_extras", [])
 
-        # Some files have a processing delay. Wait for them to be ready.
-        # wait_for_files_active(files)
-        for attempt in range(args.max_retries):
-            try:
-                console.print(f"[blue]Generating captions...[/blue]")
-                start_time = time.time()
+        # Some files have a processing delay. Wrap generation and processing in with_retry
+        def _attempt_gemini() -> str:
+            console.print(f"[blue]Generating captions...[/blue]")
+            start_time = time.time()
 
-                if mime.startswith("video") or (
-                    mime.startswith("audio")
-                    and Path(uri).stat().st_size >= 20 * 1024 * 1024
-                ):
-                    response = client.models.generate_content_stream(
-                        model=args.gemini_model_path,
-                        contents=[
-                            types.Part.from_uri(file_uri=files[0].uri, mime_type=mime),
-                            types.Part.from_text(text=prompt),
-                        ],
-                        config=genai_config,
-                    )
-                elif mime.startswith("audio"):
-                    media = prepare_media(uri, mime, args, console)
-                    audio_blob = media.get("audio", {}).get("bytes") or Path(uri).read_bytes()
-                    response = client.models.generate_content_stream(
-                        model=args.gemini_model_path,
-                        contents=[
-                            types.Part.from_bytes(data=audio_blob, mime_type=mime),
-                            types.Part.from_text(text=prompt),
-                        ],
-                        config=genai_config,
-                    )
-                elif mime.startswith("image"):
-                    if args.pair_dir != "":
-                        # Build contents with all pair images first, then the primary image, then the prompt
-                        image_parts = [
-                            types.Part.from_bytes(
-                                data=pair_blob, mime_type="image/jpeg"
-                            )
-                        ]
-                        if pair_blob_list:
-                            image_parts.extend(
-                                [
-                                    types.Part.from_bytes(data=b, mime_type="image/jpeg")
-                                    for b in pair_blob_list
-                                ]
-                            )
-                        image_parts.append(
-                            types.Part.from_bytes(data=blob, mime_type="image/jpeg")
-                        )
-                        image_parts.append(types.Part.from_text(text=prompt))
-                        response = client.models.generate_content_stream(
-                            model=args.gemini_model_path,
-                            contents=image_parts,
-                            config=genai_config,
-                        )
-                    else:
-                        response = client.models.generate_content_stream(
-                            model=args.gemini_model_path,
-                            contents=[
-                                types.Part.from_text(text=prompt),
-                                types.Part.from_bytes(
-                                    data=blob, mime_type="image/jpeg"
-                                ),
-                            ],
-                            config=genai_config,
-                        )
-
-                if progress and task_id is not None:
-                    progress.update(task_id, description="Generating captions")
-                response_text = collect_stream_gemini(response, uri, console)
-                if mime.startswith("image"):
-                    response_text = response_text.replace("*", "").strip()
-
-                elapsed_time = time.time() - start_time
-                console.print(
-                    f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
+            if mime.startswith("video") or (
+                mime.startswith("audio") and Path(uri).stat().st_size >= 20 * 1024 * 1024
+            ):
+                response = client.models.generate_content_stream(
+                    model=args.gemini_model_path,
+                    contents=[
+                        types.Part.from_uri(file_uri=files[0].uri, mime_type=mime),
+                        types.Part.from_text(text=prompt),
+                    ],
+                    config=genai_config,
                 )
-
-                try:
-                    console.print(response_text)
-                except Exception as e:
-                    console.print(Text(response_text))
-
-                if mime.startswith("image"):
-                    if isinstance(response_text, str) and args.gemini_task == "":
-                        try:
-                            captions = json.loads(response_text)
-                        except json.JSONDecodeError as e:
-                            console.print(f"[red]Error decoding JSON: {e}[/red]")
-                            if "Expecting value: line 1 column 1 (char 0)" in str(e):
-                                console.print("[red]Image was filtered, skipping[/red]")
-                                return ""
-                            else:
-                                raise e
-                    else:
-                        # If it's already a dict/list, use it directly
-                        captions = response_text
-                    if args.gemini_task != "":
-                        caption_and_rate_layout = CaptionAndRateLayout(
-                            tag_description="",
-                            rating=[],
-                            average_score=0.0,
-                            long_description=response_text,
-                            pixels=pixels,
-                            panel_height=32,
-                            console=console,
+            elif mime.startswith("audio"):
+                media_local = prepare_media(uri, mime, args, console)
+                audio_blob = media_local.get("audio", {}).get("bytes") or Path(uri).read_bytes()
+                response = client.models.generate_content_stream(
+                    model=args.gemini_model_path,
+                    contents=[
+                        types.Part.from_bytes(data=audio_blob, mime_type=mime),
+                        types.Part.from_text(text=prompt),
+                    ],
+                    config=genai_config,
+                )
+            elif mime.startswith("image"):
+                if args.pair_dir != "":
+                    image_parts = [
+                        types.Part.from_bytes(data=pair_blob, mime_type="image/jpeg")
+                    ]
+                    if pair_blob_list:
+                        image_parts.extend(
+                            [types.Part.from_bytes(data=b, mime_type="image/jpeg") for b in pair_blob_list]
                         )
-                        caption_and_rate_layout.print(title=Path(uri).name)
-                        return response_text
-                    elif args.pair_dir and pair_pixels:
-                        description = captions.get("prompt", "")
-
-                        caption_and_rate_layout = CaptionPairImageLayout(
-                            description=description,
-                            pixels=pixels,
-                            pair_pixels=pair_pixels,
-                            panel_height=32,
-                            console=console,
-                        )
-                        caption_and_rate_layout.print(title=Path(uri).name)
-                        return captions.get("prompt", "")
-                    else:
-                        description = captions.get("description", "")
-                        scores = captions.get("scores", [])
-                        average_score = captions.get("average_score", 0.0)
-
-                        caption_and_rate_layout = CaptionAndRateLayout(
-                            tag_description="",
-                            rating=scores,
-                            average_score=average_score,
-                            long_description=description,
-                            pixels=pixels,
-                            panel_height=32,
-                            console=console,
-                        )
-                        caption_and_rate_layout.print(title=Path(uri).name)
-                        return response_text
-
-                response_text = response_text.replace(
-                    "[green]", "<font color='green'>"
-                ).replace("[/green]", "</font>")
-
-                # Extract SRT content between first and second ```
-                content = extract_code_block_content(response_text, "srt", console)
-                if not content:
-                    continue
-
-                if progress and task_id is not None:
-                    progress.update(task_id, description="Processing media...")
-                return content
-            except Exception as e:
-                import traceback
-
-                error_trace = traceback.format_exc()
-                console.print(f"[red]Error processing:[/red]")
-                console.print(Text(f"{str(e)}", style="red"))
-                console.print(Text(f"Error trace: {error_trace}", style="red"))
-                if attempt < args.max_retries - 1:
-                    console.print(
-                        f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]"
+                    image_parts.append(types.Part.from_bytes(data=blob, mime_type="image/jpeg"))
+                    image_parts.append(types.Part.from_text(text=prompt))
+                    response = client.models.generate_content_stream(
+                        model=args.gemini_model_path,
+                        contents=image_parts,
+                        config=genai_config,
                     )
-                    elapsed_time = time.time() - start_time
-                    if elapsed_time < args.wait_time:
-                        time.sleep(args.wait_time - elapsed_time)
                 else:
-                    console.print(
-                        f"[red]Failed to process after {args.max_retries} attempts. Skipping.[/red]"
+                    response = client.models.generate_content_stream(
+                        model=args.gemini_model_path,
+                        contents=[
+                            types.Part.from_text(text=prompt),
+                            types.Part.from_bytes(data=blob, mime_type="image/jpeg"),
+                        ],
+                        config=genai_config,
                     )
-                continue
-        return ""
+            else:
+                # Fallback: shouldn't happen, treat as retryable
+                raise Exception("RETRY_UNSUPPORTED_MIME")
 
+            if progress and task_id is not None:
+                progress.update(task_id, description="Generating captions")
+            response_text = collect_stream_gemini(response, uri, console)
+            if mime.startswith("image"):
+                response_text = response_text.replace("*", "").strip()
 
-def upload_to_gemini(client, path, mime_type=None, name=None):
-    """Uploads the given file to Gemini.
+            elapsed_time = time.time() - start_time
+            console.print(f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds")
 
-    See https://ai.google.dev/gemini-api/docs/prompting_with_media
-    """
-    original_name = Path(path).name
-    safe_name = sanitize_filename(original_name if name is None else name)
+            try:
+                console.print(response_text)
+            except Exception:
+                console.print(Text(response_text))
 
-    file = client.files.upload(
-        file=path,
-        config=types.UploadFileConfig(
-            name=safe_name,
-            mime_type=mime_type,
-            display_name=original_name,
-        ),
-    )
-    console.print()
-    console.print(f"[blue]Uploaded file[/blue] '{file.display_name}' as: {file.uri}")
-    return file
+            if mime.startswith("image"):
+                if isinstance(response_text, str) and args.gemini_task == "":
+                    try:
+                        captions = json.loads(response_text)
+                    except json.JSONDecodeError as e:
+                        console.print(f"[red]Error decoding JSON: {e}[/red]")
+                        if "Expecting value: line 1 column 1 (char 0)" in str(e):
+                            console.print("[red]Image was filtered, skipping[/red]")
+                            return ""
+                        else:
+                            raise e
+                else:
+                    captions = response_text
+                if args.gemini_task != "":
+                    caption_and_rate_layout = CaptionAndRateLayout(
+                        tag_description="",
+                        rating=[],
+                        average_score=0.0,
+                        long_description=response_text,
+                        pixels=pixels,
+                        panel_height=32,
+                        console=console,
+                    )
+                    caption_and_rate_layout.print(title=Path(uri).name)
+                    return response_text
+                elif args.pair_dir and pair_pixels:
+                    description = captions.get("prompt", "")
+                    caption_and_rate_layout = CaptionPairImageLayout(
+                        description=description,
+                        pixels=pixels,
+                        pair_pixels=pair_pixels,
+                        panel_height=32,
+                        console=console,
+                    )
+                    caption_and_rate_layout.print(title=Path(uri).name)
+                    return captions.get("prompt", "")
+                else:
+                    description = captions.get("description", "")
+                    scores = captions.get("scores", [])
+                    average_score = captions.get("average_score", 0.0)
+                    caption_and_rate_layout = CaptionAndRateLayout(
+                        tag_description="",
+                        rating=scores,
+                        average_score=average_score,
+                        long_description=description,
+                        pixels=pixels,
+                        panel_height=32,
+                        console=console,
+                    )
+                    caption_and_rate_layout.print(title=Path(uri).name)
+                    return response_text
 
+            response_text = response_text.replace("[green]", "<font color='green'>").replace("[/green]", "</font>")
+            content = extract_code_block_content(response_text, "srt", console)
+            if not content:
+                raise Exception("RETRY_EMPTY_CONTENT")
+            if progress and task_id is not None:
+                progress.update(task_id, description="Processing media...")
+            return content
 
-def wait_for_files_active(client, files, output_console=None):
-    """Waits for the given files to be active.
-
-    Some files uploaded to the Gemini API need to be processed before they can be
-    used as prompt inputs. The status can be seen by querying the file's "state"
-    field.
-
-    Args:
-        client: The Gemini client
-        files: List of files to wait for
-        output_console: Optional console to use for output. If None, uses global console.
-    """
-    # Use provided console or fall back to global
-    output_console = output_console or console
-
-    output_console.print("[yellow]Waiting for file processing...[/yellow]")
-    for name in (file.name for file in files):
-        file = client.files.get(name=name)
-        while file.state.name != "ACTIVE":
-            if file.state.name == "FAILED":
-                raise Exception(f"File {file.name} failed to process")
-            output_console.print(".", end="", style="yellow")
-            time.sleep(10)
-            file = client.files.get(name=name)
-        output_console.print()  # New line after dots
-    output_console.print("[green]...all files ready[/green]")
-    output_console.print()
+        result = with_retry(
+            _attempt_gemini,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: (59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e) or "RETRY_UNSUPPORTED_MIME" in str(e)) else None)),
+        )
+        return result
 
 
 @functools.lru_cache(maxsize=128)
@@ -1524,8 +1363,13 @@ def with_retry(
             jitter = wait * 0.2
             sleep_for = max(0.0, wait + random.uniform(-jitter, jitter))
             elapsed = time.time() - start_time
-            if elapsed < sleep_for:
-                time.sleep(sleep_for - elapsed)
+            remaining = max(0.0, sleep_for - elapsed)
+            if console and remaining > 0:
+                console.print(
+                    f"[yellow]Retrying in {remaining:.0f} seconds...[/yellow]"
+                )
+            if remaining > 0:
+                time.sleep(remaining)
 
 
 def collect_stream_stepfun(completion: Iterable[Any], console: Console) -> str:
