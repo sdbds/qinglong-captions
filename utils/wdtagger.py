@@ -775,6 +775,28 @@ def assemble_final_tags(
         if tags_to_remove:
             found_tags = [tag for tag in found_tags if tag not in tags_to_remove]
 
+    # Additional filtering when remove_parents_tag is enabled:
+    # Remove single-word tags whose noun root (last word) appears more than once
+    # across the current tag set. This helps drop overly-generic single-word tags
+    # when more specific multi-word tags with the same root exist.
+    if args.remove_parents_tag:
+        noun_root_counts = {}
+        for tag in found_tags:
+            parts = tag.split()
+            if not parts:
+                continue
+            noun_root = parts[-1]
+            noun_root_counts[noun_root] = noun_root_counts.get(noun_root, 0) + 1
+
+        found_tags = [
+            tag
+            for tag in found_tags
+            if not (
+                len(tag.split()) == 1
+                and noun_root_counts.get(tag.split()[-1], 0) > 1
+            )
+        ]
+
     # Update tag frequency (always track for stats)
     for tag in found_tags:
         # Use clean tag name for frequency counting (remove threshold suffix if present)

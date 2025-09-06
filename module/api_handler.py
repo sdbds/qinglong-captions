@@ -284,6 +284,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: (59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)),
+            on_exhausted=lambda e: (console.print(Text(f"StepFun retries exhausted: {e}", style="yellow")) or ""),
         )
         return result
 
@@ -327,6 +328,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: (59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)),
+            on_exhausted=lambda e: (console.print(Text(f"QwenVL retries exhausted: {e}", style="yellow")) or ""),
         )
         return content
 
@@ -368,6 +370,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: (59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)),
+            on_exhausted=lambda e: (console.print(Text(f"GLM retries exhausted: {e}", style="yellow")) or ""),
         )
         return content
 
@@ -545,6 +548,7 @@ def api_process_batch(
                     else None
                 )
             ),
+            on_exhausted=lambda e: (console.print(Text(f"Pixtral retries exhausted: {e}", style="yellow")) or ""),
         )
         return result
 
@@ -784,6 +788,10 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: (59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e) or "RETRY_UNSUPPORTED_MIME" in str(e)) else None)),
+            on_exhausted=lambda e: (
+                console.print(Text(f"Gemini retries exhausted: {e}", style="yellow"))
+                or ""
+            ),
         )
         return result
 
@@ -874,6 +882,7 @@ def with_retry(
     base_wait: float,
     console: Optional[Console] = None,
     classify_err: Optional[Callable[[Exception], Optional[float]]] = None,
+    on_exhausted: Optional[Callable[[Exception], Any]] = None,
 ) -> Any:
     """Run callable with retries and jitter backoff.
 
@@ -900,6 +909,11 @@ def with_retry(
             if attempt >= max_retries - 1:
                 if console:
                     console.print(Text(str(e), style="red"))
+                if on_exhausted is not None:
+                    try:
+                        return on_exhausted(e)
+                    except Exception:
+                        pass
                 raise
             wait = classifier(e) or base_wait
             jitter = wait * 0.2
@@ -907,6 +921,7 @@ def with_retry(
             elapsed = time.time() - start_time
             remaining = max(0.0, sleep_for - elapsed)
             if console and remaining > 0:
+                console.print(Text(f"{attempt+1}/{max_retries}", style="yellow"))
                 console.print(
                     f"[yellow]Retrying in {remaining:.0f} seconds...[/yellow]"
                 )
