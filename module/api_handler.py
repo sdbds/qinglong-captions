@@ -42,32 +42,204 @@ def api_process_batch(
     if progress is not None:
         console = progress.console
 
-    system_prompt = config["prompts"]["system_prompt"]
-    prompt = config["prompts"]["prompt"]
+    def get_provider(args, mime):
+        """Decide which provider branch to use based on args and mime.
+        Order matches existing branch order to preserve behavior.
+        """
+        try:
+            if getattr(args, "step_api_key", "") != "":
+                return "stepfun"
+            if getattr(args, "qwenVL_api_key", "") != "" and mime.startswith("video"):
+                return "qwenvl"
+            if getattr(args, "glm_api_key", "") != "" and mime.startswith("video"):
+                return "glm"
+            if getattr(args, "pixtral_api_key", "") != "" and (
+                mime.startswith("image") or mime.startswith("application")
+            ):
+                return "pixtral"
+            if getattr(args, "gemini_api_key", "") != "":
+                return "gemini"
+        except Exception:
+            pass
+        return "none"
 
-    if mime.startswith("video"):
-        system_prompt = config["prompts"]["video_system_prompt"]
-        prompt = config["prompts"]["video_prompt"]
-    elif mime.startswith("audio"):
-        system_prompt = config["prompts"]["audio_system_prompt"]
-        prompt = config["prompts"]["audio_prompt"]
-    elif mime.startswith("image"):
-        system_prompt = config["prompts"]["image_system_prompt"]
-        prompt = config["prompts"]["image_prompt"]
+    def get_prompts(config, mime, args, provider, console):
+        """Return (system_prompt, prompt) per provider/mime and args.
+        Mirrors existing per-branch selection. Gemini task prompt is synthesized here.
+        """
+        prompts = config["prompts"]
 
-    if args.step_api_key != "":
-
+        # Base defaults by mime
+        system_prompt = prompts.get("system_prompt", "")
+        prompt = prompts.get("prompt", "")
         if mime.startswith("video"):
-            system_prompt = config["prompts"]["step_video_system_prompt"]
-            prompt = config["prompts"]["step_video_prompt"]
+            system_prompt = prompts.get("video_system_prompt", system_prompt)
+            prompt = prompts.get("video_prompt", prompt)
+        elif mime.startswith("audio"):
+            system_prompt = prompts.get("audio_system_prompt", system_prompt)
+            prompt = prompts.get("audio_prompt", prompt)
         elif mime.startswith("image"):
-            if args.pair_dir != "":
-                system_prompt = config["prompts"]["image_pair_system_prompt"]
-                prompt = config["prompts"]["image_pair_prompt"]
-            else:
-                system_prompt = config["prompts"]["image_system_prompt"]
-                prompt = config["prompts"]["image_prompt"]
+            system_prompt = prompts.get("image_system_prompt", system_prompt)
+            prompt = prompts.get("image_prompt", prompt)
 
+        # Provider-specific overrides
+        if provider == "stepfun":
+            if mime.startswith("video"):
+                system_prompt = prompts.get("step_video_system_prompt", system_prompt)
+                prompt = prompts.get("step_video_prompt", prompt)
+            elif mime.startswith("image"):
+                if getattr(args, "pair_dir", "") != "":
+                    system_prompt = prompts.get("image_pair_system_prompt", system_prompt)
+                    prompt = prompts.get("image_pair_prompt", prompt)
+                else:
+                    system_prompt = prompts.get("image_system_prompt", system_prompt)
+                    prompt = prompts.get("image_prompt", prompt)
+
+        elif provider == "qwenvl":
+            if mime.startswith("video"):
+                system_prompt = prompts.get("qwenvl_video_system_prompt", system_prompt)
+                prompt = prompts.get("qwenvl_video_prompt", prompt)
+
+        elif provider == "glm":
+            if mime.startswith("video"):
+                system_prompt = prompts.get("glm_video_system_prompt", system_prompt)
+                prompt = prompts.get("glm_video_prompt", prompt)
+
+        elif provider == "pixtral":
+            if mime.startswith("image"):
+                if getattr(args, "pair_dir", "") != "":
+                    system_prompt = prompts.get("pair_image_system_prompt", system_prompt)
+                    prompt = prompts.get("pair_image_prompt", prompt)
+                else:
+                    system_prompt = prompts.get("pixtral_image_system_prompt", system_prompt)
+                    prompt = prompts.get("pixtral_image_prompt", prompt)
+
+        elif provider == "gemini":
+            # Gemini image task mode builds prompt from task templates
+            if getattr(args, "gemini_task", "") and mime.startswith("image"):
+                system_prompt = prompts.get("task_system_prompt", system_prompt)
+                task_prompts = prompts.get("task", {})
+                raw_task = str(getattr(args, "gemini_task"))
+
+                def apply_template(template_key: str, a_val: str, b_val: str) -> Optional[str]:
+                    template = task_prompts.get(template_key)
+                    if not template:
+                        return None
+                    p = template
+                    if "{a}" in p or "{b}" in p or "<a>" in p or "<b>" in p:
+                        p = p.replace("{a}", a_val).replace("{b}", b_val)
+                        p = p.replace("<a>", a_val).replace("<b>", b_val)
+                    else:
+                        p = re.sub(r"\ba\b", a_val, p)
+                        p = re.sub(r"\bb\b", b_val, p)
+                    return p
+
+                built = None
+                m = re.match(r"^\s*change\s+(.+?)\s+to\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
+                if m and built is None:
+                    built = apply_template("change_a_to_b", m.group(1).strip(), m.group(2).strip())
+
+                if built is None:
+                    m = re.match(r"^\s*(transform|convert)\s+style\s+(.+?)\s+to\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
+                    if m:
+                        built = apply_template("transform_style_a_to_b", m.group(2).strip(), m.group(3).strip())
+
+                if built is None:
+                    m = re.match(r"^\s*combine\s+(.+?)\s+(and|with)\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
+                    if m:
+                        built = apply_template("combine_a_and_b", m.group(1).strip(), m.group(3).strip())
+
+                if built is None:
+                    m = re.match(r"^\s*add\s+(.+?)\s+to\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
+                    if m:
+                        built = apply_template("add_a_to_b", m.group(1).strip(), m.group(2).strip())
+
+                if built is None:
+                    prompt = task_prompts.get(raw_task) or raw_task
+                else:
+                    prompt = built
+                try:
+                    console.print(f"[blue]prompt: {prompt}[/blue]")
+                except Exception:
+                    pass
+            elif getattr(args, "pair_dir", "") and mime.startswith("image"):
+                system_prompt = prompts.get("pair_image_system_prompt", system_prompt)
+                prompt = prompts.get("pair_image_prompt", prompt)
+
+        return system_prompt, prompt
+
+    def prepare_media(uri, mime, args, console, scan_pair_extras: bool = False):
+        """Prepare media for requests.
+        Returns a dict with optional keys: 'image': {blob, pixels, pair?, pair_extras?}, 'audio': {bytes}
+        No exceptions are raised here; callers decide how to handle missing parts.
+        """
+        result: Dict[str, Any] = {}
+
+        if mime.startswith("image"):
+            base64_image, pixels = encode_image(uri)
+            image_obj: Dict[str, Any] = {
+                "blob": base64_image,
+                "pixels": pixels,
+            }
+
+            pair_dir = getattr(args, "pair_dir", "")
+            if pair_dir:
+                pair_uri = (Path(pair_dir) / Path(uri).name).resolve()
+                if not pair_uri.exists():
+                    console.print(f"[red]Pair image {pair_uri} not found[/red]")
+                else:
+                    console.print(f"[yellow]Pair image {pair_uri} found[/yellow]")
+                    pair_blob, pair_pixels = encode_image(str(pair_uri))
+                    image_obj["pair"] = {"blob": pair_blob, "pixels": pair_pixels}
+
+                if scan_pair_extras:
+                    try:
+                        base_dir = Path(pair_dir).resolve()
+                        stem = Path(uri).stem
+                        primary_ext = Path(uri).suffix.lower()
+                        extras: List[Tuple[int, Path]] = []
+                        for pth in base_dir.iterdir():
+                            if (
+                                pth.is_file()
+                                and pth.name.startswith(f"{stem}_")
+                                and pth.suffix.lower() == primary_ext
+                                and pth.resolve() != pair_uri
+                            ):
+                                name_stem = pth.stem
+                                if len(name_stem) > len(stem) + 1 and name_stem[len(stem)] == "_":
+                                    num_part = name_stem[len(stem) + 1 :]
+                                    if num_part.isdigit():
+                                        extras.append((int(num_part), pth))
+                        extras.sort(key=lambda t: t[0])
+                        pair_extras: List[str] = []
+                        for _, pth in extras:
+                            try:
+                                extra_blob, _ = encode_image(str(pth))
+                                if extra_blob:
+                                    pair_extras.append(extra_blob)
+                                    console.print(f"[blue]Paired extra: {pth.name}[/blue]")
+                            except Exception as ee:
+                                console.print(f"[red]Failed to encode paired extra {pth}: {ee}[/red]")
+                        if pair_extras:
+                            image_obj["pair_extras"] = pair_extras
+                    except Exception as scan_err:
+                        console.print(f"[yellow]Scan pair_dir extras failed: {scan_err}[/yellow]")
+
+            result["image"] = image_obj
+
+        if mime.startswith("audio"):
+            try:
+                audio_blob = Path(uri).read_bytes()
+            except Exception:
+                audio_blob = None
+            result["audio"] = {"bytes": audio_blob}
+
+        return result
+
+    provider = get_provider(args, mime)
+    system_prompt, prompt = get_prompts(config, mime, args, provider, console)
+
+    if provider == "stepfun":
         client = OpenAI(
             api_key=args.step_api_key, base_url="https://api.stepfun.com/v1"
         )
@@ -76,15 +248,15 @@ def api_process_batch(
             file = client.files.create(file=open(uri, "rb"), purpose="storage")
             console.print(f"[blue]Uploaded video file:[/blue] {file}")
         elif mime.startswith("image"):
-            blob, pixels = encode_image(uri)
+            media = prepare_media(uri, mime, args, console)
+            image_media = media.get("image", {})
+            blob = image_media.get("blob")
+            pixels = image_media.get("pixels")
             if args.pair_dir != "":
-                pair_uri = (Path(args.pair_dir) / Path(uri).name).resolve()
-                if not pair_uri.exists():
-                    console.print(f"[red]Pair image {pair_uri} not found[/red]")
+                if not image_media.get("pair"):
                     return ""
-                else:
-                    console.print(f"[yellow]Pair image {pair_uri} found[/yellow]")
-                pair_blob, pair_pixels = encode_image(pair_uri)
+                pair_blob = image_media["pair"]["blob"]
+                pair_pixels = image_media["pair"]["pixels"]
 
         for attempt in range(args.max_retries):
             try:
@@ -244,11 +416,8 @@ def api_process_batch(
                 continue
         return ""
 
-    elif args.qwenVL_api_key != "" and mime.startswith("video"):
+    elif provider == "qwenvl":
         import dashscope
-
-        system_prompt = config["prompts"]["qwenvl_video_system_prompt"]
-        prompt = config["prompts"]["qwenvl_video_prompt"]
 
         file = f"file://{Path(uri).resolve().as_posix()}"
 
@@ -326,13 +495,10 @@ def api_process_batch(
                 continue
         return ""
 
-    elif args.glm_api_key != "" and mime.startswith("video"):
+    elif provider == "glm":
         from zhipuai import ZhipuAI
 
         client = ZhipuAI(api_key=args.glm_api_key)
-
-        system_prompt = config["prompts"]["glm_video_system_prompt"]
-        prompt = config["prompts"]["glm_video_prompt"]
 
         with open(uri, "rb") as video_file:
             video_base = base64.b64encode(video_file.read()).decode("utf-8")
@@ -402,7 +568,7 @@ def api_process_batch(
                 continue
         return ""
 
-    elif args.pixtral_api_key != "" and (
+    elif provider == "pixtral" and (
         mime.startswith("image") or mime.startswith("application")
     ):
 
@@ -410,7 +576,7 @@ def api_process_batch(
         captions = []
 
         if mime.startswith("image") and args.pair_dir == "":
-            system_prompt = config["prompts"]["pixtral_image_system_prompt"]
+            system_prompt, _ = get_prompts(config, mime, args, provider, console)
             character_prompt = ""
             character_name = ""
             if args.dir_name:
@@ -430,7 +596,10 @@ def api_process_batch(
                 f"<s>[INST]{character_prompt}{character_name}{captions[0] if len(captions) > 0 else config_prompt}\n[IMG][/INST]"
             ).plain
 
-            base64_image, pixels = encode_image(uri)
+            media = prepare_media(uri, mime, args, console)
+            image_media = media.get("image", {})
+            base64_image = image_media.get("blob")
+            pixels = image_media.get("pixels")
             if base64_image is None or pixels is None:
                 return ""
 
@@ -449,18 +618,20 @@ def api_process_batch(
             ]
 
         elif mime.startswith("image") and args.pair_dir != "":
-            system_prompt = config["prompts"]["pair_image_system_prompt"]
-            prompt = config["prompts"]["pair_image_prompt"]
+            system_prompt, prompt = get_prompts(config, mime, args, provider, console)
 
-            base64_image, pixels = encode_image(uri)
+            media = prepare_media(uri, mime, args, console)
+            image_media = media.get("image", {})
+            base64_image = image_media.get("blob")
+            pixels = image_media.get("pixels")
             if base64_image is None or pixels is None:
                 return ""
 
-            uri2_path = Path(args.pair_dir) / Path(uri).name
-            if not uri2_path.exists():
+            pair = image_media.get("pair")
+            if not pair:
                 return ""
-            uri2 = str(uri2_path)
-            base64_image2, pixels2 = encode_image(uri2)
+            base64_image2 = pair.get("blob")
+            pixels2 = pair.get("pixels")
             if base64_image2 is None or pixels2 is None:
                 return ""
 
@@ -711,7 +882,7 @@ def api_process_batch(
                     continue
         return ""
 
-    elif args.gemini_api_key != "":
+    elif provider == "gemini":
         generation_config = (
             config["generation_config"][args.gemini_model_path.replace(".", "_")]
             if config["generation_config"][args.gemini_model_path.replace(".", "_")]
@@ -720,60 +891,11 @@ def api_process_batch(
 
         if args.gemini_task and mime.startswith("image"):
             args.gemini_model_path = "gemini-2.5-flash-image-preview"
-            system_prompt = config["prompts"]["task_system_prompt"]
-            # 任务语义解析：支持诸如 "change apple to banana" 自动映射到模板 key: change_a_to_b
-            task_prompts = config["prompts"].get("task", {})
-            raw_task = str(args.gemini_task)
-
-            prompt = None
-            def apply_template(template_key: str, a_val: str, b_val: str) -> str | None:
-                template = task_prompts.get(template_key)
-                if not template:
-                    return None
-                p = template
-                if "{a}" in p or "{b}" in p or "<a>" in p or "<b>" in p:
-                    p = p.replace("{a}", a_val).replace("{b}", b_val)
-                    p = p.replace("<a>", a_val).replace("<b>", b_val)
-                else:
-                    p = re.sub(r"\ba\b", a_val, p)
-                    p = re.sub(r"\bb\b", b_val, p)
-                return p
-
-            # change a to b
-            m = re.match(r"^\s*change\s+(.+?)\s+to\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
-            if m and prompt is None:
-                a_val = m.group(1).strip()
-                b_val = m.group(2).strip()
-                prompt = apply_template("change_a_to_b", a_val, b_val)
-
-            # transform style a to b
-            m = re.match(r"^\s*(transform|convert)\s+style\s+(.+?)\s+to\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
-            if m and prompt is None:
-                a_val = m.group(2).strip()
-                b_val = m.group(3).strip()
-                prompt = apply_template("transform_style_a_to_b", a_val, b_val)
-
-            # combine a and b / combine a with b
-            m = re.match(r"^\s*combine\s+(.+?)\s+(and|with)\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
-            if m and prompt is None:
-                a_val = m.group(1).strip()
-                b_val = m.group(3).strip()
-                prompt = apply_template("combine_a_and_b", a_val, b_val)
-
-            # add a to b
-            m = re.match(r"^\s*add\s+(.+?)\s+to\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
-            if m and prompt is None:
-                a_val = m.group(1).strip()
-                b_val = m.group(2).strip()
-                prompt = apply_template("add_a_to_b", a_val, b_val)
-
-            # 若未匹配到语义模板，回退到原始键查找
-            if prompt is None:
-                prompt = task_prompts.get(raw_task) or raw_task
-            console.print(f"[blue]prompt: {prompt}[/blue]")
+            # get_prompts already constructed the prompt for the task
+            pass
         elif args.pair_dir and mime.startswith("image"):
-            system_prompt = config["prompts"]["pair_image_system_prompt"]
-            prompt = config["prompts"]["pair_image_prompt"]
+            # get_prompts already selected pair image prompts
+            pass
 
         if args.pair_dir != "":
             image_response_schema = genai.types.Schema(
@@ -1005,46 +1127,19 @@ def api_process_batch(
                 console.print("[red]Failed to upload file[/red]")
                 return ""
         elif mime.startswith("image"):
-            blob, pixels = encode_image(uri)
+            media = prepare_media(uri, mime, args, console, scan_pair_extras=True)
+            image_media = media.get("image", {})
+            blob = image_media.get("blob")
+            pixels = image_media.get("pixels")
             if args.pair_dir != "":
-                pair_uri = (Path(args.pair_dir) / Path(uri).name).resolve()
-                if not pair_uri.exists():
-                    console.print(f"[red]Pair image {pair_uri} not found[/red]")
+                pair = image_media.get("pair")
+                if not pair:
+                    console.print(f"[red]Pair image not prepared for {Path(uri).name}[/red]")
                     return ""
-                else:
-                    console.print(f"[yellow]Pair image {pair_uri} found[/yellow]")
-                pair_blob, pair_pixels = encode_image(pair_uri)
-                # Additionally scan for files matching '<stem>_*' in pair_dir and add to pair_blob_list
-                try:
-                    base_dir = Path(args.pair_dir).resolve()
-                    stem = Path(uri).stem
-                    primary_ext = Path(uri).suffix.lower()
-                    # Collect extras with pattern '<stem>_<number><ext>' and sort by numeric suffix
-                    extras: list[tuple[int, Path]] = []
-                    for p in base_dir.iterdir():
-                        if (
-                            p.is_file()
-                            and p.name.startswith(f"{stem}_")
-                            and p.suffix.lower() == primary_ext
-                            and p.resolve() != pair_uri
-                        ):
-                            name_stem = p.stem
-                            # Expect name like '<stem>_<num>'
-                            if len(name_stem) > len(stem) + 1 and name_stem[len(stem)] == "_":
-                                num_part = name_stem[len(stem) + 1 :]
-                                if num_part.isdigit():
-                                    extras.append((int(num_part), p))
-
-                    extras.sort(key=lambda t: t[0])
-                    for _, p in extras:
-                        try:
-                            extra_blob, _ = encode_image(p)
-                            pair_blob_list.append(extra_blob)
-                            console.print(f"[blue]Paired extra: {p.name}[/blue]")
-                        except Exception as ee:
-                            console.print(f"[red]Failed to encode paired extra {p}: {ee}[/red]")
-                except Exception as scan_err:
-                    console.print(f"[yellow]Scan pair_dir extras failed: {scan_err}[/yellow]")
+                pair_blob = pair.get("blob")
+                pair_pixels = pair.get("pixels")
+                # Additionally load extras collected by prepare_media
+                pair_blob_list = image_media.get("pair_extras", [])
 
         # Some files have a processing delay. Wait for them to be ready.
         # wait_for_files_active(files)
@@ -1066,7 +1161,8 @@ def api_process_batch(
                         config=genai_config,
                     )
                 elif mime.startswith("audio"):
-                    audio_blob = Path(uri).read_bytes()
+                    media = prepare_media(uri, mime, args, console)
+                    audio_blob = media.get("audio", {}).get("bytes") or Path(uri).read_bytes()
                     response = client.models.generate_content_stream(
                         model=args.gemini_model_path,
                         contents=[
