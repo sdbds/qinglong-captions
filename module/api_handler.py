@@ -2,7 +2,7 @@ import time
 import io
 import re
 import base64
-from typing import List, Optional, Dict, Any, Union, Tuple
+from typing import List, Optional, Dict, Any, Union, Tuple, Callable, Iterable
 import json
 from google import genai
 from google.genai import types
@@ -15,6 +15,7 @@ from rich.text import Text
 from PIL import Image
 from pathlib import Path
 import functools
+import random
 from utils.console_util import (
     CaptionLayout,
     CaptionPairImageLayout,
@@ -178,17 +179,7 @@ def api_process_batch(
 
                 if progress and task_id is not None:
                     progress.update(task_id, description="Generating captions")
-                chunks = []
-                for chunk in completion:
-                    if (
-                        hasattr(chunk.choices[0].delta, "content")
-                        and chunk.choices[0].delta.content is not None
-                    ):
-                        chunks.append(chunk.choices[0].delta.content)
-                        console.print(".", end="", style="blue")
-
-                console.print("\n")
-                response_text = "".join(chunks)
+                response_text = collect_stream_stepfun(completion, console)
 
                 elapsed_time = time.time() - start_time
                 console.print(
@@ -293,20 +284,9 @@ def api_process_batch(
                     incremental_output=True,
                 )
 
-                chunks = ""
                 if progress and task_id is not None:
                     progress.update(task_id, description="Generating captions")
-                for chunk in responses:
-                    print(chunk)
-                    chunks += chunk.output.choices[0].message.content[0]["text"]
-                    try:
-                        console.print(chunks, end="", overflow="ellipsis")
-                    except Exception as e:
-                        console.print(Text(chunks), end="", overflow="ellipsis")
-                    finally:
-                        console.file.flush()
-                console.print("\n")
-                response_text = chunks
+                response_text = collect_stream_qwen(responses, console)
 
                 elapsed_time = time.time() - start_time
                 console.print(
@@ -380,24 +360,9 @@ def api_process_batch(
                     stream=True,
                 )
 
-                chunks = ""
                 if progress and task_id is not None:
                     progress.update(task_id, description="Generating captions")
-                for chunk in responses:
-                    print(chunk)
-                    if (
-                        hasattr(chunk.choices[0].delta, "content")
-                        and chunk.choices[0].delta.content is not None
-                    ):
-                        chunks += chunk.choices[0].delta.content
-                    try:
-                        console.print(chunks, end="", overflow="ellipsis")
-                    except Exception as e:
-                        console.print(Text(chunks), end="", overflow="ellipsis")
-                    finally:
-                        console.file.flush()
-                console.print("\n")
-                response_text = chunks
+                response_text = collect_stream_glm(responses, console)
 
                 elapsed_time = time.time() - start_time
                 console.print(
@@ -1148,62 +1113,7 @@ def api_process_batch(
 
                 if progress and task_id is not None:
                     progress.update(task_id, description="Generating captions")
-                # 收集流式响应
-                chunks = []
-                # 统一的 part 编号，跨所有 chunk 递增，确保不覆盖且文本/图片对齐
-                part_index = 0
-                # 累积文本缓冲区，直到遇到一张图片（inline_data）再一起落盘
-                text_buffer: list[str] = []
-                for chunk in response:
-                    if (
-                        not chunk.candidates
-                        or not chunk.candidates[0].content
-                        or not chunk.candidates[0].content.parts
-                    ):
-                        continue
-                    if chunk.text:
-                        chunks.append(chunk.text)
-                        console.print("")
-                        try:
-                            console.print(chunk.text, end="", overflow="ellipsis")
-                        except Exception as e:
-                            console.print(Text(chunk.text), end="", overflow="ellipsis")
-                        finally:
-                            console.file.flush()
-                    # 遍历所有 part，保存文本与 inline_data（二进制）
-                    for part in chunk.candidates[0].content.parts:
-                        # 累积文本
-                        if getattr(part, "text", None):
-                            text_content = str(part.text)
-                            if text_content:
-                                console.print(text_content)
-                                text_buffer.append(text_content)
-                        # 碰到图片则进行一次对齐落盘
-                        if getattr(part, "inline_data", None):
-                            part_index += 1
-                            # 写出累计文本（非空才写）
-                            clean_text = "".join(text_buffer).strip()
-                            if clean_text:
-                                text_path = Path(uri).with_name(
-                                    f"{Path(uri).stem}_{part_index}.txt"
-                                )
-                                save_binary_file(text_path, clean_text.encode("utf-8"))
-                                console.print(
-                                    f"[blue]Text part saved to: {text_path.name}[/blue]"
-                                )
-                            # 写出图片
-                            image_path = Path(uri).with_stem(
-                                f"{Path(uri).stem}_{part_index}"
-                            )
-                            save_binary_file(image_path, part.inline_data.data)
-                            console.print(
-                                f"[blue]File of mime type {part.inline_data.mime_type} saved to: {image_path.name}[/blue]"
-                            )
-                            # 清空文本缓冲，开始下一轮累积
-                            text_buffer.clear()
-
-                console.print("\n")
-                response_text = "".join(chunks)
+                response_text = collect_stream_gemini(response, uri, console)
                 if mime.startswith("image"):
                     response_text = response_text.replace("*", "").strip()
 
@@ -1479,6 +1389,162 @@ def extract_code_block_content(response_text, code_type=None, console=None):
         if console:
             console.print(f"[red]Not enough ``` markers: found {len(markers)}[/red]")
         return ""
+
+
+def with_retry(
+    fn: Callable[[], Any],
+    max_retries: int,
+    base_wait: float,
+    console: Optional[Console] = None,
+    classify_err: Optional[Callable[[Exception], Optional[float]]] = None,
+) -> Any:
+    """Run callable with retries and jitter backoff.
+
+    - If classify_err is not provided, default classifier applies:
+      - '429' -> wait 59 seconds
+      - '502' -> wait base_wait
+    - Adds ±20% jitter to avoid thundering herd
+    """
+    def default_classifier(e: Exception) -> Optional[float]:
+        s = str(e)
+        if "429" in s:
+            return 59.0
+        if "502" in s:
+            return base_wait
+        return None
+
+    classifier = classify_err or default_classifier
+
+    for attempt in range(max_retries):
+        start_time = time.time()
+        try:
+            return fn()
+        except Exception as e:
+            if attempt >= max_retries - 1:
+                if console:
+                    console.print(Text(str(e), style="red"))
+                raise
+            wait = classifier(e) or base_wait
+            jitter = wait * 0.2
+            sleep_for = max(0.0, wait + random.uniform(-jitter, jitter))
+            elapsed = time.time() - start_time
+            if elapsed < sleep_for:
+                time.sleep(sleep_for - elapsed)
+
+
+def collect_stream_stepfun(completion: Iterable[Any], console: Console) -> str:
+    """Collect streamed text from StepFun(OpenAI-compatible) responses."""
+    chunks: List[str] = []
+    for chunk in completion:
+        if (
+            hasattr(chunk.choices[0].delta, "content")
+            and chunk.choices[0].delta.content is not None
+        ):
+            chunks.append(chunk.choices[0].delta.content)
+            console.print(".", end="", style="blue")
+    console.print("\n")
+    return "".join(chunks)
+
+
+def collect_stream_qwen(responses: Iterable[Any], console: Console) -> str:
+    """Collect streamed text from QwenVL responses.
+
+    Preserve original behavior: print raw chunk, print the whole aggregated text each step.
+    """
+    chunks = ""
+    for chunk in responses:
+        print(chunk)
+        try:
+            # Original code assumes first element exists
+            chunks += chunk.output.choices[0].message.content[0]["text"]
+        except Exception:
+            # Fallback: try generic text fields if shape differs
+            try:
+                chunks += getattr(chunk, "text", "") or ""
+            except Exception:
+                pass
+        try:
+            console.print(chunks, end="", overflow="ellipsis")
+        except Exception:
+            console.print(Text(chunks), end="", overflow="ellipsis")
+        finally:
+            console.file.flush()
+    console.print("\n")
+    return chunks
+
+
+def collect_stream_glm(responses: Iterable[Any], console: Console) -> str:
+    """Collect streamed text from GLM responses.
+
+    Preserve original behavior: print raw chunk, print the whole aggregated text each step.
+    """
+    chunks = ""
+    for chunk in responses:
+        print(chunk)
+        if (
+            hasattr(chunk.choices[0].delta, "content")
+            and chunk.choices[0].delta.content is not None
+        ):
+            chunks += chunk.choices[0].delta.content
+        try:
+            console.print(chunks, end="", overflow="ellipsis")
+        except Exception:
+            console.print(Text(chunks), end="", overflow="ellipsis")
+        finally:
+            console.file.flush()
+    console.print("\n")
+    return chunks
+
+
+def collect_stream_gemini(response: Iterable[Any], uri: str, console: Console) -> str:
+    """Collect streamed text and inline_data from Gemini responses.
+
+    - Accumulate chunk.text into final response_text (same as original)
+    - For inline_data, save paired text buffer and image/file to disk
+    - Preserve printing/flush behaviors
+    """
+    chunks: List[str] = []
+    part_index = 0
+    text_buffer: List[str] = []
+    for chunk in response:
+        if (
+            not getattr(chunk, "candidates", None)
+            or not chunk.candidates[0].content
+            or not chunk.candidates[0].content.parts
+        ):
+            continue
+        if getattr(chunk, "text", None):
+            chunks.append(chunk.text)
+            console.print("")
+            try:
+                console.print(chunk.text, end="", overflow="ellipsis")
+            except Exception:
+                console.print(Text(chunk.text), end="", overflow="ellipsis")
+            finally:
+                console.file.flush()
+        for part in chunk.candidates[0].content.parts:
+            if getattr(part, "text", None):
+                text_content = str(part.text)
+                if text_content:
+                    console.print(text_content)
+                    text_buffer.append(text_content)
+            if getattr(part, "inline_data", None):
+                part_index += 1
+                clean_text = "".join(text_buffer).strip()
+                if clean_text:
+                    text_path = Path(uri).with_name(f"{Path(uri).stem}_{part_index}.txt")
+                    save_binary_file(text_path, clean_text.encode("utf-8"))
+                    console.print(
+                        f"[blue]Text part saved to: {text_path.name}[/blue]"
+                    )
+                image_path = Path(uri).with_stem(f"{Path(uri).stem}_{part_index}")
+                save_binary_file(image_path, part.inline_data.data)
+                console.print(
+                    f"[blue]File of mime type {part.inline_data.mime_type} saved to: {image_path.name}[/blue]"
+                )
+                text_buffer.clear()
+    console.print("\n")
+    return "".join(chunks)
 
 
 def process_llm_response(result: str) -> tuple[str, str]:
