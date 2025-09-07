@@ -616,6 +616,23 @@ def load_model_and_tags(args):
             parent_to_child_map[parent_tag].append(child_tag)
         console.print(f"[green]Loaded {len(parent_to_child_map)} parent tags.[/green]")
 
+        # Keep parent_to_child_map consistent with underscore normalization
+        # applied later to tag names in process_tags.
+        if args.remove_underscore:
+            console.print("[blue]Normalizing underscores in parent/child tag map...[/blue]")
+            normalized_map: Dict[str, List[str]] = {}
+            for parent, children in parent_to_child_map.items():
+                # Match the same rule: only replace '_' for names longer than 3 chars
+                norm_parent = parent.replace("_", " ") if len(parent) > 3 else parent
+                target_list = normalized_map.setdefault(norm_parent, [])
+                for child in children:
+                    norm_child = child.replace("_", " ") if len(child) > 3 else child
+                    target_list.append(norm_child)
+            # Deduplicate and sort children lists for stability
+            for k in list(normalized_map.keys()):
+                normalized_map[k] = sorted(set(normalized_map[k]))
+            parent_to_child_map = normalized_map
+
     console.print(
         f"[green]Model loaded in {time.time() - start_time:.2f} seconds[/green]"
     )

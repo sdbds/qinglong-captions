@@ -244,6 +244,10 @@ def api_process_batch(
             api_key=args.step_api_key, base_url="https://api.stepfun.com/v1"
         )
 
+        # Predefine pair placeholders for both image/video paths
+        pair_blob = None
+        pair_pixels = None
+
         if mime.startswith("video"):
             file = client.files.create(file=open(uri, "rb"), purpose="storage")
             console.print(f"[blue]Uploaded video file:[/blue] {file}")
@@ -259,7 +263,8 @@ def api_process_batch(
                 pair_pixels = image_media["pair"]["pixels"]
 
         def _attempt_stepfun() -> str:
-            has_pair = bool(args.pair_dir and 'pair_pixels' in locals() and pair_pixels)
+            # Use outer-scope pair_pixels directly; it's predefined above
+            has_pair = bool(args.pair_dir and pair_pixels)
             return stepfun_attempt(
                 client=client,
                 model_path=args.step_model_path,
@@ -380,6 +385,7 @@ def api_process_batch(
 
         client = Mistral(api_key=args.pixtral_api_key)
         captions = []
+        character_name = ""
 
         if mime.startswith("image") and args.pair_dir == "":
             system_prompt, _ = get_prompts(config, mime, args, provider, console)
@@ -514,7 +520,6 @@ def api_process_batch(
                 )
             else:
                 # image chat
-                cn = locals().get("character_name", "") if 'character_name' in locals() else ""
                 return pixtral_attempt(
                     client=client,
                     model_path=args.pixtral_model_path,
@@ -527,7 +532,7 @@ def api_process_batch(
                     pixels=pixels,
                     captions=captions,
                     prompt_text=prompt,
-                    character_name=cn,
+                    character_name=character_name,
                     tags_highlightrate=getattr(args, "tags_highlightrate", 0.0),
                 )
 
