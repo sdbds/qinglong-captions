@@ -1103,7 +1103,7 @@ def split_name_series(names: str) -> str:
     for item in items:
         if item.endswith(" (cosplay)"):
             item = item.replace(" (cosplay)", "")
-        if ("c.c_") in item:
+        if ("c.c_") or ("c.c") in item:
             item = item.replace("c.c_", "c.c.")
         if ("k:da") in item:
             item = item.replace("k:da", "k/da")

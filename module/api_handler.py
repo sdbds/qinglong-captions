@@ -390,7 +390,6 @@ def api_process_batch(
         if mime.startswith("image") and args.pair_dir == "":
             system_prompt, _ = get_prompts(config, mime, args, provider, console)
             character_prompt = ""
-            character_name = ""
             if args.dir_name:
                 dir_prompt = Path(uri).parent.name or ""
                 character_name = split_name_series(dir_prompt)

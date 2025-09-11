@@ -596,6 +596,7 @@ series_exclude_list = [
     "winter princess",
     "creature",
     "kenjaku",
+    "pc-98",
 ]
 
 [reward_model]
