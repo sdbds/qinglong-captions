@@ -422,10 +422,19 @@ def main(args):
             else:
                 if "captions" in batch.schema.names:
                     raw_caps = batch["captions"].to_pylist()
-                    prompts = [
-                        c if isinstance(c, str) and c.strip() else ""
-                        for c in raw_caps[0]
-                    ]
+                    captions_list = raw_caps[0] if raw_caps and len(raw_caps) > 0 else []
+                    # 确保 captions 长度与 uris 匹配
+                    if len(captions_list) >= len(uris):
+                        prompts = [
+                            c if isinstance(c, str) and c.strip() else ""
+                            for c in captions_list[:len(uris)]
+                        ]
+                    else:
+                        # captions 长度不足，用空字符串填充
+                        prompts = (
+                            [c if isinstance(c, str) and c.strip() else "" for c in captions_list] +
+                            [""] * (len(uris) - len(captions_list))
+                        )
                 else:
                     prompts = [""] * len(uris)
 
