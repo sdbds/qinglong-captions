@@ -35,6 +35,7 @@ class ImageProcessor:
         console: Console = None,
         transform_type: str = "auto",
         bg_color: Tuple[int, int, int] = (255, 255, 255), # Default to white
+        crop_transparent: bool = False,
     ):
         """
         Initializes the ImageProcessor.
@@ -43,6 +44,9 @@ class ImageProcessor:
             recursive: Whether to process images in subdirectories.
             max_workers: The maximum number of worker threads for parallel processing.
             console: An optional Rich Console instance for output.
+            transform_type: The type of transformation for alignment.
+            bg_color: RGB background color for padding.
+            crop_transparent: Whether to crop transparent borders from RGBA images.
         """
         self.recursive = recursive
         self.max_workers = (
@@ -54,6 +58,7 @@ class ImageProcessor:
         self.image_extensions = get_supported_extensions("image")
         self.transform_type = transform_type
         self.bg_color = bg_color
+        self.crop_transparent = crop_transparent
 
     def _save_pil_image(
         self,
@@ -152,6 +157,15 @@ class ImageProcessor:
         Returns:
             The resized (and optionally padded) PIL Image.
         """
+        # Crop transparent borders if requested and image has alpha channel
+        if self.crop_transparent and pil_image.mode == "RGBA":
+            bbox = pil_image.getbbox()
+            if bbox:
+                pil_image = pil_image.crop(bbox)
+                self.console.print(
+                    "[blue]Cropped transparent borders during padding operation[/blue]"
+                )
+
         original_width, original_height = pil_image.size
 
         if not keep_aspect_ratio_and_pad:
@@ -216,6 +230,15 @@ class ImageProcessor:
             original_quality = None
             if hasattr(pil_image, "info") and "quality" in pil_image.info:
                 original_quality = pil_image.info.get("quality")
+
+            # Crop transparent borders if requested and image has alpha channel
+            if self.crop_transparent and pil_image.mode == "RGBA":
+                bbox = pil_image.getbbox()
+                if bbox:
+                    pil_image = pil_image.crop(bbox)
+                    self.console.print(
+                        f"[blue]Cropped transparent borders from {Path(image_path).name}[/blue]"
+                    )
 
             # Preserve original mode if it's L (grayscale) for certain formats, otherwise convert to RGB for processing
             # This is a delicate balance: color conversion for consistency vs. preserving original color space.
@@ -484,9 +507,6 @@ class ImageProcessor:
         reference_image_pil_resized_to_target = reference_image_pil.resize(
             (target_width, target_height), resample=Image.LANCZOS
         )
-        image_to_warp_pil_resized_to_ref_orig_size = image_to_warp_pil.resize(
-            (target_width, target_height), Image.LANCZOS
-        )
 
         # Prepare the version of image_to_warp_pil that will be returned if no alignment is performed.
         # This version is resized to target dimensions with aspect ratio preservation and padding.
@@ -508,6 +528,10 @@ class ImageProcessor:
                 image_to_warp_pil_padded_to_target_dims,
                 reference_image_pil_resized_to_target,
             )
+
+        image_to_warp_pil_resized_to_ref_orig_size = image_to_warp_pil.resize(
+            (target_width, target_height), Image.LANCZOS
+        )
 
         # Convert PIL images to OpenCV format (numpy arrays)
         # For image_to_warp, use the version resized to reference_image's original size for feature detection
@@ -868,12 +892,19 @@ def main():
         help="Transformation type for alignment: auto (default), affine, homography, or none",
     )
     parser.add_argument(
+        "-bc",
         "--bg-color",
         type=int,
         nargs=3,
         default=[255, 255, 255],
         metavar=("R", "G", "B"),
         help="RGB background color for padding (e.g., 0 0 0 for black, 255 255 255 for white). Default: 255 255 255",
+    )
+    parser.add_argument(
+        "-ct",
+        "--crop-transparent",
+        action="store_true",
+        help="Crop transparent borders from RGBA images before processing",
     )
 
     args = parser.parse_args()
@@ -890,6 +921,7 @@ def main():
     )
     if args.align_input:
         global_console.print(f"Alignment reference directory: {args.align_input}")
+    global_console.print(f"Crop transparent borders: {'Yes' if args.crop_transparent else 'No'}")
     global_console.print(
         f"[red bold]Warning: Original image files in the primary input directory will be overwritten![/red bold]"
     )
@@ -901,6 +933,7 @@ def main():
         console=global_console,  # Pass the global console to the processor
         transform_type=args.transform_type,
         bg_color=tuple(args.bg_color),
+        crop_transparent=args.crop_transparent,
     )
 
     start_time = time.time()

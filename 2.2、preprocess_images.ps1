@@ -26,6 +26,7 @@ $Config = @{
     workers            = 8                                # Optional: Maximum number of worker threads for processing (e.g., 8)
     transform_type     = "auto"                           # Optional: Set to "auto" for automatic alignment, "none" for no alignment
     bg_color           = "255 255 255"                    # Optional: Background color for padding (e.g., 255 255 255 for white)
+    crop_transparent   = $true                            # Optional: Set to $true to crop transparent borders from RGBA images
     python_script_path = ".\utils\preprocess_datasets.py" # Relative path to the Python script
 }
 #endregion
@@ -119,6 +120,10 @@ if ($Config.bg_color) {
             [void]$ExtArgs.Add($component.Trim())
         }
     }
+}
+
+if ($Config.crop_transparent) {
+    [void]$ExtArgs.Add("--crop-transparent")
 }
 
 #endregion
