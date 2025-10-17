@@ -133,7 +133,9 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
         bool: True if save successful, False otherwise
     """
     try:
-        if not len(caption_lines):
+        # 检查caption_lines是否为空或只包含空字符串
+        has_content = any(line.strip() for line in caption_lines if line)
+        if not has_content:
             console.print(f"[red]No caption content found for {caption_path}[/red]")
             return False
         caption_path = Path(caption_path)

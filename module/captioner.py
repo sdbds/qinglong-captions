@@ -319,7 +319,7 @@ def process_batch(args, config):
                 else:
                     console.print(f"[blue]Caption content length:[/blue] {len(output)}")
 
-                if caption_path.suffix == ".srt":
+                if caption_path.suffix == ".srt" and output:
                     try:
                         subs = pysrt.from_string(output)
                         if scene_detector:
@@ -360,7 +360,7 @@ def process_batch(args, config):
                             )
                         except Exception as e:
                             console.print(f"[red]Error saving SRT file: {e}[/red]")
-                elif caption_path.suffix == ".md":
+                elif caption_path.suffix == ".md" and output:
                     try:
                         with open(caption_path, "w", encoding="utf-8") as f:
                             f.write(output)
@@ -369,7 +369,7 @@ def process_batch(args, config):
                         )
                     except Exception as e:
                         console.print(f"[red]Error saving MD file: {e}[/red]")
-                else:
+                elif output:
                     try:
                         if isinstance(output, list):
                             with open(caption_path, "w", encoding="utf-8") as f:

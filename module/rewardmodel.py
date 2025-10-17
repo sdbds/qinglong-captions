@@ -26,6 +26,8 @@ import concurrent.futures
 import shutil
 import json
 import toml
+import inspect
+import gc
 
 from imscore.aesthetic.model import (
     ShadowAesthetic,
@@ -116,6 +118,11 @@ def process_batch(pixel_tensors, model, prompts):
             model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         for px, pr in zip(pixel_tensors, prompts):
+            # sanitize prompt: ensure non-empty string for models that require text
+            if not isinstance(pr, str):
+                pr = "" if pr is None else str(pr)
+            if not pr.strip():
+                pr = " "
             # 统一为 torch.FloatTensor [C,H,W] on model_device, 0..1
             try:
                 if isinstance(px, torch.Tensor):
@@ -139,7 +146,12 @@ def process_batch(pixel_tensors, model, prompts):
                 else:
                     raise TypeError(f"Unsupported pixel type: {type(px)}")
 
-                t = t.to(model_device, non_blocking=True)
+                # align dtype with model parameters to avoid mixed precision issues
+                try:
+                    target_dtype = next(model.parameters()).dtype  # type: ignore[attr-defined]
+                except Exception:
+                    target_dtype = t.dtype
+                t = t.to(model_device, dtype=target_dtype, non_blocking=True)
                 # 增加 batch 维度 -> [1,C,H,W]
                 if t.dim() == 3:
                     t = t.unsqueeze(0)
@@ -183,7 +195,31 @@ def process_batch(pixel_tensors, model, prompts):
         return None
 
 
-def load_model(args):
+def _normalize_device_dtype(args):
+    device = getattr(args, "device", "auto")
+    if device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    dtype_opt = getattr(args, "dtype", "auto")
+    repo_id = getattr(args, "repo_id", "") or ""
+    if dtype_opt in ("auto", None):
+        if repo_id.endswith("hpsv3"):
+            inferred = torch.bfloat16 if device != "cpu" else torch.float32
+        else:
+            inferred = torch.float16 if (device.startswith("cuda") and torch.cuda.is_available()) else torch.float32
+    elif dtype_opt in ("float16", "fp16"):
+        inferred = torch.float16
+    elif dtype_opt in ("bfloat16", "bf16"):
+        inferred = torch.bfloat16
+    elif dtype_opt in ("float32", "fp32"):
+        inferred = torch.float32
+    else:
+        inferred = torch.float32
+
+    return device, inferred
+
+
+def load_model(args, device, dtype):
     """加载模型和标签"""
     registry = {
         "RE-N-Y/aesthetic-shadow-v2": ShadowAesthetic,
@@ -224,7 +260,49 @@ def load_model(args):
         console.print(f"[red]Invalid model repo ID: {args.repo_id}[/red]")
         return None
 
-    return cls.from_pretrained(args.repo_id)
+    model = None
+    orig_torch_load = torch.load
+    def _torch_load_with_defaults(*a, **k):
+        if "map_location" not in k:
+            try:
+                k["map_location"] = torch.device(device)
+            except Exception:
+                k["map_location"] = device
+        try:
+            _sig = inspect.signature(orig_torch_load)
+            if "weights_only" in _sig.parameters:
+                k.setdefault("weights_only", True)
+        except Exception:
+            pass
+        return orig_torch_load(*a, **k)
+
+    torch.load = _torch_load_with_defaults
+    try:
+        sig = inspect.signature(cls.from_pretrained)
+        kw = {}
+        if "torch_dtype" in sig.parameters:
+            kw["torch_dtype"] = dtype
+        if "dtype" in sig.parameters:
+            kw["dtype"] = dtype
+        if "device" in sig.parameters:
+            kw["device"] = device
+        if "map_location" in sig.parameters:
+            try:
+                kw["map_location"] = torch.device(device)
+            except Exception:
+                kw["map_location"] = device
+        if "low_cpu_mem_usage" in sig.parameters:
+            kw["low_cpu_mem_usage"] = True
+        if "device_map" in sig.parameters:
+            kw["device_map"] = "auto"
+        model = cls.from_pretrained(args.repo_id, **kw)
+    except Exception:
+        model = cls.from_pretrained(args.repo_id)
+    finally:
+        torch.load = orig_torch_load
+
+    gc.collect()
+    return model
 
 
 def main(args):
@@ -332,44 +410,26 @@ def main(args):
         dataset = args.train_data_dir
         console.print("[green]Using existing Lance dataset[/green]")
 
-    # 加载奖励模型
-    model = load_model(args)
-    if args.device == "auto":
-        args.device = "cuda" if torch.cuda.is_available() else "cpu"
-    if args.dtype == "auto":
-        inferred = None
-        # 1) 优先 transformers 的配置
-        torch_dtype_cfg = getattr(getattr(model, "config", None), "torch_dtype", None)
-        if torch_dtype_cfg is not None:
-            inferred = torch_dtype_cfg
-        else:
-            # 2) 回退到首个参数 dtype
-            p0 = next(model.parameters(), None)
-            if p0 is not None:
-                inferred = p0.dtype
-
-        # 3) 环境约束与兜底
-        if inferred is None:
-            inferred = torch.float16 if torch.cuda.is_available() else torch.float32
-        if args.device == "cpu" and inferred in (torch.float16, torch.bfloat16):
-            inferred = torch.float32
-        if args.repo_id.endswith("hpsv3"):
-            inferred = torch.bfloat16
-    elif args.dtype == "float16" or args.dtype == "fp16":
-        inferred = torch.float16
-    elif args.dtype == "bfloat16" or args.dtype == "bf16":
-        inferred = torch.bfloat16
-    elif args.dtype == "float32" or args.dtype == "fp32":
-        inferred = torch.float32
-    else:
-        inferred = torch.float32
-    args.dtype = inferred
+    # 加载奖励模型（先确定 device/dtype 再加载，避免 CPU FP32 峰值）
+    dev, dt = _normalize_device_dtype(args)
+    model = load_model(args, dev, dt)
+    args.device = dev
+    args.dtype = dt
     console.print(f"[green]Using device: {args.device}[/green]")
     console.print(f"[green]Using dtype: {args.dtype}[/green]")
-    model.to(device=args.device, dtype=args.dtype)
-    model.eval()
     if model is None:
         return
+    try:
+        p0 = next(model.parameters())
+        if p0.device.type != torch.device(args.device).type or p0.dtype != args.dtype:
+            model.to(device=args.device, dtype=args.dtype)
+    except Exception:
+        if hasattr(model, "to"):
+            try:
+                model.to(device=args.device, dtype=args.dtype)
+            except Exception:
+                pass
+    model.eval()
 
     # 先计算图片总数
     total_images = len(
