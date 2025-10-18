@@ -1,3 +1,0 @@
-[submodule "dotsocr"]
-	path = third_party/dots_ocr
-	url = https://github.com/rednote-hilab/dots.ocr
