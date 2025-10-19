@@ -1,0 +1,3 @@
+[submodule "third_party/SongPrep"]
+	path = third_party/SongPrep
+	url = https://github.com/sdbds/SongPrep
