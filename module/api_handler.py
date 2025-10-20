@@ -3,7 +3,6 @@ import io
 import re
 import base64
 from typing import List, Optional, Dict, Any, Union, Tuple, Callable
-import json
 from google import genai
 from google.genai import types
 from mistralai import Mistral
@@ -16,6 +15,7 @@ from PIL import Image
 from pathlib import Path
 import functools
 import random
+import traceback
 from utils.stream_util import sanitize_filename
 from utils.wdtagger import split_name_series
 from module.providers.gemini_utils import upload_or_get
@@ -919,6 +919,35 @@ def with_retry(
                     except Exception:
                         pass
                 raise
+            # Log error location and type for diagnostics on every retry attempt
+            if console:
+                try:
+                    tb = traceback.extract_tb(e.__traceback__)
+                    if tb:
+                        last = tb[-1]
+                        console.print(
+                            Text(
+                                f"[with_retry] {attempt+1}/{max_retries} failed at {Path(last.filename).name}:{last.lineno} in {last.name} -> {type(e).__name__}: {e}",
+                                style="yellow",
+                            )
+                        )
+                    else:
+                        console.print(
+                            Text(
+                                f"[with_retry] {attempt+1}/{max_retries} failed: {type(e).__name__}: {e}",
+                                style="yellow",
+                            )
+                        )
+                except Exception:
+                    try:
+                        console.print(
+                            Text(
+                                f"[with_retry] {attempt+1}/{max_retries} failed: {type(e).__name__}: {e}",
+                                style="yellow",
+                            )
+                        )
+                    except Exception:
+                        pass
             wait = classifier(e) or base_wait
             jitter = wait * 0.2
             sleep_for = max(0.0, wait + random.uniform(-jitter, jitter))

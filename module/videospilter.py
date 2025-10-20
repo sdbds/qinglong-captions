@@ -1,4 +1,12 @@
-import torch
+# /// script
+# dependencies = [
+#   "pillow>=11.3",
+#   "opencv-python",
+#   "scenedetect>=0.6.6",
+#   "pysrt",
+#   "rich>=13.5.0",
+# ]
+# ///
 import pysrt
 from pathlib import Path
 from PIL import Image
