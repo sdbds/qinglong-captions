@@ -175,7 +175,7 @@ def process_batch(pixel_tensors, model, prompts):
                 # 仅走单样本张量路径，满足 PickScorer/CLIP 家族对 4D 的要求
                 if model_name == "HPSv3" and was_empty_prompt:
                     _calls = [
-                        # tensor, no text
+                        # tensor, no/empty text
                         lambda: model.score(t),
                         lambda: model.score(t, None),
                         lambda: model.score(t, ""),
@@ -184,24 +184,16 @@ def process_batch(pixel_tensors, model, prompts):
                         lambda: model.score([t], None),
                         lambda: model.score([t], [""]),
                     ]
-                    _pil = None
+                    # also try ndarray HWC path (uint8 preferred)
                     if isinstance(px, np.ndarray):
-                        try:
-                            _pil = Image.fromarray(px)
-                        except Exception:
-                            _pil = None
-                    elif isinstance(px, Image.Image):
-                        _pil = px
-                    if _pil is not None:
+                        _px = px if px.dtype == np.uint8 else px.astype(np.uint8)
                         _calls.extend([
-                            # PIL, no text
-                            lambda: model.score(_pil),
-                            lambda: model.score(_pil, None),
-                            lambda: model.score(_pil, ""),
-                            # list[PIL], no/empty text
-                            lambda: model.score([_pil]),
-                            lambda: model.score([_pil], None),
-                            lambda: model.score([_pil], [""]),
+                            lambda: model.score(_px),
+                            lambda: model.score(_px, None),
+                            lambda: model.score(_px, ""),
+                            lambda: model.score([_px]),
+                            lambda: model.score([_px], None),
+                            lambda: model.score([_px], [""]),
                         ])
                     _last_err = None
                     s = None
@@ -210,7 +202,8 @@ def process_batch(pixel_tensors, model, prompts):
                             s = _fn()
                             break
                         except Exception as _e:
-                            _last_err = _e
+                            if _last_err is None:
+                                _last_err = _e
                     if s is None:
                         raise _last_err if _last_err is not None else Exception("HPSv3 empty prompt scoring failed")
                 else:
@@ -226,55 +219,48 @@ def process_batch(pixel_tensors, model, prompts):
                 # 最后兜底：再尝试原始对象（可能某些实现内部做转换）
                 try:
                     if model_name == "HPSv3" and was_empty_prompt:
-                        _pil = None
+                        _calls = []
                         if isinstance(px, np.ndarray):
+                            _px = px if px.dtype == np.uint8 else px.astype(np.uint8)
+                            _calls.extend([
+                                lambda: model.score(_px),
+                                lambda: model.score(_px, None),
+                                lambda: model.score(_px, ""),
+                                lambda: model.score([_px]),
+                                lambda: model.score([_px], None),
+                                lambda: model.score([_px], [""]),
+                            ])
+                        if isinstance(px, torch.Tensor):
+                            _tx = px
+                            if _tx.dim() == 3 and _tx.shape[-1] == 3:
+                                _tx = _tx.permute(2, 0, 1)
+                            elif _tx.dim() == 4:
+                                _tx = _tx[0]
+                            _tx = _tx.to(dtype=torch.float32)
+                            if _tx.max() > 1.0:
+                                _tx = _tx / 255.0
+                            _tx = _tx.to(model_device, dtype=target_dtype, non_blocking=True)
+                            if _tx.dim() == 3:
+                                _tx = _tx.unsqueeze(0)
+                            _calls.extend([
+                                lambda: model.score(_tx),
+                                lambda: model.score(_tx, None),
+                                lambda: model.score(_tx, ""),
+                                lambda: model.score([_tx]),
+                                lambda: model.score([_tx], None),
+                                lambda: model.score([_tx], [""]),
+                            ])
+                        _last_err = None
+                        s = None
+                        for _fn in _calls:
                             try:
-                                _pil = Image.fromarray(px)
-                            except Exception:
-                                _pil = None
-                        elif isinstance(px, Image.Image):
-                            _pil = px
-                        if _pil is not None:
-                            _calls = [
-                                # PIL, no text
-                                lambda: model.score(_pil),
-                                lambda: model.score(_pil, None),
-                                lambda: model.score(_pil, ""),
-                                # list[PIL], no/empty text
-                                lambda: model.score([_pil]),
-                                lambda: model.score([_pil], None),
-                                lambda: model.score([_pil], [""]),
-                            ]
-                            _last_err = None
-                            s = None
-                            for _fn in _calls:
-                                try:
-                                    s = _fn()
-                                    break
-                                except Exception as _e:
+                                s = _fn()
+                                break
+                            except Exception as _e:
+                                if _last_err is None:
                                     _last_err = _e
-                            if s is None:
-                                raise _last_err if _last_err is not None else Exception("HPSv3 empty prompt scoring fallback failed")
-                        else:
-                            # ndarray path without PIL conversion
-                            _calls = [
-                                lambda: model.score(px),
-                                lambda: model.score(px, None),
-                                lambda: model.score(px, ""),
-                                lambda: model.score([px]),
-                                lambda: model.score([px], None),
-                                lambda: model.score([px], [""]),
-                            ]
-                            _last_err = None
-                            s = None
-                            for _fn in _calls:
-                                try:
-                                    s = _fn()
-                                    break
-                                except Exception as _e:
-                                    _last_err = _e
-                            if s is None:
-                                raise _last_err if _last_err is not None else Exception("HPSv3 ndarray fallback failed")
+                        if s is None:
+                            raise _last_err if _last_err is not None else Exception("HPSv3 empty prompt scoring fallback failed")
                     else:
                         s = model.score(px, pr)
                 except Exception:
