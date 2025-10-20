@@ -33,45 +33,41 @@ $Config = @{
 
 #region Environment Setup
 # Activate python venv
-Push-Location $PSScriptRoot # Change to script's directory, remember to Pop-Location
+Set-Location $PSScriptRoot
 $env:PYTHONPATH = "$PSScriptRoot;$env:PYTHONPATH"
 $VenvPaths = @(
-    ".\venv\Scripts\activate.ps1",
-    ".\.venv\Scripts\activate.ps1",
-    ".\venv\Scripts\Activate", # For Command Prompt style activation if .ps1 not found
-    ".\.venv\Scripts\Activate"
+    "./venv/Scripts/activate",
+    "./.venv/Scripts/activate",
+    "./venv/bin/Activate.ps1",
+    "./.venv/bin/activate.ps1"
 )
 
-$venvActivated = $false
 foreach ($Path in $VenvPaths) {
     if (Test-Path $Path) {
         Write-Output "Activating venv: $Path"
-        try {
-            & $Path
-            $venvActivated = $true
-            Write-Output "Virtual environment activated successfully."
-            break
-        }
-        catch {
-            Write-Warning "Failed to activate venv at $Path. Error: $($_.Exception.Message)"
-        }
+        & $Path
+        break
     }
 }
 
-if (-not $venvActivated) {
-    Write-Warning "Could not find or activate a Python virtual environment. Please ensure a venv exists at ./venv or ./.venv and is correctly set up."
-    # Optionally, exit here if venv is critical
-    # exit 1
-}
-
-# Set common environment variables that might be useful for Python scripts (similar to the example)
-$Env:HF_HOME = "huggingface" # Example, adjust if needed
-# $Env:HF_ENDPOINT = "https://hf-mirror.com" # Example, adjust if needed
-$Env:XFORMERS_FORCE_DISABLE_TRITON = "1" # Example, adjust if needed
+# Set environment variables
+$Env:HF_HOME = "huggingface"
+#$Env:HF_ENDPOINT = "https://hf-mirror.com"
+$Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
+$Env:CUDA_HOME = "${env:CUDA_PATH}"
+$Env:TF_TRT_ALLOW_ENGINE_NATIVE_SEGMENT_EXECUTION = "1"
+$Env:TF_CUDNN_USE_AUTOTUNE = "1"
+$Env:TF_TRT_ALLOW_TF32 = "1"
+#$Env:UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple/"
+$Env:UV_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
+$Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
+$Env:UV_NO_BUILD_ISOLATION = 1
+$Env:UV_NO_CACHE = 0
+$Env:UV_LINK_MODE = "symlink"
+#$Env:CUDA_VISIBLE_DEVICES = "1"  # 设置GPU id，0表示使用第一个GPU，-1表示不使用GPU
 #endregion
 
 #region Build Arguments
-$PythonExecutable = "python" # Or python.exe, or full path if not in PATH
 $ExtArgs = [System.Collections.ArrayList]::new()
 
 # Add configuration arguments for preprocess_datasets.py
@@ -80,7 +76,6 @@ if ($Config.input_dir) {
 }
 else {
     Write-Error "Input directory (--input) is required. Please set it in the configuration."
-    Pop-Location
     exit 1
 }
 
@@ -129,30 +124,13 @@ if ($Config.crop_transparent) {
 #endregion
 
 #region Execute Image Processing Script
-Write-Output "Starting Image Processing using $($Config.python_script_path)..."
-Write-Output "Arguments: $($ExtArgs -join ' ')"
+Write-Output "Starting Image Processing..."
 
-# Check if Python script exists
-if (-not (Test-Path $Config.python_script_path)) {
-    Write-Error "Python script not found at $($Config.python_script_path). Please check the path."
-    Pop-Location
-    exit 1
-}
+# Execute the Python script
+uv run $Config.python_script_path `
+    $ExtArgs
 
-try {
-    # Execute the Python script
-    & $PythonExecutable $Config.python_script_path $ExtArgs
-    Write-Output "Image Processing script finished."
-}
-catch {
-    Write-Error "An error occurred while running the Python script: $($_.Exception.Message)"
-    # You might want to inspect $_ for more details on the error
-}
+Write-Output "Image Processing finished"
+Read-Host | Out-Null
 
-#endregion
-
-#region Cleanup
-Pop-Location # Return to the original directory
-Write-Output "Script execution complete. Press any key to exit..."
-Read-Host -Prompt "Press Enter to exit" | Out-Null
 #endregion

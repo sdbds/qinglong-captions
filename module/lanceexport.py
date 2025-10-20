@@ -1,3 +1,16 @@
+# /// script
+# dependencies = [
+#   "setuptools",
+#   "pillow>=11.3",
+#   "pylance>=0.20.0",
+#   "pysrt",
+#   "rich>=13.5.0",
+#   "imageio>=2.31.1",
+#   "imageio-ffmpeg>=0.4.8",
+#   "numpy",
+#   "mutagen",
+# ]
+# ///
 import argparse
 import lance
 import re

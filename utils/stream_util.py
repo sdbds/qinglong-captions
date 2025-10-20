@@ -1,14 +1,10 @@
-import av
 import re
 import math
 from typing import Tuple, Optional
 from rich.progress import Progress, BarColumn, TimeRemainingColumn
 from rich.console import Console
-from av.audio.format import AudioFormat
-from av.audio.layout import AudioLayout
 import subprocess
 import imageio_ffmpeg
-from pymediainfo import MediaInfo
 
 console = Console()
 
@@ -26,6 +22,10 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kw
     Returns:
         None
     """
+    import av
+    from av.audio.format import AudioFormat
+    from av.audio.layout import AudioLayout
+
     with av.open(uri) as in_container:
         if media_type != "video":
             video_stream = None
@@ -348,6 +348,8 @@ def get_video_duration(file_path):
     Returns:
         float: 视频持续时间（毫秒）
     """
+    from pymediainfo import MediaInfo
+
     for track in MediaInfo.parse(file_path).tracks:
         if track.track_type == "Video":
             return track.duration

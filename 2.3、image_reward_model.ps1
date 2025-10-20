@@ -64,6 +64,13 @@ $Env:CUDA_HOME = "${env:CUDA_PATH}"
 $Env:TF_TRT_ALLOW_ENGINE_NATIVE_SEGMENT_EXECUTION = "1"
 $Env:TF_CUDNN_USE_AUTOTUNE = "1"
 $Env:TF_TRT_ALLOW_TF32 = "1"
+#$Env:UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple/"
+$Env:UV_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
+$Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
+$Env:UV_NO_BUILD_ISOLATION = 1
+$Env:UV_NO_CACHE = 0
+$Env:UV_LINK_MODE = "symlink"
+#$Env:CUDA_VISIBLE_DEVICES = "1"  # 设置GPU id，0表示使用第一个GPU，-1表示不使用GPU
 
 #endregion
 
@@ -82,7 +89,7 @@ if ($Config.dtype) { [void]$ExtArgs.Add("--dtype=$($Config.dtype)") }
 Write-Output "Starting Reward Model..."
 
 # Run tagger
-accelerate launch --num_cpu_threads_per_process=8 "./module/rewardmodel.py" `
+uv run "./module/rewardmodel.py" `
     $Config.train_data_dir `
     $ExtArgs
 

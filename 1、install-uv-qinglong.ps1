@@ -106,7 +106,7 @@ else {
 
 Write-Output "Installing main requirements"
 
-~/.local/bin/uv pip install --upgrade setuptools wheel pip wheel_stub
+~/.local/bin/uv pip install --upgrade wheel_stub
 
 if ($env:OS -ilike "*windows*") {
     ~/.local/bin/uv pip sync requirements-uv.txt --index-strategy unsafe-best-match

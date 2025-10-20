@@ -155,7 +155,7 @@ if ($tags_highlightrate -ne 0.4) {
 }
 
 # run train
-python -m module.captioner $dataset_path $ext_args
+uv run -m module.captioner $dataset_path $ext_args
 
 Write-Output "Captioner finished"
 Read-Host | Out-Null ;

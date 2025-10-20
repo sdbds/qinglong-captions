@@ -1,3 +1,15 @@
+# /// script
+# dependencies = [
+#   "setuptools",
+#   "pillow>=11.3",
+#   "pylance>=0.20.0",
+#   "rich>=13.5.0",
+#   "imageio>=2.31.1",
+#   "imageio-ffmpeg>=0.4.8",
+#   "numpy",
+#   "mutagen",
+# ]
+# ///
 """
 Dataset processing utilities for image-caption pairs using Lance format.
 This module provides tools for converting image-caption datasets to Lance format
@@ -28,7 +40,6 @@ import mimetypes
 from pathlib import Path
 from enum import Enum
 import numpy as np
-from mutagen import File as MutagenFile
 
 from config.config import (
     get_supported_extensions,
@@ -379,6 +390,8 @@ class FileProcessor:
                     return None
 
             elif file_path.endswith(audio_extensions):
+                from mutagen import File as MutagenFile
+
                 try:
                     # Read audio file as binary first
                     binary_data = Path(file_path).read_bytes()

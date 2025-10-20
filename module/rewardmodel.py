@@ -1,10 +1,25 @@
+# /// script
+# dependencies = [
+#   "setuptools",
+#   "pillow>=11.3",
+#   "pylance>=0.20.0",
+#   "rich>=13.5.0",
+#   "imageio>=2.31.1",
+#   "imageio-ffmpeg>=0.4.8",
+#   "toml",
+#   "huggingface_hub[hf_xet]>=0.35.2",
+#   "torch>=2.8.0",
+#   "transformers>4.50",
+#   "torchvision",
+#   "scipy",
+#   "imscore",
+# ]
+# ///
 import argparse
 import numpy as np
-import time
 from PIL import Image
 from pathlib import Path
 import lance
-import pyarrow as pa
 from rich.console import Console
 from rich.pretty import Pretty
 from rich.progress import (
@@ -20,7 +35,6 @@ from rich.progress import (
 )
 from rich.tree import Tree
 import torch
-from huggingface_hub import hf_hub_download
 from module.lanceImport import transform2lance
 import concurrent.futures
 import shutil
@@ -119,6 +133,8 @@ def process_batch(pixel_tensors, model, prompts):
 
         for px, pr in zip(pixel_tensors, prompts):
             # sanitize prompt: ensure non-empty string for models that require text
+            was_empty_prompt = not (isinstance(pr, str) and pr.strip())
+            model_name = type(model).__name__
             if not isinstance(pr, str):
                 pr = "" if pr is None else str(pr)
             if not pr.strip():
@@ -157,10 +173,51 @@ def process_batch(pixel_tensors, model, prompts):
                     t = t.unsqueeze(0)
 
                 # 仅走单样本张量路径，满足 PickScorer/CLIP 家族对 4D 的要求
-                s = model.score(t, pr)
-            except Exception:
+                if model_name == "HPSv3" and was_empty_prompt:
+                    _calls = [
+                        # tensor, no text
+                        lambda: model.score(t),
+                        lambda: model.score(t, None),
+                        lambda: model.score(t, ""),
+                        # list[tensor], no/empty text
+                        lambda: model.score([t]),
+                        lambda: model.score([t], None),
+                        lambda: model.score([t], [""]),
+                    ]
+                    _pil = None
+                    if isinstance(px, np.ndarray):
+                        try:
+                            _pil = Image.fromarray(px)
+                        except Exception:
+                            _pil = None
+                    elif isinstance(px, Image.Image):
+                        _pil = px
+                    if _pil is not None:
+                        _calls.extend([
+                            # PIL, no text
+                            lambda: model.score(_pil),
+                            lambda: model.score(_pil, None),
+                            lambda: model.score(_pil, ""),
+                            # list[PIL], no/empty text
+                            lambda: model.score([_pil]),
+                            lambda: model.score([_pil], None),
+                            lambda: model.score([_pil], [""]),
+                        ])
+                    _last_err = None
+                    s = None
+                    for _fn in _calls:
+                        try:
+                            s = _fn()
+                            break
+                        except Exception as _e:
+                            _last_err = _e
+                    if s is None:
+                        raise _last_err if _last_err is not None else Exception("HPSv3 empty prompt scoring failed")
+                else:
+                    s = model.score(t, pr)
+            except Exception as e:
                 console.print(
-                    f"[red]score(tensor single) failed[/red] model={type(model).__name__}, px_type={type(px).__name__}, pr_type={type(pr).__name__}, device={model_device}"
+                    f"[red]score(tensor single) failed[/red] model={type(model).__name__}, px_type={type(px).__name__}, pr_type={type(pr).__name__}, device={model_device}, err={e}"
                 )
                 if isinstance(px, np.ndarray):
                     console.print(f"[yellow]ndarray shape={px.shape}, dtype={px.dtype}[/yellow]")
@@ -168,7 +225,58 @@ def process_batch(pixel_tensors, model, prompts):
                     console.print(f"[yellow]tensor shape={tuple(px.shape)}, dtype={px.dtype}, device={px.device}[/yellow]")
                 # 最后兜底：再尝试原始对象（可能某些实现内部做转换）
                 try:
-                    s = model.score(px, pr)
+                    if model_name == "HPSv3" and was_empty_prompt:
+                        _pil = None
+                        if isinstance(px, np.ndarray):
+                            try:
+                                _pil = Image.fromarray(px)
+                            except Exception:
+                                _pil = None
+                        elif isinstance(px, Image.Image):
+                            _pil = px
+                        if _pil is not None:
+                            _calls = [
+                                # PIL, no text
+                                lambda: model.score(_pil),
+                                lambda: model.score(_pil, None),
+                                lambda: model.score(_pil, ""),
+                                # list[PIL], no/empty text
+                                lambda: model.score([_pil]),
+                                lambda: model.score([_pil], None),
+                                lambda: model.score([_pil], [""]),
+                            ]
+                            _last_err = None
+                            s = None
+                            for _fn in _calls:
+                                try:
+                                    s = _fn()
+                                    break
+                                except Exception as _e:
+                                    _last_err = _e
+                            if s is None:
+                                raise _last_err if _last_err is not None else Exception("HPSv3 empty prompt scoring fallback failed")
+                        else:
+                            # ndarray path without PIL conversion
+                            _calls = [
+                                lambda: model.score(px),
+                                lambda: model.score(px, None),
+                                lambda: model.score(px, ""),
+                                lambda: model.score([px]),
+                                lambda: model.score([px], None),
+                                lambda: model.score([px], [""]),
+                            ]
+                            _last_err = None
+                            s = None
+                            for _fn in _calls:
+                                try:
+                                    s = _fn()
+                                    break
+                                except Exception as _e:
+                                    _last_err = _e
+                            if s is None:
+                                raise _last_err if _last_err is not None else Exception("HPSv3 ndarray fallback failed")
+                    else:
+                        s = model.score(px, pr)
                 except Exception:
                     raise Exception
             console.print(f"[bold green]Score: {s}[/bold green]")

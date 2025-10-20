@@ -1,3 +1,26 @@
+# /// script
+# dependencies = [
+#   "setuptools",
+#   "pillow>=11.3",
+#   "pylance>=0.20.0",
+#   "rich>=13.5.0",
+#   "imageio>=2.31.1",
+#   "imageio-ffmpeg>=0.4.8",
+#   "mutagen",
+#   "toml",
+#   "huggingface_hub[hf_xet]>=0.35.2",
+#   "torch>=2.8.0",
+#   "transformers>4.50",
+#   "torchvision",
+#   "scipy",
+#   "huggingface_hub[hf_xet]>=0.35.2",
+#   "onnxruntime-gpu==1.20.2; sys_platform == 'win32'",
+#   "onnxruntime-gpu>=1.20.2; sys_platform == 'linux'",
+# ]
+# [tool.uv.extra-build-dependencies]
+#       tensorrt-cu13 = ["setuptools"]
+#       tensorrt-cu13-libs = ["wheel_stub"]
+# ///
 import argparse
 import numpy as np
 import time
