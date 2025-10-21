@@ -2,6 +2,7 @@
 # dependencies = [
 #   "setuptools",
 #   "pillow>=11.3",
+#   "pyarrow>=14.0.1",
 #   "rich>=13.5.0",
 #   "imageio>=2.31.1",
 #   "imageio-ffmpeg>=0.4.8",
