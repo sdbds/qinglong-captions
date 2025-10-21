@@ -20,7 +20,7 @@ $segment_time = 600
 $pixtral_ocr = $false
 $document_image = $true
 
-$paddle_ocr = $true
+$paddle_ocr = $false
 
 $deepseek_ocr = $false
 
@@ -179,14 +179,14 @@ elseif ($paddle_ocr) {
   [void]$ext_args.Add("--paddle_ocr")
   $Env:UV_EXTRA_INDEX_URL = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
   if ($os -eq "Windows") {
-    [void]$uv_args.Add("--with-requirements=requirements-uv-paddleocr.txt")
+    [void]$uv_args.Add("--with-requirements=requirements-paddleocr.txt")
   }else{
     uv pip install -r requirements-uv-paddleocr-linux.txt
   }
 }
 elseif ($deepseek_ocr) {
   [void]$ext_args.Add("--deepseek_ocr")
-  [void]$uv_args.Add("--with-requirements=requirements-uv-deepseekocr.txt")
+  [void]$uv_args.Add("--with-requirements=requirements-deepseekocr.txt")
   if ($deepseek_base_size -ine 1024) {
     [void]$ext_args.Add("--deepseek_base_size=$deepseek_base_size")
   }

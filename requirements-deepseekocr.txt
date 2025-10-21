@@ -1,0 +1,33 @@
+av
+pylance>=0.20.0
+rich
+rich_pixels
+pandas
+pillow-heif
+pillow-jxl-plugin
+pysrt
+toml
+imageio>=2.31.1
+imageio-ffmpeg>=0.4.8
+pymediainfo
+mutagen
+pyanimeinfo
+wheel_stub
+setuptools
+scenedetect>=0.6.6
+opencv-python
+
+torch==2.8.0
+torchvision
+transformers==4.46.3
+huggingface_hub[hf_xet]>=0.35.2
+tokenizers==0.20.3
+matplotlib
+einops
+addict
+easydict
+flash-attn==2.8.3; sys_platform == 'linux'
+triton-windows ; sys_platform == 'win32'
+flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl; sys_platform == 'win32'
+safetensors
+rich>=13.5.0
