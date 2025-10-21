@@ -17,8 +17,31 @@ $not_clip_with_caption = $false              # Not clip with caption | 不根据
 $wait_time = 1
 $max_retries = 100
 $segment_time = 600
-$ocr = $false
+$pixtral_ocr = $false
 $document_image = $true
+
+$paddle_ocr = $true
+
+$deepseek_ocr = $false
+
+# document = "<image>\nConvert the document to markdown."
+
+# other_image = "<image>\nOCR this image."
+
+# without_layouts = "<image>\nFree OCR."
+
+# figures_in_document = "<image>\nParse the figure."
+
+# general = "<image>\nDescribe this image in detail."
+
+#rec = "<image>\nLocate <ref>xxxx</ref> in the image."
+$deepseek_ocr_prompt = "" 
+
+$deepseek_base_size = 1280
+$deepseek_image_size = 1280
+$deepseek_crop_mode = $false
+$deepseek_test_compress = $false
+
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
 $scene_min_len = 15
@@ -28,32 +51,40 @@ $tags_highlightrate = 0.38
 # ============= DO NOT MODIFY CONTENTS BELOW | 请勿修改下方内容 =====================
 # Activate python venv
 Set-Location $PSScriptRoot
-if ($env:OS -ilike "*windows*") {
-  if (Test-Path "./venv/Scripts/activate") {
-    Write-Output "Windows venv"
-    ./venv/Scripts/activate
+$env:PYTHONPATH = "$PSScriptRoot$([System.IO.Path]::PathSeparator)$($env:PYTHONPATH)"
+$VenvPaths = @(
+  "./venv/Scripts/activate",
+  "./.venv/Scripts/activate",
+  "./venv/bin/Activate.ps1",
+  "./.venv/bin/activate.ps1"
+)
+
+foreach ($Path in $VenvPaths) {
+  if (Test-Path $Path) {
+    Write-Output "Activating venv: $Path"
+    & $Path
+    break
   }
-  elseif (Test-Path "./.venv/Scripts/activate") {
-    Write-Output "Windows .venv"
-    ./.venv/Scripts/activate
-  }
-}
-elseif (Test-Path "./venv/bin/activate") {
-  Write-Output "Linux venv"
-  ./venv/bin/Activate.ps1
-}
-elseif (Test-Path "./.venv/bin/activate") {
-  Write-Output "Linux .venv"
-  ./.venv/bin/activate.ps1
 }
 
 $Env:HF_HOME = "huggingface"
 $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
 #$Env:HF_ENDPOINT = "https://hf-mirror.com"
 $Env:PILLOW_IGNORE_XMP_DATA_IS_TOO_LONG = "1"
-$ext_args = [System.Collections.ArrayList]::new()
+#$Env:UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple/"
+$Env:UV_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
+$Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
+$Env:UV_NO_BUILD_ISOLATION = 1
+$Env:UV_NO_CACHE = 0
+$Env:UV_LINK_MODE = "symlink"
+$Env:UV_INDEX_STRATEGY = "unsafe-best-match"
+#$Env:CUDA_VISIBLE_DEVICES = "1"  # 设置GPU id，0表示使用第一个GPU，-1表示不使用GPU
+
 #$Env:HTTP_PROXY = "http://127.0.0.1:7890"
 #$Env:HTTPS_PROXY = "http://127.0.0.1:7890"
+
+$ext_args = [System.Collections.ArrayList]::new()
+$uv_args = [System.Collections.ArrayList]::new()
 
 if ($pair_dir) {
   [void]$ext_args.Add("--pair_dir=$pair_dir")
@@ -102,6 +133,18 @@ if ($glm_model_path) {
   [void]$ext_args.Add("--glm_model_path=$glm_model_path")
 }
 
+if ($ark_api_key) {
+  [void]$ext_args.Add("--ark_api_key=$ark_api_key")
+}
+
+if ($ark_model_path) {
+  [void]$ext_args.Add("--ark_model_path=$ark_model_path")
+}
+
+if ($ark_fps) {
+  [void]$ext_args.Add("--ark_fps=$ark_fps")
+}
+
 if ($dir_name) {
   [void]$ext_args.Add("--dir_name")
 }
@@ -126,12 +169,39 @@ if ($segment_time -ine 600) {
   [void]$ext_args.Add("--segment_time=$segment_time")
 }
 
-if ($ocr) {
-  [void]$ext_args.Add("--ocr")
+if ($pixtral_ocr) {
+  [void]$ext_args.Add("--pixtral_ocr")
+  if ($document_image) {
+    [void]$ext_args.Add("--document_image")
+  }
 }
+elseif ($paddle_ocr) {
+  [void]$ext_args.Add("--paddle_ocr")
+  $Env:UV_EXTRA_INDEX_URL = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
+  if ($os -eq "Windows") {
+    [void]$uv_args.Add("--with-requirements=requirements-uv-paddleocr.txt")
+  }else{
+    uv pip install -r requirements-uv-paddleocr-linux.txt
+  }
+}
+elseif ($deepseek_ocr) {
+  [void]$ext_args.Add("--deepseek_ocr")
+  [void]$uv_args.Add("--with-requirements=requirements-uv-deepseekocr.txt")
+  if ($deepseek_base_size -ine 1024) {
+    [void]$ext_args.Add("--deepseek_base_size=$deepseek_base_size")
+  }
 
-if ($document_image) {
-  [void]$ext_args.Add("--document_image")
+  if ($deepseek_image_size -ine 640) {
+    [void]$ext_args.Add("--deepseek_image_size=$deepseek_image_size")
+  }
+
+  if ($deepseek_crop_mode) {
+    [void]$ext_args.Add("--deepseek_crop_mode")
+  }
+
+  if ($deepseek_test_compress) {
+    [void]$ext_args.Add("--deepseek_test_compress")
+  }
 }
 
 if ($scene_detector -ne "AdaptiveDetector") {
@@ -155,7 +225,7 @@ if ($tags_highlightrate -ne 0.4) {
 }
 
 # run train
-uv run -m module.captioner $dataset_path $ext_args
+uv run $uv_args "./module/captioner.py" $dataset_path $ext_args
 
 Write-Output "Captioner finished"
 Read-Host | Out-Null ;

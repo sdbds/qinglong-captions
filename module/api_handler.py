@@ -16,14 +16,14 @@ from pathlib import Path
 import functools
 import random
 import traceback
-from utils.stream_util import sanitize_filename
-from utils.wdtagger import split_name_series
+from utils.stream_util import sanitize_filename, split_name_series
 from module.providers.gemini_utils import upload_or_get
 from module.providers.gemini_provider import attempt_gemini as gemini_attempt
 from module.providers.stepfun_provider import attempt_stepfun as stepfun_attempt
 from module.providers.qwenvl_provider import attempt_qwenvl as qwenvl_attempt
 from module.providers.glm_provider import attempt_glm as glm_attempt
 from module.providers.pixtral_provider import attempt_pixtral as pixtral_attempt
+from module.providers.ark_provider import attempt_ark as ark_attempt
 
 console = Console(color_system="truecolor", force_terminal=True)
 
@@ -49,10 +49,16 @@ def api_process_batch(
         try:
             if getattr(args, "step_api_key", "") != "":
                 return "stepfun"
+            if getattr(args, "ark_api_key", "") != "" and mime.startswith("video"):
+                return "ark"
             if getattr(args, "qwenVL_api_key", "") != "" and mime.startswith("video"):
                 return "qwenvl"
             if getattr(args, "glm_api_key", "") != "" and mime.startswith("video"):
                 return "glm"
+            if getattr(args, "deepseek_ocr", False) and mime.startswith("image"):
+                return "deepseek_ocr"
+            if getattr(args, "paddle_ocr", False) and mime.startswith("image"):
+                return "paddle_ocr"
             if getattr(args, "pixtral_api_key", "") != "" and (
                 mime.startswith("image") or mime.startswith("application")
             ):
@@ -89,7 +95,9 @@ def api_process_batch(
                 prompt = prompts.get("step_video_prompt", prompt)
             elif mime.startswith("image"):
                 if getattr(args, "pair_dir", "") != "":
-                    system_prompt = prompts.get("image_pair_system_prompt", system_prompt)
+                    system_prompt = prompts.get(
+                        "image_pair_system_prompt", system_prompt
+                    )
                     prompt = prompts.get("image_pair_prompt", prompt)
                 else:
                     system_prompt = prompts.get("image_system_prompt", system_prompt)
@@ -100,6 +108,11 @@ def api_process_batch(
                 system_prompt = prompts.get("qwenvl_video_system_prompt", system_prompt)
                 prompt = prompts.get("qwenvl_video_prompt", prompt)
 
+        elif provider == "ark":
+            if mime.startswith("video"):
+                system_prompt = prompts.get("ark_video_system_prompt", system_prompt)
+                prompt = prompts.get("ark_video_prompt", prompt)
+
         elif provider == "glm":
             if mime.startswith("video"):
                 system_prompt = prompts.get("glm_video_system_prompt", system_prompt)
@@ -108,10 +121,14 @@ def api_process_batch(
         elif provider == "pixtral":
             if mime.startswith("image"):
                 if getattr(args, "pair_dir", "") != "":
-                    system_prompt = prompts.get("pair_image_system_prompt", system_prompt)
+                    system_prompt = prompts.get(
+                        "pair_image_system_prompt", system_prompt
+                    )
                     prompt = prompts.get("pair_image_prompt", prompt)
                 else:
-                    system_prompt = prompts.get("pixtral_image_system_prompt", system_prompt)
+                    system_prompt = prompts.get(
+                        "pixtral_image_system_prompt", system_prompt
+                    )
                     prompt = prompts.get("pixtral_image_prompt", prompt)
 
         elif provider == "gemini":
@@ -121,7 +138,9 @@ def api_process_batch(
                 task_prompts = prompts.get("task", {})
                 raw_task = str(getattr(args, "gemini_task"))
 
-                def apply_template(template_key: str, a_val: str, b_val: str) -> Optional[str]:
+                def apply_template(
+                    template_key: str, a_val: str, b_val: str
+                ) -> Optional[str]:
                     template = task_prompts.get(template_key)
                     if not template:
                         return None
@@ -135,24 +154,50 @@ def api_process_batch(
                     return p
 
                 built = None
-                m = re.match(r"^\s*change\s+(.+?)\s+to\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
+                m = re.match(
+                    r"^\s*change\s+(.+?)\s+to\s+(.+?)\s*$",
+                    raw_task,
+                    flags=re.IGNORECASE,
+                )
                 if m and built is None:
-                    built = apply_template("change_a_to_b", m.group(1).strip(), m.group(2).strip())
+                    built = apply_template(
+                        "change_a_to_b", m.group(1).strip(), m.group(2).strip()
+                    )
 
                 if built is None:
-                    m = re.match(r"^\s*(transform|convert)\s+style\s+(.+?)\s+to\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
+                    m = re.match(
+                        r"^\s*(transform|convert)\s+style\s+(.+?)\s+to\s+(.+?)\s*$",
+                        raw_task,
+                        flags=re.IGNORECASE,
+                    )
                     if m:
-                        built = apply_template("transform_style_a_to_b", m.group(2).strip(), m.group(3).strip())
+                        built = apply_template(
+                            "transform_style_a_to_b",
+                            m.group(2).strip(),
+                            m.group(3).strip(),
+                        )
 
                 if built is None:
-                    m = re.match(r"^\s*combine\s+(.+?)\s+(and|with)\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
+                    m = re.match(
+                        r"^\s*combine\s+(.+?)\s+(and|with)\s+(.+?)\s*$",
+                        raw_task,
+                        flags=re.IGNORECASE,
+                    )
                     if m:
-                        built = apply_template("combine_a_and_b", m.group(1).strip(), m.group(3).strip())
+                        built = apply_template(
+                            "combine_a_and_b", m.group(1).strip(), m.group(3).strip()
+                        )
 
                 if built is None:
-                    m = re.match(r"^\s*add\s+(.+?)\s+to\s+(.+?)\s*$", raw_task, flags=re.IGNORECASE)
+                    m = re.match(
+                        r"^\s*add\s+(.+?)\s+to\s+(.+?)\s*$",
+                        raw_task,
+                        flags=re.IGNORECASE,
+                    )
                     if m:
-                        built = apply_template("add_a_to_b", m.group(1).strip(), m.group(2).strip())
+                        built = apply_template(
+                            "add_a_to_b", m.group(1).strip(), m.group(2).strip()
+                        )
 
                 if built is None:
                     prompt = task_prompts.get(raw_task) or raw_task
@@ -206,7 +251,10 @@ def api_process_batch(
                                 and pth.resolve() != pair_uri
                             ):
                                 name_stem = pth.stem
-                                if len(name_stem) > len(stem) + 1 and name_stem[len(stem)] == "_":
+                                if (
+                                    len(name_stem) > len(stem) + 1
+                                    and name_stem[len(stem)] == "_"
+                                ):
                                     num_part = name_stem[len(stem) + 1 :]
                                     if num_part.isdigit():
                                         extras.append((int(num_part), pth))
@@ -217,13 +265,19 @@ def api_process_batch(
                                 extra_blob, _ = encode_image(str(pth))
                                 if extra_blob:
                                     pair_extras.append(extra_blob)
-                                    console.print(f"[blue]Paired extra: {pth.name}[/blue]")
+                                    console.print(
+                                        f"[blue]Paired extra: {pth.name}[/blue]"
+                                    )
                             except Exception as ee:
-                                console.print(f"[red]Failed to encode paired extra {pth}: {ee}[/red]")
+                                console.print(
+                                    f"[red]Failed to encode paired extra {pth}: {ee}[/red]"
+                                )
                         if pair_extras:
                             image_obj["pair_extras"] = pair_extras
                     except Exception as scan_err:
-                        console.print(f"[yellow]Scan pair_dir extras failed: {scan_err}[/yellow]")
+                        console.print(
+                            f"[yellow]Scan pair_dir extras failed: {scan_err}[/yellow]"
+                        )
 
             result["image"] = image_obj
 
@@ -288,8 +342,19 @@ def api_process_batch(
             max_retries=args.max_retries,
             base_wait=args.wait_time,
             console=console,
-            classify_err=lambda e: (59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)),
-            on_exhausted=lambda e: (console.print(Text(f"StepFun retries exhausted: {e}", style="yellow")) or ""),
+            classify_err=lambda e: (
+                59.0
+                if "429" in str(e)
+                else (
+                    args.wait_time
+                    if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e))
+                    else None
+                )
+            ),
+            on_exhausted=lambda e: (
+                console.print(Text(f"StepFun retries exhausted: {e}", style="yellow"))
+                or ""
+            ),
         )
         return result
 
@@ -332,8 +397,19 @@ def api_process_batch(
             max_retries=args.max_retries,
             base_wait=args.wait_time,
             console=console,
-            classify_err=lambda e: (59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)),
-            on_exhausted=lambda e: (console.print(Text(f"QwenVL retries exhausted: {e}", style="yellow")) or ""),
+            classify_err=lambda e: (
+                59.0
+                if "429" in str(e)
+                else (
+                    args.wait_time
+                    if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e))
+                    else None
+                )
+            ),
+            on_exhausted=lambda e: (
+                console.print(Text(f"QwenVL retries exhausted: {e}", style="yellow"))
+                or ""
+            ),
         )
         return content
 
@@ -374,8 +450,213 @@ def api_process_batch(
             max_retries=args.max_retries,
             base_wait=args.wait_time,
             console=console,
-            classify_err=lambda e: (59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)),
-            on_exhausted=lambda e: (console.print(Text(f"GLM retries exhausted: {e}", style="yellow")) or ""),
+            classify_err=lambda e: (
+                59.0
+                if "429" in str(e)
+                else (
+                    args.wait_time
+                    if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e))
+                    else None
+                )
+            ),
+            on_exhausted=lambda e: (
+                console.print(Text(f"GLM retries exhausted: {e}", style="yellow")) or ""
+            ),
+        )
+        return content
+
+    elif provider == "ark":
+        try:
+            from volcenginesdkarkruntime import Ark  # local import to avoid hard dep
+        except Exception as e:
+            console.print(Text(f"Ark SDK not installed: {e}", style="red"))
+            return ""
+
+        if not getattr(args, "ark_model_path", ""):
+            console.print(
+                Text(
+                    "Ark model path is empty. Please set --ark_model_path.", style="red"
+                )
+            )
+            return ""
+
+        client = Ark(api_key=args.ark_api_key)
+        console.print(f"[blue]Ark model:[/blue] {getattr(args, 'ark_model_path', '')}")
+        console.print(f"[blue]Ark fps:[/blue] {getattr(args, 'ark_fps', 2)}")
+
+        with open(uri, "rb") as video_file:
+            video_base = base64.b64encode(video_file.read()).decode("utf-8")
+        try:
+            file_size = Path(uri).stat().st_size
+        except Exception:
+            file_size = -1
+        console.print(
+            f"[blue]Ark input size:[/blue] {file_size} bytes; base64 length: {len(video_base)}"
+        )
+
+        messages = [
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "video_url",
+                        "video_url": {
+                            "url": f"data:{mime};base64,{video_base}",
+                            "fps": getattr(args, "ark_fps", 2),
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            },
+        ]
+
+        def _attempt_ark() -> str:
+            try:
+                return ark_attempt(
+                    client=client,
+                    model_path=args.ark_model_path,
+                    messages=messages,
+                    console=console,
+                    progress=progress,
+                    task_id=task_id,
+                )
+            except Exception as e:
+                # Extra diagnostics for Ark attempt
+                try:
+                    console.print(
+                        Text(
+                            f"Ark attempt raised: {type(e).__name__}: {e}", style="red"
+                        )
+                    )
+                    console.print(Text(traceback.format_exc(), style="red"))
+                except Exception:
+                    pass
+                raise
+
+        content = with_retry(
+            _attempt_ark,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: (
+                59.0
+                if "429" in str(e)
+                else (
+                    args.wait_time
+                    if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e))
+                    else None
+                )
+            ),
+            on_exhausted=lambda e: (
+                console.print(Text(f"Ark retries exhausted: {e}", style="yellow")) or ""
+            ),
+        )
+        return content
+
+    elif provider == "deepseek_ocr" and mime.startswith("image"):
+
+        # Prepare media (for preview display only)
+        media = prepare_media(uri, mime, args, console)
+        image_media = media.get("image", {})
+        pixels = image_media.get("pixels")
+        # Build DeepSeek-OCR prompt: prefer CLI args.deepseek_ocr_prompt.
+        # If it matches a key in [prompts.task], use that template; otherwise use the raw CLI value.
+        # If CLI is empty, fall back to prompts.deepseek_ocr_prompt, then to a hardcoded default.
+        user_prompt = getattr(args, "deepseek_ocr_prompt", "")
+        prompts_section = config.get("prompts", {})
+        task_prompts = prompts_section.get("task", {}) if isinstance(prompts_section, dict) else {}
+        if user_prompt:
+            deepseek_prompt = task_prompts.get(user_prompt, user_prompt)
+        else:
+            deepseek_prompt = prompts_section.get(
+                "deepseek_ocr_prompt",
+                "<image>\n<|grounding|>Convert the document to markdown. ",
+            )
+
+        # Output directory near input path (same behavior as other providers storing alongside inputs)
+        output_dir = str(Path(uri).with_suffix(""))
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        def _attempt_deepseek() -> str:
+            try:
+                from module.providers.deepseek_ocr_provider import (
+                    attempt_deepseek_ocr as deepseek_attempt,
+                )
+            except Exception as e:
+                console.print(
+                    Text(f"DeepSeek-OCR provider not available: {e}", style="red")
+                )
+                raise
+
+            return deepseek_attempt(
+                uri=uri,
+                console=console,
+                progress=progress,
+                task_id=task_id,
+                prompt_text=deepseek_prompt,
+                pixels=pixels,
+                output_dir=output_dir,
+                base_size=getattr(args, "deepseek_base_size", 1024),
+                image_size=getattr(args, "deepseek_image_size", 640),
+                crop_mode=getattr(args, "deepseek_crop_mode", True),
+                test_compress=getattr(args, "deepseek_test_compress", True),
+            )
+
+        content = with_retry(
+            _attempt_deepseek,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: args.wait_time,
+            on_exhausted=lambda e: (
+                console.print(
+                    Text(f"DeepSeek-OCR retries exhausted: {e}", style="yellow")
+                )
+                or ""
+            ),
+        )
+        return content
+
+    elif provider == "paddle_ocr" and mime.startswith("image"):
+        media = prepare_media(uri, mime, args, console)
+        image_media = media.get("image", {})
+        pixels = image_media.get("pixels")
+
+        output_dir = str(Path(uri).with_suffix(""))
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        def _attempt_paddle_ocr() -> str:
+            try:
+                from module.providers.paddle_ocr_provider import (
+                    attempt_paddle_ocr as paddle_attempt,
+                )
+            except Exception as e:
+                console.print(Text(f"PaddleOCR provider not available: {e}", style="red"))
+                raise
+
+            return paddle_attempt(
+                uri=uri,
+                console=console,
+                progress=progress,
+                task_id=task_id,
+                pixels=pixels,
+                output_dir=output_dir,
+            )
+
+        content = with_retry(
+            _attempt_paddle_ocr,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: args.wait_time,
+            on_exhausted=lambda e: (
+                console.print(Text(f"PaddleOCR retries exhausted: {e}", style="yellow"))
+                or ""
+            ),
         )
         return content
 
@@ -504,7 +785,7 @@ def api_process_batch(
                     document_image=args.document_image,
                     signed_url_url=signed_url.url,
                 )
-            elif args.ocr:
+            elif args.pixtral_ocr:
                 return pixtral_attempt(
                     client=client,
                     model_path=args.pixtral_model_path,
@@ -545,14 +826,14 @@ def api_process_batch(
                 if "429" in str(e)
                 else (
                     args.wait_time
-                    if (
-                        "502" in str(e)
-                        or "RETRY_PIXTRAL_" in str(e)
-                    )
+                    if ("502" in str(e) or "RETRY_PIXTRAL_" in str(e))
                     else None
                 )
             ),
-            on_exhausted=lambda e: (console.print(Text(f"Pixtral retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=lambda e: (
+                console.print(Text(f"Pixtral retries exhausted: {e}", style="yellow"))
+                or ""
+            ),
         )
         return result
 
@@ -752,7 +1033,9 @@ def api_process_batch(
             if args.pair_dir != "":
                 pair = image_media.get("pair")
                 if not pair:
-                    console.print(f"[red]Pair image not prepared for {Path(uri).name}[/red]")
+                    console.print(
+                        f"[red]Pair image not prepared for {Path(uri).name}[/red]"
+                    )
                     return ""
                 pair_blob = pair.get("blob")
                 pair_pixels = pair.get("pixels")
@@ -762,7 +1045,9 @@ def api_process_batch(
         # Some files have a processing delay. Wrap generation and processing in with_retry
         def _attempt_gemini() -> str:
             audio_bytes = None
-            if mime.startswith("audio") and not (Path(uri).stat().st_size >= 20 * 1024 * 1024):
+            if mime.startswith("audio") and not (
+                Path(uri).stat().st_size >= 20 * 1024 * 1024
+            ):
                 media_local = prepare_media(uri, mime, args, console)
                 audio_bytes = media_local.get("audio", {}).get("bytes") or None
 
@@ -776,12 +1061,30 @@ def api_process_batch(
                 task_id=task_id,
                 uri=uri,
                 genai_config=genai_config,
-                files=(files if (mime.startswith("video") or (mime.startswith("audio") and Path(uri).stat().st_size >= 20 * 1024 * 1024)) else None),
+                files=(
+                    files
+                    if (
+                        mime.startswith("video")
+                        or (
+                            mime.startswith("audio")
+                            and Path(uri).stat().st_size >= 20 * 1024 * 1024
+                        )
+                    )
+                    else None
+                ),
                 audio_bytes=audio_bytes,
                 image_blob=(blob if mime.startswith("image") else None),
                 pixels=(pixels if mime.startswith("image") else None),
-                pair_blob=(pair_blob if (mime.startswith("image") and args.pair_dir != "") else None),
-                pair_pixels=(pair_pixels if (mime.startswith("image") and args.pair_dir != "") else None),
+                pair_blob=(
+                    pair_blob
+                    if (mime.startswith("image") and args.pair_dir != "")
+                    else None
+                ),
+                pair_pixels=(
+                    pair_pixels
+                    if (mime.startswith("image") and args.pair_dir != "")
+                    else None
+                ),
                 pair_blob_list=(pair_blob_list if mime.startswith("image") else None),
                 gemini_task=getattr(args, "gemini_task", ""),
             )
@@ -791,7 +1094,19 @@ def api_process_batch(
             max_retries=args.max_retries,
             base_wait=args.wait_time,
             console=console,
-            classify_err=lambda e: (59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e) or "RETRY_UNSUPPORTED_MIME" in str(e)) else None)),
+            classify_err=lambda e: (
+                59.0
+                if "429" in str(e)
+                else (
+                    args.wait_time
+                    if (
+                        "502" in str(e)
+                        or "RETRY_EMPTY_CONTENT" in str(e)
+                        or "RETRY_UNSUPPORTED_MIME" in str(e)
+                    )
+                    else None
+                )
+            ),
             on_exhausted=lambda e: (
                 console.print(Text(f"Gemini retries exhausted: {e}", style="yellow"))
                 or ""
@@ -895,6 +1210,7 @@ def with_retry(
       - '502' -> wait base_wait
     - Adds ±20% jitter to avoid thundering herd
     """
+
     def default_classifier(e: Exception) -> Optional[float]:
         s = str(e)
         if "429" in s:
@@ -960,4 +1276,3 @@ def with_retry(
                 )
             if remaining > 0:
                 time.sleep(remaining)
-

@@ -6,7 +6,6 @@ from rich.markdown import Markdown
 from rich.segment import Segment
 from rich.style import Style
 from rich_pixels import Pixels
-from utils.wdtagger import TagClassifier
 
 # 全局控制台实例
 console = Console(color_system="truecolor", force_terminal=True)
@@ -90,6 +89,7 @@ class CaptionLayout(BaseLayout):
             console: Rich控制台实例
         """
         super().__init__(panel_height, console)
+        from utils.wdtagger import TagClassifier
         tagClassifier = TagClassifier()
         # Process tag_description to handle various spacing and comma combinations
         cleaned_description = tag_description.replace("<", "").replace(">", "")

@@ -420,3 +420,103 @@ def calculate_dimensions(
     final_height = round(new_height / img_scale_num) * img_scale_num
 
     return int(final_width), int(final_height)
+
+
+def split_name_series(names: str) -> str:
+    """Split and format character names and series information.
+
+    Args:
+        names: String containing character names and series info
+
+    Returns:
+        Formatted string with character names and series
+    """
+    name_list = []
+
+    items = [item.strip().replace("_", ":") for item in names.split(",")]
+
+    for item in items:
+        if item.endswith(" (cosplay)"):
+            item = item.replace(" (cosplay)", "")
+        if ("c.c_") or ("c.c") in item:
+            item = item.replace("c.c_", "c.c.")
+        if ("k:da") in item:
+            item = item.replace("k:da", "k/da")
+        if ("ranma 1:2") in item:
+            item = item.replace("ranma 1:2", "ranma 1/2")
+        # 匹配最后一对括号作为系列名
+        match = re.match(r"(.*)\((.*?)\)$", item)
+        if match and match.group(2).strip() not in SERIES_EXCLUDE_LIST:
+            # 获取除最后一个括号外的所有内容作为名字
+            full_name = match.group(1).strip()
+            series = match.group(2).strip()
+
+            # 保留名字中的其他括号
+            name_list.append(f"<{full_name}> from ({series})")
+        else:
+            name_list.append(f"<{item}>")
+
+    return ", ".join(name_list)
+
+def format_description(text: str, tag_description: str = "") -> str:
+    """Format description text with highlighting.
+
+    Args:
+        text: Input text to format
+        tag_description: Tags to highlight in blue
+
+    Returns:
+        Formatted text with rich markup
+    """
+    # 高亮<>内的内容
+    text = re.sub(r"<([^>]+)>", r"[magenta]\1[/magenta]", text)
+    # 高亮()内的内容
+    text = re.sub(r"\(([^)]+)\)", r"[dark_magenta]\1[/dark_magenta]", text)
+
+    words = text.split()
+
+    tagClassifier = TagClassifier()
+
+    blue_words = set()
+
+    # 高亮与tag_description匹配的单词
+    if tag_description:
+        # 将tag_description分割成单词列表
+        tag_words = set(
+            word.strip().lower()
+            for word in re.sub(r"\d+", "", tag_description)
+            .replace(",", " ")
+            .replace(".", " ")
+            .split()
+            if word.strip()
+        )
+        for i, word in enumerate(words):
+            highlight_word = re.sub(r"[^\w\s]", "", word.replace("'s", "").lower())
+            if highlight_word in tag_words:
+                blue_words.add(highlight_word)
+                words[i] = tagClassifier.get_colored_tag(word)
+        text = " ".join(words)
+
+    # 统计高亮的次数
+    highlight_count = 0
+    has_green = False
+    has_purple = False
+    for word in words:
+        if word.startswith("[magenta]") and word.endswith("[/magenta]"):
+            has_green = True
+        if word.startswith("[dark_magenta]") and word.endswith("[/dark_magenta]"):
+            has_purple = True
+
+    highlight_count = len(blue_words) + int(has_green) + int(has_purple)
+
+    # 打印高亮率
+    colors = ["red", "orange", "yellow", "green", "cyan", "blue", "magenta"]
+    rate = highlight_count / len(tag_description.replace(",", " ").split()) * 100
+    # 将100%平均分配给7种颜色，每个颜色约14.3%
+    color_index = min(int(rate / (100 / len(colors))), len(colors) - 1)
+    color = colors[color_index]
+    # 根据rate值决定是否使用粗体
+    style = f"{color} bold" if rate > 50 else color
+    highlight_rate = f"[{style}]{rate:.2f}%[/{style}]"
+
+    return text, highlight_rate

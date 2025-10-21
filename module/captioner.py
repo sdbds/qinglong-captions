@@ -18,7 +18,6 @@ from module.lanceImport import transform2lance
 from module.lanceexport import extract_from_lance
 from module.api_handler import api_process_batch
 from utils.parse_display import process_llm_response
-from module.videospilter import SceneDetector, run_async_in_thread
 from utils.stream_util import (
     split_media_stream_clips,
     split_video_with_imageio_ffmpeg,
@@ -94,6 +93,7 @@ def process_batch(args, config):
                     and args.scene_min_len > 0
                     and mime.startswith("video")
                 ):
+                    from module.videospilter import SceneDetector, run_async_in_thread
                     scene_detector = SceneDetector(
                         detector=args.scene_detector,
                         threshold=args.scene_threshold,
@@ -553,7 +553,7 @@ def _postprocess_caption_content(output, filepath, args):
         # 一次性处理所有时间戳
         output = timestamp_pattern.sub(normalize_timestamp, output)
 
-    elif Path(filepath).suffix in BASE_APPLICATION_EXTENSIONS or args.ocr:
+    elif Path(filepath).suffix in BASE_APPLICATION_EXTENSIONS or args.pixtral_ocr:
         pass
     else:
         try:
@@ -655,6 +655,26 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Model path for glm",
     )
 
+    # Ark (Volcano Engine) options
+    parser.add_argument(
+        "--ark_api_key",
+        type=str,
+        default="",
+        help="API key for Ark (Volcano Engine) API",
+    )
+    parser.add_argument(
+        "--ark_model_path",
+        type=str,
+        default="",
+        help="Model ID for Ark chat.completions (e.g. your EP model id)",
+    )
+    parser.add_argument(
+        "--ark_fps",
+        type=float,
+        default=2,
+        help="Frames per second to sample from video for Ark VLM",
+    )
+
     parser.add_argument(
         "--dir_name",
         action="store_true",
@@ -703,9 +723,51 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--ocr",
+        "--pixtral_ocr",
         action="store_true",
         help="Use OCR to extract text from image",
+    )
+
+    parser.add_argument(
+        "--deepseek_ocr",
+        action="store_true",
+        help="Use local DeepSeek-OCR provider for image OCR",
+    )
+    
+    parser.add_argument(
+        "--deepseek_ocr_prompt",
+        type=str,
+        default="",
+        help="Prompt for DeepSeek-OCR",
+    )
+
+    parser.add_argument(
+        "--deepseek_base_size",
+        type=int,
+        default=1024,
+        help="DeepSeek-OCR base_size for model.infer",
+    )
+    parser.add_argument(
+        "--deepseek_image_size",
+        type=int,
+        default=640,
+        help="DeepSeek-OCR image_size for model.infer",
+    )
+    parser.add_argument(
+        "--deepseek_crop_mode",
+        action="store_true",
+        help="Enable crop_mode for DeepSeek-OCR",
+    )
+    parser.add_argument(
+        "--deepseek_test_compress",
+        action="store_true",
+        help="Enable test_compress for DeepSeek-OCR",
+    )
+
+    parser.add_argument(
+        "--paddle_ocr",
+        action="store_true",
+        help="Use local PaddleOCR provider for image OCR",
     )
 
     parser.add_argument(

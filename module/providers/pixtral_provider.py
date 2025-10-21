@@ -23,7 +23,7 @@ from utils.parse_display import (
     display_markdown,
     display_caption_layout,
 )
-from utils.wdtagger import format_description
+from utils.stream_util import format_description
 
 
 def attempt_pixtral(
