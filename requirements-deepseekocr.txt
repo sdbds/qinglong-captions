@@ -19,6 +19,7 @@ opencv-python
 
 torch==2.8.0
 torchvision
+accelerate
 transformers==4.46.3
 huggingface_hub[hf_xet]>=0.35.2
 tokenizers==0.20.3
@@ -31,3 +32,7 @@ triton-windows ; sys_platform == 'win32'
 flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl; sys_platform == 'win32'
 safetensors
 rich>=13.5.0
+
+#pdf
+PyMuPDF
+img2pdf

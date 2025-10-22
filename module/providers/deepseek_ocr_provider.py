@@ -1,18 +1,3 @@
-# /// script
-# dependencies = [
-#   "torch==2.8.0",
-#   "transformers==4.46.3",
-#   "tokenizers==0.20.3",
-#   "einops",
-#   "addict",
-#   "easydict",
-#   "flash-attn==2.8.3; sys_platform == 'linux'",
-#   "triton-windows ; sys_platform == 'win32'",
-#   "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl; sys_platform == 'win32'",
-#   "safetensors",
-#   "rich>=13.5.0",
-# ]
-# ///
 from __future__ import annotations
 
 import time
@@ -27,6 +12,7 @@ from rich_pixels import Pixels
 
 from utils.parse_display import display_markdown
 import shutil
+from utils.stream_util import pdf_to_images_high_quality
 
 
 # Global lazy cache
@@ -34,12 +20,12 @@ _MODEL: Optional[Any] = None
 _TOKENIZER: Optional[Any] = None
 
 
-def _resolve_device_dtype() -> tuple[torch.device, torch.dtype, str]:
+def _resolve_device_dtype() -> tuple[torch.device | str, torch.dtype, str]:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
-        return device, torch.bfloat16, "flash_attention_2"
+        return "cuda", torch.bfloat16, "flash_attention_2"
     # CPU fallback
-    return device, torch.float32, "eager"
+    return "cpu", torch.float32, "eager"
 
 
 def _get_model_and_tokenizer(model_name: str = "deepseek-ai/DeepSeek-OCR", console: Optional[Console] = None):
@@ -47,9 +33,9 @@ def _get_model_and_tokenizer(model_name: str = "deepseek-ai/DeepSeek-OCR", conso
     if _MODEL is not None and _TOKENIZER is not None:
         return _MODEL, _TOKENIZER
 
-    dev, dt, attn_impl = _resolve_device_dtype()
+    device_map, dtype, attn_impl = _resolve_device_dtype()
     if console:
-        console.print(f"[green]Loading DeepSeek-OCR: {model_name} (device={dev}, dtype={dt}, attn={attn_impl})[/green]")
+        console.print(f"[green]Loading DeepSeek-OCR: {model_name} (device={device_map}, dtype={dtype}, attn={attn_impl})[/green]")
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     model = AutoModel.from_pretrained(
@@ -57,9 +43,10 @@ def _get_model_and_tokenizer(model_name: str = "deepseek-ai/DeepSeek-OCR", conso
         trust_remote_code=True,
         use_safetensors=True,
         _attn_implementation=attn_impl,
+        torch_dtype=dtype,
+        low_cpu_mem_usage=True,
+        device_map="auto",
     )
-    if dev.type == "cuda":
-        model = model.cuda().to(dt)
     model = model.eval()
 
     _MODEL, _TOKENIZER = model, tokenizer
@@ -92,51 +79,103 @@ def attempt_deepseek_ocr(
     if not prompt_text:
         prompt_text = "<image>\n<|grounding|>Convert the document to markdown. "
 
-    # ensure path format
-    img_path = str(Path(uri))
-
-    # decide output dir if saving results
+    p = Path(uri)
+    if not output_dir:
+        output_dir = str(p.with_suffix(""))
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     model, tokenizer = _get_model_and_tokenizer(console=console)
 
-    # run inference
-    res = model.infer(
-        tokenizer,
-        prompt=prompt_text,
-        image_file=img_path,
-        output_path=output_dir,
-        base_size=base_size,
-        image_size=image_size,
-        crop_mode=crop_mode,
-        save_results=True,
-        test_compress=test_compress,
-    )
+    if p.suffix.lower() == ".pdf":
+        images = pdf_to_images_high_quality(str(p))
+        all_contents = []
+        for idx, pil_img in enumerate(images):
+            page_dir = Path(output_dir) / f"page_{idx+1:04d}"
+            page_dir.mkdir(parents=True, exist_ok=True)
+            page_img_path = page_dir / f"page_{idx+1:04d}.png"
+            try:
+                pil_img.save(page_img_path)
+            except Exception:
+                try:
+                    pil_img.convert("RGB").save(page_img_path)
+                except Exception:
+                    continue
 
-    # best-effort stringify
-    try:
-        mmd_path = Path(output_dir) / "result.mmd" if output_dir else None
-        if mmd_path and mmd_path.exists():
-            result_md_path = Path(output_dir) / "result.md"
-            shutil.move(mmd_path, result_md_path)
-            content = result_md_path.read_text(encoding="utf-8")
-        else:
-            content = str(res) if not isinstance(res, str) else res
-    except Exception:
-        content = str(res) if not isinstance(res, str) else res
+            res = model.infer(
+                tokenizer,
+                prompt=prompt_text,
+                image_file=str(page_img_path),
+                output_path=str(page_dir),
+                base_size=base_size,
+                image_size=image_size,
+                crop_mode=crop_mode,
+                save_results=True,
+                test_compress=test_compress,
+            )
 
-    # display
-    try:
-        display_markdown(
-            title=Path(uri).name,
-            markdown_content=content,
-            pixels=pixels,
-            panel_height=32,
-            console=console,
+            try:
+                mmd_path = page_dir / "result.mmd"
+                if mmd_path.exists():
+                    result_md_path = page_dir / "result.md"
+                    shutil.move(mmd_path, result_md_path)
+                    page_content = result_md_path.read_text(encoding="utf-8")
+                else:
+                    page_content = str(res) if not isinstance(res, str) else res
+            except Exception:
+                page_content = str(res) if not isinstance(res, str) else res
+            all_contents.append(page_content.strip())
+
+        content = "\n<--- Page Split --->\n".join(all_contents)
+        try:
+            (Path(output_dir) / "result.md").write_text(content, encoding="utf-8")
+        except Exception:
+            pass
+
+        try:
+            display_markdown(
+                title=p.name,
+                markdown_content=content,
+                pixels=pixels,
+                panel_height=32,
+                console=console,
+            )
+        except Exception:
+            pass
+    else:
+        img_path = str(p)
+        res = model.infer(
+            tokenizer,
+            prompt=prompt_text,
+            image_file=img_path,
+            output_path=output_dir,
+            base_size=base_size,
+            image_size=image_size,
+            crop_mode=crop_mode,
+            save_results=True,
+            test_compress=test_compress,
         )
-    except Exception:
-        # fallback: still return content
-        pass
+
+        try:
+            mmd_path = Path(output_dir) / "result.mmd" if output_dir else None
+            if mmd_path and mmd_path.exists():
+                result_md_path = Path(output_dir) / "result.md"
+                shutil.move(mmd_path, result_md_path)
+                content = result_md_path.read_text(encoding="utf-8")
+            else:
+                content = str(res) if not isinstance(res, str) else res
+        except Exception:
+            content = str(res) if not isinstance(res, str) else res
+
+        try:
+            display_markdown(
+                title=p.name,
+                markdown_content=content,
+                pixels=pixels,
+                panel_height=32,
+                console=console,
+            )
+        except Exception:
+            pass
 
     elapsed = time.time() - start_time
     if progress and task_id is not None:

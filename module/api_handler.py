@@ -55,7 +55,9 @@ def api_process_batch(
                 return "qwenvl"
             if getattr(args, "glm_api_key", "") != "" and mime.startswith("video"):
                 return "glm"
-            if getattr(args, "deepseek_ocr", False) and mime.startswith("image"):
+            if getattr(args, "deepseek_ocr", False) and (
+                mime.startswith("image") or mime.startswith("application")
+            ):
                 return "deepseek_ocr"
             if getattr(args, "paddle_ocr", False) and mime.startswith("image"):
                 return "paddle_ocr"
@@ -557,12 +559,14 @@ def api_process_batch(
         )
         return content
 
-    elif provider == "deepseek_ocr" and mime.startswith("image"):
+    elif provider == "deepseek_ocr":
 
-        # Prepare media (for preview display only)
-        media = prepare_media(uri, mime, args, console)
-        image_media = media.get("image", {})
-        pixels = image_media.get("pixels")
+        # Prepare media preview only for images
+        pixels = None
+        if mime.startswith("image"):
+            media = prepare_media(uri, mime, args, console)
+            image_media = media.get("image", {})
+            pixels = image_media.get("pixels")
         # Build DeepSeek-OCR prompt: prefer CLI args.deepseek_ocr_prompt.
         # If it matches a key in [prompts.task], use that template; otherwise use the raw CLI value.
         # If CLI is empty, fall back to prompts.deepseek_ocr_prompt, then to a hardcoded default.

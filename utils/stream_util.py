@@ -520,3 +520,43 @@ def format_description(text: str, tag_description: str = "") -> str:
     highlight_rate = f"[{style}]{rate:.2f}%[/{style}]"
 
     return text, highlight_rate
+
+def pdf_to_images_high_quality(pdf_path: str, dpi: int = 144, image_format: str = "PNG"):
+    import io
+    from PIL import Image
+    import fitz
+    images = []
+    pdf_document = fitz.open(pdf_path)
+    zoom = dpi / 72.0
+    matrix = fitz.Matrix(zoom, zoom)
+    for page_num in range(pdf_document.page_count):
+        page = pdf_document[page_num]
+        pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+        Image.MAX_IMAGE_PIXELS = None
+        img_data = pixmap.tobytes("png")
+        img = Image.open(io.BytesIO(img_data))
+        if image_format.upper() != "PNG":
+            if img.mode in ("RGBA", "LA"):
+                background = Image.new("RGB", img.size, (255, 255, 255))
+                background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+                img = background
+        images.append(img)
+    pdf_document.close()
+    return images
+
+
+def pil_to_pdf_img2pdf(pil_images, output_path: str):
+    import img2pdf
+    if not pil_images:
+        return
+    image_bytes_list = []
+    for img in pil_images:
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format="JPEG", quality=95)
+        img_bytes = img_buffer.getvalue()
+        image_bytes_list.append(img_bytes)
+    pdf_bytes = img2pdf.convert(image_bytes_list)
+    with open(output_path, "wb") as f:
+        f.write(pdf_bytes)
