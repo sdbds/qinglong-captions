@@ -18,6 +18,7 @@
 # ]
 # [tool.uv.extra-build-dependencies]
 #       tensorrt-cu13 = ["setuptools"]
+#       tensorrt = ["setuptools"]
 # ///
 import argparse
 import numpy as np

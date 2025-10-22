@@ -32,7 +32,7 @@ setuptools
 #onnxruntime-gpu>=1.20.2; sys_platform == 'linux'
 #tensorrt>=10.9
 
-#scenedetect>=0.6.6
+scenedetect>=0.6.6
 
 #WatermarkDetect
 #transformers>4.50

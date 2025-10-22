@@ -2,12 +2,14 @@
 # dependencies = [
 #   "setuptools",
 #   "pillow>=11.3",
+#   "pyarrow>=14.0.1",
 #   "rich>=13.5.0",
 #   "imageio>=2.31.1",
 #   "imageio-ffmpeg>=0.4.8",
 #   "opencv-contrib-python-rolling @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.11.0.20250124/opencv_contrib_python_rolling-4.12.0.86-cp37-abi3-win_amd64.whl; sys_platform == 'win32'",
 #   "opencv-contrib-python-rolling @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.11.0.20250210/opencv_contrib_python_rolling-4.12.0.20250210-cp37-abi3-linux_x86_64.whl; sys_platform == 'linux'",
 #   "torch>=2.8.0",
+#   "toml",
 # ]
 # ///
 import argparse

@@ -61,8 +61,8 @@ $Env:TF_TRT_ALLOW_TF32 = "1"
 #$Env:UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple/"
 $Env:UV_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 $Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
-$Env:UV_NO_BUILD_ISOLATION = 1
-$Env:UV_NO_CACHE = 0
+$Env:UV_NO_BUILD_ISOLATION = "1"
+$Env:UV_NO_CACHE = "0"
 $Env:UV_LINK_MODE = "symlink"
 #$Env:CUDA_VISIBLE_DEVICES = "1"  # 设置GPU id，0表示使用第一个GPU，-1表示不使用GPU
 #endregion
