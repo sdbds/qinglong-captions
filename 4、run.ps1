@@ -181,12 +181,17 @@ elseif ($paddle_ocr) {
   if ($os -eq "Windows") {
     [void]$uv_args.Add("--with-requirements=requirements-paddleocr.txt")
   }else{
-    uv pip install -r requirements-uv-paddleocr-linux.txt
+    uv pip install -r requirements-paddleocr.txt
   }
 }
 elseif ($deepseek_ocr) {
   [void]$ext_args.Add("--deepseek_ocr")
-  [void]$uv_args.Add("--with-requirements=requirements-deepseekocr.txt")
+  if ($os -eq "Windows") {
+    [void]$uv_args.Add("--with-requirements=requirements-deepseekocr.txt")
+  }else{
+    uv pip install torch==2.8.0
+    uv pip install -r requirements-deepseekocr.txt
+  }
   if ($deepseek_base_size -ine 1024) {
     [void]$ext_args.Add("--deepseek_base_size=$deepseek_base_size")
   }
