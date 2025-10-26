@@ -17,30 +17,12 @@ $not_clip_with_caption = $false              # Not clip with caption | 不根据
 $wait_time = 1
 $max_retries = 100
 $segment_time = 600
-$pixtral_ocr = $false
+# OCR model configuration
+$ocr_model = ""  # Options: "pixtral", "deepseek", "olmocr", "paddle", "moondream", ""
 $document_image = $true
 
-$paddle_ocr = $false
-
-$deepseek_ocr = $false
-
-# document = "<image>\nConvert the document to markdown."
-
-# other_image = "<image>\nOCR this image."
-
-# without_layouts = "<image>\nFree OCR."
-
-# figures_in_document = "<image>\nParse the figure."
-
-# general = "<image>\nDescribe this image in detail."
-
-#rec = "<image>\nLocate <ref>xxxx</ref> in the image."
-$deepseek_ocr_prompt = "" 
-
-$deepseek_base_size = 1280
-$deepseek_image_size = 1280
-$deepseek_crop_mode = $false
-$deepseek_test_compress = $false
+# VLM model configuration for image tasks
+$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "" 
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
@@ -141,10 +123,6 @@ if ($ark_model_path) {
   [void]$ext_args.Add("--ark_model_path=$ark_model_path")
 }
 
-if ($ark_fps) {
-  [void]$ext_args.Add("--ark_fps=$ark_fps")
-}
-
 if ($dir_name) {
   [void]$ext_args.Add("--dir_name")
 }
@@ -169,43 +147,65 @@ if ($segment_time -ine 600) {
   [void]$ext_args.Add("--segment_time=$segment_time")
 }
 
-if ($pixtral_ocr) {
-  [void]$ext_args.Add("--pixtral_ocr")
+# OCR model selection
+if ($ocr_model) {
+  [void]$ext_args.Add("--ocr_model=$ocr_model")
   if ($document_image) {
     [void]$ext_args.Add("--document_image")
   }
-}
-elseif ($paddle_ocr) {
-  [void]$ext_args.Add("--paddle_ocr")
-  $Env:UV_EXTRA_INDEX_URL = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
-  if ($os -eq "Windows") {
-    [void]$uv_args.Add("--with-requirements=requirements-paddleocr.txt")
-  }else{
-    uv pip install -r requirements-paddleocr.txt
+  
+  # Model-specific requirements
+  if ($ocr_model -eq "paddle") {
+    $Env:UV_EXTRA_INDEX_URL = "https://www.paddlepaddle.org.cn/packages/nightly/cu129/"
+    if ($os -eq "Windows") {
+      [void]$uv_args.Add("--with-requirements=requirements-paddleocr.txt")
+    }else{
+      uv pip install -r requirements-paddleocr.txt
+    }
+  }
+  elseif ($ocr_model -eq "deepseek") {
+    if ($os -eq "Windows") {
+      [void]$uv_args.Add("--with-requirements=requirements-deepseekocr.txt")
+    }else{
+      uv pip install torch==2.8.0
+      uv pip install -r requirements-deepseekocr.txt
+    }
+  }
+  elseif ($ocr_model -eq "olmocr") {
+    if ($os -eq "Windows") {
+      [void]$uv_args.Add("--with-requirements=requirements-olmocr.txt")
+    }else{
+      uv pip install -r requirements-olmocr.txt
+    }
+  }
+  elseif ($ocr_model -eq "moondream") {
+    [void]$ext_args.Add("--moondream")
+    if ($os -eq "Windows") {
+      [void]$uv_args.Add("--with-requirements=requirements-moondream.txt")
+    }else{
+      uv pip install -r requirements-moondream.txt
+    }
   }
 }
-elseif ($deepseek_ocr) {
-  [void]$ext_args.Add("--deepseek_ocr")
-  if ($os -eq "Windows") {
-    [void]$uv_args.Add("--with-requirements=requirements-deepseekocr.txt")
-  }else{
-    uv pip install torch==2.8.0
-    uv pip install -r requirements-deepseekocr.txt
-  }
-  if ($deepseek_base_size -ine 1024) {
-    [void]$ext_args.Add("--deepseek_base_size=$deepseek_base_size")
-  }
 
-  if ($deepseek_image_size -ine 640) {
-    [void]$ext_args.Add("--deepseek_image_size=$deepseek_image_size")
+# VLM model selection for image tasks
+if ($vlm_image_model) {
+  [void]$ext_args.Add("--vlm_image_model=$vlm_image_model")
+  
+  # Model-specific requirements
+  if ($vlm_image_model -eq "moondream") {
+    if ($os -eq "Windows") {
+      [void]$uv_args.Add("--with-requirements=requirements-moondream.txt")
+    }else{
+      uv pip install -r requirements-moondream.txt
+    }
   }
-
-  if ($deepseek_crop_mode) {
-    [void]$ext_args.Add("--deepseek_crop_mode")
-  }
-
-  if ($deepseek_test_compress) {
-    [void]$ext_args.Add("--deepseek_test_compress")
+  elseif ($vlm_image_model -eq "qwen_vl_local") {
+    if ($os -eq "Windows") {
+      [void]$uv_args.Add("--with-requirements=requirements-qwen-vl-local.txt")
+    }else{
+      uv pip install -r requirements-qwen-vl-local.txt
+    }
   }
 }
 

@@ -1,0 +1,29 @@
+av
+pylance>=0.20.0
+rich
+rich_pixels
+pandas
+pillow-heif
+pillow-jxl-plugin
+pysrt
+toml
+imageio>=2.31.1
+imageio-ffmpeg>=0.4.8
+pymediainfo
+mutagen
+pyanimeinfo
+wheel_stub
+setuptools
+scenedetect>=0.6.6
+opencv-python
+
+# Dependencies for OLMOCR local provider
+# Keep minimal and compatible with existing script patterns
+# Torch CUDA wheels pulled from UV_EXTRA_INDEX_URL (already set in script)
+torch==2.8.0
+transformers>=4.44.0
+accelerate>=0.34.0
+Pillow>=9.5.0
+sentencepiece>=0.1.99
+safetensors>=0.4.2
+olmocr

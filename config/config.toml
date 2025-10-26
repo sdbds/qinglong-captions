@@ -624,3 +624,37 @@ quality = [
     { name = "normal_quality", score = 8.7, color = "bold blue" },
     { name = "best_quality", score = 10, color = "bold green" },
 ]
+
+[olmocr]
+model_id = "allenai/olmOCR-2-7B-1025"
+temperature = 0.1
+max_new_tokens = 512
+
+[deepseek_ocr]
+base_size = 1280
+image_size = 1280
+crop_mode = false
+test_compress = false
+
+[ark]
+fps = 2
+
+[moondream]
+model_id = "moondream/moondream3-preview"
+prompt = ""
+reasoning = false
+# Available task combinations (comma-separated list):
+# - "caption": Generate image descriptions (short, normal, long)
+# - "query": Ask open-ended questions about images (supports reasoning mode)
+# - "point": Identify specific points (x, y coordinates) for objects in an image
+# - "detect": Provide bounding boxes for objects in an image
+# Examples:
+#   tasks = "caption" (default: only caption generation)
+#   tasks = "caption,query" (caption + VQA)
+#   tasks = "query,point,detect" (VQA + point + detect)
+#   tasks = "all" (all available tasks)
+tasks = "caption"
+
+[qwen_vl_local]
+model_id = "Qwen/Qwen3-VL-8B-Instruct"
+prompt = ""

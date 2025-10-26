@@ -55,12 +55,23 @@ def api_process_batch(
                 return "qwenvl"
             if getattr(args, "glm_api_key", "") != "" and mime.startswith("video"):
                 return "glm"
-            if getattr(args, "deepseek_ocr", False) and (
-                mime.startswith("image") or mime.startswith("application")
+            # OCR model selection with document_image logic
+            ocr_model = getattr(args, "ocr_model", "")
+            if ocr_model != "":
+                # For PDF and application files, always process with OCR
+                if mime.startswith("application"):
+                    return f"{ocr_model}_ocr"
+                # For images, only process if document_image is enabled
+                elif mime.startswith("image") and getattr(args, "document_image", False):
+                    return f"{ocr_model}_ocr"
+            # VLM model selection for image tasks
+            vlm_model = getattr(args, "vlm_image_model", "")
+            if (
+                vlm_model != ""
+                and mime.startswith("image")
+                and getattr(args, "pair_dir", "") == ""
             ):
-                return "deepseek_ocr"
-            if getattr(args, "paddle_ocr", False) and mime.startswith("image"):
-                return "paddle_ocr"
+                return vlm_model
             if getattr(args, "pixtral_api_key", "") != "" and (
                 mime.startswith("image") or mime.startswith("application")
             ):
@@ -215,7 +226,7 @@ def api_process_batch(
 
         return system_prompt, prompt
 
-    def prepare_media(uri, mime, args, console, scan_pair_extras: bool = False):
+    def prepare_media(uri, mime, args, console, scan_pair_extras: bool = False, to_rgb: bool = False):
         """Prepare media for requests.
         Returns a dict with optional keys: 'image': {blob, pixels, pair?, pair_extras?}, 'audio': {bytes}
         No exceptions are raised here; callers decide how to handle missing parts.
@@ -223,7 +234,7 @@ def api_process_batch(
         result: Dict[str, Any] = {}
 
         if mime.startswith("image"):
-            base64_image, pixels = encode_image(uri)
+            base64_image, pixels = encode_image(uri, to_rgb=to_rgb)
             image_obj: Dict[str, Any] = {
                 "blob": base64_image,
                 "pixels": pixels,
@@ -236,7 +247,7 @@ def api_process_batch(
                     console.print(f"[red]Pair image {pair_uri} not found[/red]")
                 else:
                     console.print(f"[yellow]Pair image {pair_uri} found[/yellow]")
-                    pair_blob, pair_pixels = encode_image(str(pair_uri))
+                    pair_blob, pair_pixels = encode_image(str(pair_uri), to_rgb=to_rgb)
                     image_obj["pair"] = {"blob": pair_blob, "pixels": pair_pixels}
 
                 if scan_pair_extras:
@@ -264,7 +275,7 @@ def api_process_batch(
                         pair_extras: List[str] = []
                         for _, pth in extras:
                             try:
-                                extra_blob, _ = encode_image(str(pth))
+                                extra_blob, _ = encode_image(str(pth), to_rgb=to_rgb)
                                 if extra_blob:
                                     pair_extras.append(extra_blob)
                                     console.print(
@@ -308,7 +319,7 @@ def api_process_batch(
             file = client.files.create(file=open(uri, "rb"), purpose="storage")
             console.print(f"[blue]Uploaded video file:[/blue] {file}")
         elif mime.startswith("image"):
-            media = prepare_media(uri, mime, args, console)
+            media = prepare_media(uri, mime, args, console, to_rgb=True)
             image_media = media.get("image", {})
             blob = image_media.get("blob")
             pixels = image_media.get("pixels")
@@ -484,7 +495,17 @@ def api_process_batch(
 
         client = Ark(api_key=args.ark_api_key)
         console.print(f"[blue]Ark model:[/blue] {getattr(args, 'ark_model_path', '')}")
-        console.print(f"[blue]Ark fps:[/blue] {getattr(args, 'ark_fps', 2)}")
+        ark_section = {}
+        try:
+            if isinstance(config, dict):
+                ark_section = config.get("ark", {}) or {}
+        except Exception:
+            ark_section = {}
+        cfg_fps = ark_section.get("fps")
+        ark_fps = (
+            float(cfg_fps) if cfg_fps is not None else getattr(args, "ark_fps", 2)
+        )
+        console.print(f"[blue]Ark fps:[/blue] {ark_fps}")
 
         with open(uri, "rb") as video_file:
             video_base = base64.b64encode(video_file.read()).decode("utf-8")
@@ -508,7 +529,7 @@ def api_process_batch(
                         "type": "video_url",
                         "video_url": {
                             "url": f"data:{mime};base64,{video_base}",
-                            "fps": getattr(args, "ark_fps", 2),
+                            "fps": ark_fps,
                         },
                     },
                     {"type": "text", "text": prompt},
@@ -564,26 +585,30 @@ def api_process_batch(
         # Prepare media preview only for images
         pixels = None
         if mime.startswith("image"):
-            media = prepare_media(uri, mime, args, console)
+            media = prepare_media(uri, mime, args, console, to_rgb=True)
             image_media = media.get("image", {})
             pixels = image_media.get("pixels")
-        # Build DeepSeek-OCR prompt: prefer CLI args.deepseek_ocr_prompt.
-        # If it matches a key in [prompts.task], use that template; otherwise use the raw CLI value.
-        # If CLI is empty, fall back to prompts.deepseek_ocr_prompt, then to a hardcoded default.
-        user_prompt = getattr(args, "deepseek_ocr_prompt", "")
+        # Build DeepSeek-OCR prompt: use prompts.deepseek_ocr_prompt from config, then hardcoded default.
         prompts_section = config.get("prompts", {})
-        task_prompts = prompts_section.get("task", {}) if isinstance(prompts_section, dict) else {}
-        if user_prompt:
-            deepseek_prompt = task_prompts.get(user_prompt, user_prompt)
-        else:
-            deepseek_prompt = prompts_section.get(
-                "deepseek_ocr_prompt",
-                "<image>\n<|grounding|>Convert the document to markdown. ",
-            )
+        deepseek_prompt = prompts_section.get(
+            "deepseek_ocr_prompt",
+            "<image>\n<|grounding|>Convert the document to markdown. ",
+        )
 
         # Output directory near input path (same behavior as other providers storing alongside inputs)
         output_dir = str(Path(uri).with_suffix(""))
         Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        deepseek_section = {}
+        try:
+            if isinstance(config, dict):
+                deepseek_section = config.get("deepseek_ocr", {}) or {}
+        except Exception:
+            deepseek_section = {}
+        cfg_base_size = deepseek_section.get("base_size")
+        cfg_image_size = deepseek_section.get("image_size")
+        cfg_crop_mode = deepseek_section.get("crop_mode")
+        cfg_test_compress = deepseek_section.get("test_compress")
 
         def _attempt_deepseek() -> str:
             try:
@@ -604,10 +629,26 @@ def api_process_batch(
                 prompt_text=deepseek_prompt,
                 pixels=pixels,
                 output_dir=output_dir,
-                base_size=getattr(args, "deepseek_base_size", 1024),
-                image_size=getattr(args, "deepseek_image_size", 640),
-                crop_mode=getattr(args, "deepseek_crop_mode", True),
-                test_compress=getattr(args, "deepseek_test_compress", True),
+                base_size=(
+                    int(cfg_base_size)
+                    if cfg_base_size is not None
+                    else getattr(args, "deepseek_base_size", 1024)
+                ),
+                image_size=(
+                    int(cfg_image_size)
+                    if cfg_image_size is not None
+                    else getattr(args, "deepseek_image_size", 640)
+                ),
+                crop_mode=(
+                    bool(cfg_crop_mode)
+                    if cfg_crop_mode is not None
+                    else getattr(args, "deepseek_crop_mode", True)
+                ),
+                test_compress=(
+                    bool(cfg_test_compress)
+                    if cfg_test_compress is not None
+                    else getattr(args, "deepseek_test_compress", True)
+                ),
             )
 
         content = with_retry(
@@ -625,8 +666,87 @@ def api_process_batch(
         )
         return content
 
+    elif provider == "olmocr":
+        # Prepare media preview only for images
+        pixels = None
+        if mime.startswith("image"):
+            media = prepare_media(uri, mime, args, console, to_rgb=True)
+            image_media = media.get("image", {})
+            blob = image_media.get("blob")
+            pixels = image_media.get("pixels")
+
+        # Build OLMOCR prompt from config; fallback to empty to let provider decide
+        prompts_section = config.get("prompts", {})
+        olmocr_prompt = prompts_section.get(
+            "olmocr_prompt",
+            "",
+        )
+
+        # Output directory near input path
+        output_dir = str(Path(uri).with_suffix(""))
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        
+        olmocr_section = {}
+        try:
+            if isinstance(config, dict):
+                olmocr_section = config.get("olmocr", {}) or {}
+        except Exception:
+            olmocr_section = {}
+        cfg_temperature = olmocr_section.get("temperature")
+        cfg_max_new_tokens = olmocr_section.get("max_new_tokens")
+
+        def _attempt_olmocr() -> str:
+            try:
+                from module.providers.olmocr_provider import (
+                    attempt_olmocr as olmocr_attempt,
+                )
+            except Exception as e:
+                console.print(
+                    Text(f"OLMOCR provider not available: {e}", style="red")
+                )
+                raise
+
+            return olmocr_attempt(
+                uri=uri,
+                mime=mime,
+                console=console,
+                progress=progress,
+                task_id=task_id,
+                prompt_text=olmocr_prompt,
+                pixels=pixels,
+                output_dir=output_dir,
+                image=image_media,
+                blob=blob,
+                model_id=olmocr_section.get("model_id", "allenai/olmOCR-2-7B-1025"),
+                temperature=(
+                    float(cfg_temperature)
+                    if cfg_temperature is not None
+                    else 0.1
+                ),
+                max_new_tokens=(
+                    int(cfg_max_new_tokens)
+                    if cfg_max_new_tokens is not None
+                    else 512
+                ),
+            )
+
+        content = with_retry(
+            _attempt_olmocr,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: args.wait_time,
+            on_exhausted=lambda e: (
+                console.print(
+                    Text(f"OLMOCR retries exhausted: {e}", style="yellow")
+                )
+                or ""
+            ),
+        )
+        return content
+
     elif provider == "paddle_ocr" and mime.startswith("image"):
-        media = prepare_media(uri, mime, args, console)
+        media = prepare_media(uri, mime, args, console, to_rgb=True)
         image_media = media.get("image", {})
         pixels = image_media.get("pixels")
 
@@ -659,6 +779,109 @@ def api_process_batch(
             classify_err=lambda e: args.wait_time,
             on_exhausted=lambda e: (
                 console.print(Text(f"PaddleOCR retries exhausted: {e}", style="yellow"))
+                or ""
+            ),
+        )
+        return content
+
+    elif provider in ["moondream", "qwen_vl_local"] and mime.startswith("image"):
+
+        media = prepare_media(uri, mime, args, console)
+        image_media = media.get("image", {})
+        pixels = image_media.get("pixels")
+
+        captions: List[str] = []
+        captions_path = Path(uri).with_suffix(".txt")
+        if captions_path.exists():
+            with open(captions_path, "r", encoding="utf-8") as f:
+                captions = [line.strip() for line in f.readlines()]
+
+        # Read VLM config from corresponding section
+        vlm_section = {}
+        try:
+            if isinstance(config, dict):
+                vlm_section = config.get(provider, {}) or {}
+        except Exception:
+            vlm_section = {}
+        cfg_reasoning = vlm_section.get("reasoning")
+
+        # Build provider prompt from config
+        try:
+            _, provider_prompt = get_prompts(config, mime, args, provider, console)
+        except Exception:
+            provider_prompt = ""
+        
+        # If no prompt from config, use VLM section prompt
+        if not provider_prompt:
+            provider_prompt = vlm_section.get("prompt", "")
+
+        def _attempt_vlm() -> str:
+            if provider == "moondream":
+                try:
+                    from module.providers.moondream_provider import (
+                        attempt_moondream as vlm_attempt,
+                    )
+                except Exception as e:
+                    console.print(Text(f"Moondream provider not available: {e}", style="red"))
+                    raise
+
+                return vlm_attempt(
+                    model_id=vlm_section.get("model_id", "moondream/moondream3-preview"),
+                    mime=mime,
+                    console=console,
+                    progress=progress,
+                    task_id=task_id,
+                    uri=uri,
+                    pixels=pixels,
+                    image=image_media,
+                    captions=captions,
+                    tags_highlightrate=getattr(args, "tags_highlightrate", 0.0),
+                    prompt_text=provider_prompt,
+                    reasoning=(bool(cfg_reasoning) if cfg_reasoning is not None else False),
+                    ocr=(getattr(args, "ocr_model", "none") == "moondream"),
+                    task=vlm_section.get("tasks", "caption"),
+                )
+            elif provider == "qwen_vl_local":
+                try:
+                    from module.providers.qwen_vl_local_provider import (
+                        attempt_qwen_vl_local as vlm_attempt,
+                    )
+                except Exception as e:
+                    console.print(Text(f"Qwen VL Local provider not available: {e}", style="red"))
+                    raise
+
+                return vlm_attempt(
+                    model_id=vlm_section.get("model_id", "Qwen/Qwen2-VL-7B-Instruct"),
+                    mime=mime,
+                    console=console,
+                    progress=progress,
+                    task_id=task_id,
+                    uri=uri,
+                    pixels=pixels,
+                    image=image_media,
+                    captions=captions,
+                    tags_highlightrate=getattr(args, "tags_highlightrate", 0.0),
+                    prompt_text=provider_prompt,
+                )
+            else:
+                raise ValueError(f"Unsupported VLM provider: {provider}")
+
+        content = with_retry(
+            _attempt_vlm,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: (
+                59.0
+                if "429" in str(e)
+                else (
+                    args.wait_time
+                    if ("502" in str(e) or "RETRY_MOONDREAM_" in str(e))
+                    else None
+                )
+            ),
+            on_exhausted=lambda e: (
+                console.print(Text(f"Moondream retries exhausted: {e}", style="yellow"))
                 or ""
             ),
         )
@@ -789,7 +1012,7 @@ def api_process_batch(
                     document_image=args.document_image,
                     signed_url_url=signed_url.url,
                 )
-            elif args.pixtral_ocr:
+            elif getattr(args, "ocr_model", "none") == "pixtral":
                 return pixtral_attempt(
                     client=client,
                     model_path=args.pixtral_model_path,
@@ -1120,11 +1343,12 @@ def api_process_batch(
 
 
 @functools.lru_cache(maxsize=128)
-def encode_image(image_path: str) -> Optional[Tuple[str, Pixels]]:
+def encode_image(image_path: str, to_rgb: bool = False) -> Optional[Tuple[str, Pixels]]:
     """Encode the image to base64 format with size optimization.
 
     Args:
         image_path: Path to the image file
+        to_rgb: If True, convert the image to RGB before further processing (for local models)
 
     Returns:
         Base64 encoded string or None if encoding fails
@@ -1134,6 +1358,13 @@ def encode_image(image_path: str) -> Optional[Tuple[str, Pixels]]:
             image.load()
             if "xmp" in image.info:
                 del image.info["xmp"]
+
+            # Optional early RGB conversion for local providers
+            if to_rgb:
+                try:
+                    image = image.convert("RGB")
+                except Exception:
+                    pass
 
             # Calculate dimensions that are multiples of 16
             max_size = 1024

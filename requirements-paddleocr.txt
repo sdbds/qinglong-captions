@@ -17,7 +17,7 @@ setuptools<75
 scenedetect>=0.6.6
 #opencv-python
 
-paddlepaddle-gpu==3.2.0
+paddlepaddle-gpu==3.3.0.dev20251024
 paddleocr[doc-parser]
 safetensors @ https://github.com/sdbds/safetensors/releases/download/0.62dev0/safetensors-0.6.2.dev0-cp38-abi3-win_amd64.whl; sys_platform == 'win32'
 safetensors @ https://paddle-whl.bj.bcebos.com/nightly/cu126/safetensors/safetensors-0.6.2.dev0-cp38-abi3-linux_x86_64.whl; sys_platform == 'linux'

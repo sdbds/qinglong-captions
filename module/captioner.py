@@ -553,7 +553,7 @@ def _postprocess_caption_content(output, filepath, args):
         # 一次性处理所有时间戳
         output = timestamp_pattern.sub(normalize_timestamp, output)
 
-    elif Path(filepath).suffix in BASE_APPLICATION_EXTENSIONS or args.pixtral_ocr:
+    elif Path(filepath).suffix in BASE_APPLICATION_EXTENSIONS or args.ocr_model != "none":
         pass
     else:
         try:
@@ -642,6 +642,14 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--vlm_image_model",
+        type=str,
+        choices=["moondream", "qwen_vl_local", ""],
+        default="",
+        help="VLM model for image tasks (default: empty)",
+    )
+
+    parser.add_argument(
         "--glm_api_key",
         type=str,
         default="",
@@ -667,12 +675,6 @@ def setup_parser() -> argparse.ArgumentParser:
         type=str,
         default="",
         help="Model ID for Ark chat.completions (e.g. your EP model id)",
-    )
-    parser.add_argument(
-        "--ark_fps",
-        type=float,
-        default=2,
-        help="Frames per second to sample from video for Ark VLM",
     )
 
     parser.add_argument(
@@ -723,51 +725,11 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--pixtral_ocr",
-        action="store_true",
-        help="Use OCR to extract text from image",
-    )
-
-    parser.add_argument(
-        "--deepseek_ocr",
-        action="store_true",
-        help="Use local DeepSeek-OCR provider for image OCR",
-    )
-    
-    parser.add_argument(
-        "--deepseek_ocr_prompt",
+        "--ocr_model",
         type=str,
+        choices=["pixtral", "deepseek", "olmocr", "paddle", "moondream", ""],
         default="",
-        help="Prompt for DeepSeek-OCR",
-    )
-
-    parser.add_argument(
-        "--deepseek_base_size",
-        type=int,
-        default=1024,
-        help="DeepSeek-OCR base_size for model.infer",
-    )
-    parser.add_argument(
-        "--deepseek_image_size",
-        type=int,
-        default=640,
-        help="DeepSeek-OCR image_size for model.infer",
-    )
-    parser.add_argument(
-        "--deepseek_crop_mode",
-        action="store_true",
-        help="Enable crop_mode for DeepSeek-OCR",
-    )
-    parser.add_argument(
-        "--deepseek_test_compress",
-        action="store_true",
-        help="Enable test_compress for DeepSeek-OCR",
-    )
-
-    parser.add_argument(
-        "--paddle_ocr",
-        action="store_true",
-        help="Use local PaddleOCR provider for image OCR",
+        help="OCR model to use for text extraction (default: empty)",
     )
 
     parser.add_argument(
