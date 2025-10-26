@@ -60,10 +60,10 @@ def api_process_batch(
             if ocr_model != "":
                 # For PDF and application files, always process with OCR
                 if mime.startswith("application"):
-                    return f"{ocr_model}_ocr"
+                    return ocr_model
                 # For images, only process if document_image is enabled
                 elif mime.startswith("image") and getattr(args, "document_image", False):
-                    return f"{ocr_model}_ocr"
+                    return ocr_model
             # VLM model selection for image tasks
             vlm_model = getattr(args, "vlm_image_model", "")
             if (
@@ -716,7 +716,7 @@ def api_process_batch(
                 pixels=pixels,
                 output_dir=output_dir,
                 image=image_media,
-                blob=blob,
+                base64_image=blob,
                 model_id=olmocr_section.get("model_id", "allenai/olmOCR-2-7B-1025"),
                 temperature=(
                     float(cfg_temperature)

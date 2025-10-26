@@ -163,9 +163,21 @@ def attempt_olmocr(
                     continue
 
             try:
+                # Use provided base64_image if available, otherwise convert from PIL image
+                page_base64 = None
+                if base64_image and base64_image.strip():
+                    page_base64 = base64_image.strip()
+                else:
+                    import base64
+                    import io
+                    
+                    buffer = io.BytesIO()
+                    pil_img.convert("RGB").save(buffer, format="PNG")
+                    page_base64 = base64.b64encode(buffer.getvalue()).decode()
+                
                 page_content = _generate_for_image(
                     image=pil_img,
-                    base64_image=base64_image,
+                    base64_image=page_base64,
                     prompt_text=str(prompt_text),
                     model=model,
                     processor=processor,
@@ -192,7 +204,7 @@ def attempt_olmocr(
 
         try:
             display_markdown(
-                title=p.name,
+                title=uri.name,
                 markdown_content=content,
                 pixels=pixels,
                 panel_height=32,
@@ -206,9 +218,21 @@ def attempt_olmocr(
             console.print(f"[red]OLM OCR requires a preprocessed image from api_handler: {uri}[/red]")
             return ""
 
+        # Use provided base64_image if available, otherwise convert from image
+        final_base64 = ""
+        if base64_image and base64_image.strip():
+            final_base64 = base64_image.strip()
+        else:
+            import base64
+            import io
+            
+            buffer = io.BytesIO()
+            image.convert("RGB").save(buffer, format="PNG")
+            final_base64 = base64.b64encode(buffer.getvalue()).decode()
+
         content = _generate_for_image(
             image=image,
-            base64_image=str(base64_image or ""),
+            base64_image=final_base64,
             prompt_text=str(prompt_text),
             model=model,
             processor=processor,
@@ -224,7 +248,7 @@ def attempt_olmocr(
 
         try:
             display_markdown(
-                title=p.name,
+                title=uri.name,
                 markdown_content=content,
                 pixels=pixels,
                 panel_height=32,

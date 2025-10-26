@@ -21,7 +21,9 @@ opencv-python
 # Keep minimal and compatible with existing script patterns
 # Torch CUDA wheels pulled from UV_EXTRA_INDEX_URL (already set in script)
 torch==2.8.0
+torchvision
 transformers>=4.44.0
+huggingface_hub[hf_xet]
 accelerate>=0.34.0
 Pillow>=9.5.0
 sentencepiece>=0.1.99
