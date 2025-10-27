@@ -23,39 +23,17 @@ from utils.parse_display import (
     display_caption_layout,
 )
 from utils.stream_util import format_description
+from utils.transformer_loader import transformerLoader, resolve_device_dtype
 
 
-_MODEL_CACHE: Dict[str, Any] = {}
+_TRANS_LOADER: Optional[transformerLoader] = None
 
 
-def _load_model(model_id: str, console: Optional[Console] = None) -> Any:
-    """Load and cache the Moondream model with compile()."""
-    global _MODEL_CACHE
-    if model_id in _MODEL_CACHE:
-        return _MODEL_CACHE[model_id]
-
-    dtype = torch.bfloat16 if hasattr(torch, "bfloat16") else torch.float16
-    device_map = {"": "cuda"} if torch.cuda.is_available() else {"": "cpu"}
-
-    if console:
-        console.print(f"[blue]Loading Moondream model:[/blue] {model_id}")
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        trust_remote_code=True,
-        dtype=dtype,
-        device_map=device_map,
-    )
-    try:
-        model.compile()
-        if console:
-            console.print("[blue]Moondream compile() finished[/blue]")
-    except Exception as e:
-        # Continue without compile on unsupported backends
-        if console:
-            console.print(Text(f"Moondream compile() failed: {e}", style="yellow"))
-
-    _MODEL_CACHE[model_id] = model
-    return model
+def _ensure_loader(device_map: Dict[str, str]) -> transformerLoader:
+    global _TRANS_LOADER
+    if _TRANS_LOADER is None:
+        _TRANS_LOADER = transformerLoader(attn_kw=None, device_map=device_map)
+    return _TRANS_LOADER
 
 
 def attempt_moondream(
@@ -110,7 +88,27 @@ def attempt_moondream(
         )
         return ""
 
-    model = _load_model(model_id, console)
+    device, dtype, _ = resolve_device_dtype()
+    device_map = {"": device}
+    loader = _ensure_loader(device_map)
+
+    if console:
+        console.print(f"[blue]Loading Moondream model:[/blue] {model_id}")
+    model = loader.get_or_load_model(
+        model_id,
+        AutoModelForCausalLM,
+        dtype=dtype,
+        trust_remote_code=True,
+        device_map=device_map,
+        console=console,
+    )
+    try:
+        model.compile()
+        if console:
+            console.print("[blue]Moondream compile() finished[/blue]")
+    except Exception as e:
+        if console:
+            console.print(Text(f"Moondream compile() failed: {e}", style="yellow"))
 
     # Parse task combinations
     task_list = []

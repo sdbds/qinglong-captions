@@ -374,26 +374,75 @@ def api_process_batch(
     elif provider == "qwenvl":
         file = f"file://{Path(uri).resolve().as_posix()}"
 
-        console.print(f"[blue]Uploading video file:[/blue] {file}")
+        if mime.startswith("video"):
+            console.print(f"[blue]Uploading video file:[/blue] {file}")
+            messages = [
+                {
+                    "role": "system",
+                    "content": [
+                        {"text": system_prompt},
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "video": file,
+                            # "video": "https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20241115/cqqkru/1.mp4",
+                        },
+                        {"text": prompt},
+                    ],
+                },
+            ]
+        elif mime.startswith("image"):
+            console.print(f"[blue]Preparing image file:[/blue] {file}")
+            content_items = []
+            pair_dir = getattr(args, "pair_dir", "")
+            if pair_dir:
+                pair_path = (Path(pair_dir) / Path(uri).name).resolve()
+                if pair_path.exists():
+                    pair_file = f"file://{pair_path.as_posix()}"
+                    console.print(f"[yellow]Pair image found:[/yellow] {pair_file}")
+                    content_items.extend([
+                        {"image": file},
+                        {"image": pair_file},
+                    ])
+                else:
+                    console.print(f"[red]Pair image not found:[/red] {pair_path}")
+                    return ""
+            else:
+                content_items.append({"image": file})
 
-        messages = [
-            {
-                "role": "system",
-                "content": [
-                    {"text": system_prompt},
-                ],
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "video": file,
-                        # "video": "https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20241115/cqqkru/1.mp4",
-                    },
-                    {"text": prompt},
-                ],
-            },
-        ]
+            content_items.append({"text": prompt})
+
+            messages = [
+                {
+                    "role": "system",
+                    "content": [
+                        {"text": system_prompt},
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": content_items,
+                },
+            ]
+        else:
+            console.print(f"[yellow]Unsupported mime for qwenvl branch:[/yellow] {mime}")
+            messages = [
+                {
+                    "role": "system",
+                    "content": [
+                        {"text": system_prompt},
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"text": prompt},
+                    ],
+                },
+            ]
 
         def _attempt_qwenvl() -> str:
             return qwenvl_attempt(
@@ -605,6 +654,7 @@ def api_process_batch(
                 deepseek_section = config.get("deepseek_ocr", {}) or {}
         except Exception:
             deepseek_section = {}
+        cfg_model_id = deepseek_section.get("model_id", "deepseek-ai/DeepSeek-OCR")
         cfg_base_size = deepseek_section.get("base_size")
         cfg_image_size = deepseek_section.get("image_size")
         cfg_crop_mode = deepseek_section.get("crop_mode")
@@ -626,6 +676,7 @@ def api_process_batch(
                 console=console,
                 progress=progress,
                 task_id=task_id,
+                model_id=cfg_model_id,
                 prompt_text=deepseek_prompt,
                 pixels=pixels,
                 output_dir=output_dir,

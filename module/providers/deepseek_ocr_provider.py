@@ -13,44 +13,11 @@ from rich_pixels import Pixels
 from utils.parse_display import display_markdown
 import shutil
 from utils.stream_util import pdf_to_images_high_quality
+from utils.transformer_loader import transformerLoader, resolve_device_dtype
 
 
-# Global lazy cache
-_MODEL: Optional[Any] = None
-_TOKENIZER: Optional[Any] = None
+_TRANS_LOADER: Optional[transformerLoader] = None
 
-
-def _resolve_device_dtype() -> tuple[torch.device | str, torch.dtype, str]:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if device.type == "cuda":
-        return "cuda", torch.bfloat16, "flash_attention_2"
-    # CPU fallback
-    return "cpu", torch.float32, "eager"
-
-
-def _get_model_and_tokenizer(model_name: str = "deepseek-ai/DeepSeek-OCR", console: Optional[Console] = None):
-    global _MODEL, _TOKENIZER
-    if _MODEL is not None and _TOKENIZER is not None:
-        return _MODEL, _TOKENIZER
-
-    device_map, dtype, attn_impl = _resolve_device_dtype()
-    if console:
-        console.print(f"[green]Loading DeepSeek-OCR: {model_name} (device={device_map}, dtype={dtype}, attn={attn_impl})[/green]")
-
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-    model = AutoModel.from_pretrained(
-        model_name,
-        trust_remote_code=True,
-        use_safetensors=True,
-        _attn_implementation=attn_impl,
-        torch_dtype=dtype,
-        low_cpu_mem_usage=True,
-        device_map="auto",
-    )
-    model = model.eval()
-
-    _MODEL, _TOKENIZER = model, tokenizer
-    return _MODEL, _TOKENIZER
 
 @torch.inference_mode()
 def attempt_deepseek_ocr(
@@ -59,6 +26,7 @@ def attempt_deepseek_ocr(
     console: Console,
     progress: Optional[Progress],
     task_id: Optional[Any],
+    model_id: str = "deepseek-ai/DeepSeek-OCR",
     prompt_text: Optional[str] = None,
     pixels: Optional[Pixels] = None,
     output_dir: Optional[str] = None,
@@ -84,7 +52,27 @@ def attempt_deepseek_ocr(
         output_dir = str(p.with_suffix(""))
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    model, tokenizer = _get_model_and_tokenizer(console=console)
+    device, dtype, attn_impl = resolve_device_dtype()
+    global _TRANS_LOADER
+    if _TRANS_LOADER is None:
+        _TRANS_LOADER = transformerLoader(
+            attn_kw="_attn_implementation", device_map="auto"
+        )
+
+    tokenizer = _TRANS_LOADER.get_or_load_processor(
+        model_id, AutoTokenizer, console=console
+    )
+    model = _TRANS_LOADER.get_or_load_model(
+        model_id,
+        AutoModel,
+        dtype=dtype,
+        attn_impl=attn_impl,
+        trust_remote_code=True,
+        low_cpu_mem_usage=True,
+        device_map="auto",
+        use_safetensors=True,
+        console=console,
+    )
 
     if p.suffix.lower() == ".pdf":
         images = pdf_to_images_high_quality(str(p))

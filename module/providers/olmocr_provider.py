@@ -14,49 +14,13 @@ from rich_pixels import Pixels
 
 from utils.parse_display import display_markdown
 from utils.stream_util import pdf_to_images_high_quality
+from utils.transformer_loader import transformerLoader, resolve_device_dtype
 
 
 # Global lazy cache for model and processor
-_OLM_MODEL: Optional[Any] = None
-_OLM_PROCESSOR: Optional[Any] = None
-_OLM_DEVICE: Optional[torch.device] = None
+_TRANS_LOADER: Optional[transformerLoader] = None
 
 
-def _resolve_device_dtype() -> tuple[torch.device | str, torch.dtype, str]:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if device.type == "cuda":
-        return "cuda", torch.bfloat16, "flash_attention_2"
-    # CPU fallback
-    return "cpu", torch.float32, "eager"
-
-
-def _get_model_and_processor(
-    model_id: str,
-    processor_id: str,
-    console: Optional[Console] = None,
-) -> tuple[Qwen2_5_VLForConditionalGeneration, AutoProcessor, torch.device]:
-    global _OLM_MODEL, _OLM_PROCESSOR, _OLM_DEVICE
-    if _OLM_MODEL is not None and _OLM_PROCESSOR is not None and _OLM_DEVICE is not None:
-        return _OLM_MODEL, _OLM_PROCESSOR, _OLM_DEVICE
-
-    device, dtype, attn_impl = _resolve_device_dtype()
-    if console:
-        console.print(f"[green]Loading OLM OCR model:[/green] {model_id} on {device} ({dtype})")
-        console.print(f"[green]Loading OLM OCR processor:[/green] {processor_id}")
-
-    processor = AutoProcessor.from_pretrained(processor_id)
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-        model_id,
-        trust_remote_code=True,
-        attn_implementation=attn_impl,
-        torch_dtype=dtype,
-        low_cpu_mem_usage=True,
-        device_map="auto",
-    )
-    model = model.eval()
-
-    _OLM_MODEL, _OLM_PROCESSOR, _OLM_DEVICE = model, processor, device
-    return model, processor, device
 
 
 def _generate_for_image(
@@ -65,7 +29,7 @@ def _generate_for_image(
     prompt_text: str,
     model: Qwen2_5_VLForConditionalGeneration,
     processor: AutoProcessor,
-    device: torch.device,
+    device: str | torch.device,
     temperature: float,
     max_new_tokens: int,
 ) -> str:
@@ -78,23 +42,20 @@ def _generate_for_image(
             ],
         }
     ]
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-
-    # Convert base64 back to PIL image for processor
-    import base64
-    import io
-    from PIL import Image
-    
-    image_data = base64.b64decode(base64_image)
-    pil_image = Image.open(io.BytesIO(image_data)).convert("RGB")
-    
-    inputs = processor(
-        text=[text],
-        images=[pil_image],
+    global _TRANS_LOADER
+    if _TRANS_LOADER is None:
+        _TRANS_LOADER = transformerLoader(attn_kw="attn_implementation", device_map="auto")
+    inputs = _TRANS_LOADER.prepare_image_inputs(
+        processor,
+        messages,
+        base64_image=base64_image,
+        pil_image=None,
+        device=device,
+        tokenize=False,
+        add_generation_prompt=True,
         padding=True,
         return_tensors="pt",
     )
-    inputs = {k: v.to(device) for (k, v) in inputs.items()}
 
     output = model.generate(
         **inputs,
@@ -152,10 +113,25 @@ def attempt_olmocr(
             prompt_text = "Extract structured text from the document image."
 
     if not output_dir:
-        output_dir = uri.with_suffix("")
+        output_dir = str(Path(uri).with_suffix(""))
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    model, processor, device = _get_model_and_processor(model_id, processor_id, console)
+    device, dtype, attn_impl = resolve_device_dtype()
+    global _TRANS_LOADER
+    if _TRANS_LOADER is None:
+        _TRANS_LOADER = transformerLoader(attn_kw="attn_implementation", device_map="auto")
+
+    processor = _TRANS_LOADER.get_or_load_processor(processor_id, AutoProcessor, console=console)
+    model = _TRANS_LOADER.get_or_load_model(
+        model_id,
+        Qwen2_5_VLForConditionalGeneration,
+        dtype=dtype,
+        attn_impl=attn_impl,
+        trust_remote_code=True,
+        low_cpu_mem_usage=True,
+        device_map="auto",
+        console=console,
+    )
 
     if mime.startswith("application/pdf"):
         images = pdf_to_images_high_quality(uri)
@@ -213,7 +189,7 @@ def attempt_olmocr(
 
         try:
             display_markdown(
-                title=uri.name,
+                title=Path(uri).name,
                 markdown_content=content,
                 pixels=pixels,
                 panel_height=32,
@@ -247,7 +223,7 @@ def attempt_olmocr(
 
         try:
             display_markdown(
-                title=uri.name,
+                title=Path(uri).name,
                 markdown_content=content,
                 pixels=pixels,
                 panel_height=32,
