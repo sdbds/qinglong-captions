@@ -715,7 +715,6 @@ def api_process_batch(
                 prompt_text=olmocr_prompt,
                 pixels=pixels,
                 output_dir=output_dir,
-                image=image_media,
                 base64_image=blob,
                 model_id=olmocr_section.get("model_id", "allenai/olmOCR-2-7B-1025"),
                 temperature=(
@@ -745,7 +744,7 @@ def api_process_batch(
         )
         return content
 
-    elif provider == "paddle_ocr" and mime.startswith("image"):
+    elif provider == "paddle_ocr":
         media = prepare_media(uri, mime, args, console, to_rgb=True)
         image_media = media.get("image", {})
         pixels = image_media.get("pixels")
@@ -887,9 +886,7 @@ def api_process_batch(
         )
         return content
 
-    elif provider == "pixtral" and (
-        mime.startswith("image") or mime.startswith("application")
-    ):
+    elif provider == "pixtral" or provider == "pixtral_ocr":
 
         client = Mistral(api_key=args.pixtral_api_key)
         captions = []

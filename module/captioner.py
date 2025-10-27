@@ -727,7 +727,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ocr_model",
         type=str,
-        choices=["pixtral", "deepseek", "olmocr", "paddle", "moondream", ""],
+        choices=["pixtral_ocr", "deepseek_ocr", "olmocr", "paddle_ocr", "moondream", ""],
         default="",
         help="OCR model to use for text extraction (default: empty)",
     )

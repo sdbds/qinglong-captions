@@ -27,5 +27,12 @@ huggingface_hub[hf_xet]
 accelerate>=0.34.0
 Pillow>=9.5.0
 sentencepiece>=0.1.99
+flash-attn==2.8.3; sys_platform == 'linux'
+triton-windows ; sys_platform == 'win32'
+flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl; sys_platform == 'win32'
 safetensors>=0.4.2
-olmocr
+olmocr[gpu]
+
+#pdf
+PyMuPDF
+img2pdf

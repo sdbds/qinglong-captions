@@ -155,15 +155,16 @@ if ($ocr_model) {
   }
   
   # Model-specific requirements
-  if ($ocr_model -eq "paddle") {
+  if ($ocr_model -eq "paddle_ocr") {
     $Env:UV_EXTRA_INDEX_URL = "https://www.paddlepaddle.org.cn/packages/nightly/cu129/"
     if ($os -eq "Windows") {
-      [void]$uv_args.Add("--with-requirements=requirements-paddleocr.txt")
+      $Env:UV_LINK_MODE = "hardlink"
+      uv pip sync -r requirements-paddleocr.txt
     }else{
       uv pip install -r requirements-paddleocr.txt
     }
   }
-  elseif ($ocr_model -eq "deepseek") {
+  elseif ($ocr_model -eq "deepseek_ocr") {
     if ($os -eq "Windows") {
       [void]$uv_args.Add("--with-requirements=requirements-deepseekocr.txt")
     }else{
@@ -179,7 +180,6 @@ if ($ocr_model) {
     }
   }
   elseif ($ocr_model -eq "moondream") {
-    [void]$ext_args.Add("--moondream")
     if ($os -eq "Windows") {
       [void]$uv_args.Add("--with-requirements=requirements-moondream.txt")
     }else{

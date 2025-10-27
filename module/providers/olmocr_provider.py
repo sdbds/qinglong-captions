@@ -22,10 +22,12 @@ _OLM_PROCESSOR: Optional[Any] = None
 _OLM_DEVICE: Optional[torch.device] = None
 
 
-def _resolve_device_dtype() -> tuple[torch.device, torch.dtype]:
+def _resolve_device_dtype() -> tuple[torch.device | str, torch.dtype, str]:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dtype = torch.bfloat16 if (device.type == "cuda" and hasattr(torch, "bfloat16")) else torch.float32
-    return device, dtype
+    if device.type == "cuda":
+        return "cuda", torch.bfloat16, "flash_attention_2"
+    # CPU fallback
+    return "cpu", torch.float32, "eager"
 
 
 def _get_model_and_processor(
@@ -37,7 +39,7 @@ def _get_model_and_processor(
     if _OLM_MODEL is not None and _OLM_PROCESSOR is not None and _OLM_DEVICE is not None:
         return _OLM_MODEL, _OLM_PROCESSOR, _OLM_DEVICE
 
-    device, dtype = _resolve_device_dtype()
+    device, dtype, attn_impl = _resolve_device_dtype()
     if console:
         console.print(f"[green]Loading OLM OCR model:[/green] {model_id} on {device} ({dtype})")
         console.print(f"[green]Loading OLM OCR processor:[/green] {processor_id}")
@@ -45,6 +47,8 @@ def _get_model_and_processor(
     processor = AutoProcessor.from_pretrained(processor_id)
     model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         model_id,
+        trust_remote_code=True,
+        attn_implementation=attn_impl,
         torch_dtype=dtype,
         low_cpu_mem_usage=True,
         device_map="auto",
@@ -57,7 +61,6 @@ def _get_model_and_processor(
 
 def _generate_for_image(
     *,
-    image: Image.Image,
     base64_image: str,
     prompt_text: str,
     model: Qwen2_5_VLForConditionalGeneration,
@@ -77,9 +80,17 @@ def _generate_for_image(
     ]
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
+    # Convert base64 back to PIL image for processor
+    import base64
+    import io
+    from PIL import Image
+    
+    image_data = base64.b64decode(base64_image)
+    pil_image = Image.open(io.BytesIO(image_data)).convert("RGB")
+    
     inputs = processor(
         text=[text],
-        images=[image.convert("RGB")],
+        images=[pil_image],
         padding=True,
         return_tensors="pt",
     )
@@ -111,7 +122,6 @@ def attempt_olmocr(
     prompt_text: Optional[str] = None,
     pixels: Optional[Pixels] = None,
     output_dir: Optional[str] = None,
-    image: Optional[Image.Image] = None,
     base64_image: Optional[str] = None,
     model_id: str = "allenai/olmOCR-2-7B-1025",
     processor_id: str = "Qwen/Qwen2.5-VL-7B-Instruct",
@@ -176,7 +186,6 @@ def attempt_olmocr(
                     page_base64 = base64.b64encode(buffer.getvalue()).decode()
                 
                 page_content = _generate_for_image(
-                    image=pil_img,
                     base64_image=page_base64,
                     prompt_text=str(prompt_text),
                     model=model,
@@ -214,24 +223,14 @@ def attempt_olmocr(
             pass
 
     else:
-        if image is None:
-            console.print(f"[red]OLM OCR requires a preprocessed image from api_handler: {uri}[/red]")
+        # Use provided base64_image directly
+        if not base64_image or not base64_image.strip():
+            console.print(f"[red]OLM OCR requires base64 image data: {uri}[/red]")
             return ""
 
-        # Use provided base64_image if available, otherwise convert from image
-        final_base64 = ""
-        if base64_image and base64_image.strip():
-            final_base64 = base64_image.strip()
-        else:
-            import base64
-            import io
-            
-            buffer = io.BytesIO()
-            image.convert("RGB").save(buffer, format="PNG")
-            final_base64 = base64.b64encode(buffer.getvalue()).decode()
+        final_base64 = base64_image.strip()
 
         content = _generate_for_image(
-            image=image,
             base64_image=final_base64,
             prompt_text=str(prompt_text),
             model=model,
