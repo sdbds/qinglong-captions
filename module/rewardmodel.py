@@ -16,53 +16,53 @@
 # ]
 # ///
 import argparse
-import numpy as np
-from PIL import Image
-from pathlib import Path
-import lance
-from rich.console import Console
-from rich.pretty import Pretty
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    BarColumn,
-    TaskProgressColumn,
-    TimeRemainingColumn,
-    TimeElapsedColumn,
-    TransferSpeedColumn,
-    MofNCompleteColumn,
-)
-from rich.tree import Tree
-import torch
-from module.lanceImport import transform2lance
 import concurrent.futures
-import shutil
-import json
-import toml
-import inspect
 import gc
+import inspect
+import json
+import shutil
+from pathlib import Path
 
+import lance
+import numpy as np
+import toml
+import torch
 from imscore.aesthetic.model import (
-    ShadowAesthetic,
-    LAIONAestheticScorer,
-    SiglipAestheticScorer,
     CLIPAestheticScorer,
     Dinov2AestheticScorer,
+    LAIONAestheticScorer,
+    ShadowAesthetic,
+    SiglipAestheticScorer,
 )
-from imscore.hps.model import HPSv2
-from imscore.mps.model import MPS
-from imscore.preference.model import (
-    SiglipPreferenceScorer,
-    CLIPPreferenceScorer,
-    CLIPScore,
-)
-from imscore.pickscore.model import PickScorer
-from imscore.imreward.model import ImageReward
-from imscore.vqascore.model import VQAScore
 from imscore.cyclereward.model import CycleReward
 from imscore.evalmuse.model import EvalMuse
+from imscore.hps.model import HPSv2
 from imscore.hpsv3.model import HPSv3
+from imscore.imreward.model import ImageReward
+from imscore.mps.model import MPS
+from imscore.pickscore.model import PickScorer
+from imscore.preference.model import (
+    CLIPPreferenceScorer,
+    CLIPScore,
+    SiglipPreferenceScorer,
+)
+from imscore.vqascore.model import VQAScore
+from PIL import Image
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
+from rich.tree import Tree
+
+from module.lanceImport import transform2lance
 
 console = Console(color_system="truecolor", force_terminal=True)
 
@@ -187,14 +187,16 @@ def process_batch(pixel_tensors, model, prompts):
                     # also try ndarray HWC path (uint8 preferred)
                     if isinstance(px, np.ndarray):
                         _px = px if px.dtype == np.uint8 else px.astype(np.uint8)
-                        _calls.extend([
-                            lambda: model.score(_px),
-                            lambda: model.score(_px, None),
-                            lambda: model.score(_px, ""),
-                            lambda: model.score([_px]),
-                            lambda: model.score([_px], None),
-                            lambda: model.score([_px], [""]),
-                        ])
+                        _calls.extend(
+                            [
+                                lambda: model.score(_px),
+                                lambda: model.score(_px, None),
+                                lambda: model.score(_px, ""),
+                                lambda: model.score([_px]),
+                                lambda: model.score([_px], None),
+                                lambda: model.score([_px], [""]),
+                            ]
+                        )
                     _last_err = None
                     s = None
                     for _fn in _calls:
@@ -205,7 +207,7 @@ def process_batch(pixel_tensors, model, prompts):
                             if _last_err is None:
                                 _last_err = _e
                     if s is None:
-                        raise _last_err if _last_err is not None else Exception("HPSv3 empty prompt scoring failed")
+                        raise (_last_err if _last_err is not None else Exception("HPSv3 empty prompt scoring failed"))
                 else:
                     s = model.score(t, pr)
             except Exception as e:
@@ -222,14 +224,16 @@ def process_batch(pixel_tensors, model, prompts):
                         _calls = []
                         if isinstance(px, np.ndarray):
                             _px = px if px.dtype == np.uint8 else px.astype(np.uint8)
-                            _calls.extend([
-                                lambda: model.score(_px),
-                                lambda: model.score(_px, None),
-                                lambda: model.score(_px, ""),
-                                lambda: model.score([_px]),
-                                lambda: model.score([_px], None),
-                                lambda: model.score([_px], [""]),
-                            ])
+                            _calls.extend(
+                                [
+                                    lambda: model.score(_px),
+                                    lambda: model.score(_px, None),
+                                    lambda: model.score(_px, ""),
+                                    lambda: model.score([_px]),
+                                    lambda: model.score([_px], None),
+                                    lambda: model.score([_px], [""]),
+                                ]
+                            )
                         if isinstance(px, torch.Tensor):
                             _tx = px
                             if _tx.dim() == 3 and _tx.shape[-1] == 3:
@@ -242,14 +246,16 @@ def process_batch(pixel_tensors, model, prompts):
                             _tx = _tx.to(model_device, dtype=target_dtype, non_blocking=True)
                             if _tx.dim() == 3:
                                 _tx = _tx.unsqueeze(0)
-                            _calls.extend([
-                                lambda: model.score(_tx),
-                                lambda: model.score(_tx, None),
-                                lambda: model.score(_tx, ""),
-                                lambda: model.score([_tx]),
-                                lambda: model.score([_tx], None),
-                                lambda: model.score([_tx], [""]),
-                            ])
+                            _calls.extend(
+                                [
+                                    lambda: model.score(_tx),
+                                    lambda: model.score(_tx, None),
+                                    lambda: model.score(_tx, ""),
+                                    lambda: model.score([_tx]),
+                                    lambda: model.score([_tx], None),
+                                    lambda: model.score([_tx], [""]),
+                                ]
+                            )
                         _last_err = None
                         s = None
                         for _fn in _calls:
@@ -260,7 +266,7 @@ def process_batch(pixel_tensors, model, prompts):
                                 if _last_err is None:
                                     _last_err = _e
                         if s is None:
-                            raise _last_err if _last_err is not None else Exception("HPSv3 empty prompt scoring fallback failed")
+                            raise (_last_err if _last_err is not None else Exception("HPSv3 empty prompt scoring fallback failed"))
                     else:
                         s = model.score(px, pr)
                 except Exception:
@@ -356,6 +362,7 @@ def load_model(args, device, dtype):
 
     model = None
     orig_torch_load = torch.load
+
     def _torch_load_with_defaults(*a, **k):
         if "map_location" not in k:
             try:
@@ -417,24 +424,17 @@ def main(args):
                 [q for q in quality_cfg if isinstance(q, dict) and "name" in q and "score" in q],
                 key=lambda x: float(x["score"]),
             )
-            thresholds_cfg = [
-                {"name": str(q["name"]), "score": float(q["score"])} for q in quality_cfg
-            ]
+            thresholds_cfg = [{"name": str(q["name"]), "score": float(q["score"])} for q in quality_cfg]
             # 颜色序列与阈值一一对应；缺失则给默认
             default_palette = ["bold red", "bold yellow", "bold blue", "bold green"]
             colors_by_rank = [
-                str(q.get("color", default_palette[min(i, len(default_palette) - 1)]))
-                for i, q in enumerate(quality_cfg)
+                str(q.get("color", default_palette[min(i, len(default_palette) - 1)])) for i, q in enumerate(quality_cfg)
             ]
         else:
             # 旧格式回退：quality_threshold + colors_by_rank
             thresholds_cfg = rm_cfg.get("quality_threshold", [])
-            colors_by_rank = rm_cfg.get(
-                "colors_by_rank", ["bold red", "bold yellow", "bold blue", "bold green"]
-            )
-            if not isinstance(colors_by_rank, list) or not all(
-                isinstance(c, str) and c for c in colors_by_rank
-            ):
+            colors_by_rank = rm_cfg.get("colors_by_rank", ["bold red", "bold yellow", "bold blue", "bold green"])
+            if not isinstance(colors_by_rank, list) or not all(isinstance(c, str) and c for c in colors_by_rank):
                 colors_by_rank = ["bold red", "bold yellow", "bold blue", "bold green"]
     except Exception as e:
         console.print(f"[red]Failed to read config.toml: {e}[/red]")
@@ -443,11 +443,7 @@ def main(args):
 
     # 组装阈值与目录：按 score 升序排序；目录名用 name 将下划线替换为空格
     thresholds_cfg = sorted(
-        [
-            t
-            for t in thresholds_cfg
-            if isinstance(t, dict) and "name" in t and "score" in t
-        ],
+        [t for t in thresholds_cfg if isinstance(t, dict) and "name" in t and "score" in t],
         key=lambda x: float(x["score"]),
     )
     quality_dirs = []  # List[Tuple[name, score, Path]]
@@ -465,9 +461,7 @@ def main(args):
             ("normal_quality", 7.5),
             ("best_quality", 9.0),
         ]
-        quality_dirs = [
-            (n, s, Path(args.train_data_dir) / n.replace("_", " ")) for n, s in defaults
-        ]
+        quality_dirs = [(n, s, Path(args.train_data_dir) / n.replace("_", " ")) for n, s in defaults]
 
     # 清理已有软链接并确保目录存在
     for _, _, root in quality_dirs:
@@ -480,14 +474,8 @@ def main(args):
     if not isinstance(args.train_data_dir, lance.LanceDataset):
         if args.train_data_dir.endswith(".lance"):
             dataset = lance.dataset(args.train_data_dir)
-        elif any(
-            file.suffix == ".lance" for file in Path(args.train_data_dir).glob("*")
-        ):
-            lance_file = next(
-                file
-                for file in Path(args.train_data_dir).glob("*")
-                if file.suffix == ".lance"
-            )
+        elif any(file.suffix == ".lance" for file in Path(args.train_data_dir).glob("*")):
+            lance_file = next(file for file in Path(args.train_data_dir).glob("*") if file.suffix == ".lance")
             dataset = lance.dataset(str(lance_file))
         else:
             console.print("[yellow]Converting dataset to Lance format...[/yellow]")
@@ -579,15 +567,11 @@ def main(args):
                     captions_list = raw_caps[0] if raw_caps and len(raw_caps) > 0 else []
                     # 确保 captions 长度与 uris 匹配
                     if len(captions_list) >= len(uris):
-                        prompts = [
-                            c if isinstance(c, str) and c.strip() else ""
-                            for c in captions_list[:len(uris)]
-                        ]
+                        prompts = [c if isinstance(c, str) and c.strip() else "" for c in captions_list[: len(uris)]]
                     else:
                         # captions 长度不足，用空字符串填充
-                        prompts = (
-                            [c if isinstance(c, str) and c.strip() else "" for c in captions_list] +
-                            [""] * (len(uris) - len(captions_list))
+                        prompts = [c if isinstance(c, str) and c.strip() else "" for c in captions_list] + [""] * (
+                            len(uris) - len(captions_list)
                         )
                 else:
                     prompts = [""] * len(uris)
@@ -616,9 +600,7 @@ def main(args):
     if total_count:
         for path, _, score in detection_results:
             source_path = Path(path).absolute()
-            relative_path = source_path.relative_to(
-                Path(args.train_data_dir).absolute()
-            )
+            relative_path = source_path.relative_to(Path(args.train_data_dir).absolute())
 
             # 找到第一个 score <= 阈值 的档位；若都不满足，归到最后一个（最高档）
             target_root = None
@@ -637,9 +619,7 @@ def main(args):
                 console.print(f"[red]Unable to create symlink for {path}: {e}[/red]")
                 try:
                     shutil.copy2(source_path, target_path)
-                    console.print(
-                        f"[yellow]Created copy instead of symlink for {path}[/yellow]"
-                    )
+                    console.print(f"[yellow]Created copy instead of symlink for {path}[/yellow]")
                 except Exception as copy_err:
                     console.print(f"[red]Failed to copy file: {copy_err}[/red]")
 
@@ -690,9 +670,7 @@ def main(args):
                 else:
                     style = color_for_score(score)
                     # 叶子节点：文件名 + 颜色分数 + prompt
-                    nodes[acc] = parent.add(
-                        f"{part}  [bold {style}]{score:.4f}[/] | {prompt}"
-                    )
+                    nodes[acc] = parent.add(f"{part}  [bold {style}]{score:.4f}[/] | {prompt}")
             parent = nodes[acc]
 
     console.print(root)

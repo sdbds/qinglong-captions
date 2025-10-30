@@ -1,29 +1,31 @@
-import time
-import io
-import re
 import base64
-from typing import List, Optional, Dict, Any, Union, Tuple, Callable
+import functools
+import io
+import random
+import re
+import time
+import traceback
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
 from google import genai
 from google.genai import types
 from mistralai import Mistral
 from openai import OpenAI
-from rich_pixels import Pixels
-from rich.progress import Progress
-from rich.console import Console
-from rich.text import Text
 from PIL import Image
-from pathlib import Path
-import functools
-import random
-import traceback
-from utils.stream_util import sanitize_filename, split_name_series
-from module.providers.gemini_utils import upload_or_get
+from rich.console import Console
+from rich.progress import Progress
+from rich.text import Text
+from rich_pixels import Pixels
+
+from module.providers.ark_provider import attempt_ark as ark_attempt
 from module.providers.gemini_provider import attempt_gemini as gemini_attempt
-from module.providers.stepfun_provider import attempt_stepfun as stepfun_attempt
-from module.providers.qwenvl_provider import attempt_qwenvl as qwenvl_attempt
+from module.providers.gemini_utils import upload_or_get
 from module.providers.glm_provider import attempt_glm as glm_attempt
 from module.providers.pixtral_provider import attempt_pixtral as pixtral_attempt
-from module.providers.ark_provider import attempt_ark as ark_attempt
+from module.providers.qwenvl_provider import attempt_qwenvl as qwenvl_attempt
+from module.providers.stepfun_provider import attempt_stepfun as stepfun_attempt
+from utils.stream_util import sanitize_filename, split_name_series
 
 console = Console(color_system="truecolor", force_terminal=True)
 
@@ -66,15 +68,9 @@ def api_process_batch(
                     return ocr_model
             # VLM model selection for image tasks
             vlm_model = getattr(args, "vlm_image_model", "")
-            if (
-                vlm_model != ""
-                and mime.startswith("image")
-                and getattr(args, "pair_dir", "") == ""
-            ):
+            if vlm_model != "" and mime.startswith("image") and getattr(args, "pair_dir", "") == "":
                 return vlm_model
-            if getattr(args, "pixtral_api_key", "") != "" and (
-                mime.startswith("image") or mime.startswith("application")
-            ):
+            if getattr(args, "pixtral_api_key", "") != "" and (mime.startswith("image") or mime.startswith("application")):
                 return "pixtral"
             if getattr(args, "gemini_api_key", "") != "":
                 return "gemini"
@@ -108,9 +104,7 @@ def api_process_batch(
                 prompt = prompts.get("step_video_prompt", prompt)
             elif mime.startswith("image"):
                 if getattr(args, "pair_dir", "") != "":
-                    system_prompt = prompts.get(
-                        "image_pair_system_prompt", system_prompt
-                    )
+                    system_prompt = prompts.get("image_pair_system_prompt", system_prompt)
                     prompt = prompts.get("image_pair_prompt", prompt)
                 else:
                     system_prompt = prompts.get("image_system_prompt", system_prompt)
@@ -134,14 +128,10 @@ def api_process_batch(
         elif provider == "pixtral":
             if mime.startswith("image"):
                 if getattr(args, "pair_dir", "") != "":
-                    system_prompt = prompts.get(
-                        "pair_image_system_prompt", system_prompt
-                    )
+                    system_prompt = prompts.get("pair_image_system_prompt", system_prompt)
                     prompt = prompts.get("pair_image_prompt", prompt)
                 else:
-                    system_prompt = prompts.get(
-                        "pixtral_image_system_prompt", system_prompt
-                    )
+                    system_prompt = prompts.get("pixtral_image_system_prompt", system_prompt)
                     prompt = prompts.get("pixtral_image_prompt", prompt)
 
         elif provider == "gemini":
@@ -151,9 +141,7 @@ def api_process_batch(
                 task_prompts = prompts.get("task", {})
                 raw_task = str(getattr(args, "gemini_task"))
 
-                def apply_template(
-                    template_key: str, a_val: str, b_val: str
-                ) -> Optional[str]:
+                def apply_template(template_key: str, a_val: str, b_val: str) -> Optional[str]:
                     template = task_prompts.get(template_key)
                     if not template:
                         return None
@@ -173,9 +161,7 @@ def api_process_batch(
                     flags=re.IGNORECASE,
                 )
                 if m and built is None:
-                    built = apply_template(
-                        "change_a_to_b", m.group(1).strip(), m.group(2).strip()
-                    )
+                    built = apply_template("change_a_to_b", m.group(1).strip(), m.group(2).strip())
 
                 if built is None:
                     m = re.match(
@@ -197,9 +183,7 @@ def api_process_batch(
                         flags=re.IGNORECASE,
                     )
                     if m:
-                        built = apply_template(
-                            "combine_a_and_b", m.group(1).strip(), m.group(3).strip()
-                        )
+                        built = apply_template("combine_a_and_b", m.group(1).strip(), m.group(3).strip())
 
                 if built is None:
                     m = re.match(
@@ -208,9 +192,7 @@ def api_process_batch(
                         flags=re.IGNORECASE,
                     )
                     if m:
-                        built = apply_template(
-                            "add_a_to_b", m.group(1).strip(), m.group(2).strip()
-                        )
+                        built = apply_template("add_a_to_b", m.group(1).strip(), m.group(2).strip())
 
                 if built is None:
                     prompt = task_prompts.get(raw_task) or raw_task
@@ -264,10 +246,7 @@ def api_process_batch(
                                 and pth.resolve() != pair_uri
                             ):
                                 name_stem = pth.stem
-                                if (
-                                    len(name_stem) > len(stem) + 1
-                                    and name_stem[len(stem)] == "_"
-                                ):
+                                if len(name_stem) > len(stem) + 1 and name_stem[len(stem)] == "_":
                                     num_part = name_stem[len(stem) + 1 :]
                                     if num_part.isdigit():
                                         extras.append((int(num_part), pth))
@@ -278,19 +257,13 @@ def api_process_batch(
                                 extra_blob, _ = encode_image(str(pth), to_rgb=to_rgb)
                                 if extra_blob:
                                     pair_extras.append(extra_blob)
-                                    console.print(
-                                        f"[blue]Paired extra: {pth.name}[/blue]"
-                                    )
+                                    console.print(f"[blue]Paired extra: {pth.name}[/blue]")
                             except Exception as ee:
-                                console.print(
-                                    f"[red]Failed to encode paired extra {pth}: {ee}[/red]"
-                                )
+                                console.print(f"[red]Failed to encode paired extra {pth}: {ee}[/red]")
                         if pair_extras:
                             image_obj["pair_extras"] = pair_extras
                     except Exception as scan_err:
-                        console.print(
-                            f"[yellow]Scan pair_dir extras failed: {scan_err}[/yellow]"
-                        )
+                        console.print(f"[yellow]Scan pair_dir extras failed: {scan_err}[/yellow]")
 
             result["image"] = image_obj
 
@@ -307,9 +280,7 @@ def api_process_batch(
     system_prompt, prompt = get_prompts(config, mime, args, provider, console)
 
     if provider == "stepfun":
-        client = OpenAI(
-            api_key=args.step_api_key, base_url="https://api.stepfun.com/v1"
-        )
+        client = OpenAI(api_key=args.step_api_key, base_url="https://api.stepfun.com/v1")
 
         # Predefine pair placeholders for both image/video paths
         pair_blob = None
@@ -356,18 +327,9 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: (
-                59.0
-                if "429" in str(e)
-                else (
-                    args.wait_time
-                    if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e))
-                    else None
-                )
+                59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (
-                console.print(Text(f"StepFun retries exhausted: {e}", style="yellow"))
-                or ""
-            ),
+            on_exhausted=lambda e: (console.print(Text(f"StepFun retries exhausted: {e}", style="yellow")) or ""),
         )
         return result
 
@@ -403,10 +365,12 @@ def api_process_batch(
                 if pair_path.exists():
                     pair_file = f"file://{pair_path.as_posix()}"
                     console.print(f"[yellow]Pair image found:[/yellow] {pair_file}")
-                    content_items.extend([
-                        {"image": file},
-                        {"image": pair_file},
-                    ])
+                    content_items.extend(
+                        [
+                            {"image": file},
+                            {"image": pair_file},
+                        ]
+                    )
                 else:
                     console.print(f"[red]Pair image not found:[/red] {pair_path}")
                     return ""
@@ -460,18 +424,9 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: (
-                59.0
-                if "429" in str(e)
-                else (
-                    args.wait_time
-                    if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e))
-                    else None
-                )
+                59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (
-                console.print(Text(f"QwenVL retries exhausted: {e}", style="yellow"))
-                or ""
-            ),
+            on_exhausted=lambda e: (console.print(Text(f"QwenVL retries exhausted: {e}", style="yellow")) or ""),
         )
         return content
 
@@ -513,17 +468,9 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: (
-                59.0
-                if "429" in str(e)
-                else (
-                    args.wait_time
-                    if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e))
-                    else None
-                )
+                59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (
-                console.print(Text(f"GLM retries exhausted: {e}", style="yellow")) or ""
-            ),
+            on_exhausted=lambda e: (console.print(Text(f"GLM retries exhausted: {e}", style="yellow")) or ""),
         )
         return content
 
@@ -535,11 +482,7 @@ def api_process_batch(
             return ""
 
         if not getattr(args, "ark_model_path", ""):
-            console.print(
-                Text(
-                    "Ark model path is empty. Please set --ark_model_path.", style="red"
-                )
-            )
+            console.print(Text("Ark model path is empty. Please set --ark_model_path.", style="red"))
             return ""
 
         client = Ark(api_key=args.ark_api_key)
@@ -551,9 +494,7 @@ def api_process_batch(
         except Exception:
             ark_section = {}
         cfg_fps = ark_section.get("fps")
-        ark_fps = (
-            float(cfg_fps) if cfg_fps is not None else getattr(args, "ark_fps", 2)
-        )
+        ark_fps = float(cfg_fps) if cfg_fps is not None else getattr(args, "ark_fps", 2)
         console.print(f"[blue]Ark fps:[/blue] {ark_fps}")
 
         with open(uri, "rb") as video_file:
@@ -562,9 +503,7 @@ def api_process_batch(
             file_size = Path(uri).stat().st_size
         except Exception:
             file_size = -1
-        console.print(
-            f"[blue]Ark input size:[/blue] {file_size} bytes; base64 length: {len(video_base)}"
-        )
+        console.print(f"[blue]Ark input size:[/blue] {file_size} bytes; base64 length: {len(video_base)}")
 
         messages = [
             {
@@ -599,11 +538,7 @@ def api_process_batch(
             except Exception as e:
                 # Extra diagnostics for Ark attempt
                 try:
-                    console.print(
-                        Text(
-                            f"Ark attempt raised: {type(e).__name__}: {e}", style="red"
-                        )
-                    )
+                    console.print(Text(f"Ark attempt raised: {type(e).__name__}: {e}", style="red"))
                     console.print(Text(traceback.format_exc(), style="red"))
                 except Exception:
                     pass
@@ -615,22 +550,13 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: (
-                59.0
-                if "429" in str(e)
-                else (
-                    args.wait_time
-                    if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e))
-                    else None
-                )
+                59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (
-                console.print(Text(f"Ark retries exhausted: {e}", style="yellow")) or ""
-            ),
+            on_exhausted=lambda e: (console.print(Text(f"Ark retries exhausted: {e}", style="yellow")) or ""),
         )
         return content
 
     elif provider == "deepseek_ocr":
-
         # Prepare media preview only for images
         pixels = None
         if mime.startswith("image"):
@@ -666,9 +592,7 @@ def api_process_batch(
                     attempt_deepseek_ocr as deepseek_attempt,
                 )
             except Exception as e:
-                console.print(
-                    Text(f"DeepSeek-OCR provider not available: {e}", style="red")
-                )
+                console.print(Text(f"DeepSeek-OCR provider not available: {e}", style="red"))
                 raise
 
             return deepseek_attempt(
@@ -680,25 +604,11 @@ def api_process_batch(
                 prompt_text=deepseek_prompt,
                 pixels=pixels,
                 output_dir=output_dir,
-                base_size=(
-                    int(cfg_base_size)
-                    if cfg_base_size is not None
-                    else getattr(args, "deepseek_base_size", 1024)
-                ),
-                image_size=(
-                    int(cfg_image_size)
-                    if cfg_image_size is not None
-                    else getattr(args, "deepseek_image_size", 640)
-                ),
-                crop_mode=(
-                    bool(cfg_crop_mode)
-                    if cfg_crop_mode is not None
-                    else getattr(args, "deepseek_crop_mode", True)
-                ),
+                base_size=(int(cfg_base_size) if cfg_base_size is not None else getattr(args, "deepseek_base_size", 1024)),
+                image_size=(int(cfg_image_size) if cfg_image_size is not None else getattr(args, "deepseek_image_size", 640)),
+                crop_mode=(bool(cfg_crop_mode) if cfg_crop_mode is not None else getattr(args, "deepseek_crop_mode", True)),
                 test_compress=(
-                    bool(cfg_test_compress)
-                    if cfg_test_compress is not None
-                    else getattr(args, "deepseek_test_compress", True)
+                    bool(cfg_test_compress) if cfg_test_compress is not None else getattr(args, "deepseek_test_compress", True)
                 ),
             )
 
@@ -708,12 +618,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: args.wait_time,
-            on_exhausted=lambda e: (
-                console.print(
-                    Text(f"DeepSeek-OCR retries exhausted: {e}", style="yellow")
-                )
-                or ""
-            ),
+            on_exhausted=lambda e: (console.print(Text(f"DeepSeek-OCR retries exhausted: {e}", style="yellow")) or ""),
         )
         return content
 
@@ -736,7 +641,7 @@ def api_process_batch(
         # Output directory near input path
         output_dir = str(Path(uri).with_suffix(""))
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        
+
         olmocr_section = {}
         try:
             if isinstance(config, dict):
@@ -752,9 +657,7 @@ def api_process_batch(
                     attempt_olmocr as olmocr_attempt,
                 )
             except Exception as e:
-                console.print(
-                    Text(f"OLMOCR provider not available: {e}", style="red")
-                )
+                console.print(Text(f"OLMOCR provider not available: {e}", style="red"))
                 raise
 
             return olmocr_attempt(
@@ -768,16 +671,8 @@ def api_process_batch(
                 output_dir=output_dir,
                 base64_image=blob,
                 model_id=olmocr_section.get("model_id", "allenai/olmOCR-2-7B-1025"),
-                temperature=(
-                    float(cfg_temperature)
-                    if cfg_temperature is not None
-                    else 0.1
-                ),
-                max_new_tokens=(
-                    int(cfg_max_new_tokens)
-                    if cfg_max_new_tokens is not None
-                    else 512
-                ),
+                temperature=(float(cfg_temperature) if cfg_temperature is not None else 0.1),
+                max_new_tokens=(int(cfg_max_new_tokens) if cfg_max_new_tokens is not None else 512),
             )
 
         content = with_retry(
@@ -786,12 +681,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: args.wait_time,
-            on_exhausted=lambda e: (
-                console.print(
-                    Text(f"OLMOCR retries exhausted: {e}", style="yellow")
-                )
-                or ""
-            ),
+            on_exhausted=lambda e: (console.print(Text(f"OLMOCR retries exhausted: {e}", style="yellow")) or ""),
         )
         return content
 
@@ -827,15 +717,11 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: args.wait_time,
-            on_exhausted=lambda e: (
-                console.print(Text(f"PaddleOCR retries exhausted: {e}", style="yellow"))
-                or ""
-            ),
+            on_exhausted=lambda e: (console.print(Text(f"PaddleOCR retries exhausted: {e}", style="yellow")) or ""),
         )
         return content
 
     elif provider in ["moondream", "qwen_vl_local"] and mime.startswith("image"):
-
         media = prepare_media(uri, mime, args, console)
         image_media = media.get("image", {})
         pixels = image_media.get("pixels")
@@ -860,7 +746,7 @@ def api_process_batch(
             _, provider_prompt = get_prompts(config, mime, args, provider, console)
         except Exception:
             provider_prompt = ""
-        
+
         # If no prompt from config, use VLM section prompt
         if not provider_prompt:
             provider_prompt = vlm_section.get("prompt", "")
@@ -922,23 +808,13 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: (
-                59.0
-                if "429" in str(e)
-                else (
-                    args.wait_time
-                    if ("502" in str(e) or "RETRY_MOONDREAM_" in str(e))
-                    else None
-                )
+                59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_MOONDREAM_" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (
-                console.print(Text(f"Moondream retries exhausted: {e}", style="yellow"))
-                or ""
-            ),
+            on_exhausted=lambda e: (console.print(Text(f"Moondream retries exhausted: {e}", style="yellow")) or ""),
         )
         return content
 
     elif provider == "pixtral" or provider == "pixtral_ocr":
-
         client = Mistral(api_key=args.pixtral_api_key)
         captions = []
         character_name = ""
@@ -949,7 +825,9 @@ def api_process_batch(
             if args.dir_name:
                 dir_prompt = Path(uri).parent.name or ""
                 character_name = split_name_series(dir_prompt)
-                character_prompt = f"If there is a person/character or more in the image you must refer to them as {character_name}.\n"
+                character_prompt = (
+                    f"If there is a person/character or more in the image you must refer to them as {character_name}.\n"
+                )
                 character_name = f"{character_name}, " if character_name else ""
             config_prompt = config["prompts"]["pixtral_image_prompt"]
 
@@ -1036,14 +914,10 @@ def api_process_batch(
                     error_msg = Text(str(e), style="red")
                     console.print(f"[red]Error uploading PDF: {error_msg}[/red]")
                     if upload_attempt < args.max_retries - 1:
-                        console.print(
-                            f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]"
-                        )
+                        console.print(f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]")
                         time.sleep(args.wait_time)
                     else:
-                        console.print(
-                            f"[red]Failed to upload PDF after {args.max_retries} attempts. Skipping.[/red]"
-                        )
+                        console.print(f"[red]Failed to upload PDF after {args.max_retries} attempts. Skipping.[/red]")
                         return ""
 
         def _attempt_pixtral() -> str:
@@ -1097,18 +971,9 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: (
-                59.0
-                if "429" in str(e)
-                else (
-                    args.wait_time
-                    if ("502" in str(e) or "RETRY_PIXTRAL_" in str(e))
-                    else None
-                )
+                59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_PIXTRAL_" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (
-                console.print(Text(f"Pixtral retries exhausted: {e}", style="yellow"))
-                or ""
-            ),
+            on_exhausted=lambda e: (console.print(Text(f"Pixtral retries exhausted: {e}", style="yellow")) or ""),
         )
         return result
 
@@ -1253,19 +1118,11 @@ def api_process_batch(
                 else generation_config["response_mime_type"]
             ),
             response_modalities=generation_config["response_modalities"],
-            response_schema=(
-                image_response_schema
-                if mime.startswith("image") and args.gemini_task == ""
-                else None
-            ),
+            response_schema=(image_response_schema if mime.startswith("image") and args.gemini_task == "" else None),
             thinking_config=(
                 (
                     types.ThinkingConfig(
-                        thinking_budget=(
-                            generation_config["thinking_budget"]
-                            if "thinking_budget" in generation_config
-                            else -1
-                        ),
+                        thinking_budget=(generation_config["thinking_budget"] if "thinking_budget" in generation_config else -1),
                     )
                 )
                 if args.gemini_task == ""
@@ -1279,11 +1136,7 @@ def api_process_batch(
 
         pair_blob_list = []
 
-        if (
-            mime.startswith("video")
-            or mime.startswith("audio")
-            and Path(uri).stat().st_size >= 20 * 1024 * 1024
-        ):
+        if mime.startswith("video") or mime.startswith("audio") and Path(uri).stat().st_size >= 20 * 1024 * 1024:
             upload_success, files = with_retry(
                 lambda: upload_or_get(
                     client=client,
@@ -1308,9 +1161,7 @@ def api_process_batch(
             if args.pair_dir != "":
                 pair = image_media.get("pair")
                 if not pair:
-                    console.print(
-                        f"[red]Pair image not prepared for {Path(uri).name}[/red]"
-                    )
+                    console.print(f"[red]Pair image not prepared for {Path(uri).name}[/red]")
                     return ""
                 pair_blob = pair.get("blob")
                 pair_pixels = pair.get("pixels")
@@ -1320,9 +1171,7 @@ def api_process_batch(
         # Some files have a processing delay. Wrap generation and processing in with_retry
         def _attempt_gemini() -> str:
             audio_bytes = None
-            if mime.startswith("audio") and not (
-                Path(uri).stat().st_size >= 20 * 1024 * 1024
-            ):
+            if mime.startswith("audio") and not (Path(uri).stat().st_size >= 20 * 1024 * 1024):
                 media_local = prepare_media(uri, mime, args, console)
                 audio_bytes = media_local.get("audio", {}).get("bytes") or None
 
@@ -1338,28 +1187,14 @@ def api_process_batch(
                 genai_config=genai_config,
                 files=(
                     files
-                    if (
-                        mime.startswith("video")
-                        or (
-                            mime.startswith("audio")
-                            and Path(uri).stat().st_size >= 20 * 1024 * 1024
-                        )
-                    )
+                    if (mime.startswith("video") or (mime.startswith("audio") and Path(uri).stat().st_size >= 20 * 1024 * 1024))
                     else None
                 ),
                 audio_bytes=audio_bytes,
                 image_blob=(blob if mime.startswith("image") else None),
                 pixels=(pixels if mime.startswith("image") else None),
-                pair_blob=(
-                    pair_blob
-                    if (mime.startswith("image") and args.pair_dir != "")
-                    else None
-                ),
-                pair_pixels=(
-                    pair_pixels
-                    if (mime.startswith("image") and args.pair_dir != "")
-                    else None
-                ),
+                pair_blob=(pair_blob if (mime.startswith("image") and args.pair_dir != "") else None),
+                pair_pixels=(pair_pixels if (mime.startswith("image") and args.pair_dir != "") else None),
                 pair_blob_list=(pair_blob_list if mime.startswith("image") else None),
                 gemini_task=getattr(args, "gemini_task", ""),
             )
@@ -1374,18 +1209,11 @@ def api_process_batch(
                 if "429" in str(e)
                 else (
                     args.wait_time
-                    if (
-                        "502" in str(e)
-                        or "RETRY_EMPTY_CONTENT" in str(e)
-                        or "RETRY_UNSUPPORTED_MIME" in str(e)
-                    )
+                    if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e) or "RETRY_UNSUPPORTED_MIME" in str(e))
                     else None
                 )
             ),
-            on_exhausted=lambda e: (
-                console.print(Text(f"Gemini retries exhausted: {e}", style="yellow"))
-                or ""
-            ),
+            on_exhausted=lambda e: (console.print(Text(f"Gemini retries exhausted: {e}", style="yellow")) or ""),
         )
         return result
 
@@ -1454,27 +1282,17 @@ def encode_image(image_path: str, to_rgb: bool = False) -> Optional[Tuple[str, P
     except Image.UnidentifiedImageError:
         console.print(f"[red]Error:[/red] Cannot identify image file - {image_path}")
     except PermissionError:
-        console.print(
-            f"[red]Error:[/red] Permission denied accessing file - {image_path}"
-        )
+        console.print(f"[red]Error:[/red] Permission denied accessing file - {image_path}")
     except OSError as e:
         # Specifically handle XMP and metadata-related errors
         if "XMP data is too long" in str(e):
-            console.print(
-                f"[yellow]Warning:[/yellow] Skipping image with XMP data error - {image_path}"
-            )
+            console.print(f"[yellow]Warning:[/yellow] Skipping image with XMP data error - {image_path}")
         else:
-            console.print(
-                f"[red]Error:[/red] OS error processing file {image_path}: {str(e)}"
-            )
+            console.print(f"[red]Error:[/red] OS error processing file {image_path}: {str(e)}")
     except ValueError as e:
-        console.print(
-            f"[red]Error:[/red] Invalid value while processing {image_path}: {str(e)}"
-        )
+        console.print(f"[red]Error:[/red] Invalid value while processing {image_path}: {str(e)}")
     except Exception as e:
-        console.print(
-            f"[red]Error:[/red] Unexpected error processing {image_path}: {str(e)}"
-        )
+        console.print(f"[red]Error:[/red] Unexpected error processing {image_path}: {str(e)}")
     return None, None
 
 
@@ -1526,14 +1344,14 @@ def with_retry(
                         last = tb[-1]
                         console.print(
                             Text(
-                                f"[with_retry] {attempt+1}/{max_retries} failed at {Path(last.filename).name}:{last.lineno} in {last.name} -> {type(e).__name__}: {e}",
+                                f"[with_retry] {attempt + 1}/{max_retries} failed at {Path(last.filename).name}:{last.lineno} in {last.name} -> {type(e).__name__}: {e}",
                                 style="yellow",
                             )
                         )
                     else:
                         console.print(
                             Text(
-                                f"[with_retry] {attempt+1}/{max_retries} failed: {type(e).__name__}: {e}",
+                                f"[with_retry] {attempt + 1}/{max_retries} failed: {type(e).__name__}: {e}",
                                 style="yellow",
                             )
                         )
@@ -1541,7 +1359,7 @@ def with_retry(
                     try:
                         console.print(
                             Text(
-                                f"[with_retry] {attempt+1}/{max_retries} failed: {type(e).__name__}: {e}",
+                                f"[with_retry] {attempt + 1}/{max_retries} failed: {type(e).__name__}: {e}",
                                 style="yellow",
                             )
                         )
@@ -1553,9 +1371,7 @@ def with_retry(
             elapsed = time.time() - start_time
             remaining = max(0.0, sleep_for - elapsed)
             if console and remaining > 0:
-                console.print(Text(f"{attempt+1}/{max_retries}", style="yellow"))
-                console.print(
-                    f"[yellow]Retrying in {remaining:.0f} seconds...[/yellow]"
-                )
+                console.print(Text(f"{attempt + 1}/{max_retries}", style="yellow"))
+                console.print(f"[yellow]Retrying in {remaining:.0f} seconds...[/yellow]")
             if remaining > 0:
                 time.sleep(remaining)

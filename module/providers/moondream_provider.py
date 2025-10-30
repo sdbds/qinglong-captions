@@ -5,26 +5,25 @@ Local Moondream VLM provider.
 - Keeps logs and UI consistent with existing providers.
 All logs and comments are in English.
 """
+
 from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any, Dict, List, Optional
 
-import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM
 from rich.console import Console
-from rich.text import Text
 from rich.progress import Progress
+from rich.text import Text
+from transformers import AutoModelForCausalLM
 
 from utils.parse_display import (
-    display_markdown,
     display_caption_layout,
+    display_markdown,
 )
 from utils.stream_util import format_description
-from utils.transformer_loader import transformerLoader, resolve_device_dtype
-
+from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
 _TRANS_LOADER: Optional[transformerLoader] = None
 
@@ -76,16 +75,12 @@ def attempt_moondream(
     start_time = time.time()
 
     if mime.startswith("application"):
-        console.print(
-            Text("Moondream does not support PDF/document OCR.", style="yellow")
-        )
+        console.print(Text("Moondream does not support PDF/document OCR.", style="yellow"))
         return ""
 
     # Expect preprocessed PIL image from api_handler
     if image is None:
-        console.print(
-            Text("Moondream requires an image object from api_handler", style="red")
-        )
+        console.print(Text("Moondream requires an image object from api_handler", style="red"))
         return ""
 
     device, dtype, _ = resolve_device_dtype()
@@ -156,12 +151,8 @@ def attempt_moondream(
             tag_description = captions[0] if len(captions) > 0 else ""
 
             if len(captions) > 0:
-                short_description, short_highlight_rate = format_description(
-                    short_description, tag_description
-                )
-                long_description, long_highlight_rate = format_description(
-                    long_description, tag_description
-                )
+                short_description, short_highlight_rate = format_description(short_description, tag_description)
+                long_description, long_highlight_rate = format_description(long_description, tag_description)
             else:
                 short_highlight_rate = 0
                 long_highlight_rate = 0
@@ -182,9 +173,7 @@ def attempt_moondream(
     if "query" in task_list:
         if (prompt_text is not None) and (str(prompt_text).strip() != ""):
             try:
-                result = model.query(
-                    image=image, question=str(prompt_text), reasoning=bool(reasoning)
-                )
+                result = model.query(image=image, question=str(prompt_text), reasoning=bool(reasoning))
                 query_result = result.get("answer", "")
                 results.append(("Query", query_result, {}))
             except Exception as e:
@@ -201,9 +190,7 @@ def attempt_moondream(
                 points = result.get("points", [])
                 point_result = f"Found {len(points)} point(s) for '{prompt_text}':\n"
                 for i, point in enumerate(points):
-                    point_result += (
-                        f"Point {i+1}: x={point['x']:.3f}, y={point['y']:.3f}\n"
-                    )
+                    point_result += f"Point {i + 1}: x={point['x']:.3f}, y={point['y']:.3f}\n"
                 results.append(("Point", point_result, {}))
             except Exception as e:
                 console.print(Text(f"Moondream point failed: {e}", style="yellow"))
@@ -220,7 +207,7 @@ def attempt_moondream(
                 detect_result = f"Found {len(objects)} object(s) for '{prompt_text}':\n"
                 for i, obj in enumerate(objects):
                     detect_result += (
-                        f"Object {i+1}: "
+                        f"Object {i + 1}: "
                         f"x_min={obj['x_min']:.3f}, y_min={obj['y_min']:.3f}, "
                         f"x_max={obj['x_max']:.3f}, y_max={obj['y_max']:.3f}\n"
                     )
@@ -271,9 +258,7 @@ def attempt_moondream(
             )
 
             elapsed_time = time.time() - start_time
-            console.print(
-                f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds"
-            )
+            console.print(f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds")
             return caption_result
 
         elif has_caption:
@@ -281,11 +266,7 @@ def attempt_moondream(
             caption_item = next(item for item in results if item[0] == "Caption")
             caption_result = caption_item[1]
             caption_metadata = caption_item[2]
-            other_results = [
-                (task_name, result, metadata)
-                for task_name, result, metadata in results
-                if task_name != "Caption"
-            ]
+            other_results = [(task_name, result, metadata) for task_name, result, metadata in results if task_name != "Caption"]
 
             # Parse and display caption
             lines = caption_result.split("\n")
@@ -331,16 +312,10 @@ def attempt_moondream(
                 )
 
             elapsed_time = time.time() - start_time
-            console.print(
-                f"[blue]Combined tasks processing took:[/blue] {elapsed_time:.2f} seconds"
-            )
+            console.print(f"[blue]Combined tasks processing took:[/blue] {elapsed_time:.2f} seconds")
 
             # Return combined content
-            combined_content = (
-                caption_result + "\n\n" + other_content.strip()
-                if other_results
-                else caption_result
-            )
+            combined_content = caption_result + "\n\n" + other_content.strip() if other_results else caption_result
             return combined_content.strip()
 
         else:
@@ -357,9 +332,7 @@ def attempt_moondream(
                 console=console,
             )
             elapsed_time = time.time() - start_time
-            console.print(
-                f"[blue]Combined tasks processing took:[/blue] {elapsed_time:.2f} seconds"
-            )
+            console.print(f"[blue]Combined tasks processing took:[/blue] {elapsed_time:.2f} seconds")
             return combined_content.strip()
     else:
         return "No valid tasks to execute"

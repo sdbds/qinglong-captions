@@ -3,6 +3,7 @@
 Gemini provider attempt logic extracted for Phase 5.
 Keeps behavior and logging identical.
 """
+
 from __future__ import annotations
 
 import json
@@ -10,16 +11,16 @@ import time
 from pathlib import Path
 from typing import Any, Iterable, List, Optional
 
-from rich.console import Console
-from rich.text import Text
-from rich.progress import Progress
-from rich_pixels import Pixels
 from google.genai import types
+from rich.console import Console
+from rich.progress import Progress
+from rich.text import Text
+from rich_pixels import Pixels
 
 from utils.parse_display import (
-    extract_code_block_content,
     display_caption_and_rate,
     display_pair_image_description,
+    extract_code_block_content,
 )
 
 
@@ -42,11 +43,7 @@ def _collect_stream_gemini(response: Iterable[Any], uri: str, console: Console) 
     part_index = 0
     text_buffer: List[str] = []
     for chunk in response:
-        if (
-            not getattr(chunk, "candidates", None)
-            or not chunk.candidates[0].content
-            or not chunk.candidates[0].content.parts
-        ):
+        if not getattr(chunk, "candidates", None) or not chunk.candidates[0].content or not chunk.candidates[0].content.parts:
             continue
         if getattr(chunk, "text", None):
             chunks.append(chunk.text)
@@ -69,14 +66,10 @@ def _collect_stream_gemini(response: Iterable[Any], uri: str, console: Console) 
                 if clean_text:
                     text_path = Path(uri).with_name(f"{Path(uri).stem}_{part_index}.txt")
                     _save_binary_file(text_path, clean_text.encode("utf-8"))
-                    console.print(
-                        f"[blue]Text part saved to: {text_path.name}[/blue]"
-                    )
+                    console.print(f"[blue]Text part saved to: {text_path.name}[/blue]")
                 image_path = Path(uri).with_stem(f"{Path(uri).stem}_{part_index}")
                 _save_binary_file(image_path, part.inline_data.data)
-                console.print(
-                    f"[blue]File of mime type {part.inline_data.mime_type} saved to: {image_path.name}[/blue]"
-                )
+                console.print(f"[blue]File of mime type {part.inline_data.mime_type} saved to: {image_path.name}[/blue]")
                 text_buffer.clear()
     console.print("\n")
     return "".join(chunks)
@@ -109,13 +102,11 @@ def attempt_gemini(
     Returns SRT content for video/audio; for image returns response_text or relevant field.
     May raise RETRY_* exceptions to trigger with_retry.
     """
-    console.print(f"[blue]Generating captions...[/blue]")
+    console.print("[blue]Generating captions...[/blue]")
     start_time = time.time()
 
     # Build contents based on mime
-    if mime.startswith("video") or (
-        mime.startswith("audio") and files and len(files) > 0
-    ):
+    if mime.startswith("video") or (mime.startswith("audio") and files and len(files) > 0):
         response = client.models.generate_content_stream(
             model=model_path,
             contents=[
@@ -139,9 +130,7 @@ def attempt_gemini(
         if pair_blob:
             image_parts: List[Any] = [types.Part.from_bytes(data=pair_blob, mime_type="image/jpeg")]
             if pair_blob_list:
-                image_parts.extend([
-                    types.Part.from_bytes(data=b, mime_type="image/jpeg") for b in pair_blob_list
-                ])
+                image_parts.extend([types.Part.from_bytes(data=b, mime_type="image/jpeg") for b in pair_blob_list])
             if image_blob:
                 image_parts.append(types.Part.from_bytes(data=image_blob, mime_type="image/jpeg"))
             image_parts.append(types.Part.from_text(text=prompt))

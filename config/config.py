@@ -1,9 +1,10 @@
 """Configuration constants for the dataset processing."""
 
-from typing import Tuple, List, Dict, Any
 import os
-import toml
+from typing import Any, Dict, List, Tuple
+
 import pyarrow as pa
+import toml
 
 # Base image extensions
 BASE_IMAGE_EXTENSIONS: List[str] = [
@@ -103,11 +104,7 @@ BASE_APPLICATION_EXTENSIONS: List[str] = [
 def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
     """Get all supported media extensions including optional formats."""
     if media_type == "image" or media_type == "animation":
-        extensions = (
-            BASE_IMAGE_EXTENSIONS.copy()
-            if media_type == "image"
-            else BASE_ANIMATION_EXTENSIONS.copy()
-        )
+        extensions = BASE_IMAGE_EXTENSIONS.copy() if media_type == "image" else BASE_ANIMATION_EXTENSIONS.copy()
 
         # Try to add JPEG-XL support
         try:

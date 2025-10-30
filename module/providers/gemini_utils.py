@@ -3,6 +3,7 @@
 Utilities for Gemini file upload and activation waiting.
 Logs are printed via the provided Rich Console when available.
 """
+
 from __future__ import annotations
 
 import base64
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any, List, Tuple
 
 from google.genai import types
+
 from utils.stream_util import sanitize_filename
 
 
@@ -80,7 +82,10 @@ def upload_or_get(
                     output_console.print(file)
                 # Prefer checking sha256 hash; fallback to size match
                 try:
-                    if base64.b64decode(file.sha256_hash).decode("utf-8") == sha256hash or file.size_bytes == Path(uri).stat().st_size:
+                    if (
+                        base64.b64decode(file.sha256_hash).decode("utf-8") == sha256hash
+                        or file.size_bytes == Path(uri).stat().st_size
+                    ):
                         if output_console:
                             output_console.print()
                             output_console.print(f"[cyan]File {file.name} is already at {file.uri}[/cyan]")
@@ -126,9 +131,7 @@ def upload_or_get(
 
         except Exception as e:
             if output_console:
-                output_console.print(
-                    f"[yellow]Upload attempt {upload_attempt + 1}/{max_retries} failed: {e}[/yellow]"
-                )
+                output_console.print(f"[yellow]Upload attempt {upload_attempt + 1}/{max_retries} failed: {e}[/yellow]")
             if upload_attempt < max_retries - 1:
                 time.sleep(wait_time * 2)
             else:

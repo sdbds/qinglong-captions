@@ -6,21 +6,17 @@ from pathlib import Path
 from typing import Any, Optional
 
 import torch
-from PIL import Image
-from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 from rich.console import Console
 from rich.progress import Progress
 from rich_pixels import Pixels
+from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 from utils.parse_display import display_markdown
 from utils.stream_util import pdf_to_images_high_quality
-from utils.transformer_loader import transformerLoader, resolve_device_dtype
-
+from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
 # Global lazy cache for model and processor
 _TRANS_LOADER: Optional[transformerLoader] = None
-
-
 
 
 def _generate_for_image(
@@ -38,7 +34,10 @@ def _generate_for_image(
             "role": "user",
             "content": [
                 {"type": "text", "text": prompt_text},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{base64_image}"},
+                },
             ],
         }
     ]
@@ -137,9 +136,9 @@ def attempt_olmocr(
         images = pdf_to_images_high_quality(uri)
         all_contents: list[str] = []
         for idx, pil_img in enumerate(images):
-            page_dir = Path(output_dir) / f"page_{idx+1:04d}"
+            page_dir = Path(output_dir) / f"page_{idx + 1:04d}"
             page_dir.mkdir(parents=True, exist_ok=True)
-            page_img_path = page_dir / f"page_{idx+1:04d}.png"
+            page_img_path = page_dir / f"page_{idx + 1:04d}.png"
             try:
                 pil_img.save(page_img_path)
             except Exception:
@@ -156,11 +155,11 @@ def attempt_olmocr(
                 else:
                     import base64
                     import io
-                    
+
                     buffer = io.BytesIO()
                     pil_img.convert("RGB").save(buffer, format="PNG")
                     page_base64 = base64.b64encode(buffer.getvalue()).decode()
-                
+
                 page_content = _generate_for_image(
                     base64_image=page_base64,
                     prompt_text=str(prompt_text),
@@ -171,7 +170,7 @@ def attempt_olmocr(
                     max_new_tokens=max_new_tokens,
                 )
             except Exception as e:
-                console.print(f"[yellow]OLM OCR page {idx+1} failed: {e}[/yellow]")
+                console.print(f"[yellow]OLM OCR page {idx + 1} failed: {e}[/yellow]")
                 page_content = ""
 
             try:

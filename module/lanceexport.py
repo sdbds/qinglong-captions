@@ -12,26 +12,28 @@
 # ]
 # ///
 import argparse
-import lance
+import json
 import re
-from typing import Optional, Union, List, Dict, Any
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+
+import lance
+import pysrt
 from rich.console import Console
 from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
     Progress,
     SpinnerColumn,
-    TextColumn,
-    BarColumn,
     TaskProgressColumn,
-    TimeRemainingColumn,
+    TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
     TransferSpeedColumn,
-    MofNCompleteColumn,
 )
-from config.config import get_supported_extensions, DATASET_SCHEMA, CONSOLE_COLORS
+
+from config.config import CONSOLE_COLORS, DATASET_SCHEMA, get_supported_extensions
 from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
-from pathlib import Path
-import pysrt
-import json
 
 console = Console()
 image_extensions = get_supported_extensions("image")
@@ -87,11 +89,7 @@ def save_blob(
                 [
                     f"{metadata.get('width', 0)}x{metadata.get('height', 0)}",
                     f"{metadata.get('channels', 0)}ch",
-                    (
-                        f"{metadata.get('num_frames', 1)} frames"
-                        if metadata.get("num_frames", 1) > 1
-                        else None
-                    ),
+                    (f"{metadata.get('num_frames', 1)} frames" if metadata.get("num_frames", 1) > 1 else None),
                 ]
             )
         elif media_type == "video":
@@ -125,9 +123,7 @@ def save_blob(
 
         # 使用配置的颜色
         color = CONSOLE_COLORS.get(media_type, "white")
-        console.print(
-            f"[{color}]{media_type}: {uri} ({meta_str}) saved successfully.[/{color}]"
-        )
+        console.print(f"[{color}]{media_type}: {uri} ({meta_str}) saved successfully.[/{color}]")
         return True
     except Exception as e:
         console.print(f"[red]Error saving {media_type} {uri}: {e}[/red]")
@@ -172,11 +168,7 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
                 # For TXT files, strip empty lines and whitespace
                 for line in caption_lines:
                     if "<font color=" in line:
-                        line = (
-                            line.replace('<font color="green">', "")
-                            .replace("<font color='green'>", "")
-                            .replace("</font>", "")
-                        )
+                        line = line.replace('<font color="green">', "").replace("<font color='green'>", "").replace("</font>", "")
 
                     # Check if the content is in JSON format and parse it if possible
                     if line.strip().startswith("{") and line.strip().endswith("}"):
@@ -184,9 +176,7 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
                             json_content = line.strip()
                             parsed_json = json.loads(json_content)
                             # Format JSON content with indentation for better readability
-                            with open(
-                                caption_path.with_suffix(".json"), "w", encoding="utf-8"
-                            ) as j:
+                            with open(caption_path.with_suffix(".json"), "w", encoding="utf-8") as j:
                                 json.dump(parsed_json, j, indent=2, ensure_ascii=False)
                             f.write(parsed_json["description"])
                         except json.JSONDecodeError:
@@ -198,9 +188,7 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
                             f.write(line.strip() + "\n")
 
             console.print()
-            console.print(
-                f"[{CONSOLE_COLORS['text']}]text: {caption_path} saved successfully.[/{CONSOLE_COLORS['text']}]"
-            )
+            console.print(f"[{CONSOLE_COLORS['text']}]text: {caption_path} saved successfully.[/{CONSOLE_COLORS['text']}]")
         return True
     except Exception as e:
         console.print(f"[red]Error saving caption: {e}[/red]")
@@ -244,15 +232,11 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
             # 没有找到页头，尝试其他方式分割内容
             # 尝试使用Markdown标题作为分割点
             md_header_pattern = r"^#{1,6}\s+(.+?)$"
-            md_headers = list(
-                re.finditer(md_header_pattern, combined_text, re.MULTILINE)
-            )
+            md_headers = list(re.finditer(md_header_pattern, combined_text, re.MULTILINE))
 
             if md_headers:
                 # 使用Markdown标题分割内容
-                console.print(
-                    f"[yellow]No HTML headers found, splitting by Markdown headers.[/yellow]"
-                )
+                console.print("[yellow]No HTML headers found, splitting by Markdown headers.[/yellow]")
 
                 for i in range(len(md_headers)):
                     header_match = md_headers[i]
@@ -274,9 +258,7 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
                     safe_header = re.sub(r"[^\w\s-]", "", header_text)[:20].strip()
                     safe_header = re.sub(r"[-\s]+", "_", safe_header)
 
-                    section_filename = (
-                        f"{caption_path.stem}_{safe_header}{caption_path.suffix}"
-                    )
+                    section_filename = f"{caption_path.stem}_{safe_header}{caption_path.suffix}"
                     section_file_path = caption_path.with_suffix("") / section_filename
 
                     # 保存部分内容
@@ -297,9 +279,7 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
 
                 with open(single_file_path, "w", encoding="utf-8") as f:
                     f.write(combined_text)
-                console.print(
-                    f"[{CONSOLE_COLORS['text']}]text: {single_file_path} saved successfully.[/{CONSOLE_COLORS['text']}]"
-                )
+                console.print(f"[{CONSOLE_COLORS['text']}]text: {single_file_path} saved successfully.[/{CONSOLE_COLORS['text']}]")
                 return True
         # 分割每个页面的内容
         for i in range(len(header_matches)):
@@ -343,9 +323,7 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
             )
 
             # 移除页脚
-            page_content = re.sub(
-                r'(?s)<footer\s+style="[^"]*">.*?</footer>', "", page_content
-            )
+            page_content = re.sub(r'(?s)<footer\s+style="[^"]*">.*?</footer>', "", page_content)
 
             # 清理可能的多余空行
             page_content = re.sub(r"\n{3,}", "\n\n", page_content)
@@ -373,15 +351,12 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
                 # 找出每个图片第一次出现的位置
                 for match in matches:
                     alt_text = match.group(1)
-                    folder = match.group(2)
                     img_name = match.group(3)
                     if img_name not in first_occurrence:
                         first_occurrence[img_name] = match
 
                 # 先处理图片路径，统一格式
-                processed_page_content = re.sub(
-                    img_pattern, r"![\1](\3)", processed_page_content
-                )
+                processed_page_content = re.sub(img_pattern, r"![\1](\3)", processed_page_content)
 
                 # 移除所有重复的图片，但保留第一次出现的位置
                 for img_name, match in first_occurrence.items():
@@ -399,9 +374,7 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
                             alt_text = m.group(1)
                             pattern_to_remove = f"!\\[{re.escape(alt_text)}\\]\\({re.escape(img_name)}\\)"
                             # 从处理后的内容中移除该模式
-                            processed_page_content = re.sub(
-                                pattern_to_remove, "", processed_page_content, count=1
-                            )
+                            processed_page_content = re.sub(pattern_to_remove, "", processed_page_content, count=1)
             else:
                 # 如果没有匹配到图片，只进行路径格式转换
                 processed_page_content = re.sub(img_pattern, r"![\1](\3)", page_content)
@@ -413,9 +386,7 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
             with open(page_file_path, "w", encoding="utf-8") as f:
                 f.write(processed_page_content)
 
-            console.print(
-                f"[{CONSOLE_COLORS['text']}]text: {page_file_path} saved successfully.[/{CONSOLE_COLORS['text']}]"
-            )
+            console.print(f"[{CONSOLE_COLORS['text']}]text: {page_file_path} saved successfully.[/{CONSOLE_COLORS['text']}]")
 
         return True
     except Exception as e:
@@ -433,21 +404,14 @@ def split_md_document(uri: Path, caption_lines: List[str], save_caption_func) ->
     """
     try:
         # 检查是否包含多页内容
-        if any(
-            '<header style="background-color: #f5f5f5;' in line
-            for line in caption_lines
-        ):
+        if any('<header style="background-color: #f5f5f5;' in line for line in caption_lines):
             # 调用分页保存函数
             md_path = uri.with_suffix(".md")
             save_caption_by_pages(uri, caption_lines)
-            console.print(
-                f"[green]Successfully split document into individual pages: {md_path}[/green]"
-            )
+            console.print(f"[green]Successfully split document into individual pages: {md_path}[/green]")
         else:
             # 如果不是多页文档，按原样保存
-            console.print(
-                f"[yellow]Document does not contain multiple pages, saving as single file.[/yellow]"
-            )
+            console.print("[yellow]Document does not contain multiple pages, saving as single file.[/yellow]")
     except Exception as e:
         console.print(f"[red]Error splitting MD document: {e}[/red]")
 
@@ -468,11 +432,7 @@ def extract_from_lance(
         caption_dir: Optional directory to save caption files
         save_binary: Whether to save binary data
     """
-    ds = (
-        lance.dataset(lance_or_path, version=version)
-        if isinstance(lance_or_path, str)
-        else lance_or_path
-    )
+    ds = lance.dataset(lance_or_path, version=version) if isinstance(lance_or_path, str) else lance_or_path
 
     # Create output directories
     output_path = Path(output_dir)
@@ -498,7 +458,6 @@ def extract_from_lance(
         expand=True,
         transient=False,  # 防止进度条随刷新滚动
     ) as progress:
-
         global console
 
         console = progress.console
@@ -539,9 +498,7 @@ def extract_from_lance(
                             progress.advance(task)
                             continue
                     else:
-                        console.print(
-                            f"[yellow]Unsupported file format: {suffix}[/yellow]"
-                        )
+                        console.print(f"[yellow]Unsupported file format: {suffix}[/yellow]")
                         progress.advance(task)
                         continue
 
@@ -558,9 +515,7 @@ def extract_from_lance(
                             split_video_with_imageio_ffmpeg(uri, subs, save_caption)
                         except Exception as e:
                             console.print(f"[red]Error splitting video: {e}[/red]")
-                            split_media_stream_clips(
-                                uri, media_type, subs, save_caption
-                            )
+                            split_media_stream_clips(uri, media_type, subs, save_caption)
                     elif clip_with_caption and (uri.with_suffix(".md")).exists():
                         split_md_document(uri, caption, save_caption)
 
@@ -568,10 +523,7 @@ def extract_from_lance(
 
 
 def main():
-
-    parser = argparse.ArgumentParser(
-        description="Extract images and captions from a Lance dataset"
-    )
+    parser = argparse.ArgumentParser(description="Extract images and captions from a Lance dataset")
     parser.add_argument("lance_file", help="Path to the .lance file")
     parser.add_argument(
         "--output_dir",
@@ -591,9 +543,7 @@ def main():
     )
 
     args = parser.parse_args()
-    extract_from_lance(
-        args.lance_file, args.output_dir, args.version, not args.not_clip_with_caption
-    )
+    extract_from_lance(args.lance_file, args.output_dir, args.version, not args.not_clip_with_caption)
 
 
 if __name__ == "__main__":

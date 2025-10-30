@@ -1,20 +1,19 @@
 from __future__ import annotations
 
+import shutil
 import time
 from pathlib import Path
 from typing import Any, Optional
 
 import torch
-from transformers import AutoModel, AutoTokenizer
 from rich.console import Console
 from rich.progress import Progress
 from rich_pixels import Pixels
+from transformers import AutoModel, AutoTokenizer
 
 from utils.parse_display import display_markdown
-import shutil
 from utils.stream_util import pdf_to_images_high_quality
-from utils.transformer_loader import transformerLoader, resolve_device_dtype
-
+from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
 _TRANS_LOADER: Optional[transformerLoader] = None
 
@@ -55,13 +54,9 @@ def attempt_deepseek_ocr(
     device, dtype, attn_impl = resolve_device_dtype()
     global _TRANS_LOADER
     if _TRANS_LOADER is None:
-        _TRANS_LOADER = transformerLoader(
-            attn_kw="_attn_implementation", device_map="auto"
-        )
+        _TRANS_LOADER = transformerLoader(attn_kw="_attn_implementation", device_map="auto")
 
-    tokenizer = _TRANS_LOADER.get_or_load_processor(
-        model_id, AutoTokenizer, console=console
-    )
+    tokenizer = _TRANS_LOADER.get_or_load_processor(model_id, AutoTokenizer, console=console)
     model = _TRANS_LOADER.get_or_load_model(
         model_id,
         AutoModel,
@@ -78,9 +73,9 @@ def attempt_deepseek_ocr(
         images = pdf_to_images_high_quality(str(p))
         all_contents = []
         for idx, pil_img in enumerate(images):
-            page_dir = Path(output_dir) / f"page_{idx+1:04d}"
+            page_dir = Path(output_dir) / f"page_{idx + 1:04d}"
             page_dir.mkdir(parents=True, exist_ok=True)
-            page_img_path = page_dir / f"page_{idx+1:04d}.png"
+            page_img_path = page_dir / f"page_{idx + 1:04d}.png"
             try:
                 pil_img.save(page_img_path)
             except Exception:

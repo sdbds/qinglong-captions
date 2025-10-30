@@ -1,40 +1,42 @@
+import argparse
+import asyncio
+import base64
+import json
+import re
+from pathlib import Path
+
 import lance
+import pyarrow as pa
+import pysrt
+import toml
+from PIL import Image
+from rich.console import Console
 from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
     Progress,
     SpinnerColumn,
-    TextColumn,
-    BarColumn,
     TaskProgressColumn,
-    TimeRemainingColumn,
+    TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
     TransferSpeedColumn,
-    MofNCompleteColumn,
 )
-from rich.console import Console
-from PIL import Image
-import json
-import pyarrow as pa
-from module.lanceImport import transform2lance
-from module.lanceexport import extract_from_lance
+
+from config.config import (
+    BASE_APPLICATION_EXTENSIONS,
+    BASE_AUDIO_EXTENSIONS,
+    BASE_VIDEO_EXTENSIONS,
+)
 from module.api_handler import api_process_batch
+from module.lanceexport import extract_from_lance
+from module.lanceImport import transform2lance
 from utils.parse_display import process_llm_response
 from utils.stream_util import (
+    get_video_duration,
     split_media_stream_clips,
     split_video_with_imageio_ffmpeg,
-    get_video_duration,
 )
-from config.config import (
-    BASE_VIDEO_EXTENSIONS,
-    BASE_AUDIO_EXTENSIONS,
-    BASE_APPLICATION_EXTENSIONS,
-)
-import re
-import argparse
-import toml
-import pysrt
-from pathlib import Path
-import base64
-import asyncio
 
 Image.MAX_IMAGE_PIXELS = None  # Disable image size limit check
 
@@ -83,17 +85,12 @@ def process_batch(args, config):
             duration = batch["duration"].to_pylist()
             sha256hash = batch["hash"].to_pylist()
 
-            for filepath, mime, duration, sha256hash in zip(
-                filepaths, mime, duration, sha256hash
-            ):
+            for filepath, mime, duration, sha256hash in zip(filepaths, mime, duration, sha256hash):
                 # 创建场景检测器，但异步初始化它（不阻塞主线程）
                 scene_detector = None
-                if (
-                    args.scene_threshold > 0
-                    and args.scene_min_len > 0
-                    and mime.startswith("video")
-                ):
+                if args.scene_threshold > 0 and args.scene_min_len > 0 and mime.startswith("video"):
                     from module.videospilter import SceneDetector, run_async_in_thread
+
                     scene_detector = SceneDetector(
                         detector=args.scene_detector,
                         threshold=args.scene_threshold,
@@ -107,11 +104,7 @@ def process_batch(args, config):
                     # 保存检测器实例以便后续使用
                     scene_detectors[filepath] = scene_detector
 
-                if (
-                    mime.startswith("image")
-                    or duration <= (args.segment_time + 1) * 1000
-                ):
-
+                if mime.startswith("image") or duration <= (args.segment_time + 1) * 1000:
                     output = api_process_batch(
                         uri=filepath,
                         mime=mime,
@@ -129,10 +122,8 @@ def process_batch(args, config):
                     )
 
                 else:
-                    console.print(
-                        f"[blue]{filepath} video > {args.segment_time} seconds[/blue]"
-                    )
-                    console.print(f"[blue]split video[/blue]")
+                    console.print(f"[blue]{filepath} video > {args.segment_time} seconds[/blue]")
+                    console.print("[blue]split video[/blue]")
 
                     # 创建用于分割的字幕文件
                     subs = pysrt.SubRipFile()
@@ -140,9 +131,7 @@ def process_batch(args, config):
                     # 计算分块
                     duration_seconds = duration / 1000  # 将毫秒转换为秒
                     chunk_duration = args.segment_time
-                    num_chunks = int(
-                        (duration_seconds + chunk_duration - 1) // chunk_duration
-                    )
+                    num_chunks = int((duration_seconds + chunk_duration - 1) // chunk_duration)
 
                     # 创建字幕条目
                     for i in range(num_chunks):
@@ -170,9 +159,7 @@ def process_batch(args, config):
                     except Exception as e:
                         # 使用字幕分割视频
                         meta_type = "video" if mime.startswith("video") else "audio"
-                        console.print(
-                            f"[red]Error splitting video with imageio-ffmpeg: {e}[/red]"
-                        )
+                        console.print(f"[red]Error splitting video with imageio-ffmpeg: {e}[/red]")
                         split_media_stream_clips(Path(filepath), meta_type, subs)
 
                     pathfile = Path(filepath)
@@ -188,22 +175,18 @@ def process_batch(args, config):
                     global clip_task_id
 
                     # 检查是否已经存在clip任务
-                    if "clip_task_id" in globals() and clip_task_id in [
-                        task.id for task in progress.tasks
-                    ]:
+                    if "clip_task_id" in globals() and clip_task_id in [task.id for task in progress.tasks]:
                         # 重置已存在的clip任务
                         progress.reset(
                             clip_task_id,
                             total=num_chunks,
                             visible=True,
-                            description=f"[cyan]Processing clips...",
+                            description="[cyan]Processing clips...",
                         )
                         clip_task = clip_task_id
                     else:
                         # 创建新的clip任务
-                        clip_task = progress.add_task(
-                            f"[cyan]Processing clips...", total=num_chunks
-                        )
+                        clip_task = progress.add_task("[cyan]Processing clips...", total=num_chunks)
                         clip_task_id = clip_task
                     for i in range(num_chunks):
                         sub_path = Path(filepath).with_suffix(".srt")
@@ -211,9 +194,7 @@ def process_batch(args, config):
                             sub = pysrt.open(sub_path, encoding="utf-8")
                             merged_subs.extend(sub)
 
-                        console.print(
-                            f"[yellow]Processing chunk {i+1}/{num_chunks}[/yellow]"
-                        )
+                        console.print(f"[yellow]Processing chunk {i + 1}/{num_chunks}[/yellow]")
                         uri = files[i]
 
                         chunk_output = api_process_batch(
@@ -226,23 +207,15 @@ def process_batch(args, config):
                             task_id=task,
                         )
 
-                        console.print(
-                            f"[green]API processing complete for chunk {i+1}[/green]"
-                        )
+                        console.print(f"[green]API processing complete for chunk {i + 1}[/green]")
 
-                        console.print(
-                            f"[yellow]Post-processing chunk output...[/yellow]"
-                        )
-                        chunk_output = _postprocess_caption_content(
-                            chunk_output, uri, args
-                        )
+                        console.print("[yellow]Post-processing chunk output...[/yellow]")
+                        chunk_output = _postprocess_caption_content(chunk_output, uri, args)
 
                         chunk_subs = pysrt.from_string(chunk_output)
                         # 检查并删除超时的字幕
                         for sub in list(chunk_subs):  # 使用list创建副本以便安全删除
-                            if (
-                                sub.start.ordinal > args.segment_time * 1000
-                            ):  # 转换为毫秒比较
+                            if sub.start.ordinal > args.segment_time * 1000:  # 转换为毫秒比较
                                 chunk_subs.remove(sub)
 
                         if i > 0:
@@ -266,15 +239,13 @@ def process_batch(args, config):
 
                         # Extend merged subtitles with the shifted chunk
                         merged_subs.extend(chunk_subs)
-                        console.print(
-                            f"[green]Successfully merged chunk {i+1}. Total subtitles: {len(merged_subs)}[/green]"
-                        )
+                        console.print(f"[green]Successfully merged chunk {i + 1}. Total subtitles: {len(merged_subs)}[/green]")
 
                         progress.update(
                             clip_task,
                             advance=1,
                             refresh=True,
-                            description=f"[yellow]merging complete for chunk [/yellow]",
+                            description="[yellow]merging complete for chunk [/yellow]",
                         )
 
                     # Mark the clip task as completed and hide it
@@ -290,9 +261,7 @@ def process_batch(args, config):
                         output += f"{sub.start} --> {sub.end}\n"
                         output += f"{sub.text}\n\n"
                     if output:
-                        console.print(
-                            f"[green]All subtitles merged successfully. Total: {len(merged_subs)}[/green]"
-                        )
+                        console.print(f"[green]All subtitles merged successfully. Total: {len(merged_subs)}[/green]")
 
                     for file in files:
                         file.unlink(missing_ok=True)
@@ -302,10 +271,7 @@ def process_batch(args, config):
 
                 filepath_path = Path(filepath)
                 # Determine caption file extension based on media type
-                if (
-                    filepath_path.suffix in BASE_VIDEO_EXTENSIONS
-                    or filepath_path.suffix in BASE_AUDIO_EXTENSIONS
-                ):
+                if filepath_path.suffix in BASE_VIDEO_EXTENSIONS or filepath_path.suffix in BASE_AUDIO_EXTENSIONS:
                     caption_path = filepath_path.with_suffix(".srt")
                 elif filepath_path.suffix in BASE_APPLICATION_EXTENSIONS:
                     caption_path = filepath_path.with_suffix(".md")
@@ -313,9 +279,7 @@ def process_batch(args, config):
                     caption_path = filepath_path.with_suffix(".txt")
                 console.print(f"[blue]Processing caption for:[/blue] {filepath_path}")
                 if isinstance(output, dict):
-                    console.print(
-                        f"[blue]Caption content length:[/blue] {len(output['description'])}"
-                    )
+                    console.print(f"[blue]Caption content length:[/blue] {len(output['description'])}")
                 else:
                     console.print(f"[blue]Caption content length:[/blue] {len(output)}")
 
@@ -324,21 +288,13 @@ def process_batch(args, config):
                         subs = pysrt.from_string(output)
                         if scene_detector:
                             # 检查场景检测是否已经完成
-                            console.print(
-                                f"[bold cyan]{scene_detectors[filepath].get_scene_list()}...[/bold cyan]"
-                            )
+                            console.print(f"[bold cyan]{scene_detectors[filepath].get_scene_list()}...[/bold cyan]")
                             if scene_detectors[filepath].get_scene_list() is None:
-                                scene_list = asyncio.run(
-                                    scene_detectors[filepath].ensure_detection_complete(
-                                        filepath
-                                    )
-                                )
+                                scene_list = asyncio.run(scene_detectors[filepath].ensure_detection_complete(filepath))
                             else:
                                 scene_list = scene_detectors[filepath].get_scene_list()
                             # 使用实例方法align_subtitle，传入scene_list参数
-                            console.print(
-                                f"[bold cyan]Aligning subtitles with scene changes...[/bold cyan]"
-                            )
+                            console.print("[bold cyan]Aligning subtitles with scene changes...[/bold cyan]")
                             subs = scene_detectors[filepath].align_subtitle(
                                 subs,
                                 scene_list=scene_list,
@@ -346,27 +302,19 @@ def process_batch(args, config):
                                 segment_time=args.segment_time,
                             )
                         subs.save(str(caption_path), encoding="utf-8")
-                        console.print(
-                            f"[green]Saved captions to {caption_path}[/green]"
-                        )
+                        console.print(f"[green]Saved captions to {caption_path}[/green]")
                     except Exception as e:
-                        console.print(
-                            f"[yellow]pysrt validation failed: {e}, falling back to direct file write[/yellow]"
-                        )
+                        console.print(f"[yellow]pysrt validation failed: {e}, falling back to direct file write[/yellow]")
                         try:
                             caption_path.write_text(output, encoding="utf-8")
-                            console.print(
-                                f"[green]Saved captions to {caption_path}[/green]"
-                            )
+                            console.print(f"[green]Saved captions to {caption_path}[/green]")
                         except Exception as e:
                             console.print(f"[red]Error saving SRT file: {e}[/red]")
                 elif caption_path.suffix == ".md" and output:
                     try:
                         with open(caption_path, "w", encoding="utf-8") as f:
                             f.write(output)
-                        console.print(
-                            f"[green]Saved captions to {caption_path}[/green]"
-                        )
+                        console.print(f"[green]Saved captions to {caption_path}[/green]")
                     except Exception as e:
                         console.print(f"[red]Error saving MD file: {e}[/red]")
                 elif output:
@@ -389,9 +337,7 @@ def process_batch(args, config):
                                     f.write("No description available")
                         else:
                             caption_path.write_text(output, encoding="utf-8")
-                        console.print(
-                            f"[green]Saved captions to {caption_path}[/green]"
-                        )
+                        console.print(f"[green]Saved captions to {caption_path}[/green]")
                     except Exception as e:
                         console.print(f"[red]Error saving TXT file: {e}[/red]")
 
@@ -427,14 +373,12 @@ def process_batch(args, config):
 
         try:
             dataset.tags.create("gemini", 1)
-        except:
+        except Exception:
             dataset.tags.update("gemini", 1)
 
         console.print("[green]Successfully updated dataset with new captions[/green]")
 
-    extract_from_lance(
-        dataset, args.dataset_dir, clip_with_caption=not args.not_clip_with_caption
-    )
+    extract_from_lance(dataset, args.dataset_dir, clip_with_caption=not args.not_clip_with_caption)
 
 
 def _postprocess_caption_content(output, filepath, args):
@@ -447,21 +391,15 @@ def _postprocess_caption_content(output, filepath, args):
 
     if isinstance(output, list):
         # 检查是否为OCRPageObject对象列表
-        if (
-            len(output) > 0
-            and hasattr(output[0], "markdown")
-            and hasattr(output[0], "index")
-        ):
+        if len(output) > 0 and hasattr(output[0], "markdown") and hasattr(output[0], "index"):
             combined_output = ""
             for page in output:
                 # 添加页面索引作为HTML页眉和页脚
                 page_index = page.index if hasattr(page, "index") else "unknown"
                 # 添加HTML页眉
-                combined_output += f'<header style="background-color: #f5f5f5; padding: 8px; margin-bottom: 20px; text-align: center; border-bottom: 1px solid #ddd;">\n<strong> Page {page_index+1} </strong>\n</header>\n\n'
+                combined_output += f'<header style="background-color: #f5f5f5; padding: 8px; margin-bottom: 20px; text-align: center; border-bottom: 1px solid #ddd;">\n<strong> Page {page_index + 1} </strong>\n</header>\n\n'
                 # 添加页面内容
-                page_markdown = (
-                    page.markdown if hasattr(page, "markdown") else str(page)
-                )
+                page_markdown = page.markdown if hasattr(page, "markdown") else str(page)
                 # 替换图片路径，将图片路径改为上一级目录
                 if hasattr(page, "images") and args.document_image:
                     # 查找并替换所有图片引用格式 ![...](filename)
@@ -493,13 +431,11 @@ def _postprocess_caption_content(output, filepath, args):
                                 with open(image_path, "wb") as img_file:
                                     img_file.write(image_data)
                             except Exception as e:
-                                console.print(
-                                    f"[yellow]Error saving OCR image: {e}[/yellow]"
-                                )
+                                console.print(f"[yellow]Error saving OCR image: {e}[/yellow]")
                 # 这里添加页面内容，只添加一次
                 combined_output += f"{page_markdown}\n\n"
                 # 添加HTML页脚和分隔符
-                combined_output += f'<footer style="background-color: #f5f5f5; padding: 8px; margin-top: 20px; text-align: center; border-top: 1px solid #ddd;">\n<strong> Page {page_index+1} </strong>\n</footer>\n\n'
+                combined_output += f'<footer style="background-color: #f5f5f5; padding: 8px; margin-top: 20px; text-align: center; border-top: 1px solid #ddd;">\n<strong> Page {page_index + 1} </strong>\n</footer>\n\n'
                 combined_output += '<div style="page-break-after: always;"></div>\n\n'
             output = combined_output
         else:
@@ -512,10 +448,7 @@ def _postprocess_caption_content(output, filepath, args):
         return ""
 
     # 格式化时间戳 - 只处理视频和音频文件的字幕
-    if (
-        Path(filepath).suffix in BASE_VIDEO_EXTENSIONS
-        or Path(filepath).suffix in BASE_AUDIO_EXTENSIONS
-    ):
+    if Path(filepath).suffix in BASE_VIDEO_EXTENSIONS or Path(filepath).suffix in BASE_AUDIO_EXTENSIONS:
         # 确保字幕内容格式正确
         output = output.strip()
         if not output.strip():
@@ -727,7 +660,14 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ocr_model",
         type=str,
-        choices=["pixtral_ocr", "deepseek_ocr", "olmocr", "paddle_ocr", "moondream", ""],
+        choices=[
+            "pixtral_ocr",
+            "deepseek_ocr",
+            "olmocr",
+            "paddle_ocr",
+            "moondream",
+            "",
+        ],
         default="",
         help="OCR model to use for text extraction (default: empty)",
     )

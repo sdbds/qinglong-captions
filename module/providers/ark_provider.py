@@ -4,14 +4,15 @@ Ark (Volcano Engine) provider attempt logic.
 Follows the same structure and logging style as other providers (GLM/Qwen/StepFun).
 English logs/comments by convention.
 """
+
 from __future__ import annotations
 
 import time
 from typing import Any, Iterable, Optional
 
 from rich.console import Console
-from rich.text import Text
 from rich.progress import Progress
+from rich.text import Text
 
 from utils.parse_display import extract_code_block_content
 

@@ -1,33 +1,35 @@
-import pysrt
+import argparse
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import pysrt
 from PIL import Image
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
 from scenedetect import (
-    detect,
-    ContentDetector,
     AdaptiveDetector,
+    ContentDetector,
     HashDetector,
     HistogramDetector,
     ThresholdDetector,
-    split_video_ffmpeg,
+    detect,
     open_video,
+    split_video_ffmpeg,
 )
-from scenedetect.scene_manager import write_scene_list_html, save_images
-import asyncio
-import threading
-import argparse
-from concurrent.futures import ThreadPoolExecutor
-from rich.console import Console
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    BarColumn,
-    TaskProgressColumn,
-    TimeRemainingColumn,
-    TimeElapsedColumn,
-    TransferSpeedColumn,
-    MofNCompleteColumn,
-)
+from scenedetect.scene_manager import save_images, write_scene_list_html
+
 from config.config import BASE_VIDEO_EXTENSIONS
 
 
@@ -283,9 +285,7 @@ class SceneDetector:
                 first_scene_images = next(iter(scene_image_dict.values()), [])
                 if first_scene_images and len(first_scene_images) > 0:
                     try:
-                        first_image = Image.open(
-                            output_dir / "images" / Path(first_scene_images[0]).name
-                        )
+                        first_image = Image.open(output_dir / "images" / Path(first_scene_images[0]).name)
                         orig_width, orig_height = first_image.size
                         # 按比例缩放，确保最大边不超过512
                         max_dimension = max(orig_width, orig_height)
@@ -310,9 +310,7 @@ class SceneDetector:
 
         # 使用ffmpeg分割视频
         try:
-            self.console.print(
-                f"[blue]Splitting video with {len(scene_list)} scenes...[/blue]"
-            )
+            self.console.print(f"[blue]Splitting video with {len(scene_list)} scenes...[/blue]")
             return split_video_ffmpeg(
                 video_path,
                 scene_list,
@@ -380,9 +378,7 @@ class SceneDetector:
             console = Console()
 
         if not scene_list:
-            console.print(
-                "[yellow]No scene changes detected, unable to align subtitles[/yellow]"
-            )
+            console.print("[yellow]No scene changes detected, unable to align subtitles[/yellow]")
             return srt_path
 
         # 加载字幕文件
@@ -403,9 +399,7 @@ class SceneDetector:
         if scene_blocks and scene_timestamps_ms[-1] > scene_blocks[-1][1]:
             # 添加最后一个场景，结束时间设为最后一个场景开始时间加上平均场景长度
             if len(scene_blocks) > 0:
-                avg_scene_duration = sum(
-                    end - start for start, end in scene_blocks
-                ) / len(scene_blocks)
+                avg_scene_duration = sum(end - start for start, end in scene_blocks) / len(scene_blocks)
                 scene_blocks.append(
                     (
                         scene_timestamps_ms[-1],
@@ -433,13 +427,11 @@ class SceneDetector:
 
         if segment_boundaries:
             console.print(
-                f"[green]Detected {len(segment_boundaries)} segment boundaries: {', '.join([f'Sub#{b[0]+1}(Segment{b[1]})' for b in segment_boundaries])}[/green]"
+                f"[green]Detected {len(segment_boundaries)} segment boundaries: {', '.join([f'Sub#{b[0] + 1}(Segment{b[1]})' for b in segment_boundaries])}[/green]"
             )
 
         # 顺序处理每个字幕，保持连贯性
-        console.print(
-            f"[blue]Starting sequential subtitle processing, maintaining coherence...[/blue]"
-        )
+        console.print("[blue]Starting sequential subtitle processing, maintaining coherence...[/blue]")
 
         # 定义误差阈值（毫秒）
         error_threshold_ms = 1000  # 1秒以上被视为有明显误差
@@ -450,7 +442,7 @@ class SceneDetector:
             # 获取当前字幕的时间范围
             start_time_ms = sub.start.ordinal  # 已经是毫秒
             end_time_ms = sub.end.ordinal  # 已经是毫秒
-            subtitle_duration = end_time_ms - start_time_ms
+            end_time_ms - start_time_ms
 
             # 计算当前字幕所在的分段
             current_segment = int((start_time_ms / 1000) // segment_time)
@@ -464,15 +456,13 @@ class SceneDetector:
 
             # 调试输出
             if i < 3 or i % 40 == 0 or is_segment_boundary:
-                console.print(
-                    f"[blue]Subtitle #{i+1}: Start={start_time_ms/1000:.1f}s (Segment{current_segment})[/blue]"
-                )
+                console.print(f"[blue]Subtitle #{i + 1}: Start={start_time_ms / 1000:.1f}s (Segment{current_segment})[/blue]")
 
             # 检查当前字幕是否在分段边界上
             reset_coherence = False
             if previous_end_time is not None and is_segment_boundary:
                 console.print(
-                    f"[cyan]Subtitle #{i+1}/{len(subs)}: Processing segment boundary {current_segment}, resetting coherence[/cyan]"
+                    f"[cyan]Subtitle #{i + 1}/{len(subs)}: Processing segment boundary {current_segment}, resetting coherence[/cyan]"
                 )
                 reset_coherence = True
 
@@ -492,14 +482,12 @@ class SceneDetector:
                     milliseconds_start = start_offset % 1000
 
                     # 调整字幕开始时间
-                    sub.start.shift(
-                        seconds=seconds_start, milliseconds=milliseconds_start
-                    )
+                    sub.start.shift(seconds=seconds_start, milliseconds=milliseconds_start)
 
                     # 如果偏移足够大则打印
                     if abs(seconds_start) >= 1 or abs(milliseconds_start) >= 500:
                         console.print(
-                            f"[cyan]Subtitle #{i+1}/{len(subs)}: Adjusted start time by {seconds_start}s {milliseconds_start}ms (connecting to previous subtitle)[/cyan]"
+                            f"[cyan]Subtitle #{i + 1}/{len(subs)}: Adjusted start time by {seconds_start}s {milliseconds_start}ms (connecting to previous subtitle)[/cyan]"
                         )
 
             # 更新开始时间变量以备后续使用
@@ -512,9 +500,7 @@ class SceneDetector:
                 block_start, block_end = scene_blocks[j]
 
                 # 判断场景块是否与字幕结束时间相关（考虑±2秒偏移）
-                if (end_time_ms - 2000 <= block_end) and (
-                    end_time_ms + 2000 >= block_start
-                ):
+                if (end_time_ms - 2000 <= block_end) and (end_time_ms + 2000 >= block_start):
                     relevant_blocks.append((j, block_start, block_end))
 
             # 如果没有找到相关场景块，使用下一个未使用的场景块
@@ -544,22 +530,18 @@ class SceneDetector:
                         best_end_time = scene_start
                         # 如果调整超过误差阈值，记录下来以供后续分析
                         if abs(best_end_time - end_time_ms) > error_threshold_ms:
-                            recalculate_subs.append(
-                                (i, "start", end_time_ms, best_end_time)
-                            )
+                            recalculate_subs.append((i, "start", end_time_ms, best_end_time))
                             console.print(
-                                f"[yellow]Warning: Subtitle #{i+1}/{len(subs)} adjustment to scene start exceeds {error_threshold_ms//1000}s, marked as abnormal[/yellow]"
+                                f"[yellow]Warning: Subtitle #{i + 1}/{len(subs)} adjustment to scene start exceeds {error_threshold_ms // 1000}s, marked as abnormal[/yellow]"
                             )
                     else:
                         # 离场景结束更近，向场景结束偏移
                         best_end_time = scene_end
                         # 如果调整超过误差阈值，记录下来以供后续分析
                         if abs(best_end_time - end_time_ms) > error_threshold_ms:
-                            recalculate_subs.append(
-                                (i, "end", end_time_ms, best_end_time)
-                            )
+                            recalculate_subs.append((i, "end", end_time_ms, best_end_time))
                             console.print(
-                                f"[yellow]Warning: Subtitle #{i+1}/{len(subs)} adjustment to scene end exceeds {error_threshold_ms//1000}s, marked as abnormal[/yellow]"
+                                f"[yellow]Warning: Subtitle #{i + 1}/{len(subs)} adjustment to scene end exceeds {error_threshold_ms // 1000}s, marked as abnormal[/yellow]"
                             )
 
                     # 找到匹配场景块后跳出循环
@@ -591,11 +573,9 @@ class SceneDetector:
                     best_end_time = closest_boundary
                     # 如果调整超过误差阈值，记录下来以供后续分析
                     if abs(best_end_time - end_time_ms) > error_threshold_ms:
-                        recalculate_subs.append(
-                            (i, "boundary", end_time_ms, best_end_time)
-                        )
+                        recalculate_subs.append((i, "boundary", end_time_ms, best_end_time))
                         console.print(
-                            f"[yellow]Warning: Subtitle #{i+1}/{len(subs)} adjustment to nearest boundary exceeds {error_threshold_ms//1000}s, marked as abnormal[/yellow]"
+                            f"[yellow]Warning: Subtitle #{i + 1}/{len(subs)} adjustment to nearest boundary exceeds {error_threshold_ms // 1000}s, marked as abnormal[/yellow]"
                         )
 
             # 计算偏移量
@@ -604,7 +584,7 @@ class SceneDetector:
             # 如果偏移量超过误差阈值，尝试智能修正
             if abs(end_offset) > error_threshold_ms:
                 console.print(
-                    f"[cyan]Subtitle #{i+1}/{len(subs)}: Attempting intelligent correction for large offset of {end_offset//1000}s[/cyan]"
+                    f"[cyan]Subtitle #{i + 1}/{len(subs)}: Attempting intelligent correction for large offset of {end_offset // 1000}s[/cyan]"
                 )
 
                 # 策略1: 检查相邻场景块，尝试找到更合适的匹配
@@ -617,9 +597,7 @@ class SceneDetector:
                 end_idx = min(len(scene_blocks), best_scene_idx + search_range)
 
                 for j in range(start_idx, end_idx):
-                    if j not in [
-                        rb[0] for rb in relevant_blocks
-                    ]:  # 避免重复检查已考虑的场景块
+                    if j not in [rb[0] for rb in relevant_blocks]:  # 避免重复检查已考虑的场景块
                         block_start, block_end = scene_blocks[j]
                         extended_blocks.append((j, block_start, block_end))
 
@@ -642,11 +620,9 @@ class SceneDetector:
                             closest_ext_boundary = ext_end
 
                     # 如果找到更接近的边界，使用它
-                    if closest_ext_boundary is not None and abs(
-                        end_time_ms - closest_ext_boundary
-                    ) < abs(end_offset):
+                    if closest_ext_boundary is not None and abs(end_time_ms - closest_ext_boundary) < abs(end_offset):
                         console.print(
-                            f"[green]Subtitle #{i+1}/{len(subs)}: Found closer scene boundary, reducing offset from {end_offset//1000}s to {(closest_ext_boundary-end_time_ms)//1000}s[/green]"
+                            f"[green]Subtitle #{i + 1}/{len(subs)}: Found closer scene boundary, reducing offset from {end_offset // 1000}s to {(closest_ext_boundary - end_time_ms) // 1000}s[/green]"
                         )
                         best_end_time = closest_ext_boundary
                         end_offset = best_end_time - end_time_ms
@@ -659,12 +635,10 @@ class SceneDetector:
                     weight_original = 0.7  # 原始时间的权重
                     weight_scene = 0.3  # 场景边界的权重
 
-                    weighted_end_time = int(
-                        end_time_ms * weight_original + best_end_time * weight_scene
-                    )
+                    weighted_end_time = int(end_time_ms * weight_original + best_end_time * weight_scene)
 
                     console.print(
-                        f"[green]Subtitle #{i+1}/{len(subs)}: Using weighted average time, reducing offset from {end_offset//1000}s to {(weighted_end_time-end_time_ms)//1000}s[/green]"
+                        f"[green]Subtitle #{i + 1}/{len(subs)}: Using weighted average time, reducing offset from {end_offset // 1000}s to {(weighted_end_time - end_time_ms) // 1000}s[/green]"
                     )
                     best_end_time = weighted_end_time
                     end_offset = best_end_time - end_time_ms
@@ -682,7 +656,7 @@ class SceneDetector:
             # 只打印偏移量绝对值较大的调整
             if abs(seconds_end) >= 1 or abs(milliseconds_end) >= 500:
                 console.print(
-                    f"[blue]Subtitle #{i+1}/{len(subs)}: Adjusted end time by {seconds_end}s {milliseconds_end}ms (aligned to scene)[/blue]"
+                    f"[blue]Subtitle #{i + 1}/{len(subs)}: Adjusted end time by {seconds_end}s {milliseconds_end}ms (aligned to scene)[/blue]"
                 )
 
         return subs
@@ -750,7 +724,6 @@ def setup_parser() -> argparse.ArgumentParser:
 
 
 if __name__ == "__main__":
-
     # 创建Rich控制台对象
     console = Console()
 
@@ -759,7 +732,11 @@ if __name__ == "__main__":
 
     # 创建场景检测器实例
     scene_detector = SceneDetector(
-        args.detector, args.threshold, args.min_scene_len, args.luma_only, console=console
+        args.detector,
+        args.threshold,
+        args.min_scene_len,
+        args.luma_only,
+        console=console,
     )
 
     # 获取所有视频文件
@@ -776,14 +753,12 @@ if __name__ == "__main__":
     video_files = list(set(video_files))
 
     if not video_files:
-        console.print(
-            f"[yellow]No video files found, supported extensions: {', '.join(BASE_VIDEO_EXTENSIONS)}[/yellow]"
-        )
+        console.print(f"[yellow]No video files found, supported extensions: {', '.join(BASE_VIDEO_EXTENSIONS)}[/yellow]")
 
     # 打印找到的每个视频文件路径
     console.print(f"[green]Found {len(video_files)} video files[/green]")
     for i, video_file in enumerate(video_files):
-        console.print(f"[magenta]  {i+1}. {video_file}[/magenta]")
+        console.print(f"[magenta]  {i + 1}. {video_file}[/magenta]")
 
     # Create Rich progress bar
     progress = Progress(
@@ -835,9 +810,7 @@ if __name__ == "__main__":
                         )
                     progress.update(task_id, advance=1, status="Completed")
                 else:
-                    progress.update(
-                        task_id, advance=1, status="No need to split (too few scenes)"
-                    )
+                    progress.update(task_id, advance=1, status="No need to split (too few scenes)")
             except Exception as e:
                 progress.update(task_id, status=f"Error: {str(e)}")
                 raise e

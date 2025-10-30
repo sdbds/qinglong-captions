@@ -22,33 +22,34 @@
 #       tensorrt-cu13-libs = ["wheel_stub"]
 # ///
 import argparse
-import numpy as np
+import concurrent.futures
+import json
+import shutil
 import time
-from PIL import Image
 from pathlib import Path
+
+import torch
 import lance
-import pyarrow as pa
+import numpy as np
+import onnxruntime as ort
+from huggingface_hub import hf_hub_download
+from PIL import Image
 from rich.console import Console
 from rich.pretty import Pretty
 from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
     Progress,
     SpinnerColumn,
-    TextColumn,
-    BarColumn,
     TaskProgressColumn,
-    TimeRemainingColumn,
+    TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
     TransferSpeedColumn,
-    MofNCompleteColumn,
 )
-import torch
-import onnxruntime as ort
-from huggingface_hub import hf_hub_download
-from module.lanceImport import transform2lance
-import concurrent.futures
 from transformers import AutoImageProcessor
-import shutil
-import json
+
+from module.lanceImport import transform2lance
 
 console = Console()
 
@@ -155,9 +156,7 @@ def load_model(args):
 
     # 创建推理会话
     sess_options = ort.SessionOptions()
-    sess_options.graph_optimization_level = (
-        ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    )  # 启用所有优化
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL  # 启用所有优化
 
     if "CPUExecutionProvider" in providers:
         # CPU时启用多线程推理
@@ -221,16 +220,12 @@ def load_model(args):
     else:
         providers_with_options = providers
 
-    console.print(f"[cyan]Providers with options:[/cyan]")
+    console.print("[cyan]Providers with options:[/cyan]")
     console.print(Pretty(providers_with_options, indent_guides=True, expand_all=True))
     start_time = time.time()
-    ort_sess = ort.InferenceSession(
-        str(model_path), sess_options=sess_options, providers=providers_with_options
-    )
+    ort_sess = ort.InferenceSession(str(model_path), sess_options=sess_options, providers=providers_with_options)
     input_name = ort_sess.get_inputs()[0].name
-    console.print(
-        f"[green]Model loaded in {time.time() - start_time:.2f} seconds[/green]"
-    )
+    console.print(f"[green]Model loaded in {time.time() - start_time:.2f} seconds[/green]")
     return ort_sess, input_name
 
 
@@ -253,14 +248,8 @@ def main(args):
     if not isinstance(args.train_data_dir, lance.LanceDataset):
         if args.train_data_dir.endswith(".lance"):
             dataset = lance.dataset(args.train_data_dir)
-        elif any(
-            file.suffix == ".lance" for file in Path(args.train_data_dir).glob("*")
-        ):
-            lance_file = next(
-                file
-                for file in Path(args.train_data_dir).glob("*")
-                if file.suffix == ".lance"
-            )
+        elif any(file.suffix == ".lance" for file in Path(args.train_data_dir).glob("*")):
+            lance_file = next(file for file in Path(args.train_data_dir).glob("*") if file.suffix == ".lance")
             dataset = lance.dataset(str(lance_file))
         else:
             console.print("[yellow]Converting dataset to Lance format...[/yellow]")
@@ -347,9 +336,7 @@ def main(args):
 
                     # 创建软链接
                     source_path = Path(path).absolute()
-                    relative_path = source_path.relative_to(
-                        Path(args.train_data_dir).absolute()
-                    )
+                    relative_path = source_path.relative_to(Path(args.train_data_dir).absolute())
                     target_dir = watermark_dir if has_watermark else no_watermark_dir
                     target_path = target_dir / relative_path
                     target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -358,15 +345,11 @@ def main(args):
                     try:
                         target_path.symlink_to(source_path)
                     except (FileExistsError, PermissionError) as e:
-                        console.print(
-                            f"[red]Unable to create symlink for {path}: {e}[/red]"
-                        )
+                        console.print(f"[red]Unable to create symlink for {path}: {e}[/red]")
                         # 如果无法创建软链接，尝试复制文件代替
                         try:
                             shutil.copy2(source_path, target_path)
-                            console.print(
-                                f"[yellow]Created copy instead of symlink for {path}[/yellow]"
-                            )
+                            console.print(f"[yellow]Created copy instead of symlink for {path}[/yellow]")
                         except Exception as copy_err:
                             console.print(f"[red]Failed to copy file: {copy_err}[/red]")
 
@@ -384,9 +367,7 @@ def main(args):
         for i, part in enumerate(parts):
             if i == len(parts) - 1:
                 # 最后一层是文件名，存储概率
-                current[part] = f"{prob:.4f}" + (
-                    "🔴(Watermarked)🔖" if prob > args.thresh else "🟢(No Watermark)📄"
-                )
+                current[part] = f"{prob:.4f}" + ("🔴(Watermarked)🔖" if prob > args.thresh else "🟢(No Watermark)📄")
             else:
                 if part not in current:
                     current[part] = {}
@@ -402,12 +383,11 @@ def main(args):
     console.print(f"[bold green]Results saved to:[/bold green] {result_json_path}")
 
     # 打印检测结果统计
-    console.print(
-        f"🔴Watermarked🔖: {watermark_count} ({watermark_count/total_count*100:.2f}%)"
-    )
-    console.print(
-        f"🟢No Watermark📄: {total_count - watermark_count} ({(total_count - watermark_count)/total_count*100:.2f}%)"
-    )
+    if total_count > 0:
+        console.print(f"🔴Watermarked🔖: {watermark_count} ({watermark_count / total_count * 100:.2f}%)")
+        console.print(f"🟢No Watermark📄: {total_count - watermark_count} ({(total_count - watermark_count) / total_count * 100:.2f}%)")
+    else:
+        console.print("[yellow]No images were processed[/yellow]")
 
 
 def setup_parser() -> argparse.ArgumentParser:

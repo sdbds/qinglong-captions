@@ -18,35 +18,35 @@ and accessing the data through PyTorch datasets.
 
 import argparse
 import hashlib
+import mimetypes
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any, Callable, Tuple, Union
+from enum import Enum
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
 import imageio.v3 as iio
 import lance
+import numpy as np
 import pyarrow as pa
 from PIL import Image, ImageMode
+from rich.console import Console
 from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
     Progress,
     SpinnerColumn,
-    TextColumn,
-    BarColumn,
     TaskProgressColumn,
-    TimeRemainingColumn,
+    TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
     TransferSpeedColumn,
-    MofNCompleteColumn,
 )
-from rich.console import Console
-import mimetypes
-from pathlib import Path
-from enum import Enum
-import numpy as np
 
 from config.config import (
-    get_supported_extensions,
-    DATASET_SCHEMA,
     CONSOLE_COLORS,
+    DATASET_SCHEMA,
+    get_supported_extensions,
 )
-
 
 console = Console()
 image_extensions = get_supported_extensions("image")
@@ -153,17 +153,13 @@ class FileProcessor:
             Tuple of (metadata, binary_data) if successful, None if failed
         """
         if not meta.get("has_audio"):
-            console.print(
-                f"[yellow]Warning: Video file {file_path} has no audio track[/yellow]"
-            )
+            console.print(f"[yellow]Warning: Video file {file_path} has no audio track[/yellow]")
             return None
 
         # Get audio data
         audio_data = video.read_audio()  # This returns numpy array of audio samples
         if audio_data is None:
-            console.print(
-                f"[yellow]Warning: Failed to extract audio data from {file_path}[/yellow]"
-            )
+            console.print(f"[yellow]Warning: Failed to extract audio data from {file_path}[/yellow]")
             return None
 
         # Get audio binary data and calculate hash
@@ -174,7 +170,7 @@ class FileProcessor:
         duration = int(meta.get("duration", 0) * 1000)  # Convert to milliseconds
         audio_metadata = Metadata(
             uris=file_path,
-            mime=f"audio/wav",
+            mime="audio/wav",
             width=0,
             height=0,
             channels=audio_data.shape[1],
@@ -300,32 +296,16 @@ class FileProcessor:
 
                     # Get basic video info with safety checks
                     size = meta.get("size", (0, 0))
-                    width = (
-                        int(size[0])
-                        if isinstance(size, (tuple, list)) and len(size) > 0
-                        else 0
-                    )
-                    height = (
-                        int(size[1])
-                        if isinstance(size, (tuple, list)) and len(size) > 1
-                        else 0
-                    )
+                    width = int(size[0]) if isinstance(size, (tuple, list)) and len(size) > 0 else 0
+                    height = int(size[1]) if isinstance(size, (tuple, list)) and len(size) > 1 else 0
 
                     # Handle fps with safety checks
                     fps = meta.get("fps", 0)
-                    frame_rate = (
-                        float(fps)
-                        if fps and not np.isinf(fps) and not np.isnan(fps)
-                        else 0.0
-                    )
+                    frame_rate = float(fps) if fps and not np.isinf(fps) and not np.isnan(fps) else 0.0
 
                     # Handle duration with safety checks
                     dur = meta.get("duration", 0)
-                    duration = (
-                        int(dur * 1000)
-                        if dur and not np.isinf(dur) and not np.isnan(dur)
-                        else 0
-                    )
+                    duration = int(dur * 1000) if dur and not np.isinf(dur) and not np.isnan(dur) else 0
 
                     # Calculate frames with safety checks
                     n_frames = meta.get("nframes", 0)
@@ -339,16 +319,10 @@ class FileProcessor:
                     try:
                         with iio.imopen(file_path, "r") as file:
                             first_frame = file.read(index=0)
-                            channels = (
-                                first_frame.shape[2]
-                                if len(first_frame.shape) > 2
-                                else 1
-                            )
+                            channels = first_frame.shape[2] if len(first_frame.shape) > 2 else 1
                             depth = first_frame.dtype.itemsize * 8
                     except Exception as e:
-                        console.print(
-                            f"[yellow]Warning: Could not read first frame from {file_path}: {e}[/yellow]"
-                        )
+                        console.print(f"[yellow]Warning: Could not read first frame from {file_path}: {e}[/yellow]")
                         channels = 3  # Assume RGB
                         depth = 8  # Assume 8-bit
 
@@ -384,9 +358,7 @@ class FileProcessor:
                         blob=bytes(binary_data) if save_binary else b"",
                     )
                 except Exception as e:
-                    console.print(
-                        f"[red]Error processing video {file_path}: {str(e)}[/red]"
-                    )
+                    console.print(f"[red]Error processing video {file_path}: {str(e)}[/red]")
                     return None
 
             elif file_path.endswith(audio_extensions):
@@ -434,9 +406,7 @@ class FileProcessor:
                         blob=binary_data if save_binary else b"",
                     )
                 except Exception as e:
-                    console.print(
-                        f"[red]Error processing audio {file_path}: {str(e)}[/red]"
-                    )
+                    console.print(f"[red]Error processing audio {file_path}: {str(e)}[/red]")
                     return None
 
             elif file_path.endswith(application_extensions):
@@ -466,21 +436,15 @@ class FileProcessor:
                         blob=binary_data if save_binary else b"",
                     )
                 except Exception as e:
-                    console.print(
-                        f"[red]Error processing application {file_path}: {str(e)}[/red]"
-                    )
+                    console.print(f"[red]Error processing application {file_path}: {str(e)}[/red]")
                     return None
 
         except Exception as e:
-            console.print(
-                f"[red]Unexpected error processing {file_path}: {str(e)}[/red]"
-            )
+            console.print(f"[red]Unexpected error processing {file_path}: {str(e)}[/red]")
             return None
 
 
-def load_data(
-    datasets_dir: str, texts_dir: Optional[str] = None
-) -> List[Dict[str, Any]]:
+def load_data(datasets_dir: str, texts_dir: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Load image and caption data from directories.
 
@@ -498,13 +462,7 @@ def load_data(
         for file in Path(datasets_dir).iterdir():
             if not file.is_file() or not any(
                 str(file).endswith(ext)
-                for ext in (
-                    image_extensions
-                    + animation_extensions
-                    + video_extensions
-                    + audio_extensions
-                    + application_extensions
-                )
+                for ext in (image_extensions + animation_extensions + video_extensions + audio_extensions + application_extensions)
             ):
                 continue
 
@@ -532,13 +490,7 @@ def load_data(
         for file_path in datasets_path.rglob("*"):
             if not file_path.is_file() or not any(
                 str(file_path).endswith(ext)
-                for ext in (
-                    image_extensions
-                    + animation_extensions
-                    + video_extensions
-                    + audio_extensions
-                    + application_extensions
-                )
+                for ext in (image_extensions + animation_extensions + video_extensions + audio_extensions + application_extensions)
             ):
                 continue
 
@@ -602,7 +554,6 @@ def process(
         expand=True,
         transient=False,  # 防止进度条随刷新滚动
     ) as progress:
-
         global console
 
         console = progress.console
@@ -637,9 +588,7 @@ def process(
                 color = CONSOLE_COLORS["unknown"]
                 media_type = "unknown"
 
-            console.print(
-                f"Processing {media_type} file [{color}]'{file_path}'[/{color}]"
-            )
+            console.print(f"Processing {media_type} file [{color}]'{file_path}'[/{color}]")
             console.print(f"Caption: {caption}", style=CONSOLE_COLORS["caption"])
 
             metadata = processor.load_metadata(file_path, save_binary, import_mode)
@@ -725,9 +674,7 @@ def transform2lance(
     )
 
     try:
-        reader = pa.RecordBatchReader.from_batches(
-            schema, process(data, save_binary, import_mode)
-        )
+        reader = pa.RecordBatchReader.from_batches(schema, process(data, save_binary, import_mode))
 
         dataset_path = Path(dataset_dir) / f"{output_name}.lance"
         mode = "append" if dataset_path.exists() else "create"
@@ -741,7 +688,7 @@ def transform2lance(
 
         try:
             lancedataset.tags.create(tag, 1)
-        except:
+        except Exception:
             lancedataset.tags.update(tag, 1)
 
         return lancedataset
@@ -754,18 +701,14 @@ def transform2lance(
 def setup_parser() -> argparse.ArgumentParser:
     """Setup argument parser."""
     parser = argparse.ArgumentParser(description="Transform dataset into Lance format")
-    parser.add_argument(
-        "dataset_dir", type=str, help="Directory containing training images"
-    )
+    parser.add_argument("dataset_dir", type=str, help="Directory containing training images")
     parser.add_argument(
         "--caption_dir",
         type=str,
         default=None,
         help="Directory containing caption files",
     )
-    parser.add_argument(
-        "--output_name", type=str, default="dataset", help="Name of output dataset"
-    )
+    parser.add_argument("--output_name", type=str, default="dataset", help="Name of output dataset")
     parser.add_argument(
         "--no_save_binary",
         action="store_true",
@@ -781,8 +724,7 @@ def setup_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         choices=[0, 1, 2, 3],
-        help="Video import mode: 0=Complete video with audio, 1=Video only, "
-        "2=Audio only, 3=Split video and audio",
+        help="Video import mode: 0=Complete video with audio, 1=Video only, 2=Audio only, 3=Split video and audio",
     )
     parser.add_argument(
         "--tag",

@@ -3,6 +3,7 @@
 Pixtral (Mistral) provider attempt logic extracted for Phase 5.
 Keeps behavior and logging identical to the original branch.
 """
+
 from __future__ import annotations
 
 import base64
@@ -10,18 +11,18 @@ import io
 import re
 import time
 from pathlib import Path
-from typing import Any, Optional, List
+from typing import Any, List, Optional
 
 from PIL import Image
 from rich.console import Console
-from rich.text import Text
 from rich.progress import Progress
+from rich.text import Text
 from rich_pixels import Pixels
 
 from utils.parse_display import (
-    process_llm_response,
-    display_markdown,
     display_caption_layout,
+    display_markdown,
+    process_llm_response,
 )
 from utils.stream_util import format_description
 
@@ -97,7 +98,7 @@ def attempt_pixtral(
                 else:
                     console.print("[yellow]Image found but no base64 data available[/yellow]")
             display_markdown(
-                title=f"{Path(uri).name} -  Page {page.index+1}",
+                title=f"{Path(uri).name} - Page {page.index + 1}",
                 markdown_content=page.markdown,
                 pixels=ocr_pixels,
                 panel_height=32,
@@ -149,12 +150,8 @@ def attempt_pixtral(
                 .rsplit("[IMG][/INST]", 1)[0]
                 .strip()
             )
-            short_description, short_highlight_rate = format_description(
-                short_description, tag_description
-            )
-            long_description, long_highlight_rate = format_description(
-                long_description, tag_description
-            )
+            short_description, short_highlight_rate = format_description(short_description, tag_description)
+            long_description, long_highlight_rate = format_description(long_description, tag_description)
         else:
             tag_description = ""
             short_highlight_rate = 0
@@ -179,9 +176,7 @@ def attempt_pixtral(
             if clean_char_name not in content:
                 console.print()
                 console.print(Text(content))
-                console.print(
-                    f"Character name [green]{clean_char_name}[/green] not found"
-                )
+                console.print(f"Character name [green]{clean_char_name}[/green] not found")
                 raise Exception("RETRY_PIXTRAL_CHAR")
 
         if "###" not in content:
@@ -200,13 +195,11 @@ def attempt_pixtral(
         else:
             threshold = tags_highlightrate * 100
         if int(re.search(r"\d+", str(long_highlight_rate)).group()) < threshold and len(captions) > 0:
-            console.print(
-                f"[red]long_description highlight rate is too low: {long_highlight_rate}%, retrying...[/red]"
-            )
+            console.print(f"[red]long_description highlight rate is too low: {long_highlight_rate}%, retrying...[/red]")
             raise Exception("RETRY_PIXTRAL_RATE")
 
         if isinstance(content, str) and "502" in content:
-            console.print(f"[yellow]Received 502 error[/yellow]")
+            console.print("[yellow]Received 502 error[/yellow]")
             raise Exception("RETRY_PIXTRAL_502")
 
     elapsed_time = time.time() - start_time

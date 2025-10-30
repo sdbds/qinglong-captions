@@ -3,14 +3,15 @@
 GLM provider attempt logic extracted for Phase 5.
 Keeps behavior and logging identical.
 """
+
 from __future__ import annotations
 
 import time
 from typing import Any, Iterable, Optional
 
 from rich.console import Console
-from rich.text import Text
 from rich.progress import Progress
+from rich.text import Text
 
 from utils.parse_display import extract_code_block_content
 
@@ -23,10 +24,7 @@ def _collect_stream_glm(responses: Iterable[Any], console: Console) -> str:
     chunks = ""
     for chunk in responses:
         print(chunk)
-        if (
-            hasattr(chunk.choices[0].delta, "content")
-            and chunk.choices[0].delta.content is not None
-        ):
+        if hasattr(chunk.choices[0].delta, "content") and chunk.choices[0].delta.content is not None:
             chunks += chunk.choices[0].delta.content
         try:
             console.print(chunks, end="", overflow="ellipsis")

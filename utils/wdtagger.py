@@ -21,37 +21,39 @@
 #       tensorrt = ["setuptools"]
 # ///
 import argparse
-import numpy as np
-import time
-from PIL import Image
-from pathlib import Path
+import concurrent.futures
 import csv
+import json
+import re
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import torch
+import cv2
 import lance
+import numpy as np
+import onnxruntime as ort
 import pyarrow as pa
+import toml
+from huggingface_hub import hf_hub_download
+from PIL import Image
 from rich.console import Console
 from rich.pretty import Pretty
 from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
     Progress,
     SpinnerColumn,
-    TextColumn,
-    BarColumn,
     TaskProgressColumn,
-    TimeRemainingColumn,
+    TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
     TransferSpeedColumn,
-    MofNCompleteColumn,
 )
-import torch
-import cv2
-import onnxruntime as ort
-from huggingface_hub import hf_hub_download
+
 from module.lanceImport import transform2lance
-import concurrent.futures
-import re
-import json
-import toml
-from dataclasses import dataclass
-from typing import Optional, List, Dict, Tuple
 
 console = Console()
 
@@ -63,17 +65,11 @@ SERIES_EXCLUDE_LIST = set()
 try:
     if CONFIG_PATH.exists():
         config = toml.load(CONFIG_PATH)
-        SERIES_EXCLUDE_LIST = set(
-            config.get("wdtagger", {}).get("series_exclude_list", [])
-        )
+        SERIES_EXCLUDE_LIST = set(config.get("wdtagger", {}).get("series_exclude_list", []))
     else:
-        console.print(
-            f"[yellow]Config file not found at {CONFIG_PATH}, using default empty exclude list.[/yellow]"
-        )
+        console.print(f"[yellow]Config file not found at {CONFIG_PATH}, using default empty exclude list.[/yellow]")
 except Exception as e:
-    console.print(
-        f"[red]Error loading config file: {e}, using default empty exclude list.[/red]"
-    )
+    console.print(f"[red]Error loading config file: {e}, using default empty exclude list.[/red]")
 # --- End Config Loading ---
 
 
@@ -145,9 +141,7 @@ def preprocess_image(image, is_cl_tagger=False):
 
         if size > IMAGE_SIZE:
             # GPU调整大小
-            gpu_image = cv2.cuda.resize(
-                gpu_image, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_AREA
-            )
+            gpu_image = cv2.cuda.resize(gpu_image, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_AREA)
         else:
             image = Image.fromarray(image)
             image = image.resize((IMAGE_SIZE, IMAGE_SIZE), Image.LANCZOS)
@@ -214,11 +208,12 @@ def process_batch(images, session, input_name):
         batch_data = np.ascontiguousarray(np.stack(images))
         # 执行推理
         outputs = session.run(None, {input_name: batch_data})
+
         # Apply sigmoid (outputs are likely logits)
         # Use a stable sigmoid implementation
         def stable_sigmoid(x):
             return 1 / (1 + np.exp(-np.clip(x, -30, 30)))  # Clip to avoid overflow
-        
+
         probs = stable_sigmoid(outputs[0])
         return probs
     except Exception as e:
@@ -318,9 +313,7 @@ def load_model_and_tags(args):
     # 下载模型和标签文件
     if not model_path.exists() or args.force_download:
         # 选择正确的文件列表
-        files_to_download = (
-            CL_FILES if args.repo_id.startswith("cella110n/cl_tagger") else FILES
-        )
+        files_to_download = CL_FILES if args.repo_id.startswith("cella110n/cl_tagger") else FILES
         for file in files_to_download:
             file_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / file
             if not file_path.exists() or args.force_download:
@@ -339,11 +332,7 @@ def load_model_and_tags(args):
     # 加载标签
     if args.repo_id.startswith("cella110n/cl_tagger"):
         # 处理JSON格式的标签文件 - 使用官方兼容方式
-        json_path = (
-            Path(args.model_dir)
-            / args.repo_id.replace("/", "_")
-            / JSON_FILE
-        )
+        json_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / JSON_FILE
         if not json_path.exists():
             raise Exception(f"Tags file not found: {json_path}")
 
@@ -354,8 +343,8 @@ def load_model_and_tags(args):
         # The following logic creates a sparse list (`names`) that correctly maps
         # a model's output index to its tag name, even if indices are not contiguous.
         tag_data_int_keys = {int(k): v for k, v in tag_data.items()}
-        idx_to_tag = {idx: data['tag'] for idx, data in tag_data_int_keys.items()}
-        tag_to_category = {data['tag']: data['category'] for data in tag_data_int_keys.values()}
+        idx_to_tag = {idx: data["tag"] for idx, data in tag_data_int_keys.items()}
+        tag_to_category = {data["tag"]: data["category"] for data in tag_data_int_keys.values()}
 
         # Create a sparse list for `names` to ensure correct index mapping.
         max_idx = max(idx_to_tag.keys())
@@ -409,9 +398,7 @@ def load_model_and_tags(args):
             header = line[0]  # tag_id,name,category,count
             rows = line[1:]
 
-        assert (
-            header[0] == "tag_id" and header[1] == "name" and header[2] == "category"
-        ), f"unexpected csv format: {header}"
+        assert header[0] == "tag_id" and header[1] == "name" and header[2] == "category", f"unexpected csv format: {header}"
 
         # 为CSV格式创建LabelData结构
         names = []
@@ -488,9 +475,7 @@ def load_model_and_tags(args):
 
     # 创建推理会话
     sess_options = ort.SessionOptions()
-    sess_options.graph_optimization_level = (
-        ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    )  # 启用所有优化
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL  # 启用所有优化
 
     if "NvTensorRtRtxExecutionProvider" in providers:
         sess_options.enable_mem_pattern = True
@@ -596,12 +581,10 @@ def load_model_and_tags(args):
     else:
         providers_with_options = providers
 
-    console.print(f"[cyan]Providers with options:[/cyan]")
+    console.print("[cyan]Providers with options:[/cyan]")
     console.print(Pretty(providers_with_options, indent_guides=True, expand_all=True))
     start_time = time.time()
-    ort_sess = ort.InferenceSession(
-        str(model_path), sess_options=sess_options, providers=providers_with_options
-    )
+    ort_sess = ort.InferenceSession(str(model_path), sess_options=sess_options, providers=providers_with_options)
     input_name = ort_sess.get_inputs()[0].name
 
     parent_to_child_map = {}
@@ -628,9 +611,7 @@ def load_model_and_tags(args):
             line = [row for row in reader]
             header = line[0]
             rows = line[1:]
-        assert (
-            header[3] == "antecedent_name" and header[4] == "consequent_name"
-        ), f"unexpected csv format: {header}"
+        assert header[3] == "antecedent_name" and header[4] == "consequent_name", f"unexpected csv format: {header}"
         for row in rows[0:]:
             child_tag, parent_tag = row[3], row[4]
             if parent_tag not in parent_to_child_map:
@@ -655,9 +636,7 @@ def load_model_and_tags(args):
                 normalized_map[k] = sorted(set(normalized_map[k]))
             parent_to_child_map = normalized_map
 
-    console.print(
-        f"[green]Model loaded in {time.time() - start_time:.2f} seconds[/green]"
-    )
+    console.print(f"[green]Model loaded in {time.time() - start_time:.2f} seconds[/green]")
     return ort_sess, input_name, label_data, parent_to_child_map
 
 
@@ -677,37 +656,24 @@ def process_tags(label_data: LabelData, args: argparse.Namespace) -> List[str]:
     # 2. Handle tag replacements
     if args.tag_replacement:
         replacement_map = {}
-        escaped_replacements = args.tag_replacement.replace("\\,", "<COMMA>").replace(
-            "\\;", "<SEMICOLON>"
-        )
+        escaped_replacements = args.tag_replacement.replace("\\,", "<COMMA>").replace("\\;", "<SEMICOLON>")
         for pair in escaped_replacements.split(";"):
             parts = pair.split(",")
             if len(parts) == 2:
-                old_tag = (
-                    parts[0].strip().replace("<COMMA>", ",").replace("<SEMICOLON>", ";")
-                )
-                new_tag = (
-                    parts[1].strip().replace("<COMMA>", ",").replace("<SEMICOLON>", ";")
-                )
+                old_tag = parts[0].strip().replace("<COMMA>", ",").replace("<SEMICOLON>", ";")
+                new_tag = parts[1].strip().replace("<COMMA>", ",").replace("<SEMICOLON>", ";")
                 if old_tag:
                     replacement_map[old_tag] = new_tag
 
         if replacement_map:
             console.print(f"[blue]Replacement map: {replacement_map}[/blue]")
-            console.print(
-                f"[blue]Applying {len(replacement_map)} tag replacements...[/blue]"
-            )
-            processed_names = [
-                replacement_map.get(name, name) for name in processed_names
-            ]
+            console.print(f"[blue]Applying {len(replacement_map)} tag replacements...[/blue]")
+            processed_names = [replacement_map.get(name, name) for name in processed_names]
 
     # 2. Handle underscore replacement
     if args.remove_underscore:
         console.print("[blue]Removing underscores from tags...[/blue]")
-        processed_names = [
-            name.replace("_", " ") if len(name) > 3 else name
-            for name in processed_names
-        ]
+        processed_names = [name.replace("_", " ") if len(name) > 3 else name for name in processed_names]
 
     # 3. Handle character tag expansion
     if args.character_tag_expand:
@@ -790,9 +756,7 @@ def assemble_final_tags(
     # Sorting by confidence if requested via frequency_tags flag
     if args.frequency_tags:
         # Create a dictionary of tags to their confidence scores for quick lookup
-        confidence_map = {
-            tag: conf for cat in tags_result.values() for tag, conf in cat
-        }
+        confidence_map = {tag: conf for cat in tags_result.values() for tag, conf in cat}
         # Sort the found_tags list based on the confidence scores
         found_tags.sort(key=lambda tag: confidence_map.get(tag, 0.0), reverse=True)
 
@@ -827,19 +791,12 @@ def assemble_final_tags(
             noun_root = parts[-1]
             noun_root_counts[noun_root] = noun_root_counts.get(noun_root, 0) + 1
 
-        found_tags = [
-            tag
-            for tag in found_tags
-            if not (
-                len(tag.split()) == 1
-                and noun_root_counts.get(tag.split()[-1], 0) > 1
-            )
-        ]
+        found_tags = [tag for tag in found_tags if not (len(tag.split()) == 1 and noun_root_counts.get(tag.split()[-1], 0) > 1)]
 
     # Update tag frequency (always track for stats)
     for tag in found_tags:
         # Use clean tag name for frequency counting (remove threshold suffix if present)
-        clean_tag = tag.split(':')[0] if ':' in tag else tag
+        clean_tag = tag.split(":")[0] if ":" in tag else tag
         tag_freq[clean_tag] = tag_freq.get(clean_tag, 0) + 1
 
     return found_tags
@@ -927,14 +884,8 @@ def main(args):
     if not isinstance(args.train_data_dir, lance.LanceDataset):
         if args.train_data_dir.endswith(".lance"):
             dataset = lance.dataset(args.train_data_dir)
-        elif any(
-            file.suffix == ".lance" for file in Path(args.train_data_dir).glob("*")
-        ):
-            lance_file = next(
-                file
-                for file in Path(args.train_data_dir).glob("*")
-                if file.suffix == ".lance"
-            )
+        elif any(file.suffix == ".lance" for file in Path(args.train_data_dir).glob("*")):
+            lance_file = next(file for file in Path(args.train_data_dir).glob("*") if file.suffix == ".lance")
             dataset = lance.dataset(str(lance_file))
         else:
             console.print("[yellow]Converting dataset to Lance format...[/yellow]")
@@ -973,9 +924,7 @@ def main(args):
     scanner = dataset.scanner(
         columns=["uris", "mime", "captions"],
         filter=(
-            "mime LIKE 'image/%'"
-            if args.overwrite
-            else "mime LIKE 'image/%' and (captions IS NULL OR array_length(captions) = 0)"
+            "mime LIKE 'image/%'" if args.overwrite else "mime LIKE 'image/%' and (captions IS NULL OR array_length(captions) = 0)"
         ),
         scan_in_order=True,
         batch_size=args.batch_size,
@@ -1025,7 +974,6 @@ def main(args):
             character_confidence = args.character_threshold or args.thresh
             if probs is not None:
                 for path, prob in zip(uris, probs):
-
                     tags_result = get_tags_official(
                         prob,
                         label_data,
@@ -1037,17 +985,13 @@ def main(args):
                         processed_names,  # Use the pre-processed names
                     )
 
-                    found_tags = assemble_final_tags(
-                        tags_result, args, parent_to_child_map, tag_freq
-                    )
+                    found_tags = assemble_final_tags(tags_result, args, parent_to_child_map, tag_freq)
 
                     output_path = Path(path).with_suffix(args.caption_extension)
                     if args.append_tags and output_path.exists():
                         with output_path.open("r", encoding="utf-8") as f:
                             existing_tags = f.read().strip()
-                            found_tags = (
-                                existing_tags.split(args.caption_separator) + found_tags
-                            )
+                            found_tags = existing_tags.split(args.caption_separator) + found_tags
                     results.append((path, found_tags))
 
                     with output_path.open("w", encoding="utf-8") as f:
@@ -1103,7 +1047,7 @@ def main(args):
 
     try:
         dataset.tags.create("WDtagger", 1)
-    except:
+    except Exception:
         dataset.tags.update("WDtagger", 1)
 
     console.print("[green]Successfully updated dataset with new captions[/green]")
@@ -1172,10 +1116,7 @@ def format_description(text: str, tag_description: str = "") -> str:
         # 将tag_description分割成单词列表
         tag_words = set(
             word.strip().lower()
-            for word in re.sub(r"\d+", "", tag_description)
-            .replace(",", " ")
-            .replace(".", " ")
-            .split()
+            for word in re.sub(r"\d+", "", tag_description).replace(",", " ").replace(".", " ").split()
             if word.strip()
         )
         for i, word in enumerate(words):
@@ -1243,9 +1184,6 @@ class TagClassifier:
         Returns:
             dict: 类别名称到数字ID的映射
         """
-        import toml
-        from pathlib import Path
-
         # 使用硬编码的配置文件路径
         config_path = Path("config/config.toml")
         config = toml.load(config_path)
@@ -1266,9 +1204,7 @@ class TagClassifier:
         """
         with open(csv_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            tag_categories = {
-                row["name"].replace("_", " "): row["category"] for row in reader
-            }
+            tag_categories = {row["name"].replace("_", " "): row["category"] for row in reader}
         return tag_categories
 
     def classify(self, tags):

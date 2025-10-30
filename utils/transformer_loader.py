@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import torch
-from transformers import AutoProcessor, AutoModel
+from transformers import AutoModel, AutoProcessor
 
 
 def resolve_device_dtype() -> tuple[str, torch.dtype, str]:
@@ -166,8 +166,11 @@ class transformerLoader:
             img = pil_image
             if img is None and base64_image:
                 try:
-                    import base64, io
+                    import base64
+                    import io
+
                     from PIL import Image  # type: ignore
+
                     img = Image.open(io.BytesIO(base64.b64decode(base64_image))).convert("RGB")
                 except Exception:
                     img = None

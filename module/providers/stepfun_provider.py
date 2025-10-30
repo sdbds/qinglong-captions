@@ -3,6 +3,7 @@
 StepFun provider attempt logic extracted from api_handler for Phase 5.
 Keeps behavior and logging identical. English logs/comments by convention.
 """
+
 from __future__ import annotations
 
 import time
@@ -11,14 +12,14 @@ from typing import Any, Optional
 
 from openai import OpenAI
 from rich.console import Console
-from rich.text import Text
 from rich.progress import Progress
+from rich.text import Text
 from rich_pixels import Pixels
 
 from utils.parse_display import (
-    extract_code_block_content,
     display_caption_and_rate,
     display_pair_image_description,
+    extract_code_block_content,
 )
 
 
@@ -26,10 +27,7 @@ def _collect_stream_stepfun(completion: Any, console: Console) -> str:
     """Collect streamed text from StepFun(OpenAI-compatible) responses."""
     chunks: list[str] = []
     for chunk in completion:
-        if (
-            hasattr(chunk.choices[0].delta, "content")
-            and chunk.choices[0].delta.content is not None
-        ):
+        if hasattr(chunk.choices[0].delta, "content") and chunk.choices[0].delta.content is not None:
             chunks.append(chunk.choices[0].delta.content)
             console.print(".", end="", style="blue")
     console.print("\n")

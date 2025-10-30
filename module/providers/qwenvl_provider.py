@@ -3,17 +3,18 @@
 Qwen-VL provider attempt logic extracted for Phase 5.
 Keeps behavior and logging identical.
 """
+
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from rich.console import Console
-from rich.text import Text
 from rich.progress import Progress
+from rich.text import Text
 
 from utils.parse_display import extract_code_block_content
-from pathlib import Path
 
 
 def _collect_stream_qwen(responses: Iterable[Any], console: Console) -> str:
@@ -57,8 +58,10 @@ def attempt_qwenvl(
     Returns SRT content, raises on retryable conditions.
     """
     if not api_key or not str(api_key).strip():
-        from utils.transformer_loader import transformerLoader, resolve_device_dtype
         from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+
+        from utils.transformer_loader import resolve_device_dtype, transformerLoader
+
         start_time = time.time()
         root_dir = Path(__file__).resolve().parent.parent.parent
         cfg_model_id = "Qwen/Qwen3-VL-8B-Instruct"
@@ -73,6 +76,7 @@ def attempt_qwenvl(
         }
         try:
             import toml  # type: ignore
+
             cfg = toml.load(root_dir / "config" / "config.toml")
             section = cfg.get("qwen_vl_local", {}) or {}
             cfg_model_id = section.get("model_id", cfg_model_id)
@@ -145,14 +149,14 @@ def attempt_qwenvl(
 
         generated_ids = model.generate(**inputs, **generation_kwargs)
         try:
-            generated_ids_trimmed = [
-                out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs["input_ids"], generated_ids)
-            ]
+            generated_ids_trimmed = [out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs["input_ids"], generated_ids)]
         except Exception:
             generated_ids_trimmed = [generated_ids[0]] if hasattr(generated_ids, "__getitem__") else []
 
         output_text_list = processor.batch_decode(
-            generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            generated_ids_trimmed,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
         )
         response_text = output_text_list[0] if output_text_list else ""
 

@@ -1,10 +1,13 @@
-import re
 import math
-from typing import Tuple, Optional
-from rich.progress import Progress, BarColumn, TimeRemainingColumn
-from rich.console import Console
+import re
 import subprocess
+from pathlib import Path
+from typing import Optional, Tuple
+
 import imageio_ffmpeg
+import toml
+from rich.console import Console
+from rich.progress import BarColumn, Progress, TimeRemainingColumn
 
 console = Console()
 
@@ -56,17 +59,13 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kw
             for i, sub in enumerate(subs):
                 # if len(subs) < 2:
                 #     break
-                clip_path = (
-                    uri.parent / f"{uri.stem}_clip/{uri.stem}_{sub.index}{uri.suffix}"
-                )
+                clip_path = uri.parent / f"{uri.stem}_clip/{uri.stem}_{sub.index}{uri.suffix}"
                 clip_path.parent.mkdir(parents=True, exist_ok=True)
 
                 with av.open(str(clip_path), mode="w") as out_container:
                     # copy encoder settings
                     if video_stream:
-                        out_video_stream = out_container.add_stream_from_template(
-                            template=video_stream
-                        )
+                        out_video_stream = out_container.add_stream_from_template(template=video_stream)
                     else:
                         out_video_stream = None
                     if audio_stream:
@@ -77,12 +76,8 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kw
                                 codec_name=codec_name,
                                 rate=48000,  # AAC标准采样率
                             )
-                            out_audio_stream.layout = AudioLayout(
-                                "mono"
-                            )  # AAC通常使用立体声
-                            out_audio_stream.format = AudioFormat(
-                                "fltp"
-                            )  # AAC使用浮点平面格式
+                            out_audio_stream.layout = AudioLayout("mono")  # AAC通常使用立体声
+                            out_audio_stream.format = AudioFormat("fltp")  # AAC使用浮点平面格式
                         elif uri.suffix == ".mp3":
                             codec_name = "mp3"
                             out_audio_stream = out_container.add_stream(
@@ -104,25 +99,15 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kw
 
                     # 正确计算 start 和 end 时间戳, 单位是 video_stream.time_base
                     # 使用毫秒并根据 video_stream.time_base 转换
-                    start_seconds = (
-                        sub.start.hours * 3600
-                        + sub.start.minutes * 60
-                        + sub.start.seconds
-                    )
-                    end_seconds = (
-                        sub.end.hours * 3600 + sub.end.minutes * 60 + sub.end.seconds
-                    )
+                    start_seconds = sub.start.hours * 3600 + sub.start.minutes * 60 + sub.start.seconds
+                    end_seconds = sub.end.hours * 3600 + sub.end.minutes * 60 + sub.end.seconds
                     if video_stream:
                         start_offset = int(
-                            start_seconds
-                            * video_stream.time_base.denominator
-                            / video_stream.time_base.numerator
+                            start_seconds * video_stream.time_base.denominator / video_stream.time_base.numerator
                         )  # 开始时间戳偏移量 (基于 video_stream.time_base)
                     else:
                         start_offset = int(
-                            start_seconds
-                            * audio_stream.time_base.denominator
-                            / audio_stream.time_base.numerator
+                            start_seconds * audio_stream.time_base.denominator / audio_stream.time_base.numerator
                         )  # 开始时间戳偏移量 (基于 audio_stream.time_base)
                     # seek to start
                     in_container.seek(
@@ -135,18 +120,10 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kw
                         if frame.time > end_seconds:
                             break
 
-                        if (
-                            video_stream
-                            and isinstance(frame, av.VideoFrame)
-                            and frame.time >= start_seconds
-                        ):
+                        if video_stream and isinstance(frame, av.VideoFrame) and frame.time >= start_seconds:
                             for packet in out_video_stream.encode(frame):
                                 out_container.mux(packet)
-                        elif (
-                            audio_stream
-                            and isinstance(frame, av.AudioFrame)
-                            and frame.time >= start_seconds
-                        ):
+                        elif audio_stream and isinstance(frame, av.AudioFrame) and frame.time >= start_seconds:
                             for packet in out_audio_stream.encode(frame):
                                 out_container.mux(packet)
 
@@ -163,9 +140,7 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kw
                 sub_progress.advance(sub_task)
 
 
-def split_video_with_imageio_ffmpeg(
-    uri, subs, save_caption_func=None, segment_time=120, **kwargs
-):
+def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_time=120, **kwargs):
     """
     Process media stream and extract clips based on subtitles using ffmpeg.
 
@@ -190,9 +165,7 @@ def split_video_with_imageio_ffmpeg(
         for i, sub in enumerate(subs):
             # if len(subs) < 2:
             #     break
-            clip_path = (
-                uri.parent / f"{uri.stem}_clip/{uri.stem}_{sub.index}{uri.suffix}"
-            )
+            clip_path = uri.parent / f"{uri.stem}_clip/{uri.stem}_{sub.index}{uri.suffix}"
             clip_path.parent.mkdir(parents=True, exist_ok=True)
 
             # 计算开始和结束时间
@@ -206,9 +179,7 @@ def split_video_with_imageio_ffmpeg(
 
             if duration == segment_time:
                 # 使用segment模式时的输出模板
-                output_template = str(
-                    uri.parent / f"{uri.stem}_clip/{uri.stem}_%03d{uri.suffix}"
-                )
+                output_template = str(uri.parent / f"{uri.stem}_clip/{uri.stem}_%03d{uri.suffix}")
                 command = [
                     ffmpeg_exe,
                     "-i",
@@ -435,6 +406,21 @@ def split_name_series(names: str) -> str:
 
     items = [item.strip().replace("_", ":") for item in names.split(",")]
 
+    # --- Config Loading ---
+    # Load configuration from config.toml
+    # This allows for dynamic configuration of the series exclusion list.
+    CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "config.toml"
+    SERIES_EXCLUDE_LIST = set()
+    try:
+        if CONFIG_PATH.exists():
+            config = toml.load(CONFIG_PATH)
+            SERIES_EXCLUDE_LIST = set(config.get("wdtagger", {}).get("series_exclude_list", []))
+        else:
+            console.print(f"[yellow]Config file not found at {CONFIG_PATH}, using default empty exclude list.[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error loading config file: {e}, using default empty exclude list.[/red]")
+    # --- End Config Loading ---
+
     for item in items:
         if item.endswith(" (cosplay)"):
             item = item.replace(" (cosplay)", "")
@@ -458,6 +444,7 @@ def split_name_series(names: str) -> str:
 
     return ", ".join(name_list)
 
+
 def format_description(text: str, tag_description: str = "") -> str:
     """Format description text with highlighting.
 
@@ -468,6 +455,7 @@ def format_description(text: str, tag_description: str = "") -> str:
     Returns:
         Formatted text with rich markup
     """
+    from utils.wdtagger import TagClassifier
     # 高亮<>内的内容
     text = re.sub(r"<([^>]+)>", r"[magenta]\1[/magenta]", text)
     # 高亮()内的内容
@@ -484,10 +472,7 @@ def format_description(text: str, tag_description: str = "") -> str:
         # 将tag_description分割成单词列表
         tag_words = set(
             word.strip().lower()
-            for word in re.sub(r"\d+", "", tag_description)
-            .replace(",", " ")
-            .replace(".", " ")
-            .split()
+            for word in re.sub(r"\d+", "", tag_description).replace(",", " ").replace(".", " ").split()
             if word.strip()
         )
         for i, word in enumerate(words):
@@ -521,10 +506,13 @@ def format_description(text: str, tag_description: str = "") -> str:
 
     return text, highlight_rate
 
+
 def pdf_to_images_high_quality(pdf_path: str, dpi: int = 144, image_format: str = "PNG"):
     import io
-    from PIL import Image
+
     import fitz
+    from PIL import Image
+
     images = []
     pdf_document = fitz.open(pdf_path)
     zoom = dpi / 72.0
@@ -547,6 +535,8 @@ def pdf_to_images_high_quality(pdf_path: str, dpi: int = 144, image_format: str 
 
 def pil_to_pdf_img2pdf(pil_images, output_path: str):
     import img2pdf
+    import io
+
     if not pil_images:
         return
     image_bytes_list = []

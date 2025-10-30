@@ -1,10 +1,10 @@
 from rich.console import Console
-from rich.text import Text
-from rich.panel import Panel
 from rich.layout import Layout
 from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.segment import Segment
 from rich.style import Style
+from rich.text import Text
 from rich_pixels import Pixels
 
 # 全局控制台实例
@@ -90,10 +90,11 @@ class CaptionLayout(BaseLayout):
         """
         super().__init__(panel_height, console)
         from utils.wdtagger import TagClassifier
+
         tagClassifier = TagClassifier()
         # Process tag_description to handle various spacing and comma combinations
         cleaned_description = tag_description.replace("<", "").replace(">", "")
-        processed_tags = [tag.strip() for tag in cleaned_description.split(',') if tag.strip()]
+        processed_tags = [tag.strip() for tag in cleaned_description.split(",") if tag.strip()]
         tag_values = tagClassifier.classify(processed_tags).values()
         self.tag_description = ",".join([",".join(value) for value in tag_values])
         self.short_description = short_description
@@ -204,9 +205,7 @@ class MarkdownLayout(BaseLayout):
         else:
             self.layout.split_row(
                 Layout(
-                    Panel(
-                        self.pixels, height=self.panel_height, padding=0, expand=True
-                    ),
+                    Panel(self.pixels, height=self.panel_height, padding=0, expand=True),
                     name="image",
                     ratio=1,
                 ),
@@ -367,12 +366,7 @@ class CaptionAndRateLayout(BaseLayout):
             bar = control_char * bar_length
 
             # 特殊处理某些维度的最大分数
-            current_max_rating = (
-                5
-                if dimension
-                in ["Storytelling & Concept", "Setting & Environment Integration"]
-                else max_rating
-            )
+            current_max_rating = 5 if dimension in ["Storytelling & Concept", "Setting & Environment Integration"] else max_rating
             value_text = f" {rating}/{current_max_rating}"
 
             # 组合行内容
@@ -384,6 +378,7 @@ class CaptionAndRateLayout(BaseLayout):
 
         # 返回Pixels对象
         return Pixels.from_ascii(ascii_grid, mapping)
+
 
 class CaptionPairImageLayout(BaseLayout):
     """A layout for displaying two images side-by-side with a description in the middle."""
@@ -417,17 +412,35 @@ class CaptionPairImageLayout(BaseLayout):
         # Main layout splits into three columns
         self.layout.split_row(
             Layout(
-                Panel(self.pair_pixels, title="Original", height=self.panel_height, padding=0, expand=True),
+                Panel(
+                    self.pair_pixels,
+                    title="Original",
+                    height=self.panel_height,
+                    padding=0,
+                    expand=True,
+                ),
                 name="image1",
                 ratio=2,
             ),
             Layout(
-                Panel(Text(self.description, justify="center"), title="Description", height=self.panel_height, padding=1, expand=True),
+                Panel(
+                    Text(self.description, justify="center"),
+                    title="Description",
+                    height=self.panel_height,
+                    padding=1,
+                    expand=True,
+                ),
                 name="description",
                 ratio=1,
             ),
             Layout(
-                Panel(self.pixels, title="Edited", height=self.panel_height, padding=0, expand=True),
+                Panel(
+                    self.pixels,
+                    title="Edited",
+                    height=self.panel_height,
+                    padding=0,
+                    expand=True,
+                ),
                 name="image2",
                 ratio=2,
             ),

@@ -4,13 +4,13 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from paddleocr import PaddleOCRVL
 from rich.console import Console
 from rich.progress import Progress
 from rich_pixels import Pixels
 
 from utils.parse_display import display_markdown
 
-from paddleocr import PaddleOCRVL
 
 def _run_pipeline(pipeline, image_path: str, out_dir: Path) -> None:
     output = pipeline.predict(image_path)
