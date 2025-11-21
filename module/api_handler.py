@@ -985,7 +985,7 @@ def api_process_batch(
         )
 
         if args.gemini_task and mime.startswith("image"):
-            args.gemini_model_path = "gemini-2.5-flash-image-preview"
+            args.gemini_model_path = "gemini-3-pro-image-preview"
             # get_prompts already constructed the prompt for the task
             pass
         elif args.pair_dir and mime.startswith("image"):

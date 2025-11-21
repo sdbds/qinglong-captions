@@ -65,7 +65,7 @@ frozenlist==1.8.0
     #   aiosignal
 google-auth==2.41.1
     # via google-genai
-google-genai==1.45.0
+google-genai==1.52.0
     # via -r requirements.txt
 h11==0.16.0
     # via httpcore

@@ -3,23 +3,26 @@
 Parsing and display helpers for caption workflows.
 All logs and comments are in English per project convention.
 """
+
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Optional, Tuple, List, Any
+from typing import Any, List, Optional, Tuple
 
 from rich.console import Console
-from rich.text import Text
 
 from utils.console_util import (
     CaptionAndRateLayout,
+    CaptionLayout,
     CaptionPairImageLayout,
     MarkdownLayout,
-    CaptionLayout,
 )
 
 
-def extract_code_block_content(response_text: str, code_type: Optional[str] = None, console: Optional[Console] = None) -> str:
+def extract_code_block_content(
+    response_text: str,
+    code_type: Optional[str] = None,
+    console: Optional[Console] = None,
+) -> str:
     """Extract the content between the last pair of triple backticks.
 
     - If code_type is provided and the content starts with it, strip the type prefix.

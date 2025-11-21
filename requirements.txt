@@ -12,7 +12,7 @@ imageio-ffmpeg>=0.4.8
 pymediainfo
 mutagen
 mistralai>=1.6.0
-google-genai>=1.32.0
+google-genai>=1.52.0
 openAI
 dashscope
 pyanimeinfo

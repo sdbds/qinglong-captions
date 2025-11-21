@@ -397,108 +397,9 @@ candidate_count = 1
 temperature = 1.0
 top_p = 0.95
 top_k = 64
-max_output_tokens = 8192
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-
-[generation_config.gemini-exp-1206]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 8192
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-
-[generation_config.gemini-2_0-pro-exp-02-05]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 8192
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-
-[generation_config.gemini-2_0-flash-lite-preview-02-05]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 8192
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-
-[generation_config.gemini-2_0-flash-thinking-exp-01-21]
-temperature = 0.7
-top_p = 0.95
-top_k = 64
 max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
-
-[generation_config.gemini-2_0-flash-exp]
-temperature = 1.0
-top_p = 0.95
-top_k = 40
-max_output_tokens = 8192
-response_modalities = ["image", "text"]
-response_mime_type = "text/plain"
-
-[generation_config.gemini-2_5-pro-exp-03-25]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-
-[generation_config.gemini-2_5-pro-preview-03-25]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-
-[generation_config.gemini-2_5-pro-preview-05-06]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-
-[generation_config.gemini-2_5-flash-preview-04-17]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-thinking_budget = 8000
-
-[generation_config.gemini-2_5-flash-preview-05-20]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-thinking_budget = 8000
-
-[generation_config.gemini-2_5-pro-preview-06-05]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-
-[generation_config.gemini-2.5-flash-lite-preview-06-17]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-thinking_budget = 8192
 
 [generation_config.gemini-2_5-pro]
 temperature = 1.0
@@ -531,6 +432,22 @@ temperature = 1.0
 top_p = 0.95
 top_k = 64
 max_output_tokens = 8192
+response_modalities = ["image", "text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-3-pro-preview]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-3-pro-image-preview]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
 response_modalities = ["image", "text"]
 response_mime_type = "text/plain"
 
@@ -631,6 +548,7 @@ temperature = 0.1
 max_new_tokens = 512
 
 [deepseek_ocr]
+model_id = "deepseek-ai/DeepSeek-OCR"
 base_size = 1280
 image_size = 1280
 crop_mode = false
@@ -658,3 +576,10 @@ tasks = "caption"
 [qwen_vl_local]
 model_id = "Qwen/Qwen3-VL-8B-Instruct"
 prompt = ""
+greedy = false
+top_p = 0.8
+top_k = 20
+temperature = 0.7
+repetition_penalty = 1.0
+presence_penalty = 1.5
+out_seq_length = 16384

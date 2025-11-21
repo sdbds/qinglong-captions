@@ -1,7 +1,7 @@
 $dataset_path = "./datasets"
 $pair_dir = ""
 $gemini_api_key = ""
-$gemini_model_path = "gemini-2.5-pro"
+$gemini_model_path = "gemini-3-pro-preview"
 $gemini_task = ""
 $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
