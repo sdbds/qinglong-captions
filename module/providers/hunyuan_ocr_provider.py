@@ -23,11 +23,10 @@ from utils.stream_util import pdf_to_images_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
 _TRANS_LOADER: Optional[transformerLoader] = None
-_PROCESSOR_CACHE: dict[str, Any] = {}
 
 # Default OCR prompt for document parsing
 DEFAULT_OCR_PROMPT = (
-    "提取文档图片中正文的所有信息用markdown格式表示，其中页眉、页脚部分忽略，表格用html格式表达，文档中公式用latex格式表示，按照阅读顺序组织进行解析。"
+    "提取文档图片中的正文所有信息用markdown格式表示，其中页眉、页脚部分忽略，表格用html格式表达，文档中公式用latex格式表示，按照阅读顺序组织进行解析。"
 )
 
 
@@ -96,14 +95,9 @@ def attempt_hunyuan_ocr(
         _TRANS_LOADER = transformerLoader(attn_kw="_attn_implementation", device_map="auto")
 
     # Load processor (HunyuanOCR requires use_fast=False)
-    global _PROCESSOR_CACHE
-    if model_id in _PROCESSOR_CACHE:
-        processor = _PROCESSOR_CACHE[model_id]
-        console.print(f"[yellow]Using cached processor:[/yellow] {model_id}")
-    else:
-        console.print(f"[green]Loading processor:[/green] {model_id}")
-        processor = AutoProcessor.from_pretrained(model_id, use_fast=False)
-        _PROCESSOR_CACHE[model_id] = processor
+    processor = _TRANS_LOADER.get_or_load_processor(
+        model_id, AutoProcessor, console=console, use_fast=False
+    )
     model = _TRANS_LOADER.get_or_load_model(
         model_id,
         HunYuanVLForConditionalGeneration,

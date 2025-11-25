@@ -26,22 +26,31 @@ class transformerLoader:
         processor_id: str,
         processor_cls: Any = AutoProcessor,
         console: Optional[Any] = None,
+        use_fast: Optional[bool] = None,
     ) -> Any:
-        key = f"{processor_cls.__name__}:{processor_id}"
+        # Include use_fast in cache key to differentiate configurations
+        key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
         if key in self._processor_cache:
             return self._processor_cache[key]
         if console:
             console.print(f"[green]Loading processor:[/green] {processor_id}")
-        processor = processor_cls.from_pretrained(processor_id)
+        kwargs: dict[str, Any] = {}
+        if use_fast is not None:
+            kwargs["use_fast"] = use_fast
+        processor = processor_cls.from_pretrained(processor_id, **kwargs)
         self._processor_cache[key] = processor
         return processor
 
-    def is_processor_cached(self, processor_id: str, processor_cls: Any = AutoProcessor) -> bool:
-        key = f"{processor_cls.__name__}:{processor_id}"
+    def is_processor_cached(
+        self, processor_id: str, processor_cls: Any = AutoProcessor, use_fast: Optional[bool] = None
+    ) -> bool:
+        key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
         return key in self._processor_cache
 
-    def get_cached_processor(self, processor_id: str, processor_cls: Any = AutoProcessor) -> Optional[Any]:
-        key = f"{processor_cls.__name__}:{processor_id}"
+    def get_cached_processor(
+        self, processor_id: str, processor_cls: Any = AutoProcessor, use_fast: Optional[bool] = None
+    ) -> Optional[Any]:
+        key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
         return self._processor_cache.get(key)
 
     def load_model(
@@ -95,13 +104,14 @@ class transformerLoader:
         processor_id: str,
         processor_cls: Any = AutoProcessor,
         console: Optional[Any] = None,
+        use_fast: Optional[bool] = None,
     ) -> Any:
-        key = f"{processor_cls.__name__}:{processor_id}"
+        key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
         if key in self._processor_cache:
             if console:
                 console.print(f"[yellow]Using cached processor:[/yellow] {processor_id}")
             return self._processor_cache[key]
-        return self.load_processor(processor_id, processor_cls, console=console)
+        return self.load_processor(processor_id, processor_cls, console=console, use_fast=use_fast)
 
     def get_or_load_model(
         self,
