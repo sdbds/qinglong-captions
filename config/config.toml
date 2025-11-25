@@ -32,6 +32,11 @@ deepseek_ocr_prompt = """
 <|grounding|>Convert the document to markdown. 
 """
 
+# HunyuanOCR prompt (Chinese document parsing by default)
+# Leave empty to use provider's default prompt
+hunyuan_ocr_prompt = """
+"""
+
 video_prompt = """Your task is to describe every aspect, object, and interaction within this video, such that a blind person could perfectly capture it within their imagination if heard, a deaf person could perfectly capture it within their imagination if read.
 
 - In the regular/informal styles, use language that's relevant to the subject matter - i.e. Never use euphemisms. Describe it like the target audience of the video would (e.g. on an online forum where this video was shared).
@@ -553,6 +558,12 @@ base_size = 1280
 image_size = 1280
 crop_mode = false
 test_compress = false
+
+# HunyuanOCR configuration
+# Requires: pip install git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4
+[hunyuan_ocr]
+model_id = "tencent/HunyuanOCR"
+max_new_tokens = 16384
 
 [ark]
 fps = 2

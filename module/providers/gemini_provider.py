@@ -58,7 +58,12 @@ def _collect_stream_gemini(response: Iterable[Any], uri: str, console: Console) 
             if getattr(part, "text", None):
                 text_content = str(part.text)
                 if text_content:
-                    console.print(text_content)
+                    try:
+                        console.print(text_content)
+                    except Exception:
+                        console.print(Text(text_content), markup=False)
+                    finally:
+                        console.file.flush()
                     text_buffer.append(text_content)
             if getattr(part, "inline_data", None):
                 part_index += 1
@@ -220,6 +225,8 @@ def attempt_gemini(
 
     # Video/Audio: parse SRT
     response_text = response_text.replace("[green]", "<font color='green'>").replace("[/green]", "</font>")
+    if "```markdown" in response_text and "```srt" not in response_text:
+        response_text = response_text.replace("```markdown", "```srt")
     content = extract_code_block_content(response_text, "srt", console)
     if not content:
         raise Exception("RETRY_EMPTY_CONTENT")

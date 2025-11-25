@@ -465,7 +465,8 @@ def _postprocess_caption_content(output, filepath, args):
             # 匹配格式3: HH:MM:SS,mmm (标准时间)
             r"(?<!:)(\d{2}):(\d{2}):(\d{2})[,:.](\d{3})|"
             # 匹配格式4: 大于99的小时值
-            r"(?<![0-9:])([1-9][0-9][0-9]+):(\d{2}):(\d{2})[,:.](\d{3})",
+            r"(?<![0-9:])([1-9][0-9][0-9]+):(\d{2}):(\d{2})[,:.](\d{3})|"
+            r"(?<!:)(\d{2}):(\d{2})[,:.](\d{2})[,:.](\d{3})",
             re.MULTILINE,
         )
 
@@ -481,6 +482,8 @@ def _postprocess_caption_content(output, filepath, args):
                 return f"00:{groups[7]}:{groups[8]},{groups[9]}"
             elif groups[10] is not None:  # 匹配了超大小时值
                 return f"00:{groups[11]}:{groups[12]},{groups[13]}"
+            elif groups[14] is not None:
+                return f"00:{groups[15]}:{groups[16]},{groups[17]}"
             return match.group(0)  # 如果不匹配预期格式，返回原始文本
 
         # 一次性处理所有时间戳
@@ -663,6 +666,7 @@ def setup_parser() -> argparse.ArgumentParser:
         choices=[
             "pixtral_ocr",
             "deepseek_ocr",
+            "hunyuan_ocr",
             "olmocr",
             "paddle_ocr",
             "moondream",

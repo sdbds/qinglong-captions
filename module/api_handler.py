@@ -622,6 +622,62 @@ def api_process_batch(
         )
         return content
 
+    elif provider == "hunyuan_ocr":
+        # Prepare media preview only for images
+        pixels = None
+        if mime.startswith("image"):
+            media = prepare_media(uri, mime, args, console, to_rgb=True)
+            image_media = media.get("image", {})
+            pixels = image_media.get("pixels")
+
+        # Build HunyuanOCR prompt from config; fallback to default Chinese document parsing prompt
+        prompts_section = config.get("prompts", {})
+        hunyuan_prompt = prompts_section.get("hunyuan_ocr_prompt", "")
+
+        # Output directory near input path
+        output_dir = str(Path(uri).with_suffix(""))
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        hunyuan_section = {}
+        try:
+            if isinstance(config, dict):
+                hunyuan_section = config.get("hunyuan_ocr", {}) or {}
+        except Exception:
+            hunyuan_section = {}
+        cfg_model_id = hunyuan_section.get("model_id", "tencent/HunyuanOCR")
+        cfg_max_new_tokens = hunyuan_section.get("max_new_tokens")
+
+        def _attempt_hunyuan() -> str:
+            try:
+                from module.providers.hunyuan_ocr_provider import (
+                    attempt_hunyuan_ocr as hunyuan_attempt,
+                )
+            except Exception as e:
+                console.print(Text(f"HunyuanOCR provider not available: {e}", style="red"))
+                raise
+
+            return hunyuan_attempt(
+                uri=uri,
+                console=console,
+                progress=progress,
+                task_id=task_id,
+                model_id=cfg_model_id,
+                prompt_text=hunyuan_prompt if hunyuan_prompt else None,
+                pixels=pixels,
+                output_dir=output_dir,
+                max_new_tokens=(int(cfg_max_new_tokens) if cfg_max_new_tokens is not None else 16384),
+            )
+
+        content = with_retry(
+            _attempt_hunyuan,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: args.wait_time,
+            on_exhausted=lambda e: (console.print(Text(f"HunyuanOCR retries exhausted: {e}", style="yellow")) or ""),
+        )
+        return content
+
     elif provider == "olmocr":
         # Prepare media preview only for images
         pixels = None

@@ -18,7 +18,7 @@ $wait_time = 1
 $max_retries = 100
 $segment_time = 600
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral", "deepseek", "olmocr", "paddle", "moondream", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", ""
 $document_image = $true
 
 # VLM model configuration for image tasks
@@ -177,6 +177,13 @@ if ($ocr_model) {
       [void]$uv_args.Add("--with-requirements=requirements-olmocr.txt")
     }else{
       uv pip install -r requirements-olmocr.txt
+    }
+  }
+  elseif ($ocr_model -eq "hunyuan_ocr") {
+    if ($os -eq "Windows") {
+      [void]$uv_args.Add("--with-requirements=requirements-hunyuanocr.txt")
+    }else{
+      uv pip install -r requirements-hunyuanocr.txt
     }
   }
   elseif ($ocr_model -eq "moondream") {
