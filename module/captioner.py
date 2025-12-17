@@ -359,17 +359,33 @@ def process_batch(args, config):
             else:
                 processed_captions.append(caption)
 
-        table = pa.table(
-            {
-                "uris": pa.array(processed_filepaths, type=pa.string()),
-                "captions": pa.array(
-                    [[caption] for caption in processed_captions],
-                    type=pa.list_(pa.string()),
-                ),
-            }
-        )
+        # Batch merge_insert to avoid memory overflow on large datasets
+        # Default batch size of 1000 balances memory usage and performance
+        merge_batch_size = getattr(args, "merge_batch_size", 1000)
+        total_items = len(processed_filepaths)
 
-        dataset.merge_insert(on="uris").when_matched_update_all().execute(table)
+        for batch_start in range(0, total_items, merge_batch_size):
+            batch_end = min(batch_start + merge_batch_size, total_items)
+            batch_uris = processed_filepaths[batch_start:batch_end]
+            batch_captions = processed_captions[batch_start:batch_end]
+
+            table = pa.table(
+                {
+                    "uris": pa.array(batch_uris, type=pa.string()),
+                    "captions": pa.array(
+                        [[caption] for caption in batch_captions],
+                        type=pa.list_(pa.string()),
+                    ),
+                }
+            )
+
+            dataset.merge_insert(on="uris").when_matched_update_all().execute(table)
+
+            if total_items > merge_batch_size:
+                console.print(
+                    f"[cyan]Merged batch {batch_start // merge_batch_size + 1}/"
+                    f"{(total_items + merge_batch_size - 1) // merge_batch_size}[/cyan]"
+                )
 
         try:
             dataset.tags.create("gemini", 1)
@@ -489,7 +505,7 @@ def _postprocess_caption_content(output, filepath, args):
         # 一次性处理所有时间戳
         output = timestamp_pattern.sub(normalize_timestamp, output)
 
-    elif Path(filepath).suffix in BASE_APPLICATION_EXTENSIONS or args.ocr_model != "none":
+    elif Path(filepath).suffix in BASE_APPLICATION_EXTENSIONS and args.ocr_model != "":
         pass
     else:
         try:
@@ -728,6 +744,13 @@ def setup_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.4,
         help="tags_highlightrate for check captions",
+    )
+
+    parser.add_argument(
+        "--merge_batch_size",
+        type=int,
+        default=100,
+        help="Batch size for merge_insert to avoid memory overflow on large datasets (default: 100)",
     )
 
     return parser

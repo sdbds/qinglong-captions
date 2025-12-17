@@ -777,6 +777,62 @@ def api_process_batch(
         )
         return content
 
+    elif provider == "nanonets_ocr":
+        # Prepare media preview only for images
+        pixels = None
+        if mime.startswith("image"):
+            media = prepare_media(uri, mime, args, console, to_rgb=True)
+            image_media = media.get("image", {})
+            pixels = image_media.get("pixels")
+
+        # Build Nanonets OCR prompt from config
+        prompts_section = config.get("prompts", {})
+        nanonets_prompt = prompts_section.get("nanonets_ocr_prompt", "")
+
+        # Output directory near input path
+        output_dir = str(Path(uri).with_suffix(""))
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        nanonets_section = {}
+        try:
+            if isinstance(config, dict):
+                nanonets_section = config.get("nanonets_ocr", {}) or {}
+        except Exception:
+            nanonets_section = {}
+        cfg_model_id = nanonets_section.get("model_id", "nanonets/Nanonets-OCR2-3B")
+        cfg_max_new_tokens = nanonets_section.get("max_new_tokens")
+
+        def _attempt_nanonets() -> str:
+            try:
+                from module.providers.nanonets_ocr_provider import (
+                    attempt_nanonets_ocr as nanonets_attempt,
+                )
+            except Exception as e:
+                console.print(Text(f"Nanonets OCR provider not available: {e}", style="red"))
+                raise
+
+            return nanonets_attempt(
+                uri=uri,
+                console=console,
+                progress=progress,
+                task_id=task_id,
+                model_id=cfg_model_id,
+                prompt_text=nanonets_prompt if nanonets_prompt else None,
+                pixels=pixels,
+                output_dir=output_dir,
+                max_new_tokens=(int(cfg_max_new_tokens) if cfg_max_new_tokens is not None else 15000),
+            )
+
+        content = with_retry(
+            _attempt_nanonets,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: args.wait_time,
+            on_exhausted=lambda e: (console.print(Text(f"Nanonets OCR retries exhausted: {e}", style="yellow")) or ""),
+        )
+        return content
+
     elif provider in ["moondream", "qwen_vl_local"] and mime.startswith("image"):
         media = prepare_media(uri, mime, args, console)
         image_media = media.get("image", {})

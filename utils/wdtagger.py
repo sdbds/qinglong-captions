@@ -1,26 +1,4 @@
-# /// script
-# dependencies = [
-#   "setuptools",
-#   "pillow>=11.3",
-#   "pylance>=0.20.0",
-#   "rich>=13.5.0",
-#   "imageio>=2.31.1",
-#   "imageio-ffmpeg>=0.4.8",
-#   "mutagen",
-#   "toml",
-#   "huggingface_hub[hf_xet]>=0.35.2",
-#   "opencv-contrib-python-rolling @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.11.0.20250124/opencv_contrib_python_rolling-4.12.0.86-cp37-abi3-win_amd64.whl; sys_platform == 'win32'",
-#   "opencv-contrib-python-rolling @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.11.0.20250210/opencv_contrib_python_rolling-4.12.0.20250210-cp37-abi3-linux_x86_64.whl; sys_platform == 'linux'",
-#   "torch>=2.8.0",
-#   "onnxruntime-gpu==1.20.2; sys_platform == 'win32'",
-#   "onnxruntime-gpu>=1.20.2; sys_platform == 'linux'",
-#   "tensorrt>=10.9",
-# ]
-# [tool.uv.extra-build-dependencies]
-#       tensorrt-cu13 = ["setuptools"]
-#       tensorrt = ["setuptools"]
-# ///
-import argparse
+import argparse  # noqa: I001
 import concurrent.futures
 import csv
 import json

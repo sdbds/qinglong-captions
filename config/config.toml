@@ -537,6 +537,7 @@ series_exclude_list = [
     "creature",
     "kenjaku",
     "pc-98",
+    "mooncancer",
 ]
 
 [reward_model]
@@ -564,6 +565,13 @@ test_compress = false
 [hunyuan_ocr]
 model_id = "tencent/HunyuanOCR"
 max_new_tokens = 16384
+
+# Nanonets-OCR2 configuration
+# Model: https://huggingface.co/nanonets/Nanonets-OCR2-3B
+# GitHub: https://github.com/NanoNets/docstrange
+[nanonets_ocr]
+model_id = "nanonets/Nanonets-OCR2-3B"
+max_new_tokens = 15000
 
 [ark]
 fps = 2

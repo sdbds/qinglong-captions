@@ -1,0 +1,10 @@
+# Requirements for Nanonets-OCR2 (nanonets/Nanonets-OCR2-3B)
+# Model: https://huggingface.co/nanonets/Nanonets-OCR2-3B
+# GitHub: https://github.com/NanoNets/docstrange
+
+transformers>=4.45.0
+torch>=2.0.0
+pillow
+accelerate
+safetensors
+flash-attn>=2.0.0; sys_platform != 'darwin'

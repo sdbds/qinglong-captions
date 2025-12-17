@@ -174,10 +174,16 @@ def attempt_pixtral(
         if character_name:
             clean_char_name = character_name.split(",")[0].split(" from ")[0].strip("<>")
             if clean_char_name not in content:
-                console.print()
-                console.print(Text(content))
-                console.print(f"Character name [green]{clean_char_name}[/green] not found")
-                raise Exception("RETRY_PIXTRAL_CHAR")
+                # Check case-insensitive match and fix if found
+                pattern = re.compile(re.escape(clean_char_name), re.IGNORECASE)
+                if pattern.search(content):
+                    content = pattern.sub(clean_char_name, content)
+                    console.print(f"[yellow]Fixed character name case: [green]{clean_char_name}[/green][/yellow]")
+                else:
+                    console.print()
+                    console.print(Text(content))
+                    console.print(f"Character name [green]{clean_char_name}[/green] not found")
+                    raise Exception("RETRY_PIXTRAL_CHAR")
 
         if "###" not in content:
             console.print(Text(content))
