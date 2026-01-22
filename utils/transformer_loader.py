@@ -1,9 +1,73 @@
 from __future__ import annotations
 
+import sys
+import time
 from typing import Any, Optional
 
 import torch
 from transformers import AutoModel, AutoProcessor
+
+
+class BufferedTextStreamer:
+    """Custom text streamer that buffers tokens and outputs them in batches.
+
+    Outputs text when encountering sentence endings (. or 。) or when buffer exceeds min_chars.
+    """
+
+    def __init__(
+        self,
+        tokenizer: Any,
+        skip_prompt: bool = True,
+        skip_special_tokens: bool = True,
+        min_chars: int = 0,
+    ):
+        self.tokenizer = tokenizer
+        self.skip_prompt = skip_prompt
+        self.skip_special_tokens = skip_special_tokens
+        self.min_chars = min_chars
+        self.buffer: list[str] = []
+        self.token_count = 0
+        self.is_prompt = True
+
+    def put(self, value: Any) -> None:
+        """Process a new token batch."""
+        if len(value.shape) > 1 and value.shape[0] > 1:
+            raise ValueError("BufferedTextStreamer only supports batch size 1")
+        elif len(value.shape) > 1:
+            value = value[0]
+
+        if self.skip_prompt and self.is_prompt:
+            self.is_prompt = False
+            return
+
+        text = self.tokenizer.decode(value, skip_special_tokens=self.skip_special_tokens)
+        if not text:
+            return
+
+        self.buffer.append(text)
+        self.token_count += 1
+
+        # Flush if buffer contains sentence ending (. or 。) or exceeds min_chars
+        current_text = "".join(self.buffer)
+        has_sentence_ending = "." in current_text or "。" in current_text
+        exceeds_min_chars = self.min_chars > 0 and len(current_text) >= self.min_chars
+
+        if has_sentence_ending or exceeds_min_chars:
+            self._flush()
+
+    def _flush(self) -> None:
+        """Output buffered text and reset buffer."""
+        if not self.buffer:
+            return
+
+        text = "".join(self.buffer)
+        print(text)  # Print with newline
+        sys.stdout.flush()
+        self.buffer.clear()
+
+    def end(self) -> None:
+        """Flush any remaining buffered text at the end of generation."""
+        self._flush()
 
 
 def resolve_device_dtype() -> tuple[str, torch.dtype, str]:
@@ -27,6 +91,7 @@ class transformerLoader:
         processor_cls: Any = AutoProcessor,
         console: Optional[Any] = None,
         use_fast: Optional[bool] = None,
+        trust_remote_code: bool = True,
     ) -> Any:
         # Include use_fast in cache key to differentiate configurations
         key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
@@ -37,13 +102,12 @@ class transformerLoader:
         kwargs: dict[str, Any] = {}
         if use_fast is not None:
             kwargs["use_fast"] = use_fast
+        kwargs["trust_remote_code"] = trust_remote_code
         processor = processor_cls.from_pretrained(processor_id, **kwargs)
         self._processor_cache[key] = processor
         return processor
 
-    def is_processor_cached(
-        self, processor_id: str, processor_cls: Any = AutoProcessor, use_fast: Optional[bool] = None
-    ) -> bool:
+    def is_processor_cached(self, processor_id: str, processor_cls: Any = AutoProcessor, use_fast: Optional[bool] = None) -> bool:
         key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
         return key in self._processor_cache
 
@@ -105,13 +169,16 @@ class transformerLoader:
         processor_cls: Any = AutoProcessor,
         console: Optional[Any] = None,
         use_fast: Optional[bool] = None,
+        trust_remote_code: bool = True,
     ) -> Any:
         key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
         if key in self._processor_cache:
             if console:
                 console.print(f"[yellow]Using cached processor:[/yellow] {processor_id}")
             return self._processor_cache[key]
-        return self.load_processor(processor_id, processor_cls, console=console, use_fast=use_fast)
+        return self.load_processor(
+            processor_id, processor_cls, console=console, use_fast=use_fast, trust_remote_code=trust_remote_code
+        )
 
     def get_or_load_model(
         self,
@@ -209,3 +276,39 @@ class transformerLoader:
         self._model_cache.clear()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    def get_text_streamer(
+        self,
+        processor: Any,
+        skip_prompt: bool = True,
+        skip_special_tokens: bool = True,
+        buffered: bool = True,
+        min_chars: int = 0,
+    ) -> Any:
+        """Create a TextStreamer for real-time token generation output.
+
+        Args:
+            processor: The processor containing the tokenizer
+            skip_prompt: Whether to skip the prompt tokens in output
+            skip_special_tokens: Whether to skip special tokens in output
+            buffered: Use BufferedTextStreamer (outputs in batches) vs TextStreamer (per token)
+            min_chars: Minimum characters to buffer before output (0 = only flush on sentence endings)
+
+        Returns:
+            BufferedTextStreamer or TextStreamer instance for use with model.generate()
+        """
+        if buffered:
+            return BufferedTextStreamer(
+                processor.tokenizer,
+                skip_prompt=skip_prompt,
+                skip_special_tokens=skip_special_tokens,
+                min_chars=min_chars,
+            )
+        else:
+            from transformers import TextStreamer
+
+            return TextStreamer(
+                processor.tokenizer,
+                skip_prompt=skip_prompt,
+                skip_special_tokens=skip_special_tokens,
+            )

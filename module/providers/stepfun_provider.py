@@ -36,7 +36,7 @@ def _collect_stream_stepfun(completion: Any, console: Console) -> str:
 
 def attempt_stepfun(
     *,
-    client: OpenAI,
+    client: Optional[OpenAI],
     model_path: str,
     mime: str,
     system_prompt: str,
@@ -50,6 +50,7 @@ def attempt_stepfun(
     has_pair: bool = False,
     pair_blob: Optional[str] = None,
     pair_pixels: Optional[Pixels] = None,
+    pair_uri: Optional[str] = None,
     video_file_id: Optional[str] = None,
 ) -> str:
     """Single-attempt StepFun request.
@@ -57,6 +58,178 @@ def attempt_stepfun(
     Returns the SRT content for video, otherwise the response text for image.
     May raise exceptions (e.g., RETRY_EMPTY_CONTENT) to trigger with_retry.
     """
+    # Local model path when client is None
+    if client is None:
+        from PIL import Image
+        from transformers import AutoModelForCausalLM, AutoProcessor
+
+        from utils.transformer_loader import resolve_device_dtype, transformerLoader
+
+        start_time = time.time()
+        root_dir = Path(__file__).resolve().parent.parent.parent
+        cfg_model_id = "stepfun-ai/Step3-VL-10B"
+        gen_defaults = {"temperature": 1.0, "top_p": 1.0, "top_k": 0, "eos_token_id": [151643, 151645, 151679]}
+        try:
+            import toml  # type: ignore
+
+            cfg = toml.load(root_dir / "config" / "config.toml")
+            section = cfg.get("stepfun_local", {}) or {}
+            cfg_model_id = section.get("model_id", cfg_model_id)
+            for k in gen_defaults.keys():
+                if k in section:
+                    gen_defaults[k] = section[k]
+        except Exception:
+            pass
+
+        device, dtype, attn_impl = resolve_device_dtype()
+        # Step3-VL does not support Flash Attention 2.0, force eager mode
+        attn_impl = "eager"
+        loader = getattr(attempt_stepfun, "_TRANS_LOADER", None)
+        if loader is None:
+            loader = transformerLoader(attn_kw="attn_implementation", device_map="auto")
+            setattr(attempt_stepfun, "_TRANS_LOADER", loader)
+
+        if console:
+            console.print(
+                f"[blue]Loading local Step3-VL model:[/blue] {cfg_model_id} (device={device}, dtype={dtype}, attn={attn_impl})"
+            )
+
+        # Step3-VL requires special key_mapping parameter
+        key_mapping = {
+            "^vision_model": "model.vision_model",
+            r"^model(?!\.(language_model|vision_model))": "model.language_model",
+            "vit_large_projector": "model.vit_large_projector",
+        }
+
+        processor = loader.get_or_load_processor(cfg_model_id, AutoProcessor, console=console, trust_remote_code=True)
+        model = loader.get_or_load_model(
+            cfg_model_id,
+            AutoModelForCausalLM,
+            dtype=dtype,
+            attn_impl=attn_impl,
+            trust_remote_code=True,
+            device_map="auto",
+            console=console,
+            extra_kwargs={"key_mapping": key_mapping},
+        )
+
+        # Build messages for Step3-VL format
+        messages: list[dict[str, Any]] = []
+
+        # Add system message if present (content must be a list for Step3-VL)
+        if system_prompt:
+            messages.append({"role": "system", "content": [{"type": "text", "text": system_prompt}]})
+
+        # Build user message content using PIL Images
+        user_content: list[dict[str, Any]] = []
+
+        # Load and add primary image
+        try:
+            img = Image.open(uri).convert("RGB")
+            user_content.append({"type": "image", "image": img})
+        except Exception as e:
+            console.print(f"[red]Failed to load image {uri}: {e}[/red]")
+            raise
+
+        # Load and add pair image if present
+        if has_pair and pair_uri:
+            try:
+                pair_img = Image.open(pair_uri).convert("RGB")
+                user_content.append({"type": "image", "image": pair_img})
+            except Exception as e:
+                console.print(f"[red]Failed to load pair image {pair_uri}: {e}[/red]")
+                raise
+
+        user_content.append({"type": "text", "text": prompt})
+        messages.append({"role": "user", "content": user_content})
+
+        # Prepare inputs using processor
+        try:
+            inputs = processor.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_dict=True,
+                return_tensors="pt",
+            ).to(model.device)
+        except Exception as e:
+            console.print(f"[red]Error in apply_chat_template:[/red] {e}")
+            console.print("[red]Full traceback:[/red]")
+            import traceback
+
+            console.print(traceback.format_exc())
+            raise
+
+        # Generation parameters
+        generation_kwargs: dict[str, Any] = {
+            "max_new_tokens": int(gen_defaults.get("max_new_tokens", 1024)),
+            "do_sample": False,
+        }
+
+        if "repetition_penalty" in gen_defaults:
+            generation_kwargs["repetition_penalty"] = float(gen_defaults.get("repetition_penalty", 1.0))
+
+        if progress and task_id is not None:
+            progress.update(task_id, description="Generating captions")
+
+        console.print("[blue]Starting inference...[/blue]")
+        console.print("[dim]Generating tokens:[/dim] ", end="")
+
+        # Use TextStreamer for real-time output
+        streamer = loader.get_text_streamer(processor, skip_prompt=True, skip_special_tokens=True, buffered=True, min_chars=0)
+
+        # Generate response with streaming
+        generated_ids = model.generate(**inputs, streamer=streamer, **generation_kwargs)
+
+        console.print()  # New line after streaming
+
+        # Decode only the newly generated tokens
+        decoded = processor.decode(
+            generated_ids[0, inputs["input_ids"].shape[-1] :],
+            skip_special_tokens=True,
+        )
+
+        response_text = decoded
+
+        # Remove think section if present (Step3-VL outputs thinking process)
+        if "</think>" in response_text:
+            response_text = response_text.split("</think>", 1)[1].strip()
+
+        elapsed_time = time.time() - start_time
+        console.print(f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds")
+
+        try:
+            console.print(response_text)
+        except Exception:
+            console.print(Text(response_text))
+
+        response_text = response_text.replace("[green]", "<font color='green'>").replace("[/green]", "</font>")
+
+        # Image branch
+        if has_pair and pair_pixels is not None and image_pixels is not None:
+            display_pair_image_description(
+                title=Path(uri).name,
+                description=response_text,
+                pixels=image_pixels,
+                pair_pixels=pair_pixels,
+                panel_height=32,
+                console=console,
+            )
+            return response_text
+        else:
+            display_caption_and_rate(
+                title=Path(uri).name,
+                tag_description="",
+                long_description=response_text,
+                pixels=image_pixels,
+                rating=[],
+                average_score=0,
+                panel_height=32,
+                console=console,
+            )
+            return response_text
+
+    # API client path
     start_time = time.time()
 
     if mime.startswith("video"):

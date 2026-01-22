@@ -43,3 +43,4 @@ scenedetect>=0.6.6
 
 #rewardmodel
 #imscore
+psd-tools

@@ -22,7 +22,7 @@ $ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmoc
 $document_image = $true
 
 # VLM model configuration for image tasks
-$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "" 
+$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "qwen_vl_local", "" 
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]

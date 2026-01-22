@@ -596,7 +596,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--vlm_image_model",
         type=str,
-        choices=["moondream", "qwen_vl_local", ""],
+        choices=["moondream", "qwen_vl_local", "step_vl_local", ""],
         default="",
         help="VLM model for image tasks (default: empty)",
     )

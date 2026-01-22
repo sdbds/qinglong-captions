@@ -98,6 +98,8 @@ BASE_AUDIO_EXTENSIONS: List[str] = [
 BASE_APPLICATION_EXTENSIONS: List[str] = [
     ".pdf",
     ".PDF",
+    ".psd",
+    ".PSD",
 ]
 
 

@@ -73,6 +73,7 @@ $Env:UV_LINK_MODE = "symlink"
 
 #region Build Arguments
 $ExtArgs = [System.Collections.ArrayList]::new()
+$uv_args = [System.Collections.ArrayList]::new()
 
 # Add configuration arguments
 if ($Config.repo_id) { [void]$ExtArgs.Add("--repo_id=$($Config.repo_id)") }
@@ -107,8 +108,15 @@ Write-Output "Starting tagger..."
 
 # Get-ChildItem -Path $env:AGENT_TOOLSDIRECTORY -File -Include msvcp*.dll,concrt*.dll,vccorlib*.dll,vcruntime*.dll -Recurse | Remove-Item -Force -Verbose
 
+if ($os -eq "Windows") {
+    [void]$uv_args.Add("--with-requirements=requirements-wdtagger.txt")
+}
+else {
+    uv pip install -r requirements-wdtagger.txt
+}
+
 # Run tagger
-uv run "./utils/wdtagger.py" `
+uv run $uv_args "./utils/wdtagger.py" `
     $Config.train_data_dir `
     --thresh=$($Config.thresh) `
     --caption_extension .txt `

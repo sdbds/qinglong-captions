@@ -912,9 +912,27 @@ def main(args):
         late_materialization=True,
     )
 
+    merge_batch_size = getattr(args, "merge_batch_size", 100)
     results = []
     # Aggregate JSON for all images: { image_path: {category: [tags]} }
     all_json_tags: Dict[str, Dict[str, List[str]]] = {}
+
+    def flush_merge_insert() -> None:
+        if not results:
+            return
+
+        table = pa.table(
+            {
+                "uris": pa.array([str(path) for path, _ in results], type=pa.string()),
+                "captions": pa.array(
+                    [caption for _, caption in results],
+                    type=pa.list_(pa.string()),
+                ),
+            }
+        )
+
+        dataset.merge_insert(on="uris").when_matched_update_all().execute(table)
+        results.clear()
 
     with Progress(
         "[progress.description]{task.description}",
@@ -972,6 +990,9 @@ def main(args):
                             found_tags = existing_tags.split(args.caption_separator) + found_tags
                     results.append((path, found_tags))
 
+                    if len(results) >= merge_batch_size:
+                        flush_merge_insert()
+
                     with output_path.open("w", encoding="utf-8") as f:
                         f.write(args.caption_separator.join(found_tags))
 
@@ -1011,17 +1032,7 @@ def main(args):
     except Exception as e:
         console.print(f"[red]Failed to save JSON: {e}[/red]")
 
-    table = pa.table(
-        {
-            "uris": pa.array([str(path) for path, _ in results], type=pa.string()),
-            "captions": pa.array(
-                [caption for _, caption in results],
-                type=pa.list_(pa.string()),
-            ),
-        }
-    )
-
-    dataset.merge_insert(on="uris").when_matched_update_all().execute(table)
+    flush_merge_insert()
 
     try:
         dataset.tags.create("WDtagger", 1)
@@ -1389,6 +1400,13 @@ def setup_parser() -> argparse.ArgumentParser:
         "--remove_parents_tag",
         action="store_true",
         help="Remove parent tags if a child tag is present (e.g., remove 'uniform' if 'school_uniform' is present).",
+    )
+
+    parser.add_argument(
+        "--merge_batch_size",
+        type=int,
+        default=100,
+        help="Batch size for merge_insert to avoid memory overflow on large datasets (default: 100)",
     )
 
     return parser

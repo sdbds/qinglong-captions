@@ -134,6 +134,33 @@ def api_process_batch(
                     system_prompt = prompts.get("pixtral_image_system_prompt", system_prompt)
                     prompt = prompts.get("pixtral_image_prompt", prompt)
 
+        elif provider == "moondream":
+            if mime.startswith("image"):
+                if getattr(args, "pair_dir", "") != "":
+                    system_prompt = prompts.get("pair_image_system_prompt", system_prompt)
+                    prompt = prompts.get("pair_image_prompt", prompt)
+                else:
+                    system_prompt = prompts.get("pixtral_image_system_prompt", system_prompt)
+                    prompt = prompts.get("pixtral_image_prompt", prompt)
+
+        elif provider == "qwen_vl_local":
+            if mime.startswith("image"):
+                if getattr(args, "pair_dir", "") != "":
+                    system_prompt = prompts.get("pair_image_system_prompt", system_prompt)
+                    prompt = prompts.get("pair_image_prompt", prompt)
+                else:
+                    system_prompt = prompts.get("pixtral_image_system_prompt", system_prompt)
+                    prompt = prompts.get("pixtral_image_prompt", prompt)
+
+        elif provider == "step_vl_local":
+            if mime.startswith("image"):
+                if getattr(args, "pair_dir", "") != "":
+                    system_prompt = prompts.get("pair_image_system_prompt", system_prompt)
+                    prompt = prompts.get("pair_image_prompt", prompt)
+                else:
+                    system_prompt = prompts.get("pixtral_image_system_prompt", system_prompt)
+                    prompt = prompts.get("pixtral_image_prompt", prompt)
+
         elif provider == "gemini":
             # Gemini image task mode builds prompt from task templates
             if getattr(args, "gemini_task", "") and mime.startswith("image"):
@@ -285,6 +312,7 @@ def api_process_batch(
         # Predefine pair placeholders for both image/video paths
         pair_blob = None
         pair_pixels = None
+        pair_uri_path = None
 
         if mime.startswith("video"):
             file = client.files.create(file=open(uri, "rb"), purpose="storage")
@@ -299,6 +327,7 @@ def api_process_batch(
                     return ""
                 pair_blob = image_media["pair"]["blob"]
                 pair_pixels = image_media["pair"]["pixels"]
+                pair_uri_path = str((Path(args.pair_dir) / Path(uri).name).resolve())
 
         def _attempt_stepfun() -> str:
             # Use outer-scope pair_pixels directly; it's predefined above
@@ -318,6 +347,7 @@ def api_process_batch(
                 has_pair=has_pair,
                 pair_blob=(pair_blob if has_pair else None),
                 pair_pixels=(pair_pixels if has_pair else None),
+                pair_uri=(pair_uri_path if has_pair else None),
                 video_file_id=(file.id if mime.startswith("video") else None),
             )
 
@@ -833,7 +863,7 @@ def api_process_batch(
         )
         return content
 
-    elif provider in ["moondream", "qwen_vl_local"] and mime.startswith("image"):
+    elif provider in ["moondream", "qwen_vl_local", "step_vl_local"] and mime.startswith("image"):
         media = prepare_media(uri, mime, args, console)
         image_media = media.get("image", {})
         pixels = image_media.get("pixels")
@@ -890,26 +920,76 @@ def api_process_batch(
                     task=vlm_section.get("tasks", "caption"),
                 )
             elif provider == "qwen_vl_local":
+                # Build messages for Qwen-VL local model
+                file = f"file://{Path(uri).resolve().as_posix()}"
+                content_items = []
+
+                pair_dir = getattr(args, "pair_dir", "")
+                if pair_dir:
+                    pair_path = (Path(pair_dir) / Path(uri).name).resolve()
+                    if pair_path.exists():
+                        pair_file = f"file://{pair_path.as_posix()}"
+                        console.print(f"[yellow]Pair image found:[/yellow] {pair_file}")
+                        content_items.extend([{"image": file}, {"image": pair_file}])
+                    else:
+                        console.print(f"[red]Pair image not found:[/red] {pair_path}")
+                        return ""
+                else:
+                    content_items.append({"image": file})
+
+                content_items.append({"text": provider_prompt})
+
+                messages = [
+                    {"role": "system", "content": [{"text": system_prompt}]},
+                    {"role": "user", "content": content_items},
+                ]
+
+                return qwenvl_attempt(
+                    model_path=vlm_section.get("model_id", "Qwen/Qwen2-VL-7B-Instruct"),
+                    api_key="",
+                    messages=messages,
+                    console=console,
+                    progress=progress,
+                    task_id=task_id,
+                )
+            elif provider == "step_vl_local":
                 try:
-                    from module.providers.qwen_vl_local_provider import (
-                        attempt_qwen_vl_local as vlm_attempt,
-                    )
+                    from module.providers.stepfun_provider import attempt_stepfun
                 except Exception as e:
-                    console.print(Text(f"Qwen VL Local provider not available: {e}", style="red"))
+                    console.print(Text(f"Step3-VL Local provider not available: {e}", style="red"))
                     raise
 
-                return vlm_attempt(
-                    model_id=vlm_section.get("model_id", "Qwen/Qwen2-VL-7B-Instruct"),
+                # Prepare media for Step3-VL local model
+                media = prepare_media(uri, mime, args, console, to_rgb=True)
+                image_media_full = media.get("image", {})
+                blob = image_media_full.get("blob")
+                pixels_full = image_media_full.get("pixels")
+                pair_blob = None
+                pair_pixels_full = None
+
+                if args.pair_dir != "":
+                    if not image_media_full.get("pair"):
+                        return ""
+                    pair_blob = image_media_full["pair"]["blob"]
+                    pair_pixels_full = image_media_full["pair"]["pixels"]
+
+                has_pair = bool(args.pair_dir and pair_pixels_full)
+                return attempt_stepfun(
+                    client=None,
+                    model_path="",
                     mime=mime,
+                    system_prompt=system_prompt,
+                    prompt=provider_prompt,
                     console=console,
                     progress=progress,
                     task_id=task_id,
                     uri=uri,
-                    pixels=pixels,
-                    image=image_media,
-                    captions=captions,
-                    tags_highlightrate=getattr(args, "tags_highlightrate", 0.0),
-                    prompt_text=provider_prompt,
+                    image_blob=blob,
+                    image_pixels=pixels_full,
+                    has_pair=has_pair,
+                    pair_blob=pair_blob,
+                    pair_pixels=pair_pixels_full,
+                    video_file_id=None,
                 )
             else:
                 raise ValueError(f"Unsupported VLM provider: {provider}")
