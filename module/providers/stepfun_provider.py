@@ -18,8 +18,10 @@ from rich_pixels import Pixels
 
 from utils.parse_display import (
     display_caption_and_rate,
+    display_caption_layout,
     display_pair_image_description,
     extract_code_block_content,
+    process_llm_response,
 )
 
 
@@ -205,29 +207,20 @@ def attempt_stepfun(
 
         response_text = response_text.replace("[green]", "<font color='green'>").replace("[/green]", "</font>")
 
-        # Image branch
-        if has_pair and pair_pixels is not None and image_pixels is not None:
-            display_pair_image_description(
-                title=Path(uri).name,
-                description=response_text,
-                pixels=image_pixels,
-                pair_pixels=pair_pixels,
-                panel_height=32,
-                console=console,
-            )
-            return response_text
-        else:
-            display_caption_and_rate(
-                title=Path(uri).name,
-                tag_description="",
-                long_description=response_text,
-                pixels=image_pixels,
-                rating=[],
-                average_score=0,
-                panel_height=32,
-                console=console,
-            )
-            return response_text
+        # Use Pixtral template for display
+        short_description, long_description = process_llm_response(response_text)
+        display_caption_layout(
+            title=Path(uri).name,
+            tag_description="",
+            short_description=short_description,
+            long_description=long_description,
+            pixels=image_pixels,
+            short_highlight_rate=0,
+            long_highlight_rate=0,
+            panel_height=32,
+            console=console,
+        )
+        return response_text
 
     # API client path
     start_time = time.time()
