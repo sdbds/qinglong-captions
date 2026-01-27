@@ -25,14 +25,13 @@ def attempt_deepseek_ocr(
     console: Console,
     progress: Optional[Progress],
     task_id: Optional[Any],
-    model_id: str = "deepseek-ai/DeepSeek-OCR",
+    model_id: str = "deepseek-ai/DeepSeek-OCR-2",
     prompt_text: Optional[str] = None,
     pixels: Optional[Pixels] = None,
     output_dir: Optional[str] = None,
     base_size: int = 1024,
-    image_size: int = 640,
+    image_size: int = 768,
     crop_mode: bool = True,
-    test_compress: bool = True,
 ) -> str:
     """Run local DeepSeek-OCR on a single image and return markdown text.
 
@@ -93,7 +92,6 @@ def attempt_deepseek_ocr(
                 image_size=image_size,
                 crop_mode=crop_mode,
                 save_results=True,
-                test_compress=test_compress,
             )
 
             try:
@@ -135,7 +133,6 @@ def attempt_deepseek_ocr(
             image_size=image_size,
             crop_mode=crop_mode,
             save_results=True,
-            test_compress=test_compress,
         )
 
         try:

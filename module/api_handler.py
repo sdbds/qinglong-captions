@@ -395,12 +395,10 @@ def api_process_batch(
                 if pair_path.exists():
                     pair_file = f"file://{pair_path.as_posix()}"
                     console.print(f"[yellow]Pair image found:[/yellow] {pair_file}")
-                    content_items.extend(
-                        [
-                            {"image": file},
-                            {"image": pair_file},
-                        ]
-                    )
+                    content_items.extend([
+                        {"image": file},
+                        {"image": pair_file},
+                    ])
                 else:
                     console.print(f"[red]Pair image not found:[/red] {pair_path}")
                     return ""
@@ -610,11 +608,10 @@ def api_process_batch(
                 deepseek_section = config.get("deepseek_ocr", {}) or {}
         except Exception:
             deepseek_section = {}
-        cfg_model_id = deepseek_section.get("model_id", "deepseek-ai/DeepSeek-OCR")
+        cfg_model_id = deepseek_section.get("model_id", "deepseek-ai/DeepSeek-OCR-2")
         cfg_base_size = deepseek_section.get("base_size")
-        cfg_image_size = deepseek_section.get("image_size")
+        cfg_image_size = deepseek_section.get("image_size", 768)
         cfg_crop_mode = deepseek_section.get("crop_mode")
-        cfg_test_compress = deepseek_section.get("test_compress")
 
         def _attempt_deepseek() -> str:
             try:
@@ -635,11 +632,8 @@ def api_process_batch(
                 pixels=pixels,
                 output_dir=output_dir,
                 base_size=(int(cfg_base_size) if cfg_base_size is not None else getattr(args, "deepseek_base_size", 1024)),
-                image_size=(int(cfg_image_size) if cfg_image_size is not None else getattr(args, "deepseek_image_size", 640)),
+                image_size=(int(cfg_image_size) if cfg_image_size is not None else getattr(args, "deepseek_image_size", 768)),
                 crop_mode=(bool(cfg_crop_mode) if cfg_crop_mode is not None else getattr(args, "deepseek_crop_mode", True)),
-                test_compress=(
-                    bool(cfg_test_compress) if cfg_test_compress is not None else getattr(args, "deepseek_test_compress", True)
-                ),
             )
 
         content = with_retry(
@@ -1536,7 +1530,9 @@ def with_retry(
                         last = tb[-1]
                         console.print(
                             Text(
-                                f"[with_retry] {attempt + 1}/{max_retries} failed at {Path(last.filename).name}:{last.lineno} in {last.name} -> {type(e).__name__}: {e}",
+                                f"[with_retry] {attempt + 1}/{max_retries} failed at "
+                                f"{Path(last.filename).name}:{last.lineno} in {last.name} -> "
+                                f"{type(e).__name__}: {e}",
                                 style="yellow",
                             )
                         )

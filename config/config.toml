@@ -559,11 +559,10 @@ temperature = 0.1
 max_new_tokens = 512
 
 [deepseek_ocr]
-model_id = "deepseek-ai/DeepSeek-OCR"
-base_size = 1280
-image_size = 1280
-crop_mode = false
-test_compress = false
+model_id = "deepseek-ai/DeepSeek-OCR-2"
+base_size = 1024
+image_size = 768
+crop_mode = true
 
 # HunyuanOCR configuration
 # Requires: pip install git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4
