@@ -108,7 +108,7 @@ Write-Output "Starting tagger..."
 
 # Get-ChildItem -Path $env:AGENT_TOOLSDIRECTORY -File -Include msvcp*.dll,concrt*.dll,vccorlib*.dll,vcruntime*.dll -Recurse | Remove-Item -Force -Verbose
 
-if ($os -eq "Windows") {
+if ($env:OS -eq "Windows_NT") {
     [void]$uv_args.Add("--with-requirements=requirements-wdtagger.txt")
 }
 else {

@@ -158,7 +158,7 @@ if ($ocr_model) {
   # Model-specific requirements
   if ($ocr_model -eq "paddle_ocr") {
     $Env:UV_EXTRA_INDEX_URL = "https://www.paddlepaddle.org.cn/packages/nightly/cu129/"
-    if ($os -eq "Windows") {
+    if ($env:OS -eq "Windows_NT") {
       $Env:UV_LINK_MODE = "hardlink"
       uv pip sync -r requirements-paddleocr.txt
     }else{
@@ -166,7 +166,7 @@ if ($ocr_model) {
     }
   }
   elseif ($ocr_model -eq "deepseek_ocr") {
-    if ($os -eq "Windows") {
+    if ($env:OS -eq "Windows_NT") {
       [void]$uv_args.Add("--with-requirements=requirements-deepseekocr.txt")
     }else{
       uv pip install torch==2.8.0
@@ -174,21 +174,21 @@ if ($ocr_model) {
     }
   }
   elseif ($ocr_model -eq "olmocr") {
-    if ($os -eq "Windows") {
+    if ($env:OS -eq "Windows_NT") {
       [void]$uv_args.Add("--with-requirements=requirements-olmocr.txt")
     }else{
       uv pip install -r requirements-olmocr.txt
     }
   }
   elseif ($ocr_model -eq "hunyuan_ocr") {
-    if ($os -eq "Windows") {
+    if ($env:OS -eq "Windows_NT") {
       [void]$uv_args.Add("--with-requirements=requirements-hunyuanocr.txt")
     }else{
       uv pip install -r requirements-hunyuanocr.txt
     }
   }
   elseif ($ocr_model -eq "moondream") {
-    if ($os -eq "Windows") {
+    if ($env:OS -eq "Windows_NT") {
       [void]$uv_args.Add("--with-requirements=requirements-moondream.txt")
     }else{
       uv pip install -r requirements-moondream.txt
@@ -202,14 +202,14 @@ if ($vlm_image_model) {
   
   # Model-specific requirements
   if ($vlm_image_model -eq "moondream") {
-    if ($os -eq "Windows") {
+    if ($env:OS -eq "Windows_NT") {
       [void]$uv_args.Add("--with-requirements=requirements-moondream.txt")
     }else{
       uv pip install -r requirements-moondream.txt
     }
   }
   elseif ($vlm_image_model -eq "qwen_vl_local") {
-    if ($os -eq "Windows") {
+    if ($env:OS -eq "Windows_NT") {
       [void]$uv_args.Add("--with-requirements=requirements-qwen-vl-local.txt")
     }else{
       uv pip install -r requirements-qwen-vl-local.txt
