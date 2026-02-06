@@ -41,6 +41,10 @@ hunyuan_ocr_prompt = """
 # Leave empty to use provider's default prompt
 glm_ocr_prompt = """Text Recognition:"""
 
+# Chandra OCR prompt type (ocr_layout by default)
+# Available types: ocr_layout, ocr_with_region, ocr_text
+chandra_ocr_prompt_type = "ocr_layout"
+
 # Nanonets OCR prompt (document to markdown)
 # Leave empty to use provider's default prompt
 nanonets_ocr_prompt = """
@@ -607,6 +611,14 @@ max_new_tokens = 8192
 [nanonets_ocr]
 model_id = "nanonets/Nanonets-OCR2-3B"
 max_new_tokens = 15000
+
+# Chandra OCR configuration
+# Model: https://huggingface.co/datalab-to/chandra
+# Requires: pip install chandra-ocr
+[chandra_ocr]
+model_id = "datalab-to/chandra"
+max_new_tokens = 8192
+prompt_type = "ocr_layout"
 
 [paddle_ocr.save]
 save_json = true

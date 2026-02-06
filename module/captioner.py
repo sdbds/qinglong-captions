@@ -709,6 +709,7 @@ def setup_parser() -> argparse.ArgumentParser:
             "moondream",
             "glm_ocr",
             "nanonets_ocr",
+            "chandra_ocr",
             "",
         ],
         default="",

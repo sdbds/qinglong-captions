@@ -899,6 +899,63 @@ def api_process_batch(
         )
         return content
 
+    elif provider == "chandra_ocr":
+        # Prepare media preview only for images
+        pixels = None
+        if mime.startswith("image"):
+            _, pixels, _, _, _ = prepare_media(uri, mime, args, console, to_rgb=True)
+
+        # Output directory near input path
+        output_dir = str(Path(uri).with_suffix(""))
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        chandra_section = {}
+        try:
+            if isinstance(config, dict):
+                chandra_section = config.get("chandra_ocr", {}) or {}
+        except Exception:
+            chandra_section = {}
+        cfg_model_id = chandra_section.get("model_id", "datalab-to/chandra")
+        cfg_max_new_tokens = chandra_section.get("max_new_tokens")
+
+        # Read prompt_type from config
+        prompts_section = config.get("prompts", {})
+        cfg_prompt_type = chandra_section.get(
+            "prompt_type",
+            prompts_section.get("chandra_ocr_prompt_type", "ocr_layout"),
+        )
+
+        def _attempt_chandra() -> str:
+            try:
+                from module.providers.chandra_ocr_provider import (
+                    attempt_chandra_ocr as chandra_attempt,
+                )
+            except Exception as e:
+                console.print(Text(f"Chandra OCR provider not available: {e}", style="red"))
+                raise
+
+            return chandra_attempt(
+                uri=uri,
+                console=console,
+                progress=progress,
+                task_id=task_id,
+                model_id=cfg_model_id,
+                prompt_type=cfg_prompt_type if cfg_prompt_type else "ocr_layout",
+                pixels=pixels,
+                output_dir=output_dir,
+                max_new_tokens=(int(cfg_max_new_tokens) if cfg_max_new_tokens is not None else 8192),
+            )
+
+        content = with_retry(
+            _attempt_chandra,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: args.wait_time,
+            on_exhausted=lambda e: (console.print(Text(f"Chandra OCR retries exhausted: {e}", style="yellow")) or ""),
+        )
+        return content
+
     elif provider == "olmocr":
         # Prepare media preview only for images
         pixels = None
