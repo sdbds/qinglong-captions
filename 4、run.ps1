@@ -23,7 +23,7 @@ $wait_time = 1
 $max_retries = 100
 $segment_time = 600
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image tasks
@@ -222,6 +222,13 @@ if ($ocr_model) {
       [void]$uv_args.Add("--with-requirements=requirements-nanonetsocr.txt")
     }else{
       uv pip install -r requirements-nanonetsocr.txt
+    }
+  }
+  elseif ($ocr_model -eq "firered_ocr") {
+    if ($env:OS -eq "Windows_NT") {
+      [void]$uv_args.Add("--with-requirements=requirements-fireredocr.txt")
+    }else{
+      uv pip install -r requirements-fireredocr.txt
     }
   }
 }

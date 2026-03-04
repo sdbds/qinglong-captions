@@ -1225,6 +1225,60 @@ def api_process_batch(
         )
         return content
 
+    elif provider == "firered_ocr":
+        # Prepare media preview only for images
+        pixels = None
+        if mime.startswith("image"):
+            _, pixels, _, _, _ = prepare_media(uri, mime, args, console, to_rgb=True)
+
+        # Build FireRed-OCR prompt from config; fallback to default document parsing prompt
+        prompts_section = config.get("prompts", {})
+        firered_prompt = prompts_section.get("firered_ocr_prompt", "")
+
+        # Output directory near input path
+        output_dir = str(Path(uri).with_suffix(""))
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        firered_section = {}
+        try:
+            if isinstance(config, dict):
+                firered_section = config.get("firered_ocr", {}) or {}
+        except Exception:
+            firered_section = {}
+        cfg_model_id = firered_section.get("model_id", "FireRedTeam/FireRed-OCR")
+        cfg_max_new_tokens = firered_section.get("max_new_tokens")
+
+        def _attempt_firered() -> str:
+            try:
+                from module.providers.firered_ocr_provider import (
+                    attempt_firered_ocr as firered_attempt,
+                )
+            except Exception as e:
+                console.print(Text(f"FireRed-OCR provider not available: {e}", style="red"))
+                raise
+
+            return firered_attempt(
+                uri=uri,
+                console=console,
+                progress=progress,
+                task_id=task_id,
+                model_id=cfg_model_id,
+                prompt_text=firered_prompt if firered_prompt else None,
+                pixels=pixels,
+                output_dir=output_dir,
+                max_new_tokens=(int(cfg_max_new_tokens) if cfg_max_new_tokens is not None else 8192),
+            )
+
+        content = with_retry(
+            _attempt_firered,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: args.wait_time,
+            on_exhausted=lambda e: (console.print(Text(f"FireRed-OCR retries exhausted: {e}", style="yellow")) or ""),
+        )
+        return content
+
     elif provider in ["moondream", "qwen_vl_local", "step_vl_local"] and mime.startswith("image"):
         _, pixels, _, _, _ = prepare_media(uri, mime, args, console)
 

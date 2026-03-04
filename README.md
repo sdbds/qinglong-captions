@@ -7,6 +7,10 @@
 
 ## 更新日志
 
+### 3.8
+
+1. 新增 FireRed-OCR (FireRedTeam/FireRed-OCR) 支持，基于 Qwen3-VL 的高性能文档解析 OCR 模型。
+
 ### 3.7
 
 1. 新增 GLM-OCR (zai-org/GLM-OCR) 支持，用于从图像和文档中识别文本。
@@ -153,7 +157,7 @@ $wait_time = 1
 $max_retries = 10
 $segment_time = 600
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "firered_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image tasks
@@ -173,6 +177,10 @@ $tags_highlightrate = 0.3
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changlog
+
+### 3.8
+
+1. Added support for FireRed-OCR (FireRedTeam/FireRed-OCR), a high-performance document parsing OCR model based on Qwen3-VL.
 
 ### 3.7
 
