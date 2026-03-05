@@ -627,6 +627,10 @@ def api_process_batch(
             console.print(f"[yellow]Unsupported mime for Kimi branch:[/yellow] {mime}")
             return ""
 
+        # Read kimi_vl config from config.toml
+        kimi_vl_config = config.get("kimi_vl", {}) if isinstance(config, dict) else {}
+        thinking = kimi_vl_config.get("thinking", "enabled") if kimi_vl_config else "enabled"
+
         def _attempt_kimi() -> str:
             return kimi_attempt(
                 client=client,
@@ -638,7 +642,7 @@ def api_process_batch(
                 uri=uri,
                 image_pixels=image_pixels,
                 pair_pixels=pair_pixels,
-                thinking=getattr(args, "kimi_thinking", "enabled"),
+                thinking=thinking,
                 mode=getattr(args, "mode", "all")
             )
 

@@ -664,14 +664,6 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--kimi_thinking",
-        type=str,
-        choices=["enabled", "disabled"],
-        default="enabled",
-        help="Enable or disable Kimi thinking mode (default: enabled)",
-    )
-
-    parser.add_argument(
         "--dir_name",
         action="store_true",
         help="Use the directory name as the dataset name",
