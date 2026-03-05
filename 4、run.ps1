@@ -116,10 +116,6 @@ if ($kimi_base_url) {
   [void]$ext_args.Add("--kimi_base_url=$kimi_base_url")
 }
 
-if ($kimi_thinking) {
-  [void]$ext_args.Add("--kimi_thinking=$kimi_thinking")
-}
-
 if ($qwenVL_api_key) {
   [void]$ext_args.Add("--qwenVL_api_key=$qwenVL_api_key")
 }
