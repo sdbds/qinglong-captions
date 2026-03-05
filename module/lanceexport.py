@@ -41,6 +41,12 @@ animation_extensions = get_supported_extensions("animation")
 video_extensions = get_supported_extensions("video")
 audio_extensions = get_supported_extensions("audio")
 application_extensions = get_supported_extensions("application")
+# Frozen sets for O(1) membership testing (all lowercase)
+_image_ext_set = frozenset(image_extensions)
+_animation_ext_set = frozenset(animation_extensions)
+_video_ext_set = frozenset(video_extensions)
+_audio_ext_set = frozenset(audio_extensions)
+_application_ext_set = frozenset(application_extensions)
 
 
 def format_duration(duration_ms: int) -> str:
@@ -491,15 +497,15 @@ def extract_from_lance(
 
                 media_type = None
                 suffix = uri.suffix.lower()
-                if suffix in image_extensions:
+                if suffix in _image_ext_set:
                     media_type = "image"
-                elif suffix in animation_extensions:
+                elif suffix in _animation_ext_set:
                     media_type = "animation"
-                elif suffix in video_extensions:
+                elif suffix in _video_ext_set:
                     media_type = "video"
-                elif suffix in audio_extensions:
+                elif suffix in _audio_ext_set:
                     media_type = "audio"
-                elif suffix in application_extensions:
+                elif suffix in _application_ext_set:
                     media_type = "application"
                 if not uri.exists() and blob:
                     if media_type:

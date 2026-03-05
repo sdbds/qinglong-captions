@@ -54,6 +54,13 @@ animation_extensions = get_supported_extensions("animation")
 video_extensions = get_supported_extensions("video")
 audio_extensions = get_supported_extensions("audio")
 application_extensions = get_supported_extensions("application")
+# Frozen sets for O(1) membership testing (all lowercase)
+_image_ext_set = frozenset(image_extensions)
+_animation_ext_set = frozenset(animation_extensions)
+_video_ext_set = frozenset(video_extensions)
+_audio_ext_set = frozenset(audio_extensions)
+_application_ext_set = frozenset(application_extensions)
+_all_ext_set = _image_ext_set | _animation_ext_set | _video_ext_set | _audio_ext_set | _application_ext_set
 
 
 @dataclass
@@ -212,7 +219,8 @@ class FileProcessor:
             SyntaxError: If the image format is invalid
         """
         try:
-            if file_path.endswith(image_extensions + animation_extensions):
+            _suffix = Path(file_path).suffix.lower()
+            if _suffix in _image_ext_set or _suffix in _animation_ext_set:
                 with Image.open(file_path) as img:
                     # Get file pointer position
                     pos = img.fp.tell()
@@ -284,7 +292,7 @@ class FileProcessor:
                         frame_rate=frame_rate,
                         blob=binary_data if save_binary else b"",
                     )
-            elif file_path.endswith(video_extensions):
+            elif _suffix in _video_ext_set:
                 try:
                     # Get video metadata first
                     meta = iio.immeta(file_path) or {}
@@ -361,7 +369,7 @@ class FileProcessor:
                     console.print(f"[red]Error processing video {file_path}: {str(e)}[/red]")
                     return None
 
-            elif file_path.endswith(audio_extensions):
+            elif _suffix in _audio_ext_set:
                 from mutagen import File as MutagenFile
 
                 try:
@@ -409,7 +417,7 @@ class FileProcessor:
                     console.print(f"[red]Error processing audio {file_path}: {str(e)}[/red]")
                     return None
 
-            elif file_path.endswith(application_extensions):
+            elif _suffix in _application_ext_set:
                 try:
                     # Read application file as binary first
                     binary_data = Path(file_path).read_bytes()
@@ -460,10 +468,7 @@ def load_data(datasets_dir: str, texts_dir: Optional[str] = None) -> List[Dict[s
     if texts_dir:
         # Paired directory structure
         for file in Path(datasets_dir).iterdir():
-            if not file.is_file() or not any(
-                str(file).endswith(ext)
-                for ext in (image_extensions + animation_extensions + video_extensions + audio_extensions + application_extensions)
-            ):
+            if not file.is_file() or file.suffix.lower() not in _all_ext_set:
                 continue
 
             text_path = Path(texts_dir) / (file.stem + ".txt")
@@ -488,10 +493,7 @@ def load_data(datasets_dir: str, texts_dir: Optional[str] = None) -> List[Dict[s
         # Single directory structure
         datasets_path = Path(datasets_dir).absolute()  # 转换为绝对路径
         for file_path in datasets_path.rglob("*"):
-            if not file_path.is_file() or not any(
-                str(file_path).endswith(ext)
-                for ext in (image_extensions + animation_extensions + video_extensions + audio_extensions + application_extensions)
-            ):
+            if not file_path.is_file() or file_path.suffix.lower() not in _all_ext_set:
                 continue
 
             text_path = file_path.with_suffix(".txt")
@@ -568,20 +570,20 @@ def process(
 
             # 根据文件类型选择颜色
             suffix = Path(file_path).suffix.lower()
-            if suffix in image_extensions:
-                if suffix in animation_extensions:
+            if suffix in _image_ext_set:
+                if suffix in _animation_ext_set:
                     color = CONSOLE_COLORS["animation"]
                     media_type = "animation"
                 else:
                     color = CONSOLE_COLORS["image"]
                     media_type = "image"
-            elif suffix in video_extensions:
+            elif suffix in _video_ext_set:
                 color = CONSOLE_COLORS["video"]
                 media_type = "video"
-            elif suffix in audio_extensions:
+            elif suffix in _audio_ext_set:
                 color = CONSOLE_COLORS["audio"]
                 media_type = "audio"
-            elif suffix in application_extensions:
+            elif suffix in _application_ext_set:
                 color = CONSOLE_COLORS["application"]
                 media_type = "application"
             else:

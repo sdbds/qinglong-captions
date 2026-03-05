@@ -1,12 +1,13 @@
 """Configuration constants for the dataset processing."""
 
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, FrozenSet, List, Tuple
 
 import pyarrow as pa
 import toml
 
-# Base image extensions
+# Base extensions (lowercase-only canonical forms).
+# All comparison sites must normalize with .lower() before checking membership.
 BASE_IMAGE_EXTENSIONS: List[str] = [
     ".png",
     ".jpg",
@@ -18,25 +19,12 @@ BASE_IMAGE_EXTENSIONS: List[str] = [
     ".tif",
     ".tiff",
     ".avif",
-    ".PNG",
-    ".JPG",
-    ".JPEG",
-    ".GIF",
-    ".WEBP",
-    ".BMP",
-    ".ICO",
-    ".TIF",
-    ".TIFF",
-    ".AVIF",
 ]
 
 BASE_ANIMATION_EXTENSIONS: List[str] = [
     ".gif",
     ".webp",
     ".avif",
-    ".GIF",
-    ".WEBP",
-    ".AVIF",
 ]
 
 BASE_VIDEO_EXTENSIONS: List[str] = [
@@ -50,16 +38,6 @@ BASE_VIDEO_EXTENSIONS: List[str] = [
     ".m4v",
     ".mpg",
     ".mpeg",
-    ".MP4",
-    ".WEBM",
-    ".AVI",
-    ".MKV",
-    ".MOV",
-    ".FLV",
-    ".WMV",
-    ".M4V",
-    ".MPG",
-    ".MPEG",
 ]
 
 BASE_AUDIO_EXTENSIONS: List[str] = [
@@ -78,33 +56,27 @@ BASE_AUDIO_EXTENSIONS: List[str] = [
     ".mid",
     ".midi",
     ".mka",
-    ".MP3",
-    ".WAV",
-    ".OGG",
-    ".FLAC",
-    ".M4A",
-    ".WMA",
-    ".AAC",
-    ".AIFF",
-    ".AIFC",
-    ".AIF",
-    ".AU",
-    ".SND",
-    ".MID",
-    ".MIDI",
-    ".MKA",
 ]
 
 BASE_APPLICATION_EXTENSIONS: List[str] = [
     ".pdf",
-    ".PDF",
     ".psd",
-    ".PSD",
 ]
+
+# Frozen sets for O(1) membership testing (already lowercase).
+IMAGE_EXTENSIONS_SET: FrozenSet[str] = frozenset(BASE_IMAGE_EXTENSIONS)
+ANIMATION_EXTENSIONS_SET: FrozenSet[str] = frozenset(BASE_ANIMATION_EXTENSIONS)
+VIDEO_EXTENSIONS_SET: FrozenSet[str] = frozenset(BASE_VIDEO_EXTENSIONS)
+AUDIO_EXTENSIONS_SET: FrozenSet[str] = frozenset(BASE_AUDIO_EXTENSIONS)
+APPLICATION_EXTENSIONS_SET: FrozenSet[str] = frozenset(BASE_APPLICATION_EXTENSIONS)
 
 
 def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
-    """Get all supported media extensions including optional formats."""
+    """Get all supported media extensions including optional formats.
+
+    Returns lowercase-only extensions. Callers must normalize suffixes
+    with .lower() before membership testing.
+    """
     if media_type == "image" or media_type == "animation":
         extensions = BASE_IMAGE_EXTENSIONS.copy() if media_type == "image" else BASE_ANIMATION_EXTENSIONS.copy()
 
@@ -112,7 +84,7 @@ def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
         try:
             import pillow_jxl
 
-            extensions.extend([".jxl", ".JXL"])
+            extensions.append(".jxl")
         except ImportError:
             pass
 
@@ -120,7 +92,7 @@ def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
             from pillow_heif import register_heif_opener
 
             register_heif_opener()
-            extensions.extend([".heic", ".heif", ".HEIC", ".HEIF"])
+            extensions.extend([".heic", ".heif"])
         except ImportError:
             pass
 
@@ -128,7 +100,7 @@ def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
             try:
                 from apng import APNG
 
-                extensions.extend([".apng", ".APNG"])
+                extensions.append(".apng")
             except ImportError:
                 pass
 

@@ -364,7 +364,8 @@ def api_process_batch(
         messages = []
 
         if mime.startswith("video"):
-            file = client.files.create(file=open(uri, "rb"), purpose="storage")
+            with open(uri, "rb") as video_f:
+                file = client.files.create(file=video_f, purpose="storage")
             console.print(f"[blue]Uploaded video file:[/blue] {file}")
 
             messages = [
@@ -1508,13 +1509,14 @@ def api_process_batch(
         elif mime.startswith("application"):
             for upload_attempt in range(args.max_retries):
                 try:
-                    uploaded_pdf = client.files.upload(
-                        file={
-                            "file_name": f"{sanitize_filename(uri)}.pdf",
-                            "content": open(uri, "rb"),
-                        },
-                        purpose="ocr",
-                    )
+                    with open(uri, "rb") as pdf_f:
+                        uploaded_pdf = client.files.upload(
+                            file={
+                                "file_name": f"{sanitize_filename(uri)}.pdf",
+                                "content": pdf_f,
+                            },
+                            purpose="ocr",
+                        )
                     signed_url = client.files.get_signed_url(file_id=uploaded_pdf.id)
                     break
                 except Exception as e:
@@ -1703,7 +1705,7 @@ def api_process_batch(
                     threshold=types.HarmBlockThreshold.OFF,
                 ),
                 types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                    category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
                     threshold=types.HarmBlockThreshold.OFF,
                 ),
                 types.SafetySetting(
@@ -1751,7 +1753,7 @@ def api_process_batch(
 
         pair_blob_list = []
 
-        if mime.startswith("video") or mime.startswith("audio") and Path(uri).stat().st_size >= 20 * 1024 * 1024:
+        if mime.startswith("video") or (mime.startswith("audio") and Path(uri).stat().st_size >= 20 * 1024 * 1024):
             upload_success, files = with_retry(
                 lambda: upload_or_get(
                     client=client,

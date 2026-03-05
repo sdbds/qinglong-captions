@@ -24,9 +24,9 @@ from rich.progress import (
 )
 
 from config.config import (
-    BASE_APPLICATION_EXTENSIONS,
-    BASE_AUDIO_EXTENSIONS,
-    BASE_VIDEO_EXTENSIONS,
+    APPLICATION_EXTENSIONS_SET,
+    AUDIO_EXTENSIONS_SET,
+    VIDEO_EXTENSIONS_SET,
 )
 from module.api_handler import api_process_batch
 from module.lanceexport import extract_from_lance
@@ -81,11 +81,11 @@ def process_batch(args, config):
         processed_filepaths = []
         for batch in scanner.to_batches():
             filepaths = batch["uris"].to_pylist()
-            mime = batch["mime"].to_pylist()
-            duration = batch["duration"].to_pylist()
-            sha256hash = batch["hash"].to_pylist()
+            mimes = batch["mime"].to_pylist()
+            durations = batch["duration"].to_pylist()
+            sha256hashes = batch["hash"].to_pylist()
 
-            for filepath, mime, duration, sha256hash in zip(filepaths, mime, duration, sha256hash):
+            for filepath, mime, duration, sha256hash in zip(filepaths, mimes, durations, sha256hashes):
                 # 创建场景检测器，但异步初始化它（不阻塞主线程）
                 scene_detector = None
                 if args.scene_threshold > 0 and args.scene_min_len > 0 and mime.startswith("video"):
@@ -271,9 +271,9 @@ def process_batch(args, config):
 
                 filepath_path = Path(filepath)
                 # Determine caption file extension based on media type
-                if filepath_path.suffix in BASE_VIDEO_EXTENSIONS or filepath_path.suffix in BASE_AUDIO_EXTENSIONS:
+                if filepath_path.suffix.lower() in VIDEO_EXTENSIONS_SET or filepath_path.suffix.lower() in AUDIO_EXTENSIONS_SET:
                     caption_path = filepath_path.with_suffix(".srt")
-                elif filepath_path.suffix in BASE_APPLICATION_EXTENSIONS:
+                elif filepath_path.suffix.lower() in APPLICATION_EXTENSIONS_SET:
                     caption_path = filepath_path.with_suffix(".md")
                 else:
                     caption_path = filepath_path.with_suffix(".txt")
@@ -472,18 +472,12 @@ def _postprocess_caption_content(output, filepath, args):
     if isinstance(output, dict):
         return output
     output = output.strip()
-    if not output.strip():
+    if not output:
         console.print(f"[red]Empty caption content for {filepath}[/red]")
         return ""
 
     # 格式化时间戳 - 只处理视频和音频文件的字幕
-    if Path(filepath).suffix in BASE_VIDEO_EXTENSIONS or Path(filepath).suffix in BASE_AUDIO_EXTENSIONS:
-        # 确保字幕内容格式正确
-        output = output.strip()
-        if not output.strip():
-            console.print(f"[red]Empty caption content for {filepath}[/red]")
-            return ""
-
+    if Path(filepath).suffix.lower() in VIDEO_EXTENSIONS_SET or Path(filepath).suffix.lower() in AUDIO_EXTENSIONS_SET:
         # 使用单一的正则表达式和处理函数来修复时间戳格式
         # 创建一个匹配各种时间戳格式的模式
         timestamp_pattern = re.compile(
@@ -518,7 +512,7 @@ def _postprocess_caption_content(output, filepath, args):
         # 一次性处理所有时间戳
         output = timestamp_pattern.sub(normalize_timestamp, output)
 
-    elif Path(filepath).suffix in BASE_APPLICATION_EXTENSIONS and args.ocr_model != "":
+    elif Path(filepath).suffix.lower() in APPLICATION_EXTENSIONS_SET and args.ocr_model != "":
         pass
     else:
         try:
