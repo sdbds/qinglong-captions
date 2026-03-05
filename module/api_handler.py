@@ -1,4 +1,5 @@
 import base64
+import json
 import functools
 import io
 import platform
@@ -579,7 +580,13 @@ def api_process_batch(
         _, character_prompt = get_character_prompt(uri, args, config)
         config_prompt = config["prompts"]["kimi_image_prompt"]
 
-        prompt = Text(f"{character_prompt}{config_prompt}").plain
+        # Ask Kimi to return structured JSON so downstream can render tags/short/long/ratings
+        structured_tail = (
+            "\nReturn JSON only with keys: "
+            "tags (array of strings), short_description (string), "
+            "long_description (string), rating (object or array), average_score (number)."
+        )
+        prompt = Text(f"{character_prompt}{config_prompt}{structured_tail}").plain
 
         pair_pixels = None
         image_pixels = None
@@ -631,6 +638,8 @@ def api_process_batch(
                 uri=uri,
                 image_pixels=image_pixels,
                 pair_pixels=pair_pixels,
+                thinking=getattr(args, "kimi_thinking", "enabled"),
+                mode=getattr(args, "mode", "all")
             )
 
         result = with_retry(
@@ -643,6 +652,38 @@ def api_process_batch(
             ),
             on_exhausted=lambda e: (console.print(Text(f"Kimi retries exhausted: {e}", style="yellow")) or ""),
         )
+        if result:
+            try:
+                raw_result = str(result).strip()
+                if raw_result.startswith("```"):
+                    raw_result = re.sub(r"^```[a-zA-Z]*", "", raw_result).strip()
+                    if raw_result.endswith("```"):
+                        raw_result = raw_result[:-3].strip()
+                parsed = json.loads(raw_result)
+                if isinstance(parsed, dict):
+                    short_value = parsed.get("short_description") or parsed.get("short") or ""
+                    long_value = parsed.get("long_description") or parsed.get("long") or ""
+                    if "short_description" not in parsed and short_value:
+                        parsed["short_description"] = short_value
+                    if "long_description" not in parsed and long_value:
+                        parsed["long_description"] = long_value
+                    mode = getattr(args, "mode", "all")
+                    if mode == "short":
+                        parsed.pop("long", None)
+                        parsed.pop("long_description", None)
+                        parsed.pop("short", None)
+                        parsed["short_description"] = short_value
+                        return parsed
+                    if mode == "long":
+                        parsed.pop("short", None)
+                        parsed.pop("short_description", None)
+                        parsed.pop("long", None)
+                        parsed["long_description"] = long_value
+                        return parsed
+                    return parsed
+            except Exception as e:
+                console.print(f"[red]Failed to parse Kimi JSON response: {e}[/red]")
+                console.print(f"[yellow]Raw response: {raw_result}[/yellow]")
         return result
 
     elif provider == "ark":

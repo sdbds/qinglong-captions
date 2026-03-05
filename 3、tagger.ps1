@@ -1,4 +1,8 @@
 #region Configuration
+# set proxy if needed
+# $env:HTTP_PROXY="http://127.0.0.1:10809"
+# $env:HTTPS_PROXY="http://127.0.0.1:10809"
+
 # Model settings
 $Config = @{
     train_data_dir     = "./datasets"                                # Input images path | 图片输入路径
@@ -7,7 +11,7 @@ $Config = @{
     batch_size         = 12                                          # Batch size for inference
     thresh             = 0.6                                         # Concept threshold
     general_threshold  = 0.55                                         # General threshold
-    character_threshold = 1.0                                        # Character threshold
+    character_threshold = 1.0                                       # Character threshold
 }
 
 # Feature flags

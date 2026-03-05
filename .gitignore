@@ -177,3 +177,6 @@ watermark_detection/
 
 # windsurf rules
 .windsurfrules
+
+*.zip
+*TensorRT*

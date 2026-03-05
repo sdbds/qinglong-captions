@@ -8,8 +8,9 @@ $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
 $kimi_api_key = ""
-$kimi_model_path = "moonshotai/kimi-k2.5"
-$kimi_base_url = "https://integrate.api.nvidia.com/v1"
+$kimi_model_path = "kimi-k2.5" # "moonshotai/kimi-k2.5" if you want to use nvidia's endpoint
+$kimi_base_url = "https://api.moonshot.cn/v1" # "https://integrate.api.nvidia.com/v1" if you want to use nvidia's endpoint
+$kimi_thinking = "disabled" # enabled | disabled
 $qwenVL_api_key = ""
 $qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
 $glm_api_key = ""
@@ -17,7 +18,7 @@ $glm_model_path = "GLM-4V-Plus-0111"
 $ark_api_key = ""
 $ark_model_path = "doubao-seed-1-6"
 $dir_name = $false
-$mode = "long"
+$mode = "long" # all, short, long
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 $wait_time = 1
 $max_retries = 100
@@ -114,6 +115,10 @@ if ($kimi_model_path) {
 
 if ($kimi_base_url) {
   [void]$ext_args.Add("--kimi_base_url=$kimi_base_url")
+}
+
+if ($kimi_thinking) {
+  [void]$ext_args.Add("--kimi_thinking=$kimi_thinking")
 }
 
 if ($qwenVL_api_key) {

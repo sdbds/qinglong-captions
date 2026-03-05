@@ -279,7 +279,8 @@ def process_batch(args, config):
                     caption_path = filepath_path.with_suffix(".txt")
                 console.print(f"[blue]Processing caption for:[/blue] {filepath_path}")
                 if isinstance(output, dict):
-                    console.print(f"[blue]Caption content length:[/blue] {len(output['description'])}")
+                    desc = output.get("description") or output.get("long_description") or output.get("short_description") or ""
+                    console.print(f"[blue]Caption content length:[/blue] {len(desc)}")
                 else:
                     console.print(f"[blue]Caption content length:[/blue] {len(output)}")
 
@@ -324,17 +325,27 @@ def process_batch(args, config):
                                 for line in output:
                                     f.write(line + "\n")
                         elif isinstance(output, dict):
-                            with open(
-                                filepath_path.with_suffix(".json"),
-                                "w",
-                                encoding="utf-8",
-                            ) as f:
-                                json.dump(output, f, indent=2, ensure_ascii=False)
-                            with open(caption_path, "w", encoding="utf-8") as f:
-                                if "description" in output and output["description"]:
-                                    f.write(output["description"])
-                                else:
-                                    f.write("No description available")
+                            try:
+                                with open(
+                                    filepath_path.with_suffix(".json"),
+                                    "w",
+                                    encoding="utf-8",
+                                ) as f:
+                                    json.dump(output, f, indent=2, ensure_ascii=False)
+                            except Exception as e:
+                                console.print(f"[red]Error saving JSON file: {e}[/red]")
+
+                            try:
+                                with open(caption_path, "w", encoding="utf-8") as f:
+                                    desc = (
+                                        output.get("long_description")
+                                        or output.get("description")
+                                        or output.get("short_description")
+                                        or ""
+                                    )
+                                    f.write(desc if desc else "No description available")
+                            except Exception as e:
+                                console.print(f"[red]Error saving caption text: {e}[/red]")
                         else:
                             caption_path.write_text(output, encoding="utf-8")
                         console.print(f"[green]Saved captions to {caption_path}[/green]")
@@ -458,6 +469,8 @@ def _postprocess_caption_content(output, filepath, args):
             output = "\n".join(output)
 
     # 确保字幕内容格式正确
+    if isinstance(output, dict):
+        return output
     output = output.strip()
     if not output.strip():
         console.print(f"[red]Empty caption content for {filepath}[/red]")
@@ -648,6 +661,14 @@ def setup_parser() -> argparse.ArgumentParser:
         type=str,
         default="",
         help="Model ID for Ark chat.completions (e.g. your EP model id)",
+    )
+
+    parser.add_argument(
+        "--kimi_thinking",
+        type=str,
+        choices=["enabled", "disabled"],
+        default="enabled",
+        help="Enable or disable Kimi thinking mode (default: enabled)",
     )
 
     parser.add_argument(

@@ -216,6 +216,7 @@ def get_tags_official(
         "general": [],
         "character": [],
         "copyright": [],
+        "artist": [],
         "meta": [],
         "quality": [],
         "model": [],
@@ -1089,47 +1090,39 @@ def format_description(text: str, tag_description: str = "") -> str:
     Returns:
         Formatted text with rich markup
     """
+    has_green = bool(re.search(r"<[^>]+>", text))
+    has_purple = bool(re.search(r"\([^)]+\)", text))
+
     # 高亮<>内的内容
     text = re.sub(r"<([^>]+)>", r"[magenta]\1[/magenta]", text)
     # 高亮()内的内容
     text = re.sub(r"\(([^)]+)\)", r"[dark_magenta]\1[/dark_magenta]", text)
 
-    words = text.split()
-
     tagClassifier = TagClassifier()
+    matched_tags = set()
+    tags = []
 
-    blue_words = set()
-
-    # 高亮与tag_description匹配的单词
+    # 高亮与tag_description匹配的标签（支持多词标签）
     if tag_description:
-        # 将tag_description分割成单词列表
-        tag_words = set(
-            word.strip().lower()
-            for word in re.sub(r"\d+", "", tag_description).replace(",", " ").replace(".", " ").split()
-            if word.strip()
-        )
-        for i, word in enumerate(words):
-            highlight_word = re.sub(r"[^\w\s]", "", word.replace("'s", "").lower())
-            if highlight_word in tag_words:
-                blue_words.add(highlight_word)
-                words[i] = tagClassifier.get_colored_tag(word)
-        text = " ".join(words)
+        tags = [t.strip() for t in tag_description.split(",") if t.strip()]
+        if tags:
+            tags_sorted = sorted(tags, key=len, reverse=True)
+            pattern = r"(?<!\w)(" + "|".join(re.escape(t) for t in tags_sorted) + r")(?!\w)"
+
+            def _replace(match: re.Match) -> str:
+                matched_tags.add(match.group(0).lower())
+                return tagClassifier.get_colored_tag(match.group(0))
+
+            text = re.sub(pattern, _replace, text, flags=re.IGNORECASE)
 
     # 统计高亮的次数
     highlight_count = 0
-    has_green = False
-    has_purple = False
-    for word in words:
-        if word.startswith("[magenta]") and word.endswith("[/magenta]"):
-            has_green = True
-        if word.startswith("[dark_magenta]") and word.endswith("[/dark_magenta]"):
-            has_purple = True
-
-    highlight_count = len(blue_words) + int(has_green) + int(has_purple)
+    highlight_count = len(matched_tags) + int(has_green) + int(has_purple)
 
     # 打印高亮率
     colors = ["red", "orange", "yellow", "green", "cyan", "blue", "magenta"]
-    rate = highlight_count / len(tag_description.replace(",", " ").split()) * 100
+    tag_count = len(tags)
+    rate = (highlight_count / tag_count * 100) if tag_count else 0
     # 将100%平均分配给7种颜色，每个颜色约14.3%
     color_index = min(int(rate / (100 / len(colors))), len(colors) - 1)
     color = colors[color_index]
@@ -1193,7 +1186,51 @@ class TagClassifier:
         """
         with open(csv_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            tag_categories = {row["name"].replace("_", " "): row["category"] for row in reader}
+            tag_categories = {row["name"].replace("_", " ").lower(): row["category"] for row in reader}
+
+        # Merge category hints from datasets/tags.json when available
+        tags_json_path = Path(__file__).resolve().parents[1] / "datasets" / "tags.json"
+        if tags_json_path.exists():
+            try:
+                data = json.loads(tags_json_path.read_text(encoding="utf-8"))
+                category_map = {
+                    "general": "0",
+                    "artist": "1",
+                    "studio": "2",
+                    "copyright": "3",
+                    "franchise": "3",
+                    "character": "4",
+                    "genre": "5",
+                    "medium": "8",
+                    "meta": "9",
+                    "fashion": "10",
+                    "anatomy": "11",
+                    "pose": "12",
+                    "activity": "13",
+                    "role": "14",
+                    "flora": "15",
+                    "fauna": "16",
+                    "entity": "17",
+                    "object": "18",
+                    "substance": "19",
+                    "setting": "20",
+                    "language": "21",
+                    "automatic": "22",
+                }
+                for entry in data.values():
+                    if not isinstance(entry, dict):
+                        continue
+                    for category_name, tags in entry.items():
+                        category_id = category_map.get(category_name)
+                        if not category_id or not isinstance(tags, list):
+                            continue
+                        for tag in tags:
+                            tag_key = str(tag).lower()
+                            if tag_key and tag_key not in tag_categories:
+                                tag_categories[tag_key] = category_id
+            except Exception as e:
+                console.print(f"[red]Error merging tags from {tags_json_path}: {e}[/red]")
+
         return tag_categories
 
     def classify(self, tags):

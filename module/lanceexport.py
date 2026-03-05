@@ -178,11 +178,20 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
                             # Format JSON content with indentation for better readability
                             with open(caption_path.with_suffix(".json"), "w", encoding="utf-8") as j:
                                 json.dump(parsed_json, j, indent=2, ensure_ascii=False)
-                            f.write(parsed_json["description"])
+
+                            desc = (
+                                parsed_json.get("long_description")
+                                or parsed_json.get("description")
+                                or parsed_json.get("short_description")
+                                or ""
+                            )
+                            f.write(desc if desc else "")
                         except json.JSONDecodeError:
                             # If not valid JSON, continue with normal text processing
                             if line and line.strip():
                                 f.write(line.strip() + "\n")
+                        except Exception as e:
+                            console.print(f"[yellow]JSON caption parse/save failed: {e}[/yellow]")
                     else:
                         if line and line.strip():
                             f.write(line.strip() + "\n")

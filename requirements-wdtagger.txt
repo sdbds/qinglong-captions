@@ -21,7 +21,7 @@ opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/
 opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.12.0.88/opencv_contrib_python-4.12.0.88-cp37-abi3-linux_x86_64.whl; sys_platform == 'linux'
 onnxruntime-gpu==1.20.2; sys_platform == 'win32'
 onnxruntime-gpu>=1.20.2; sys_platform == 'linux'
-tensorrt>=10.9
+# tensorrt==10.9.0.34
 
 torch>=2.8.0
 torchvision
