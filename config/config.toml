@@ -681,3 +681,6 @@ temperature = 0.7
 repetition_penalty = 1.0
 presence_penalty = 1.5
 out_seq_length = 16384
+
+[kimi_vl]
+thinking = "enabled"  # enabled | disabled

@@ -10,7 +10,6 @@ $step_model_path = "step-1.5v-mini"
 $kimi_api_key = ""
 $kimi_model_path = "kimi-k2.5" # "moonshotai/kimi-k2.5" if you want to use nvidia's endpoint
 $kimi_base_url = "https://api.moonshot.cn/v1" # "https://integrate.api.nvidia.com/v1" if you want to use nvidia's endpoint
-$kimi_thinking = "disabled" # enabled | disabled
 $qwenVL_api_key = ""
 $qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
 $glm_api_key = ""
