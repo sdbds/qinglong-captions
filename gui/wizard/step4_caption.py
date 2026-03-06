@@ -88,13 +88,11 @@ class CaptionStep:
         'Kimi-Code': {
             'key_name': 'kimi_code_api_key',
             'models': [
-                'kimi-code',
+                'k2p5',
             ],
-            'default_model': 'kimi-code',
+            'default_model': 'k2p5',
             'supports_video': True,
             'supports_task': False,
-            'base_url': 'https://api.kimi.com/coding/v1',
-            'backend_key_name': 'kimi_api_key',  # 后端实际使用的参数名
         },
         'GLM': {
             'key_name': 'glm_api_key',
@@ -291,7 +289,7 @@ class CaptionStep:
             with ui.expansion(f'{api_name} API').classes('w-full q-mb-md'):
                 with ui.card().classes(get_classes('card') + ' w-full q-pa-md'):
                     # Kimi-Code 提示
-                    if config.get('base_url') and api_name == 'Kimi-Code':
+                    if api_name == 'Kimi-Code':
                         ui.label(
                             'Kimi-Code 使用独立 API Key（来自 kimi.com/code），'
                             '与 Moonshot 平台的 Key 不通用'
@@ -452,20 +450,12 @@ class CaptionStep:
         for api_name, config in self.API_CONFIGS.items():
             key_input = self.api_keys.get(config['key_name'])
             if key_input and key_input.value:
-                # 后端参数名可能与 GUI key_name 不同（如 Kimi-Code → kimi_api_key）
-                backend_key = config.get('backend_key_name', config['key_name'])
-                args.append(f'--{backend_key}={key_input.value}')
+                args.append(f'--{config["key_name"]}={key_input.value}')
 
                 # 模型路径
                 model_select = getattr(self, f'{config["key_name"]}_model', None)
                 if model_select and model_select.value:
-                    model_arg_name = backend_key.replace("api_key", "model_path")
-                    args.append(f'--{model_arg_name}={model_select.value}')
-
-                # base_url（如 Kimi-Code 需要指定不同的 API 端点）
-                if config.get('base_url'):
-                    base_url_arg = backend_key.replace("api_key", "base_url")
-                    args.append(f'--{base_url_arg}={config["base_url"]}')
+                    args.append(f'--{config["key_name"].replace("api_key", "model_path")}={model_select.value}')
 
                 # 任务名称（Gemini 特有）
                 if config['supports_task']:
