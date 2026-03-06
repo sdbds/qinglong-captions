@@ -18,6 +18,7 @@ from rich.progress import (
     TimeRemainingColumn,
     TransferSpeedColumn,
 )
+import torch
 from scenedetect import (
     AdaptiveDetector,
     ContentDetector,
