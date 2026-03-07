@@ -576,7 +576,11 @@ def api_process_batch(
             return ""
 
         base_url = getattr(args, "kimi_code_base_url", "https://api.kimi.com/coding/v1")
-        client = OpenAI(api_key=args.kimi_code_api_key, base_url=base_url)
+        client = OpenAI(
+            api_key=args.kimi_code_api_key,
+            base_url=base_url,
+            default_headers={"User-Agent": "claude-code/0.1.0"},
+        )
         console.print(f"[blue]Kimi-Code base_url:[/blue] {base_url}")
 
         system_prompt, prompt = get_prompts(config, mime, args, provider, console)

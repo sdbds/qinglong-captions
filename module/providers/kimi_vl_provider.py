@@ -85,7 +85,7 @@ def _parse_kimi_response(response_text: str, mode: str = "all") -> Tuple[str, st
     return tag_description, short_description, long_description, rating, average_score
 
 
-def _load_tags_from_json(uri: str) -> list[str]:
+def _load_tags_from_json(uri: str, progress: Optional[Progress] = None) -> list[str]:
     """Load pre-generated tags from datasets/tags.json keyed by absolute file path."""
     tags_json_path = Path(__file__).resolve().parents[2] / "datasets" / "tags.json"
     if not tags_json_path.exists():
@@ -101,7 +101,8 @@ def _load_tags_from_json(uri: str) -> list[str]:
                 tags.extend([str(i) for i in v])
         return tags
     except Exception as e:
-        console.print(f"[red]Error loading or parsing {tags_json_path}: {e}[/red]")
+        if progress:
+            progress.console.print(f"[red]Error loading or parsing {tags_json_path}: {e}[/red]")
         return []
 
 
@@ -147,7 +148,7 @@ def attempt_kimi_vl(
             pass
 
     # Try to load tags from datasets/tags.json
-    tags_from_json = _load_tags_from_json(uri)
+    tags_from_json = _load_tags_from_json(uri, progress)
 
     # Inject tags hint into prompt if available (sidecar or json)
     merged_tags = tags_from_json if tags_from_json else captions
@@ -162,8 +163,7 @@ def attempt_kimi_vl(
         temperature=temperature,
         top_p=0.95,
         max_tokens=8192,
-        response_format={"type": "json_object"},
-        stream=False,
+        stream=True,
         extra_body=extra_body,
     )
 
@@ -171,7 +171,7 @@ def attempt_kimi_vl(
         progress.update(task_id, description="Generating captions")
 
     # In JSON mode, content is a JSON string
-    response_text = completion.choices[0].message.content or ""
+    response_text = _collect_stream_kimi(completion, console)
 
     try:
         parsed = json.loads(response_text)

@@ -28,7 +28,25 @@ from config.config import (
     AUDIO_EXTENSIONS_SET,
     VIDEO_EXTENSIONS_SET,
 )
-from module.api_handler import api_process_batch
+import os as _os
+
+if _os.environ.get("QINGLONG_API_V2", "0") == "1":
+    from module.api_handler_v2 import api_process_batch as _api_process_batch_v2
+
+    def api_process_batch(uri, mime, config, args, sha256hash, progress=None, task_id=None):
+        """V2 包装：将 CaptionResult 转为旧格式兼容值"""
+        result = _api_process_batch_v2(
+            uri=uri, mime=mime, config=config, args=args,
+            sha256hash=sha256hash, progress=progress, task_id=task_id,
+        )
+        # CaptionResult -> str | dict（兼容 _postprocess_caption_content）
+        if hasattr(result, 'parsed') and result.parsed is not None:
+            return result.parsed
+        if hasattr(result, 'raw'):
+            return result.raw
+        return result
+else:
+    from module.api_handler import api_process_batch
 from module.lanceexport import extract_from_lance
 from module.lanceImport import transform2lance
 from utils.parse_display import process_llm_response
