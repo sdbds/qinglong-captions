@@ -695,12 +695,24 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Model ID for Ark chat.completions (e.g. your EP model id)",
     )
 
+    # OpenAI Compatible (通用 OpenAI 接口)
     parser.add_argument(
-        "--kimi_thinking",
+        "--openai_api_key",
         type=str,
-        choices=["enabled", "disabled"],
-        default="enabled",
-        help="Enable or disable Kimi thinking mode (default: enabled)",
+        default="",
+        help="API key for OpenAI-compatible API (vLLM, Ollama, LM Studio, etc.)",
+    )
+    parser.add_argument(
+        "--openai_base_url",
+        type=str,
+        default="",
+        help="Base URL for OpenAI-compatible API (e.g., http://localhost:8000/v1)",
+    )
+    parser.add_argument(
+        "--openai_model_name",
+        type=str,
+        default="",
+        help="Model name for OpenAI-compatible API (e.g., Qwen2-VL-7B-Instruct)",
     )
 
     parser.add_argument(

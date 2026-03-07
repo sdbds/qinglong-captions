@@ -116,6 +116,15 @@ class CaptionStep:
             "supports_task": False,
             "custom_model_input": True,
         },
+        "OpenAI-Compatible": {
+            "key_name": "openai_api_key",
+            "models": [],
+            "default_model": "",
+            "supports_video": True,
+            "supports_task": False,
+            "custom_model_input": True,
+            "is_openai_compatible": True,
+        },
     }
 
     MODES = ["long", "short", "all"]
@@ -283,6 +292,11 @@ class CaptionStep:
                             "text-caption q-mb-sm"
                         ).style("color: var(--color-text-secondary);")
 
+                    # OpenAI-Compatible 特殊渲染
+                    if config.get("is_openai_compatible"):
+                        self._render_openai_compatible_settings(api_name, config)
+                        continue
+
                     # API Key
                     key_input = ui.input(label=f"{api_name} {t('api_key')}", placeholder=t("api_key_placeholder"), password=True)
                     key_input.classes("modern-input w-full")
@@ -312,6 +326,43 @@ class CaptionStep:
                         task_input = ui.input(label=t("gemini_task"), placeholder=t("gemini_task_placeholder"))
                         task_input.classes("modern-input w-full")
                         setattr(self, f"{config['key_name']}_task", task_input)
+
+    def _render_openai_compatible_settings(self, api_name: str, config: dict):
+        """渲染 OpenAI Compatible API 的专用设置"""
+        ui.label(
+            "通用 OpenAI 兼容接口，支持 vLLM / Ollama / LM Studio / SGLang 等本地或远程服务。"
+            "配置 Base URL 后将优先使用此接口。"
+        ).classes("text-caption q-mb-sm").style("color: var(--color-text-secondary);")
+
+        # Base URL（必填）
+        self.openai_base_url = styled_input(
+            value="",
+            label="Base URL",
+            icon="dns",
+            icon_color=COLORS["info"],
+            placeholder="http://localhost:8000/v1",
+        )
+
+        with ui.row().classes("w-full gap-4"):
+            # API Key（可选）
+            key_input = ui.input(
+                label=f"{api_name} API Key",
+                placeholder="sk-no-key-required（本地服务可留空）",
+                password=True,
+            )
+            key_input.classes("modern-input w-full")
+            key_input.style("flex: 1;")
+            self.api_keys[config["key_name"]] = key_input
+
+        # 模型名称
+        self.openai_model_name = styled_input(
+            value="",
+            label=t("model_path"),
+            icon="smart_toy",
+            icon_color=COLORS["primary"],
+            placeholder="Qwen2-VL-7B-Instruct",
+            flex=1,
+        )
 
     def _render_scene_settings(self):
         """渲染场景检测设置"""
@@ -405,10 +456,11 @@ class CaptionStep:
             ui.notify("请选择有效的数据集路径", type="warning")
             return
 
-        # 检查至少有一个 API key
+        # 检查至少有一个 API key 或 OpenAI base_url
         has_api = any(key_input.value for key_input in self.api_keys.values())
-        if not has_api:
-            ui.notify("请至少配置一个 API 密钥", type="warning")
+        has_openai_url = hasattr(self, "openai_base_url") and self.openai_base_url.value
+        if not has_api and not has_openai_url:
+            ui.notify("请至少配置一个 API 密钥或 OpenAI Base URL", type="warning")
             return
 
         self.is_running = True
@@ -427,6 +479,10 @@ class CaptionStep:
 
         # API 配置
         for api_name, config in self.API_CONFIGS.items():
+            # OpenAI-Compatible 走独立逻辑
+            if config.get("is_openai_compatible"):
+                continue
+
             key_input = self.api_keys.get(config["key_name"])
             if key_input and key_input.value:
                 args.append(f"--{config['key_name']}={key_input.value}")
@@ -441,6 +497,15 @@ class CaptionStep:
                     task_input = getattr(self, f"{config['key_name']}_task", None)
                     if task_input and task_input.value:
                         args.append(f"--gemini_task={task_input.value}")
+
+        # OpenAI Compatible API 参数
+        if hasattr(self, "openai_base_url") and self.openai_base_url.value:
+            args.append(f"--openai_base_url={self.openai_base_url.value}")
+            openai_key = self.api_keys.get("openai_api_key")
+            if openai_key and openai_key.value:
+                args.append(f"--openai_api_key={openai_key.value}")
+            if hasattr(self, "openai_model_name") and self.openai_model_name.value:
+                args.append(f"--openai_model_name={self.openai_model_name.value}")
 
         # 配对目录
         if self.pair_dir.value:
