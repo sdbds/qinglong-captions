@@ -850,20 +850,30 @@ class TestKimiCodeUserAgent:
         mock_client = MagicMock()
         mock_openai_cls.return_value = mock_client
 
-        with patch.dict("sys.modules", {}):
+        # 确保 kimi_vl_provider 模块在 sys.modules 中（CI 环境可能未预加载）
+        import types
+        fake_kimi_mod = types.ModuleType("module.providers.kimi_vl_provider")
+        fake_kimi_mod.attempt_kimi_vl = MagicMock(return_value="test result")
+        saved = sys.modules.get("module.providers.kimi_vl_provider")
+        sys.modules["module.providers.kimi_vl_provider"] = fake_kimi_mod
+        try:
             with patch("openai.OpenAI", mock_openai_cls):
-                with patch("module.providers.kimi_vl_provider.attempt_kimi_vl", return_value="test result"):
-                    media = MediaContext(
-                        uri="/fake.jpg", mime="image/jpeg", sha256hash="",
-                        modality=MediaModality.IMAGE, blob="base64data", pixels=None,
-                    )
-                    prompts = PromptContext(system="sys", user="usr")
-                    instance.attempt(media, prompts)
+                media = MediaContext(
+                    uri="/fake.jpg", mime="image/jpeg", sha256hash="",
+                    modality=MediaModality.IMAGE, blob="base64data", pixels=None,
+                )
+                prompts = PromptContext(system="sys", user="usr")
+                instance.attempt(media, prompts)
 
-        # 验证 OpenAI 创建时有 default_headers
-        call_kwargs = mock_openai_cls.call_args
-        assert "default_headers" in call_kwargs.kwargs
-        assert call_kwargs.kwargs["default_headers"]["User-Agent"] == "claude-code/0.1.0"
+            # 验证 OpenAI 创建时有 default_headers
+            call_kwargs = mock_openai_cls.call_args
+            assert "default_headers" in call_kwargs.kwargs
+            assert call_kwargs.kwargs["default_headers"]["User-Agent"] == "claude-code/0.1.0"
+        finally:
+            if saved is not None:
+                sys.modules["module.providers.kimi_vl_provider"] = saved
+            else:
+                sys.modules.pop("module.providers.kimi_vl_provider", None)
 
 
 # ──────────────────────────────────────────────
