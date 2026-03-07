@@ -7,6 +7,22 @@
 
 ## 更新日志
 
+### 4.0 - Provider V2 架构重构
+
+1. **全新 Provider V2 架构** - 完全重构的模块化 Provider 系统
+   - 统一抽象的 `Provider` 基类，支持 Cloud VLM、Local VLM、OCR、Vision API 四大类别
+   - 自动发现机制，通过装饰器自动注册 Provider
+   - 统一的 `CaptionResult` 返回类型，解决返回值多态问题
+   - 基于优先级的 Provider 路由，自动选择最佳 Provider
+   - 向后兼容：设置 `$env:QINGLONG_API_V2="0"` 可回退到旧架构
+
+2. **新增 OpenAI Compatible Provider** - 通用 OpenAI API 兼容接口
+   - 支持对接任何 OpenAI 兼容服务：vLLM、SGLang、Ollama、LM Studio
+   - 统一配置参数：`openai_base_url`、`openai_model_name` 等
+   - 自动降级：JSON 模式不支持时自动切换到文本模式
+   - 支持本地 GPU 部署（Qwen2-VL、LLaVA、MiniCPM-V 等）
+   - 查看 [docs/openai_compatible.md](docs/openai_compatible.md) 获取详细使用指南
+
 ### 3.8
 
 1. 新增 FireRed-OCR (FireRedTeam/FireRed-OCR) 支持，基于 Qwen3-VL 的高性能文档解析 OCR 模型。
@@ -55,6 +71,8 @@
 基于 Lance 数据库格式的视频自动字幕生成工具，使用 Gemini API 进行场景描述生成。
 
 ## 功能特点
+- **Provider V2 架构** - 模块化、可扩展的 Provider 系统，支持自动发现和统一接口
+- **OpenAI 兼容 API** - 通用接口支持 vLLM、SGLang、Ollama、LM Studio 本地 GPU 推理
 - 使用 Google Gemini API 进行视频场景自动字幕生成
 - 导出 SRT 格式字幕文件
 - 支持多种视频格式
@@ -75,6 +93,8 @@
 - 在源视频所在目录导出 SRT 格式字幕
 
 ### 自动字幕生成 (`captioner.py` & `api_handler.py`)
+- **Provider V2 架构**，支持 19+ 种 Provider（Cloud VLM、Local VLM、OCR、Vision API）
+- **OpenAI 兼容 Provider**，支持本地推理（vLLM、SGLang、Ollama、LM Studio）
 - 使用 Gemini API 进行视频场景描述
 - 支持批量处理
 - 生成带时间戳的 SRT 格式字幕
@@ -150,6 +170,16 @@ $glm_api_key = ""
 $glm_model_path = "GLM-4V-Plus-0111"
 $ark_api_key = ""
 $ark_model_path = "doubao-seed-1-6"
+
+# OpenAI Compatible API 配置（支持 vLLM、SGLang、Ollama、LM Studio）
+# 当配置了 openai_base_url 时，会优先使用此接口进行本地 GPU 推理
+$openai_api_key = ""           # API 密钥（本地服务可填任意值）
+$openai_base_url = ""          # 服务器地址，如 http://localhost:8000/v1
+$openai_model_name = ""        # 模型名称，如 Qwen2-VL-7B-Instruct
+$openai_temperature = 0.7      # 生成温度
+$openai_max_tokens = 2048      # 最大 token 数
+$openai_json_mode = $true      # 是否使用 JSON 模式
+
 $dir_name = $false
 $mode = "long"
 $not_clip_with_caption = $true              # Not clip with caption | 不根据caption裁剪
@@ -176,7 +206,23 @@ $tags_highlightrate = 0.3
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
-## Changlog
+## Changelog
+
+### 4.0 - Provider V2 Architecture Refactoring
+
+1. **Brand New Provider V2 Architecture** - Fully refactored modular Provider system
+   - Unified abstract `Provider` base class supporting Cloud VLM, Local VLM, OCR, and Vision API
+   - Auto-discovery mechanism with decorator-based Provider registration
+   - Unified `CaptionResult` return type resolving polymorphic return value issues
+   - Priority-based Provider routing with automatic best Provider selection
+   - Backward compatible: Set `$env:QINGLONG_API_V2="0"` to fallback to legacy architecture
+
+2. **New OpenAI Compatible Provider** - Universal OpenAI API compatible interface
+   - Support any OpenAI-compatible service: vLLM, SGLang, Ollama, LM Studio
+   - Unified configuration: `openai_base_url`, `openai_model_name`, etc.
+   - Auto-fallback: Automatically switches to text mode when JSON mode is unsupported
+   - Support local GPU deployment (Qwen2-VL, LLaVA, MiniCPM-V, etc.)
+   - See [docs/openai_compatible.md](docs/openai_compatible.md) for detailed usage guide
 
 ### 3.8
 
@@ -430,6 +476,8 @@ At the same time, the millisecond-level alignment function has been updated. Aft
 
 ## Features
 
+- **Provider V2 Architecture** - Modular, extensible provider system with auto-discovery and unified interfaces
+- **OpenAI Compatible API** - Universal interface supporting vLLM, SGLang, Ollama, LM Studio for local GPU inference
 - Automatic video/audio/image description using Google's Gemini API or only image with pixtral-large 124B
 - Export captions in SRT format
 - Support for multiple video formats
@@ -452,6 +500,8 @@ At the same time, the millisecond-level alignment function has been updated. Aft
 - Auto Clip with SRT timestamps
 
 ### Auto Captioning (`captioner.py` & `api_handler.py`)
+- **Provider V2 Architecture** with 19+ providers (Cloud VLM, Local VLM, OCR, Vision API)
+- **OpenAI Compatible Provider** for local inference (vLLM, SGLang, Ollama, LM Studio)
 - Automatic video scene description using Gemini API or Pixtral API
 - Batch processing support
 - SRT format output with timestamps

@@ -46,6 +46,7 @@ class ProviderRegistry:
 
             # 修复 #1: kimi_code 排在 kimi_vl 之前
             self._priority_order: List[str] = [
+                "openai_compatible",  # 通用 OpenAI 兼容接口（最高优先级）
                 "stepfun",
                 "ark",
                 "qwenvl",
