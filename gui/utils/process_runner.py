@@ -7,6 +7,7 @@
 关键：使用 asyncio.create_subprocess_exec 进行非阻塞 I/O，
 避免阻塞 NiceGUI 事件循环导致 WebSocket 断开。
 """
+
 import asyncio
 import re
 import shutil
@@ -21,7 +22,7 @@ from enum import Enum
 
 
 # 用于剥离 ANSI 转义码（日志文件 → GUI 纯文本）
-_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\r')
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\r")
 
 
 class ProcessStatus(Enum):
@@ -42,23 +43,23 @@ class ProcessResult:
 # script_path 相对于项目根目录
 SCRIPT_REGISTRY = {
     # step 1 - 数据集导入
-    'module.lanceImport': ('./module/lanceImport.py', None),
+    "module.lanceImport": ("./module/lanceImport.py", None),
     # step 2 - 视频分割
-    'module.videospilter': ('./module/videospilter.py', None),
+    "module.videospilter": ("./module/videospilter.py", None),
     # step 3 - 打标
-    'utils.wdtagger': ('./utils/wdtagger.py', 'requirements-wdtagger.txt'),
+    "utils.wdtagger": ("./utils/wdtagger.py", "requirements-wdtagger.txt"),
     # step 4 - 字幕生成
-    'module.captioner': ('./module/captioner.py', None),
+    "module.captioner": ("./module/captioner.py", None),
     # step 5 - 导出
-    'module.lanceexport': ('./module/lanceexport.py', None),
+    "module.lanceexport": ("./module/lanceexport.py", None),
     # step 6 - 工具
-    'module.waterdetect': ('./module/waterdetect.py', None),
-    'utils.preprocess_datasets': ('./utils/preprocess_datasets.py', None),
-    'module.rewardmodel': ('./module/rewardmodel.py', None),
+    "module.waterdetect": ("./module/waterdetect.py", None),
+    "utils.preprocess_datasets": ("./utils/preprocess_datasets.py", None),
+    "module.rewardmodel": ("./module/rewardmodel.py", None),
 }
 
 # console_wrapper.py 的绝对路径
-_WRAPPER_PATH = str(Path(__file__).parent / 'console_wrapper.py')
+_WRAPPER_PATH = str(Path(__file__).parent / "console_wrapper.py")
 
 
 class ProcessRunner:
@@ -77,9 +78,11 @@ class ProcessRunner:
         self._running = False
         self._tail_task: Optional[asyncio.Task] = None
 
-    def set_callbacks(self,
-                      log_callback: Optional[Callable[[str], None]] = None,
-                      status_callback: Optional[Callable[[ProcessStatus], None]] = None):
+    def set_callbacks(
+        self,
+        log_callback: Optional[Callable[[str], None]] = None,
+        status_callback: Optional[Callable[[ProcessStatus], None]] = None,
+    ):
         """设置回调函数"""
         self.log_callback = log_callback
         self.status_callback = status_callback
@@ -101,23 +104,20 @@ class ProcessRunner:
             env.update(env_vars)
 
         # PYTHONPATH
-        existing = env.get('PYTHONPATH', '')
+        existing = env.get("PYTHONPATH", "")
         if self.PROJECT_ROOT not in existing:
-            env['PYTHONPATH'] = (
-                self.PROJECT_ROOT + os.pathsep + existing
-                if existing else self.PROJECT_ROOT
-            )
+            env["PYTHONPATH"] = self.PROJECT_ROOT + os.pathsep + existing if existing else self.PROJECT_ROOT
 
         # HF_HOME - 与 .ps1 脚本一致
-        env.setdefault('HF_HOME', 'huggingface')
-        env.setdefault('XFORMERS_FORCE_DISABLE_TRITON', '1')
+        env.setdefault("HF_HOME", "huggingface")
+        env.setdefault("XFORMERS_FORCE_DISABLE_TRITON", "1")
 
         return env
 
     @staticmethod
     def _find_uv() -> Optional[str]:
         """查找 uv 可执行文件路径"""
-        return shutil.which('uv')
+        return shutil.which("uv")
 
     # ------------------------------------------------------------------
     #  非阻塞读取子进程输出
@@ -130,7 +130,7 @@ class ProcessRunner:
             if not line_bytes:
                 break
             try:
-                line = line_bytes.decode('utf-8', errors='replace').rstrip()
+                line = line_bytes.decode("utf-8", errors="replace").rstrip()
             except Exception:
                 line = str(line_bytes)
             self._notify_log(line)
@@ -145,14 +145,14 @@ class ProcessRunner:
             while self._running:
                 try:
                     if os.path.exists(log_file):
-                        with open(log_file, 'rb') as f:
+                        with open(log_file, "rb") as f:
                             f.seek(offset)
                             new_data = f.read()
                             if new_data:
                                 offset += len(new_data)
-                                text = new_data.decode('utf-8', errors='replace')
+                                text = new_data.decode("utf-8", errors="replace")
                                 for line in text.splitlines():
-                                    clean = _ANSI_RE.sub('', line).rstrip()
+                                    clean = _ANSI_RE.sub("", line).rstrip()
                                     if clean:
                                         self._notify_log(clean)
                 except Exception:
@@ -164,8 +164,7 @@ class ProcessRunner:
     # ------------------------------------------------------------------
     #  pip install (可选)
     # ------------------------------------------------------------------
-    async def _install_requirements(self, requirements_file: str,
-                                    work_dir: Path, env: dict) -> bool:
+    async def _install_requirements(self, requirements_file: str, work_dir: Path, env: dict) -> bool:
         """安装依赖 (uv pip install -r requirements-xxx.txt)"""
         req_path = work_dir / requirements_file
         if not req_path.exists():
@@ -174,14 +173,14 @@ class ProcessRunner:
 
         uv = self._find_uv()
         if uv:
-            cmd = [uv, 'pip', 'install', '-r', str(req_path)]
+            cmd = [uv, "pip", "install", "-r", str(req_path)]
         else:
-            cmd = [sys.executable, '-m', 'pip', 'install', '-r', str(req_path)]
+            cmd = [sys.executable, "-m", "pip", "install", "-r", str(req_path)]
 
         self._notify_log(f"安装依赖: {' '.join(cmd)}")
 
         try:
-            install_env = {**env, 'PYTHONIOENCODING': 'utf-8'}
+            install_env = {**env, "PYTHONIOENCODING": "utf-8"}
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -201,15 +200,16 @@ class ProcessRunner:
     # ------------------------------------------------------------------
     #  主要运行方法
     # ------------------------------------------------------------------
-    async def run_python_script(self,
-                                script_key: str,
-                                args: List[str],
-                                cwd: Optional[str] = None,
-                                env_vars: Optional[dict] = None,
-                                requirements: Optional[str] = None,
-                                uv_extra_args: Optional[List[str]] = None,
-                                native_console: bool = True,
-                                ) -> ProcessResult:
+    async def run_python_script(
+        self,
+        script_key: str,
+        args: List[str],
+        cwd: Optional[str] = None,
+        env_vars: Optional[dict] = None,
+        requirements: Optional[str] = None,
+        uv_extra_args: Optional[List[str]] = None,
+        native_console: bool = True,
+    ) -> ProcessResult:
         """运行 Python 脚本（完全非阻塞）
 
         Args:
@@ -227,22 +227,22 @@ class ProcessRunner:
         self._running = True
         self._notify_status(ProcessStatus.RUNNING)
 
-        use_native = native_console and sys.platform == 'win32'
-        exit_file = ''
-        log_file = ''
+        use_native = native_console and sys.platform == "win32"
+        exit_file = ""
+        log_file = ""
 
         try:
             work_dir = Path(cwd) if cwd else Path(self.PROJECT_ROOT)
             env = self._build_env(env_vars)
             if not use_native:
-                env['PYTHONIOENCODING'] = 'utf-8'
+                env["PYTHONIOENCODING"] = "utf-8"
 
             # 从 registry 查找脚本路径和默认依赖
             registry_entry = SCRIPT_REGISTRY.get(script_key)
             if registry_entry:
                 script_path, default_req = registry_entry
             else:
-                script_path = './' + script_key.replace('.', '/') + '.py'
+                script_path = "./" + script_key.replace(".", "/") + ".py"
                 default_req = None
 
             req_file = requirements or default_req
@@ -256,7 +256,7 @@ class ProcessRunner:
             # Step 2: 构建运行命令
             uv = self._find_uv()
             if uv:
-                cmd = [uv, 'run']
+                cmd = [uv, "run"]
                 if uv_extra_args:
                     cmd.extend(uv_extra_args)
                 cmd.append(script_path)
@@ -308,8 +308,7 @@ class ProcessRunner:
     # ------------------------------------------------------------------
     #  原生控制台模式
     # ------------------------------------------------------------------
-    async def _run_native(self, cmd: List[str], work_dir: Path,
-                          env: dict) -> int:
+    async def _run_native(self, cmd: List[str], work_dir: Path, env: dict) -> int:
         """通过 console_wrapper.py 在原生控制台中运行命令。
 
         特性:
@@ -319,8 +318,8 @@ class ProcessRunner:
         """
         # 创建临时文件路径
         tmp_dir = tempfile.gettempdir()
-        exit_file = os.path.join(tmp_dir, f'qinglong_exit_{os.getpid()}.tmp')
-        log_file = os.path.join(tmp_dir, f'qinglong_log_{os.getpid()}.tmp')
+        exit_file = os.path.join(tmp_dir, f"qinglong_exit_{os.getpid()}.tmp")
+        log_file = os.path.join(tmp_dir, f"qinglong_log_{os.getpid()}.tmp")
 
         # 清理可能残留的旧文件
         for f in (exit_file, log_file):
@@ -352,7 +351,7 @@ class ProcessRunner:
         # 读取退出码
         if os.path.exists(exit_file):
             try:
-                with open(exit_file, 'r', encoding='utf-8') as f:
+                with open(exit_file, "r", encoding="utf-8") as f:
                     return_code = int(f.read().strip())
             except (ValueError, OSError):
                 return_code = -1
@@ -384,13 +383,15 @@ class ProcessRunner:
     # ------------------------------------------------------------------
     #  accelerate 运行 (训练用，保留原有接口)
     # ------------------------------------------------------------------
-    async def run_accelerate(self,
-                             script_module: str,
-                             args: List[str],
-                             num_cpu_threads_per_process: int = 1,
-                             mixed_precision: str = "bf16",
-                             cwd: Optional[str] = None,
-                             env_vars: Optional[dict] = None) -> ProcessResult:
+    async def run_accelerate(
+        self,
+        script_module: str,
+        args: List[str],
+        num_cpu_threads_per_process: int = 1,
+        mixed_precision: str = "bf16",
+        cwd: Optional[str] = None,
+        env_vars: Optional[dict] = None,
+    ) -> ProcessResult:
         """使用 accelerate 运行训练脚本（非阻塞）"""
         if self._running:
             return ProcessResult(ProcessStatus.ERROR, -1, "已有任务在运行")
@@ -400,7 +401,9 @@ class ProcessRunner:
 
         try:
             cmd = [
-                sys.executable, "-m", "accelerate.commands.launch",
+                sys.executable,
+                "-m",
+                "accelerate.commands.launch",
                 f"--num_cpu_threads_per_process={num_cpu_threads_per_process}",
             ]
             if mixed_precision:
@@ -452,10 +455,10 @@ class ProcessRunner:
         if self.process and self._running:
             self._notify_log("正在终止进程...")
             try:
-                if sys.platform == 'win32':
+                if sys.platform == "win32":
                     # 杀掉整个进程树（wrapper + 子脚本）
                     subprocess.call(
-                        ['taskkill', '/F', '/T', '/PID', str(self.process.pid)],
+                        ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
                         creationflags=subprocess.CREATE_NO_WINDOW,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,

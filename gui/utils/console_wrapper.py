@@ -6,6 +6,7 @@
 使用方式（由 process_runner.py 自动调用）：
     python console_wrapper.py <exit_file> <log_file> <command...>
 """
+
 import subprocess
 import sys
 import os
@@ -14,6 +15,7 @@ import os
 def _setup_windows_console():
     """配置 Windows 控制台: UTF-8 + ANSI 虚拟终端处理"""
     import ctypes
+
     kernel32 = ctypes.windll.kernel32
     # 设置控制台代码页为 UTF-8
     kernel32.SetConsoleOutputCP(65001)
@@ -37,14 +39,14 @@ def main():
     log_file = sys.argv[2]
     cmd = sys.argv[3:]
 
-    if sys.platform == 'win32':
+    if sys.platform == "win32":
         _setup_windows_console()
 
     # FORCE_COLOR 让 rich 即使在管道模式也输出 ANSI 颜色码
     env = os.environ.copy()
-    env['FORCE_COLOR'] = '1'
-    env['PYTHONIOENCODING'] = 'utf-8'
-    env['PYTHONUNBUFFERED'] = '1'
+    env["FORCE_COLOR"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUNBUFFERED"] = "1"
 
     # 通过管道捕获子进程输出，同时写到本控制台和日志文件
     proc = subprocess.Popen(
@@ -57,7 +59,7 @@ def main():
 
     log_fh = None
     try:
-        log_fh = open(log_file, 'ab')
+        log_fh = open(log_file, "ab")
     except Exception:
         pass
 
@@ -83,7 +85,7 @@ def main():
 
     # 写入退出码信号文件，通知 GUI 脚本已完成
     try:
-        with open(exit_file, 'w', encoding='utf-8') as f:
+        with open(exit_file, "w", encoding="utf-8") as f:
             f.write(str(proc.returncode))
     except Exception:
         pass
@@ -100,5 +102,5 @@ def main():
     sys.exit(proc.returncode)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

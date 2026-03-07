@@ -8,6 +8,8 @@
 #   "imageio-ffmpeg>=0.4.8",
 #   "numpy",
 #   "mutagen",
+#   "toml",
+#   "pyarrow",
 # ]
 # ///
 """

@@ -1,4 +1,5 @@
 """步骤 0: 环境检查和初始设置 - 现代化样式"""
+
 from nicegui import ui
 from pathlib import Path
 import sys
@@ -11,144 +12,161 @@ from gui.utils.i18n import t
 
 class SetupStep:
     """环境检查与设置页面 - 现代化样式"""
-    
+
     def __init__(self, on_complete: Optional[callable] = None):
         self.on_complete = on_complete
         self.check_results = {}
-        
+
     def render(self):
         """渲染页面"""
-        with ui.column().classes(get_classes('page_container') + ' gap-4'):
+        with ui.column().classes(get_classes("page_container") + " gap-4"):
             # 页面标题
-            with ui.row().classes('w-full items-center gap-3 q-mb-sm'):
-                ui.icon('settings', size='32px').style(f'color: {COLORS["primary"]};')
-                with ui.column().classes('gap-0'):
-                    ui.label(t('env_check')).classes('text-h4 text-weight-bold').style('color: var(--color-text);')
-                    ui.label(t('env_check_desc')).classes('text-body2').style('color: var(--color-text-secondary);')
-            
+            with ui.row().classes("w-full items-center gap-3 q-mb-sm"):
+                ui.icon("settings", size="32px").style(f"color: {COLORS['primary']};")
+                with ui.column().classes("gap-0"):
+                    ui.label(t("env_check")).classes("text-h4 text-weight-bold").style("color: var(--color-text);")
+                    ui.label(t("env_check_desc")).classes("text-body2").style("color: var(--color-text-secondary);")
+
             # 系统信息
-            with ui.card().classes(get_classes('card') + ' w-full q-pa-md'):
-                with ui.row().classes('w-full items-center gap-2 q-mb-md'):
-                    ui.icon('computer', size='22px').style(f'color: {COLORS["info"]};')
-                    ui.label(t('system_info')).classes('text-h6 text-weight-bold').style('color: var(--color-text);')
-                
-                with ui.grid(columns=2).classes('w-full gap-4'):
-                    with ui.column().classes('gap-1'):
-                        ui.label(t('os')).classes('text-caption').style('color: var(--color-text-secondary);')
-                        ui.label(f'{platform.system()} {platform.release()}').classes('text-body2').style('color: var(--color-text);')
-                    
-                    with ui.column().classes('gap-1'):
-                        ui.label(t('python_version')).classes('text-caption').style('color: var(--color-text-secondary);')
-                        ui.label(f'{platform.python_version()}').classes('text-body2').style('color: var(--color-text);')
-                    
-                    with ui.column().classes('gap-1'):
-                        ui.label(t('working_dir')).classes('text-caption').style('color: var(--color-text-secondary);')
-                        ui.label(f'{Path.cwd().absolute()}').classes('text-body2').style('color: var(--color-text);')
-            
+            with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
+                with ui.row().classes("w-full items-center gap-2 q-mb-md"):
+                    ui.icon("computer", size="22px").style(f"color: {COLORS['info']};")
+                    ui.label(t("system_info")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
+
+                with ui.grid(columns=2).classes("w-full gap-4"):
+                    with ui.column().classes("gap-1"):
+                        ui.label(t("os")).classes("text-caption").style("color: var(--color-text-secondary);")
+                        ui.label(f"{platform.system()} {platform.release()}").classes("text-body2").style(
+                            "color: var(--color-text);"
+                        )
+
+                    with ui.column().classes("gap-1"):
+                        ui.label(t("python_version")).classes("text-caption").style("color: var(--color-text-secondary);")
+                        ui.label(f"{platform.python_version()}").classes("text-body2").style("color: var(--color-text);")
+
+                    with ui.column().classes("gap-1"):
+                        ui.label(t("working_dir")).classes("text-caption").style("color: var(--color-text-secondary);")
+                        ui.label(f"{Path.cwd().absolute()}").classes("text-body2").style("color: var(--color-text);")
+
             # 环境检查列表
-            with ui.card().classes(get_classes('card') + ' w-full q-pa-md'):
-                with ui.row().classes('w-full items-center gap-2 q-mb-md'):
-                    ui.icon('checklist', size='22px').style(f'color: {COLORS["success"]};')
-                    ui.label(t('dependency_check')).classes('text-h6 text-weight-bold').style('color: var(--color-text);')
-                
+            with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
+                with ui.row().classes("w-full items-center gap-2 q-mb-md"):
+                    ui.icon("checklist", size="22px").style(f"color: {COLORS['success']};")
+                    ui.label(t("dependency_check")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
+
                 self.check_items = []
-                
+
                 # Python 检查
-                with ui.row().classes('w-full items-center justify-between q-pa-sm').style(f'''
+                with (
+                    ui.row()
+                    .classes("w-full items-center justify-between q-pa-sm")
+                    .style(f"""
                     background: rgba(99, 102, 241, 0.1);
                     border-radius: 10px;
                     border: 1px solid rgba(99, 102, 241, 0.2);
-                ''') as python_row:
-                    with ui.row().classes('items-center gap-2'):
-                        ui.icon('code', size='20px').style(f'color: {COLORS["primary"]};')
-                        ui.label('Python 3.8+').classes('text-body2').style('color: var(--color-text);')
-                    self.python_status = ui.label(t('checking')).classes('text-caption').style('color: var(--color-text-secondary);')
-                    self.check_items.append(('python', python_row))
-                
+                """) as python_row
+                ):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("code", size="20px").style(f"color: {COLORS['primary']};")
+                        ui.label("Python 3.8+").classes("text-body2").style("color: var(--color-text);")
+                    self.python_status = (
+                        ui.label(t("checking")).classes("text-caption").style("color: var(--color-text-secondary);")
+                    )
+                    self.check_items.append(("python", python_row))
+
                 # PyTorch 检查
-                with ui.row().classes('w-full items-center justify-between q-pa-sm q-mt-sm').style(f'''
+                with (
+                    ui.row()
+                    .classes("w-full items-center justify-between q-pa-sm q-mt-sm")
+                    .style(f"""
                     background: rgba(236, 72, 153, 0.1);
                     border-radius: 10px;
                     border: 1px solid rgba(236, 72, 153, 0.2);
-                ''') as torch_row:
-                    with ui.row().classes('items-center gap-2'):
-                        ui.icon('local_fire_department', size='20px').style(f'color: {COLORS["secondary"]};')
-                        ui.label('PyTorch').classes('text-body2').style('color: var(--color-text);')
-                    self.torch_label = ui.label(t('checking')).classes('text-caption').style('color: var(--color-text-secondary);')
-                    self.check_items.append(('torch', torch_row))
-                
+                """) as torch_row
+                ):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("local_fire_department", size="20px").style(f"color: {COLORS['secondary']};")
+                        ui.label("PyTorch").classes("text-body2").style("color: var(--color-text);")
+                    self.torch_label = ui.label(t("checking")).classes("text-caption").style("color: var(--color-text-secondary);")
+                    self.check_items.append(("torch", torch_row))
+
                 # CUDA 检查
-                with ui.row().classes('w-full items-center justify-between q-pa-sm q-mt-sm').style(f'''
+                with (
+                    ui.row()
+                    .classes("w-full items-center justify-between q-pa-sm q-mt-sm")
+                    .style(f"""
                     background: rgba(16, 185, 129, 0.1);
                     border-radius: 10px;
                     border: 1px solid rgba(16, 185, 129, 0.2);
-                ''') as cuda_row:
-                    with ui.row().classes('items-center gap-2'):
-                        ui.icon('memory', size='20px').style(f'color: {COLORS["success"]};')
-                        ui.label('CUDA').classes('text-body2').style('color: var(--color-text);')
-                    self.cuda_label = ui.label(t('checking')).classes('text-caption').style('color: var(--color-text-secondary);')
-                    self.check_items.append(('cuda', cuda_row))
-            
-            # 操作按钮
-            with ui.card().classes(get_classes('card') + ' w-full q-pa-md'):
-                with ui.row().classes('w-full items-center justify-between'):
-                    ui.label(t('ready_to_start')).classes('text-body2').style('color: var(--color-text-secondary);')
-                    
-                    with ui.row().classes('gap-2'):
-                        recheck_btn = ui.button(t('recheck'), on_click=self._run_checks, icon='refresh')
-                        recheck_btn.classes('modern-btn-ghost').props('type="button"')
+                """) as cuda_row
+                ):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("memory", size="20px").style(f"color: {COLORS['success']};")
+                        ui.label("CUDA").classes("text-body2").style("color: var(--color-text);")
+                    self.cuda_label = ui.label(t("checking")).classes("text-caption").style("color: var(--color-text-secondary);")
+                    self.check_items.append(("cuda", cuda_row))
 
-                        continue_btn = ui.button(t('continue'), on_click=self._on_continue, icon='arrow_forward')
-                        continue_btn.classes('modern-btn-primary').props('type="button"')
-        
+            # 操作按钮
+            with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
+                with ui.row().classes("w-full items-center justify-between"):
+                    ui.label(t("ready_to_start")).classes("text-body2").style("color: var(--color-text-secondary);")
+
+                    with ui.row().classes("gap-2"):
+                        recheck_btn = ui.button(t("recheck"), on_click=self._run_checks, icon="refresh")
+                        recheck_btn.classes("modern-btn-ghost").props('type="button"')
+
+                        continue_btn = ui.button(t("continue"), on_click=self._on_continue, icon="arrow_forward")
+                        continue_btn.classes("modern-btn-primary").props('type="button"')
+
         # 运行检查
         ui.timer(0.5, self._run_checks, once=True)
-    
+
     def _run_checks(self):
         """运行环境检查"""
         # 检查 Python 版本
         py_version = sys.version_info
         if py_version >= (3, 8):
-            self.python_status.text = f'✅ {py_version.major}.{py_version.minor}.{py_version.micro}'
-            self.python_status.style(f'color: {COLORS["success"]};')
-            self.check_results['python'] = True
+            self.python_status.text = f"✅ {py_version.major}.{py_version.minor}.{py_version.micro}"
+            self.python_status.style(f"color: {COLORS['success']};")
+            self.check_results["python"] = True
         else:
-            self.python_status.text = f'❌ {py_version.major}.{py_version.minor} (需要 3.8+)'
-            self.python_status.style(f'color: {COLORS["error"]};')
-            self.check_results['python'] = False
-        
+            self.python_status.text = f"❌ {py_version.major}.{py_version.minor} (需要 3.8+)"
+            self.python_status.style(f"color: {COLORS['error']};")
+            self.check_results["python"] = False
+
         # 检查 PyTorch
         try:
             import torch
-            self.torch_label.text = f'✅ {torch.__version__}'
-            self.torch_label.style(f'color: {COLORS["success"]};')
-            self.check_results['torch'] = True
-            
+
+            self.torch_label.text = f"✅ {torch.__version__}"
+            self.torch_label.style(f"color: {COLORS['success']};")
+            self.check_results["torch"] = True
+
             # 检查 CUDA
             if torch.cuda.is_available():
                 cuda_version = torch.version.cuda
                 gpu_name = torch.cuda.get_device_name(0)
-                self.cuda_label.text = f'✅ {cuda_version} ({gpu_name})'
-                self.cuda_label.style(f'color: {COLORS["success"]};')
-                self.check_results['cuda'] = True
+                self.cuda_label.text = f"✅ {cuda_version} ({gpu_name})"
+                self.cuda_label.style(f"color: {COLORS['success']};")
+                self.check_results["cuda"] = True
             else:
-                self.cuda_label.text = '⚠️ 未检测到 (CPU 模式)'
-                self.cuda_label.style(f'color: {COLORS["warning"]};')
-                self.check_results['cuda'] = False
+                self.cuda_label.text = "⚠️ 未检测到 (CPU 模式)"
+                self.cuda_label.style(f"color: {COLORS['warning']};")
+                self.check_results["cuda"] = False
         except ImportError:
-            self.torch_label.text = '❌ 未安装'
-            self.torch_label.style(f'color: {COLORS["error"]};')
-            self.check_results['torch'] = False
-            self.cuda_label.text = '❌ PyTorch 未安装'
-            self.cuda_label.style(f'color: {COLORS["error"]};')
-            self.check_results['cuda'] = False
-    
+            self.torch_label.text = "❌ 未安装"
+            self.torch_label.style(f"color: {COLORS['error']};")
+            self.check_results["torch"] = False
+            self.cuda_label.text = "❌ PyTorch 未安装"
+            self.cuda_label.style(f"color: {COLORS['error']};")
+            self.check_results["cuda"] = False
+
     def _on_continue(self):
         """继续到主页面"""
         if self.on_complete:
             self.on_complete()
         else:
-            ui.navigate.to('/')
+            ui.navigate.to("/")
 
 
 def render_setup_step():

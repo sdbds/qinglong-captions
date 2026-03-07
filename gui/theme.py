@@ -6,153 +6,141 @@ Modern Theme System for Musubi Tuner GUI
 1. Modern Theme (默认) - 深绿+金色自然主题
 2. Green Gold Theme (可选) - 明亮绿金主题 (来自 sd-scripts)
 """
+
 from nicegui import ui
 from typing import Dict, Any, Optional
 
 # ============== Theme 1: Modern Theme (默认) ==============
 
 MODERN_COLORS = {
-    'primary': '#059669',       # Deep Emerald 600 (dress color)
-    'primary_dark': '#047857',  # Deep Emerald 700
-    'primary_light': '#4ade80', # Light Green 400 (hair highlight)
-    'secondary': '#fbbf24',     # Golden Amber 400 (horns/accessories)
-    'accent': '#10b981',        # Emerald 500 (bright green)
-    'success': '#22c55e',       # Green 500
-    'warning': '#f59e0b',       # Amber 500
-    'error': '#ef4444',         # Red 500
-    'info': '#2dd4bf',          # Teal 400
-    'background': '#022c22',    # Deep Forest Green
-    'surface': '#064e3b',       # Dark Emerald
-    'surface_light': '#065f46', # Medium Emerald
-    'surface_dark': '#022c22',  # Deep Forest
-    'text': '#ecfdf5',          # Mint 50 (light green-white)
-    'text_secondary': '#6ee7b7', # Light Emerald 300
-    'text_muted': '#34d399',    # Emerald 400
-    'border': '#059669',        # Emerald 600
-    
+    "primary": "#059669",  # Deep Emerald 600 (dress color)
+    "primary_dark": "#047857",  # Deep Emerald 700
+    "primary_light": "#4ade80",  # Light Green 400 (hair highlight)
+    "secondary": "#fbbf24",  # Golden Amber 400 (horns/accessories)
+    "accent": "#10b981",  # Emerald 500 (bright green)
+    "success": "#22c55e",  # Green 500
+    "warning": "#f59e0b",  # Amber 500
+    "error": "#ef4444",  # Red 500
+    "info": "#2dd4bf",  # Teal 400
+    "background": "#022c22",  # Deep Forest Green
+    "surface": "#064e3b",  # Dark Emerald
+    "surface_light": "#065f46",  # Medium Emerald
+    "surface_dark": "#022c22",  # Deep Forest
+    "text": "#ecfdf5",  # Mint 50 (light green-white)
+    "text_secondary": "#6ee7b7",  # Light Emerald 300
+    "text_muted": "#34d399",  # Emerald 400
+    "border": "#059669",  # Emerald 600
     # 额外颜色 - 兼容 sd-scripts 样式
-    'blue': '#3b82f6',
-    'blue_light': '#60a5fa',
-    'blue_dark': '#2563eb',
-    'mint': '#6ee7b7',
-    'emerald': '#10b981',
-    'forest': '#166534',
-    'bg_light': '#f0fdf4',
-    'text_on_primary': '#ffffff',
-    'text_on_accent': '#78350f',
-    'bg_dark': '#0f281e',
-    'text_dark': '#e2e8f0',
+    "blue": "#3b82f6",
+    "blue_light": "#60a5fa",
+    "blue_dark": "#2563eb",
+    "mint": "#6ee7b7",
+    "emerald": "#10b981",
+    "forest": "#166534",
+    "bg_light": "#f0fdf4",
+    "text_on_primary": "#ffffff",
+    "text_on_accent": "#78350f",
+    "bg_dark": "#0f281e",
+    "text_dark": "#e2e8f0",
 }
 
 # CSS Classes for Modern Styling
 MODERN_CLASSES = {
     # Cards
-    'card': 'modern-card',
-    'card_hover': 'modern-card-hover',
-    'card_header': 'modern-card-header',
-    
+    "card": "modern-card",
+    "card_hover": "modern-card-hover",
+    "card_header": "modern-card-header",
     # Buttons
-    'btn_primary': 'modern-btn-primary',
-    'btn_secondary': 'modern-btn-secondary',
-    'btn_danger': 'modern-btn-danger',
-    'btn_success': 'modern-btn-success',
-    'btn_ghost': 'modern-btn-ghost',
-    
+    "btn_primary": "modern-btn-primary",
+    "btn_secondary": "modern-btn-secondary",
+    "btn_danger": "modern-btn-danger",
+    "btn_success": "modern-btn-success",
+    "btn_ghost": "modern-btn-ghost",
     # Inputs
-    'input': 'modern-input',
-    'select': 'modern-select',
-    
+    "input": "modern-input",
+    "select": "modern-select",
     # Layout
-    'page_container': 'modern-page-container',
-    'section': 'modern-section',
-    'section_title': 'modern-section-title',
-    'header': 'modern-header',
-    
+    "page_container": "modern-page-container",
+    "section": "modern-section",
+    "section_title": "modern-section-title",
+    "header": "modern-header",
     # Navigation
-    'nav_btn': 'modern-nav-btn',
-    'nav_btn_active': 'modern-nav-btn-active',
-    
+    "nav_btn": "modern-nav-btn",
+    "nav_btn_active": "modern-nav-btn-active",
     # Tags/Badges
-    'badge': 'modern-badge',
-    'badge_primary': 'modern-badge-primary',
-    'badge_success': 'modern-badge-success',
-    
+    "badge": "modern-badge",
+    "badge_primary": "modern-badge-primary",
+    "badge_success": "modern-badge-success",
     # 来自 sd-scripts 的额外类
-    'section_card': 'section-card',
-    'gold_btn': 'gold-btn',
-    'green_btn': 'green-btn',
-    'red_btn': 'red-btn',
-    'footer_green': 'footer-green',
-    'header_green': 'header-green',
+    "section_card": "section-card",
+    "gold_btn": "gold-btn",
+    "green_btn": "green-btn",
+    "red_btn": "red-btn",
+    "footer_green": "footer-green",
+    "header_green": "header-green",
 }
 
 
 # ============== Theme 2: Green Gold Theme (来自 sd-scripts) ==============
 
+
 def get_green_gold_colors():
     """Green/Gold theme color palette from sd-scripts"""
     return {
         # Deep green (like the dress) - Primary
-        'primary': '#1a4d3a',
-        'primary_light': '#2d6a4f',
-        'primary_dark': '#0d3326',
-        
+        "primary": "#1a4d3a",
+        "primary_light": "#2d6a4f",
+        "primary_dark": "#0d3326",
         # Medium green (like the hair)
-        'secondary': '#4ade80',
-        'secondary_light': '#6ee7a0',
-        'secondary_dark': '#22c55e',
-        
+        "secondary": "#4ade80",
+        "secondary_light": "#6ee7a0",
+        "secondary_dark": "#22c55e",
         # Gold/Yellow (crown accents)
-        'accent': '#fbbf24',
-        'accent_light': '#fcd34d',
-        'accent_dark': '#f59e0b',
-        
+        "accent": "#fbbf24",
+        "accent_light": "#fcd34d",
+        "accent_dark": "#f59e0b",
         # Blue (for primary action buttons)
-        'blue': '#3b82f6',
-        'blue_light': '#60a5fa',
-        'blue_dark': '#2563eb',
-        
+        "blue": "#3b82f6",
+        "blue_light": "#60a5fa",
+        "blue_dark": "#2563eb",
         # Additional greens
-        'mint': '#6ee7b7',
-        'emerald': '#10b981',
-        'forest': '#166534',
-        
+        "mint": "#6ee7b7",
+        "emerald": "#10b981",
+        "forest": "#166534",
         # Neutral
-        'bg_light': '#f0fdf4',
-        'border': '#cbd5e1',
-        'text_on_primary': '#ffffff',
-        'text_on_accent': '#78350f',
-        
+        "bg_light": "#f0fdf4",
+        "border": "#cbd5e1",
+        "text_on_primary": "#ffffff",
+        "text_on_accent": "#78350f",
         # Dark mode
-        'bg_dark': '#0f281e',
-        'text_dark': '#e2e8f0',
-        
+        "bg_dark": "#0f281e",
+        "text_dark": "#e2e8f0",
         # 兼容 modern theme
-        'success': '#22c55e',
-        'warning': '#f59e0b',
-        'error': '#ef4444',
-        'info': '#2dd4bf',
-        'background': '#022c22',
-        'surface': '#064e3b',
-        'surface_light': '#065f46',
-        'surface_dark': '#022c22',
-        'text': '#ecfdf5',
-        'text_secondary': '#6ee7b7',
-        'text_muted': '#34d399',
-        'primary_dark_theme': '#047857',
+        "success": "#22c55e",
+        "warning": "#f59e0b",
+        "error": "#ef4444",
+        "info": "#2dd4bf",
+        "background": "#022c22",
+        "surface": "#064e3b",
+        "surface_light": "#065f46",
+        "surface_dark": "#022c22",
+        "text": "#ecfdf5",
+        "text_secondary": "#6ee7b7",
+        "text_muted": "#34d399",
+        "primary_dark_theme": "#047857",
     }
 
 
 def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     """Generate complete CSS styles with color interpolation from sd-scripts"""
-    
-    return f'''
+
+    return f"""
     <style>
     :root {{
         --q-primary: #f59e0b !important;  /* Gold/Amber instead of blue */
-        --q-secondary: {COLORS['secondary']} !important;
-        --q-accent: {COLORS['accent']} !important;
-        --q-positive: {COLORS['emerald']} !important;
+        --q-secondary: {COLORS["secondary"]} !important;
+        --q-accent: {COLORS["accent"]} !important;
+        --q-positive: {COLORS["emerald"]} !important;
     }}
     
     /* ===== Base Styles - Flash Prevention ===== */
@@ -184,15 +172,15 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     
     /* ===== Header & Footer ===== */
     .header-green {{
-        background: linear-gradient(135deg, {COLORS['primary']} 0%, {COLORS['primary_light']} 100%) !important;
-        color: {COLORS['text_on_primary']} !important;
-        border-bottom: 3px solid {COLORS['accent']} !important;
+        background: linear-gradient(135deg, {COLORS["primary"]} 0%, {COLORS["primary_light"]} 100%) !important;
+        color: {COLORS["text_on_primary"]} !important;
+        border-bottom: 3px solid {COLORS["accent"]} !important;
     }}
     
     .footer-green {{
-        background: linear-gradient(135deg, {COLORS['primary_dark']} 0%, {COLORS['primary']} 100%) !important;
-        color: {COLORS['text_on_primary']} !important;
-        border-top: 3px solid {COLORS['accent']} !important;
+        background: linear-gradient(135deg, {COLORS["primary_dark"]} 0%, {COLORS["primary"]} 100%) !important;
+        color: {COLORS["text_on_primary"]} !important;
+        border-top: 3px solid {COLORS["accent"]} !important;
     }}
     
     /* ===== Button Styles ===== */
@@ -240,7 +228,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     /* ===== Card Styles ===== */
     .section-card {{
         background: linear-gradient(145deg, #f0fdf4 0%, #ecfdf5 50%, #f0f9ff 100%) !important;
-        border: 1px solid {COLORS['border']} !important;
+        border: 1px solid {COLORS["border"]} !important;
         border-radius: 16px !important;
         box-shadow: 0 4px 15px rgba(26, 77, 58, 0.08) !important;
         transition: all 0.3s ease !important;
@@ -249,7 +237,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     
     .section-card:hover {{
         box-shadow: 0 8px 25px rgba(26, 77, 58, 0.15) !important;
-        border-color: {COLORS['accent']} !important;
+        border-color: {COLORS["accent"]} !important;
     }}
     
     .section-card .q-card__section {{
@@ -258,17 +246,17 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     
     /* ===== Title Styles ===== */
     .section-title {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
         font-weight: bold !important;
         font-size: 0.95em !important;
-        border-left: 3px solid {COLORS['accent']} !important;
+        border-left: 3px solid {COLORS["accent"]} !important;
         padding-left: 8px !important;
         margin-bottom: 8px !important;
         margin-top: 2px !important;
     }}
     
     .section-subtitle {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
         font-weight: 600 !important;
         font-size: 0.85em !important;
         margin-top: 12px !important;
@@ -278,13 +266,13 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     
     /* ===== Tab Styles ===== */
     .q-tab--active {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
         background: linear-gradient(180deg, rgba(251, 191, 36, 0.15) 0%, rgba(251, 191, 36, 0.05) 100%) !important;
-        border-bottom: 3px solid {COLORS['accent']} !important;
+        border-bottom: 3px solid {COLORS["accent"]} !important;
     }}
     
     .q-tab__indicator {{
-        background: {COLORS['accent']} !important;
+        background: {COLORS["accent"]} !important;
         height: 3px !important;
     }}
     
@@ -323,7 +311,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     .q-field--filled .q-field__control {{
         border-radius: 10px !important;
         background: rgba(255, 255, 255, 0.9) !important;
-        border: 2px solid {COLORS['border']} !important;
+        border: 2px solid {COLORS["border"]} !important;
         transition: all 0.2s ease !important;
         padding-left: 12px !important;
         min-height: 48px !important;
@@ -351,19 +339,19 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     
     .q-field__control:hover,
     .q-field--outlined .q-field__control:hover {{
-        border-color: {COLORS['secondary']} !important;
+        border-color: {COLORS["secondary"]} !important;
         background: rgba(255, 255, 255, 1) !important;
     }}
     
     .q-field--focused .q-field__control,
     .q-field--outlined.q-field--focused .q-field__control {{
-        border-color: {COLORS['emerald']} !important;
+        border-color: {COLORS["emerald"]} !important;
         box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2) !important;
         background: rgba(255, 255, 255, 1) !important;
     }}
     
     .q-field__label {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
         font-weight: 500 !important;
         padding-left: 4px !important;
     }}
@@ -374,7 +362,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     .q-field__input input,
     .q-input input,
     .q-select input {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
         font-weight: 500 !important;
     }}
     
@@ -392,7 +380,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     /* Path input specific - browse button area */
     .q-field__append,
     .q-field__prepend {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
     }}
     
     /* File picker and path selector styles - Clean Style matching select dropdown */
@@ -458,7 +446,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     .slider-label {{
         font-size: 11px !important;
         font-weight: 500 !important;
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
         line-height: 1.2 !important;
     }}
     
@@ -526,7 +514,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
         width: 18px !important;
         height: 18px !important;
         background: white !important;
-        border: 3px solid {COLORS['emerald']} !important;
+        border: 3px solid {COLORS["emerald"]} !important;
         border-radius: 50% !important;
         box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important;
         transition: left 0.15s ease !important;
@@ -682,7 +670,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     }}
     
     .toggle-container.active .toggle-switch {{
-        background: {COLORS['primary']} !important;
+        background: {COLORS["primary"]} !important;
     }}
     
     .toggle-knob {{
@@ -704,20 +692,20 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     .toggle-label {{
         font-size: 12px !important;
         font-weight: 500 !important;
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
         user-select: none !important;
         white-space: nowrap !important;
     }}
     
     .toggle-status {{
         font-size: 10px !important;
-        color: {COLORS['primary_light']} !important;
+        color: {COLORS["primary_light"]} !important;
         font-weight: 600 !important;
         margin-left: 4px !important;
     }}
     
     .toggle-container.active .toggle-status {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
     }}
     
     /* ===== Scrollbar Styles ===== */
@@ -732,14 +720,14 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     }}
     
     ::-webkit-scrollbar-thumb {{
-        background: linear-gradient(180deg, {COLORS['emerald']} 0%, #059669 100%) !important;
+        background: linear-gradient(180deg, {COLORS["emerald"]} 0%, #059669 100%) !important;
         border-radius: 5px !important;
         border: 2px solid transparent !important;
         background-clip: content-box !important;
     }}
     
     ::-webkit-scrollbar-thumb:hover {{
-        background: linear-gradient(180deg, #34d399 0%, {COLORS['emerald']} 100%) !important;
+        background: linear-gradient(180deg, #34d399 0%, {COLORS["emerald"]} 100%) !important;
     }}
     
     /* ===== Layout Utilities ===== */
@@ -841,7 +829,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
         background: #1a1a2e !important;
         color: #00ff88 !important;
         font-family: 'Consolas', 'Monaco', monospace !important;
-        border: 2px solid {COLORS['primary']} !important;
+        border: 2px solid {COLORS["primary"]} !important;
         border-radius: 8px !important;
     }}
     
@@ -868,7 +856,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     
     .lang-selector .q-field__control {{
         background: rgba(255, 255, 255, 0.9) !important;
-        border: 2px solid {COLORS['primary']} !important;
+        border: 2px solid {COLORS["primary"]} !important;
         border-radius: 8px !important;
         height: 40px !important;
         overflow: hidden !important;
@@ -876,12 +864,12 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     
     .lang-selector .q-field__control:hover {{
         background: white !important;
-        border-color: {COLORS['secondary']} !important;
+        border-color: {COLORS["secondary"]} !important;
         box-shadow: 0 2px 8px rgba(5, 150, 105, 0.2) !important;
     }}
     
     .lang-selector .q-field__native {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
         font-weight: 600 !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
@@ -889,7 +877,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     }}
     
     .lang-selector .q-icon {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
     }}
     
     .lang-selector .q-field__marginal {{
@@ -899,7 +887,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     /* ===== Dropdown/Menu Styles ===== */
     .q-menu {{
         background: white !important;
-        border: 2px solid {COLORS['border']} !important;
+        border: 2px solid {COLORS["border"]} !important;
         border-radius: 8px !important;
         animation: slideDown 0.25s ease-out !important;
         transform-origin: top !important;
@@ -907,7 +895,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     }}
     
     .q-menu .q-item {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
     }}
     
     .q-menu .q-item:hover {{
@@ -915,7 +903,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     }}
     
     .q-menu .q-item--active {{
-        background: {COLORS['emerald']} !important;
+        background: {COLORS["emerald"]} !important;
         color: white !important;
     }}
     
@@ -931,7 +919,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     }}
     
     .q-item {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
         transition: all 0.15s ease !important;
         border-radius: 6px !important;
         margin: 2px 4px !important;
@@ -940,17 +928,17 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     .q-menu .q-item,
     .q-menu .q-item__label,
     .q-menu .q-item__section {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
     }}
     
     .q-item:hover {{
         background: rgba(16, 185, 129, 0.12) !important;
-        color: {COLORS['primary_light']} !important;
+        color: {COLORS["primary_light"]} !important;
     }}
     
     .q-item--active,
     .q-menu .q-item--active {{
-        background: {COLORS['emerald']} !important;
+        background: {COLORS["emerald"]} !important;
         color: white !important;
         font-weight: bold !important;
     }}
@@ -961,7 +949,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     }}
     
     .q-select__dropdown-icon {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
         transition: transform 0.3s ease !important;
         position: absolute !important;
         right: 8px !important;
@@ -979,7 +967,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     }}
     
     .q-select__input {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
         font-weight: 500 !important;
     }}
 
@@ -1281,20 +1269,21 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     body.dark-mode .green-btn,
     body.dark-mode button.green-btn,
     body.dark-mode .q-btn.green-btn {{
-        background: linear-gradient(135deg, {COLORS['primary_light']} 0%, {COLORS['primary']} 100%) !important;
+        background: linear-gradient(135deg, {COLORS["primary_light"]} 0%, {COLORS["primary"]} 100%) !important;
         color: white !important;
     }}
     </style>
-    '''
+    """
 
 
 # ============== Shared Component Styles ==============
+
 
 def get_shared_component_css() -> str:
     """Shared component styles used by both modern and green-gold themes.
     These cover widgets (slider, toggle, log) and Quasar override fixes
     that are identical regardless of theme."""
-    return '''
+    return """
     /* ===== Shared: Quasar Field Indicator Removal ===== */
     .q-field--outlined .q-field__control::before,
     .q-field--outlined .q-field__control::after,
@@ -1374,19 +1363,20 @@ def get_shared_component_css() -> str:
     .q-footer {
         display: none !important;
     }
-    '''
+    """
 
 
 # ============== Theme Toggle & Language Selector Styles ==============
 
+
 def get_theme_toggle_styles(COLORS: Dict[str, str]) -> str:
     """Get styles for theme toggle button and language selector"""
-    return f'''
+    return f"""
     <style>
     /* Theme Toggle Button */
     .theme-toggle-btn {{
         background: rgba(255, 255, 255, 0.1) !important;
-        border: 2px solid {COLORS['accent']} !important;
+        border: 2px solid {COLORS["accent"]} !important;
         border-radius: 50% !important;
         width: 40px !important;
         height: 40px !important;
@@ -1405,7 +1395,7 @@ def get_theme_toggle_styles(COLORS: Dict[str, str]) -> str:
     }}
     
     .theme-toggle-btn .q-icon {{
-        color: {COLORS['accent']} !important;
+        color: {COLORS["accent"]} !important;
         font-size: 22px !important;
     }}
     
@@ -1416,7 +1406,7 @@ def get_theme_toggle_styles(COLORS: Dict[str, str]) -> str:
     
     .lang-selector .q-field__control {{
         background: rgba(255, 255, 255, 0.9) !important;
-        border: 2px solid {COLORS['primary']} !important;
+        border: 2px solid {COLORS["primary"]} !important;
         border-radius: 8px !important;
         height: 40px !important;
         min-height: 40px !important;
@@ -1424,17 +1414,17 @@ def get_theme_toggle_styles(COLORS: Dict[str, str]) -> str:
     
     .lang-selector .q-field__control:hover {{
         background: white !important;
-        border-color: {COLORS['secondary']} !important;
+        border-color: {COLORS["secondary"]} !important;
         box-shadow: 0 2px 8px rgba(5, 150, 105, 0.2) !important;
     }}
     
     .lang-selector .q-field__native {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
         font-weight: 600 !important;
     }}
     
     .lang-selector .q-icon {{
-        color: {COLORS['primary']} !important;
+        color: {COLORS["primary"]} !important;
     }}
     
     .lang-icon-wrapper {{
@@ -1446,7 +1436,7 @@ def get_theme_toggle_styles(COLORS: Dict[str, str]) -> str:
     /* Dark mode adjustments */
     body.dark-mode .theme-toggle-btn {{
         background: rgba(251, 191, 36, 0.1) !important;
-        border-color: {COLORS['accent']} !important;
+        border-color: {COLORS["accent"]} !important;
     }}
     
     body.dark-mode .theme-toggle-btn:hover {{
@@ -1456,40 +1446,41 @@ def get_theme_toggle_styles(COLORS: Dict[str, str]) -> str:
     
     body.dark-mode .lang-selector .q-field__control {{
         background: rgba(30, 41, 59, 0.8) !important;
-        border-color: {COLORS['accent']} !important;
+        border-color: {COLORS["accent"]} !important;
     }}
     
     body.dark-mode .lang-selector .q-field__native {{
-        color: {COLORS['accent']} !important;
+        color: {COLORS["accent"]} !important;
     }}
     </style>
-    '''
+    """
 
 
 # ============== Modern Theme CSS (原有样式) ==============
 
+
 def get_modern_css() -> str:
     """Get the modern theme CSS with light/dark mode support"""
-    return f'''
+    return f"""
         /* ===== Modern Theme CSS ===== */
         
         /* Root Variables - Light Mode (Default) */
         :root {{
             /* Override Quasar variables - EMERALD GREEN THEME (light mode) */
             --q-primary: #059669 !important;
-            --q-secondary: {MODERN_COLORS['secondary']} !important;
-            --q-accent: {MODERN_COLORS['accent']} !important;
+            --q-secondary: {MODERN_COLORS["secondary"]} !important;
+            --q-accent: {MODERN_COLORS["accent"]} !important;
 
             /* Semantic theme colors */
-            --color-primary: {MODERN_COLORS['primary']};
-            --color-primary-dark: {MODERN_COLORS['primary_dark']};
-            --color-primary-light: {MODERN_COLORS['primary_light']};
-            --color-secondary: {MODERN_COLORS['secondary']};
-            --color-accent: {MODERN_COLORS['accent']};
-            --color-success: {MODERN_COLORS['success']};
-            --color-warning: {MODERN_COLORS['warning']};
-            --color-error: {MODERN_COLORS['error']};
-            --color-info: {MODERN_COLORS['info']};
+            --color-primary: {MODERN_COLORS["primary"]};
+            --color-primary-dark: {MODERN_COLORS["primary_dark"]};
+            --color-primary-light: {MODERN_COLORS["primary_light"]};
+            --color-secondary: {MODERN_COLORS["secondary"]};
+            --color-accent: {MODERN_COLORS["accent"]};
+            --color-success: {MODERN_COLORS["success"]};
+            --color-warning: {MODERN_COLORS["warning"]};
+            --color-error: {MODERN_COLORS["error"]};
+            --color-info: {MODERN_COLORS["info"]};
 
             /* Gold/Amber palette */
             --color-gold: #f59e0b;
@@ -2273,7 +2264,7 @@ def get_modern_css() -> str:
         
         .q-item--active,
         .q-menu .q-item--active {{
-            background: linear-gradient(135deg, {MODERN_COLORS['primary']}, {MODERN_COLORS['accent']}) !important;
+            background: linear-gradient(135deg, {MODERN_COLORS["primary"]}, {MODERN_COLORS["accent"]}) !important;
             color: white !important;
             font-weight: 600 !important;
         }}
@@ -2791,7 +2782,7 @@ def get_modern_css() -> str:
             background: #1a1a2e !important;
             color: #00ff88 !important;
             font-family: 'Consolas', 'Monaco', monospace !important;
-            border: 2px solid {MODERN_COLORS['primary']} !important;
+            border: 2px solid {MODERN_COLORS["primary"]} !important;
             border-radius: 8px !important;
         }}
         
@@ -3167,7 +3158,7 @@ def get_modern_css() -> str:
             --q-dark: transparent !important;
             --q-dark-page: transparent !important;
         }}
-    '''
+    """
 
 
 # ============== 主题应用函数 ==============
@@ -3176,17 +3167,17 @@ def get_modern_css() -> str:
 COLORS = MODERN_COLORS.copy()
 
 
-def apply_theme(theme_name: str = 'modern', use_green_gold: bool = False):
+def apply_theme(theme_name: str = "modern", use_green_gold: bool = False):
     """
     Apply theme CSS to NiceGUI app
-    
+
     Args:
         theme_name: 'modern' (默认) 或 'green-gold' (来自 sd-scripts)
         use_green_gold: 是否使用 green-gold 主题 (兼容旧API)
     """
     global COLORS
-    
-    if use_green_gold or theme_name == 'green-gold':
+
+    if use_green_gold or theme_name == "green-gold":
         # 应用 Green Gold 主题
         green_gold_colors = get_green_gold_colors()
         COLORS = {**MODERN_COLORS, **green_gold_colors}  # 合并以确保兼容性
@@ -3194,7 +3185,7 @@ def apply_theme(theme_name: str = 'modern', use_green_gold: bool = False):
         ui.add_head_html(styles, shared=True)
         # 添加共享组件样式
         shared_css = get_shared_component_css()
-        ui.add_head_html(f'<style>{shared_css}</style>', shared=True)
+        ui.add_head_html(f"<style>{shared_css}</style>", shared=True)
         # 添加主题切换样式
         toggle_styles = get_theme_toggle_styles(COLORS)
         ui.add_head_html(toggle_styles, shared=True)
@@ -3203,7 +3194,8 @@ def apply_theme(theme_name: str = 'modern', use_green_gold: bool = False):
         COLORS = MODERN_COLORS.copy()
 
         # 首先添加防闪烁样式 - 确保在CSS加载前就有正确背景
-        ui.add_head_html('''
+        ui.add_head_html(
+            """
         <style>
         /* Pre-load styles: Prevent flash before main CSS loads */
         /* Must use raw hex values since CSS variables aren't defined yet */
@@ -3263,13 +3255,15 @@ def apply_theme(theme_name: str = 'modern', use_green_gold: bool = False):
         /* Dark mode: force gold primary */
         body.dark-mode {{ --q-primary: #fbbf24 !important; --q-color-primary: #fbbf24 !important; }}
         </style>
-        ''', shared=True)
-        
+        """,
+            shared=True,
+        )
+
         css = get_modern_css()
         ui.add_css(css, shared=True)
         # 添加共享组件样式
         shared_css = get_shared_component_css()
-        ui.add_head_html(f'<style>{shared_css}</style>', shared=True)
+        ui.add_head_html(f"<style>{shared_css}</style>", shared=True)
         # 添加主题切换样式
         toggle_styles = get_theme_toggle_styles(COLORS)
         ui.add_head_html(toggle_styles, shared=True)
@@ -3277,7 +3271,7 @@ def apply_theme(theme_name: str = 'modern', use_green_gold: bool = False):
 
 def toggle_dark_mode():
     """Toggle dark mode and save preference"""
-    ui.run_javascript('''
+    ui.run_javascript("""
         (function() {
             const isDark = document.body.classList.toggle('dark-mode');
             localStorage.setItem('dark_mode', isDark);
@@ -3289,12 +3283,12 @@ def toggle_dark_mode():
             });
             return isDark;
         })();
-    ''')
+    """)
 
 
 def load_theme_preference():
     """Load and apply saved theme preference"""
-    ui.run_javascript('''
+    ui.run_javascript("""
         (function() {
             const isDark = localStorage.getItem('dark_mode') === 'true';
             if (isDark) {
@@ -3302,14 +3296,14 @@ def load_theme_preference():
             }
             return isDark;
         })();
-    ''')
+    """)
 
 
 def apply_green_gold_styles(ui_instance=None):
     """
     应用 Green Gold 主题样式 (来自 sd-scripts)
     与 sd-scripts/gui/styles.py 中的 apply_styles 函数兼容
-    
+
     Args:
         ui_instance: NiceGUI ui 实例 (可选，为兼容性保留)
     """
@@ -3322,51 +3316,52 @@ def apply_green_gold_styles(ui_instance=None):
 
 def get_classes(name: str) -> str:
     """Get CSS classes for a component type"""
-    return MODERN_CLASSES.get(name, '')
+    return MODERN_CLASSES.get(name, "")
 
 
 # ============== 便捷函数 ==============
 
+
 def apply_card(element, hover: bool = False):
     """Apply modern card styling"""
-    classes = 'modern-card'
+    classes = "modern-card"
     if hover:
-        classes += ' modern-card-hover'
+        classes += " modern-card-hover"
     element.classes(classes)
     return element
 
 
-def apply_button(element, variant: str = 'primary'):
+def apply_button(element, variant: str = "primary"):
     """Apply modern button styling"""
     class_map = {
-        'primary': 'modern-btn-primary',
-        'secondary': 'modern-btn-secondary',
-        'danger': 'modern-btn-danger',
-        'success': 'modern-btn-success',
-        'ghost': 'modern-btn-ghost',
-        'gold': 'gold-btn',
-        'green': 'green-btn',
-        'red': 'red-btn',
+        "primary": "modern-btn-primary",
+        "secondary": "modern-btn-secondary",
+        "danger": "modern-btn-danger",
+        "success": "modern-btn-success",
+        "ghost": "modern-btn-ghost",
+        "gold": "gold-btn",
+        "green": "green-btn",
+        "red": "red-btn",
     }
     # Remove Quasar default bg classes to prevent color override
-    element.classes(remove='bg-primary bg-secondary bg-positive bg-negative bg-info bg-warning')
-    element.classes(class_map.get(variant, 'modern-btn-primary'))
+    element.classes(remove="bg-primary bg-secondary bg-positive bg-negative bg-info bg-warning")
+    element.classes(class_map.get(variant, "modern-btn-primary"))
     return element
 
 
 def apply_input(element):
     """Apply modern input styling"""
-    element.classes('modern-input')
+    element.classes("modern-input")
     return element
 
 
 def apply_section_card(element):
     """Apply section-card styling (from sd-scripts)"""
-    element.classes('section-card')
+    element.classes("section-card")
     return element
 
 
 def apply_section_title(element):
     """Apply section-title styling (from sd-scripts)"""
-    element.classes('section-title')
+    element.classes("section-title")
     return element

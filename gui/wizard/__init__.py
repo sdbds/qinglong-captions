@@ -12,11 +12,11 @@ from .step5_export import render_export_step
 from .step6_tools import render_tools_step
 
 __all__ = [
-    'render_setup_step',
-    'render_import_step',
-    'render_video_split_step',
-    'render_tagger_step',
-    'render_caption_step',
-    'render_export_step',
-    'render_tools_step',
+    "render_setup_step",
+    "render_import_step",
+    "render_video_split_step",
+    "render_tagger_step",
+    "render_caption_step",
+    "render_export_step",
+    "render_tools_step",
 ]
