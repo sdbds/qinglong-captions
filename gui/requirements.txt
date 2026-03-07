@@ -1,0 +1,9 @@
+# Musubi Tuner GUI 依赖
+nicegui>=1.4.0
+# 其他依赖由 musubi-tuner 主项目提供
+# - torch
+# - torchvision  
+# - accelerate
+# - transformers
+# - diffusers
+# 等等...
