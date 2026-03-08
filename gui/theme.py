@@ -197,31 +197,40 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
         box-shadow: 0 4px 15px rgba(245, 158, 11, 0.5) !important;
     }}
     
-    .gold-btn .q-btn__content,
-    .gold-btn .q-icon {{
+    body:not(.dark-mode) .gold-btn .q-btn__content,
+    body:not(.dark-mode) .gold-btn .q-icon {{
         color: white !important;
     }}
-    
-    /* Green button - BROWSE BUTTONS - Light mode bright green */
-    .green-btn {{
+    body.dark-mode .gold-btn .q-btn__content,
+    body.dark-mode .gold-btn .q-icon {{
+        color: #78350f !important;
+    }}
+
+    /* Green button - BROWSE BUTTONS */
+    body:not(.dark-mode) .green-btn {{
         background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
         color: white !important;
         font-weight: bold !important;
         border: none !important;
     }}
-    
+
     .green-btn:hover {{
         background: linear-gradient(135deg, #34d399 0%, #10b981 100%) !important;
         box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4) !important;
     }}
-    
-    .green-btn .q-btn__content {{
+
+    body:not(.dark-mode) .green-btn .q-btn__content {{
         color: white !important;
     }}
-    
-    .red-btn {{
+
+    body:not(.dark-mode) .red-btn {{
         background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
         color: white !important;
+        font-weight: bold !important;
+    }}
+    body.dark-mode .red-btn {{
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+        color: #fef2f2 !important;
         font-weight: bold !important;
     }}
     
@@ -737,13 +746,17 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     
     /* Fix: Force light background on tab panel to prevent dark flash */
     /* CRITICAL: Prevent black flash during tab switches */
+    /* 同时去掉 tab panel 容器的正方形边框 */
     html body:not(.dark-mode) .q-tab-panels,
     html body:not(.dark-mode) .q-tab-panel,
     html body:not(.dark-mode) .nicegui-tab-panel,
     .q-tab-panels,
-    .q-tab-panel {{
+    .q-tab-panel,
+    .nicegui-tab-panel {{
         background: transparent !important;
         background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
         /* 禁用切换时的过渡动画，避免闪烁 */
         transition: none !important;
         animation: none !important;
@@ -765,8 +778,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
         background-color: transparent !important;
     }}
     
-    /* Fix: Force light background on cards inside tab panel */
-    /* Target individual classes and combinations */
+    /* Cards inside tab panel - keep rounded card style */
     html body:not(.dark-mode) .q-tab-panel .q-card,
     html body:not(.dark-mode) .q-tab-panel .nicegui-card,
     html body:not(.dark-mode) .q-tab-panel .modern-card,
@@ -902,7 +914,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
         background: rgba(16, 185, 129, 0.1) !important;
     }}
     
-    .q-menu .q-item--active {{
+    body:not(.dark-mode) .q-menu .q-item--active {{
         background: {COLORS["emerald"]} !important;
         color: white !important;
     }}
@@ -936,15 +948,15 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
         color: {COLORS["primary_light"]} !important;
     }}
     
-    .q-item--active,
-    .q-menu .q-item--active {{
+    body:not(.dark-mode) .q-item--active,
+    body:not(.dark-mode) .q-menu .q-item--active {{
         background: {COLORS["emerald"]} !important;
         color: white !important;
         font-weight: bold !important;
     }}
-    
-    .q-item--active .q-item__label,
-    .q-menu .q-item--active .q-item__label {{
+
+    body:not(.dark-mode) .q-item--active .q-item__label,
+    body:not(.dark-mode) .q-menu .q-item--active .q-item__label {{
         color: white !important;
     }}
     
@@ -1051,7 +1063,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     body.dark-mode button.green-btn .q-btn__content,
     body.dark-mode .q-btn.green-btn,
     body.dark-mode .q-btn.green-btn .q-btn__content {{
-        color: white !important;
+        color: #ecfdf5 !important;
     }}
     
     body.dark-mode .header-green {{
@@ -1065,21 +1077,32 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     /* Dark mode - OVERRIDE ALL CARD BACKGROUNDS */
     body.dark-mode .q-card,
     body.dark-mode .section-card,
-    body.dark-mode [class*="section-card"],
-    body.dark-mode .q-tab-panel,
-    body.dark-mode .q-tab-panel > div,
-    body.dark-mode .q-tab-panel .q-card,
-    body.dark-mode .q-tab-panel .section-card {{
+    body.dark-mode [class*="section-card"] {{
         background: transparent !important;
         border-color: rgba(251, 191, 36, 0.2) !important;
         transition: none !important;
         animation: none !important;
     }}
-    
+
     body.dark-mode .section-card,
     body.dark-mode .q-tab-panel .section-card {{
         background: rgba(6, 78, 59, 0.3) !important;
         border: 1px solid rgba(251, 191, 36, 0.2) !important;
+    }}
+
+    /* Dark mode - tab panel 容器本身去掉正方形边框（保留内部卡片圆角） */
+    body.dark-mode .q-tab-panel,
+    body.dark-mode .q-tab-panel.nicegui-tab-panel,
+    body.dark-mode .q-tab-panels {{
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        transition: none !important;
+        animation: none !important;
+    }}
+
+    body.dark-mode .q-tab-panel > div {{
+        background: transparent !important;
     }}
     
     body.dark-mode .q-input,
@@ -1111,13 +1134,13 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     body.dark-mode .q-item--active,
     body.dark-mode .q-menu .q-item--active {{
         background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
-        color: white !important;
+        color: #ecfdf5 !important;
         font-weight: bold !important;
     }}
-    
+
     body.dark-mode .q-item--active .q-item__label,
     body.dark-mode .q-menu .q-item--active .q-item__label {{
-        color: white !important;
+        color: #ecfdf5 !important;
     }}
     
     /* Slider dark mode - override text-primary with maximum specificity */
@@ -1145,7 +1168,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     }}
     
     body.dark-mode .toggle-container .toggle-label {{
-        color: white !important;
+        color: #ecfdf5 !important;
     }}
     
     body.dark-mode .toggle-container .toggle-status {{
@@ -1202,9 +1225,9 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     body.dark-mode .green-btn,
     body.dark-mode button.green-btn,
     body.dark-mode .q-btn.green-btn {{
-        color: white !important;
+        color: #ecfdf5 !important;
     }}
-    
+
     /* Dark mode gold button - FIX: use gold colors not blue */
     body.dark-mode .gold-btn,
     body.dark-mode button.gold-btn,
@@ -1270,7 +1293,7 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
     body.dark-mode button.green-btn,
     body.dark-mode .q-btn.green-btn {{
         background: linear-gradient(135deg, {COLORS["primary_light"]} 0%, {COLORS["primary"]} 100%) !important;
-        color: white !important;
+        color: #ecfdf5 !important;
     }}
     </style>
     """
@@ -1314,13 +1337,18 @@ def get_shared_component_css() -> str:
         padding-top: 0 !important;
     }
 
-    /* ===== Shared: Tab Panel Flash Prevention ===== */
+    /* ===== Shared: Tab Panel Flash Prevention + 去掉正方形边框 ===== */
+    .q-tab-panels,
+    .q-tab-panel,
+    .nicegui-tab-panel,
     body:not(.dark-mode) .q-tab-panels,
-    body:not(.dark-mode) .q-tab-panel {
+    body:not(.dark-mode) .q-tab-panel,
+    body.dark-mode .q-tab-panels,
+    body.dark-mode .q-tab-panel,
+    body.dark-mode .q-tab-panel.nicegui-tab-panel {
         background: transparent !important;
-        transition: none !important;
-    }
-    .q-tab-panels {
+        border: none !important;
+        box-shadow: none !important;
         transition: none !important;
     }
     body:not(.dark-mode) .q-tab-panel > div,
@@ -1566,6 +1594,7 @@ def get_modern_css() -> str:
             --btn-primary-bg: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
             --btn-primary-bg-hover: linear-gradient(135deg, #fcd34d 0%, #fbbf24 100%);
             --btn-primary-color: #fbbf24;
+            --btn-primary-text: #78350f;
             --btn-primary-border: #b45309;
             --btn-primary-shadow: rgba(245, 158, 11, 0.4);
             --btn-primary-shadow-hover: rgba(251, 191, 36, 0.6);
@@ -2185,7 +2214,7 @@ def get_modern_css() -> str:
         
         .modern-badge-primary {{
             background: linear-gradient(135deg, var(--color-primary), var(--color-accent)) !important;
-            color: white !important;
+            color: #ecfdf5 !important;
         }}
         
         .modern-badge-success {{
@@ -2262,16 +2291,16 @@ def get_modern_css() -> str:
             color: var(--color-emerald-700) !important;
         }}
         
-        .q-item--active,
-        .q-menu .q-item--active {{
+        body:not(.dark-mode) .q-item--active,
+        body:not(.dark-mode) .q-menu .q-item--active {{
             background: linear-gradient(135deg, {MODERN_COLORS["primary"]}, {MODERN_COLORS["accent"]}) !important;
             color: white !important;
             font-weight: 600 !important;
         }}
-        
-        .q-item--active .q-item__label,
-        .q-menu .q-item--active .q-item__label,
-        .q-menu .q-item--active .q-item__section {{
+
+        body:not(.dark-mode) .q-item--active .q-item__label,
+        body:not(.dark-mode) .q-menu .q-item--active .q-item__label,
+        body:not(.dark-mode) .q-menu .q-item--active .q-item__section {{
             color: white !important;
         }}
         
@@ -2285,7 +2314,7 @@ def get_modern_css() -> str:
             backdrop-filter: blur(5px) !important;
         }}
         
-        .q-card--dark {{
+        .q-dialog .q-card--dark {{
             background: rgba(30, 41, 59, 0.95) !important;
             border: 1px solid rgba(5, 150, 105, 0.2) !important;
         }}
@@ -2854,6 +2883,15 @@ def get_modern_css() -> str:
             border-color: var(--card-border) !important;
         }}
 
+        /* Tab panel 容器本身去掉正方形边框 */
+        body.dark-mode .q-tab-panel,
+        body.dark-mode .q-tab-panel.nicegui-tab-panel,
+        body.dark-mode .q-tab-panels {{
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }}
+
         /* Inputs - use CSS variables */
         body.dark-mode .q-field__control,
         body.dark-mode .q-field--outlined .q-field__control,
@@ -2900,13 +2938,13 @@ def get_modern_css() -> str:
         body.dark-mode .q-item--active,
         body.dark-mode .q-menu .q-item--active {{
             background: linear-gradient(135deg, var(--color-primary), var(--color-accent)) !important;
-            color: white !important;
+            color: #ecfdf5 !important;
             font-weight: 600;
         }}
 
         body.dark-mode .q-item--active .q-item__label,
         body.dark-mode .q-menu .q-item--active .q-item__label {{
-            color: white !important;
+            color: #ecfdf5 !important;
         }}
 
         /* Dark mode placeholder */
@@ -3095,7 +3133,7 @@ def get_modern_css() -> str:
         }}
 
         body.dark-mode .modern-btn-danger .q-btn__content {{
-            color: white !important;
+            color: #fef2f2 !important;
         }}
         
         /* Scrollbar dark mode */
@@ -3116,7 +3154,7 @@ def get_modern_css() -> str:
         }}
         
         /* Dialog dark mode */
-        body.dark-mode .q-card--dark {{
+        body.dark-mode .q-dialog .q-card--dark {{
             background: rgba(6, 78, 59, 0.95) !important;
             border: 1px solid rgba(5, 150, 105, 0.3) !important;
         }}
@@ -3150,6 +3188,19 @@ def get_modern_css() -> str:
         html body:not(.dark-mode) .q-tab-panels * {{
             --q-color-dark: transparent !important;
             --q-dark: transparent !important;
+        }}
+
+        /* BOTH MODES: Tab panel 容器本身去掉正方形边框 */
+        html body .q-tab-panel,
+        html body .q-tab-panel.nicegui-tab-panel,
+        html body .q-tab-panels,
+        html body.dark-mode .q-tab-panel,
+        html body.dark-mode .q-tab-panel.nicegui-tab-panel,
+        html body.dark-mode .q-tab-panels {{
+            background: transparent !important;
+            background-color: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
         }}
         
         /* Prevent any dark background from Quasar variables in light mode */

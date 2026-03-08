@@ -56,43 +56,37 @@ class PathSelector:
                         ui.menu_item("🗑️ " + t("clear"), self._clear)
 
     async def _pick_path(self):
-        """打开文件选择对话框"""
-        if self.selection_type == "file":
+        """打开文件选择对话框（在独立线程中运行，避免阻塞事件循环）"""
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _open_dialog():
             from tkinter import filedialog, Tk
 
             root = Tk()
             root.withdraw()
             root.attributes("-topmost", True)
 
-            if self.file_filter:
-                # 转换文件过滤器格式
-                patterns = self.file_filter.replace("*", "").replace(" ", ";").split(";")
-                filetypes = [(f"{p} files", f"*{p}") for p in patterns if p] + [("All files", "*.*")]
-            else:
-                filetypes = [("All files", "*.*")]
+            try:
+                if self.selection_type == "file":
+                    if self.file_filter:
+                        patterns = self.file_filter.replace("*", "").replace(" ", ";").split(";")
+                        filetypes = [(f"{p} files", f"*{p}") for p in patterns if p] + [("All files", "*.*")]
+                    else:
+                        filetypes = [("All files", "*.*")]
+                    return filedialog.askopenfilename(filetypes=filetypes)
+                elif self.selection_type == "dir":
+                    return filedialog.askdirectory()
+                elif self.selection_type == "save":
+                    return filedialog.asksaveasfilename()
+                else:
+                    return ""
+            finally:
+                root.destroy()
 
-            path = filedialog.askopenfilename(filetypes=filetypes)
-            root.destroy()
-
-        elif self.selection_type == "dir":
-            from tkinter import filedialog, Tk
-
-            root = Tk()
-            root.withdraw()
-            root.attributes("-topmost", True)
-            path = filedialog.askdirectory()
-            root.destroy()
-
-        elif self.selection_type == "save":
-            from tkinter import filedialog, Tk
-
-            root = Tk()
-            root.withdraw()
-            root.attributes("-topmost", True)
-            path = filedialog.asksaveasfilename()
-            root.destroy()
-        else:
-            path = ""
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            path = await loop.run_in_executor(executor, _open_dialog)
 
         if path:
             self.input.value = path

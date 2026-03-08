@@ -374,7 +374,7 @@ def styled_select(
         select = ui.select(options=options, value=value, label="").classes("w-full modern-select force-light-bg")
 
         # 不使用 outlined，避免 Quasar 默认深色背景
-        props = f'dense use-input fill-input hide-selected input-debounce="0" dropdown-icon="search" placeholder="{placeholder}"'
+        props = f'dense stack-label use-input fill-input hide-selected input-debounce="0" dropdown-icon="search" placeholder="{placeholder}"'
         if new_value_mode:
             props += f' new-value-mode="{new_value_mode}"'
         select.props(props)
@@ -422,7 +422,7 @@ def styled_input(
 
         # 输入框 - 使用标准样式（非outlined）避免深色块问题
         inp = ui.input(value=value, label="", password=password).classes("w-full modern-input force-light-bg")
-        inp.props(f'dense placeholder="{placeholder}"')
+        inp.props(f'dense stack-label placeholder="{placeholder}"')
 
         if on_change:
             inp.on("change", lambda e: on_change(e.value))
