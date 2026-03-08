@@ -10,12 +10,32 @@ $step_model_path = "step-1.5v-mini"
 $kimi_api_key = ""
 $kimi_model_path = "kimi-k2.5" # "moonshotai/kimi-k2.5" if you want to use nvidia's endpoint
 $kimi_base_url = "https://api.moonshot.cn/v1" # "https://integrate.api.nvidia.com/v1" if you want to use nvidia's endpoint
+$kimi_code_api_key = ""
+$kimi_code_model_path = "k2p5"
+$kimi_code_base_url = "https://api.kimi.com/coding/v1"
 $qwenVL_api_key = ""
 $qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
 $glm_api_key = ""
 $glm_model_path = "GLM-4V-Plus-0111"
 $ark_api_key = ""
 $ark_model_path = "doubao-seed-1-6"
+
+# OpenAI Compatible API 配置（支持 vLLM、Ollama、LM Studio、SGLang 等）
+# 当配置了 openai_base_url 时，会优先使用此接口
+$openai_api_key = ""           # API 密钥（本地服务可填任意值，如 "sk-no-key"）
+$openai_base_url = ""          # 服务器地址，如：
+                               # - vLLM:     http://localhost:8000/v1
+                               # - SGLang:   http://localhost:30000/v1
+                               # - Ollama:   http://localhost:11434/v1
+                               # - LM Studio: http://localhost:1234/v1
+$openai_model_name = ""        # 模型名称，如：
+                               # - Qwen2-VL-7B-Instruct
+                               # - llava-v1.5-7b
+                               # - gemma-3-4b-it
+$openai_temperature = 0.7      # 生成温度 (0.0 - 2.0)
+$openai_max_tokens = 2048      # 最大生成 token 数
+$openai_json_mode = $true      # 是否尝试使用 JSON 模式（如果服务器支持）
+
 $dir_name = $false
 $mode = "long" # all, short, long
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
@@ -65,6 +85,7 @@ $Env:UV_NO_BUILD_ISOLATION = "1"
 $Env:UV_NO_CACHE = "0"
 $Env:UV_LINK_MODE = "symlink"
 $Env:UV_INDEX_STRATEGY = "unsafe-best-match"
+$env:QINGLONG_API_V2="1"
 #$Env:CUDA_VISIBLE_DEVICES = "1"  # 设置GPU id，0表示使用第一个GPU，-1表示不使用GPU
 
 #$Env:HTTP_PROXY = "http://127.0.0.1:7890"
@@ -116,6 +137,18 @@ if ($kimi_base_url) {
   [void]$ext_args.Add("--kimi_base_url=$kimi_base_url")
 }
 
+if ($kimi_code_api_key) {
+  [void]$ext_args.Add("--kimi_code_api_key=$kimi_code_api_key")
+}
+
+if ($kimi_code_model_path -and $kimi_code_model_path -ne "k2p5") {
+  [void]$ext_args.Add("--kimi_code_model_path=$kimi_code_model_path")
+}
+
+if ($kimi_code_base_url) {
+  [void]$ext_args.Add("--kimi_code_base_url=$kimi_code_base_url")
+}
+
 if ($qwenVL_api_key) {
   [void]$ext_args.Add("--qwenVL_api_key=$qwenVL_api_key")
 }
@@ -138,6 +171,31 @@ if ($ark_api_key) {
 
 if ($ark_model_path) {
   [void]$ext_args.Add("--ark_model_path=$ark_model_path")
+}
+
+# OpenAI Compatible API 参数
+if ($openai_api_key) {
+  [void]$ext_args.Add("--openai_api_key=$openai_api_key")
+}
+
+if ($openai_base_url) {
+  [void]$ext_args.Add("--openai_base_url=$openai_base_url")
+}
+
+if ($openai_model_name) {
+  [void]$ext_args.Add("--openai_model_name=$openai_model_name")
+}
+
+if ($openai_temperature -ine 0.7) {
+  [void]$ext_args.Add("--openai_temperature=$openai_temperature")
+}
+
+if ($openai_max_tokens -ine 2048) {
+  [void]$ext_args.Add("--openai_max_tokens=$openai_max_tokens")
+}
+
+if (-not $openai_json_mode) {
+  [void]$ext_args.Add("--openai_json_mode=false")
 }
 
 if ($dir_name) {
