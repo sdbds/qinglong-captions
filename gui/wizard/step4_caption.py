@@ -19,16 +19,12 @@ class CaptionStep:
         "Gemini": {
             "key_name": "gemini_api_key",
             "models": [
-                "gemini-3-pro-preview",
-                "gemini-3-pro-image-preview",
+                "gemini-3.1-pro-preview",
+                "gemini-3.1-flash-image-preview",
+                "gemini-3.1-flash-lite-preview",
                 "gemini-2.5-pro",
                 "gemini-2.5-flash",
                 "gemini-2.5-flash-lite",
-                "gemini-2.5-flash-image-preview",
-                "gemini-2.0-flash",
-                "gemini-2.0-flash-lite",
-                "gemini-1.5-pro",
-                "gemini-1.5-flash",
             ],
             "default_model": "gemini-2.5-flash",
             "supports_video": True,
@@ -37,40 +33,42 @@ class CaptionStep:
         "Pixtral": {
             "key_name": "pixtral_api_key",
             "models": [
-                "pixtral-large-2411",
                 "pixtral-large-latest",
+                "pixtral-12b-latest",
+                "mistral-large-latest",
+                "mistral-medium-latest",
                 "mistral-small-latest",
-                "pixtral-12b-2409",
             ],
-            "default_model": "pixtral-large-2411",
+            "default_model": "pixtral-large-latest",
             "supports_video": False,
             "supports_task": False,
         },
         "Step": {
             "key_name": "step_api_key",
             "models": [
+                "step-3-vl",
+                "step-3-vl-mini",
                 "step-2o-vision",
                 "step-1.5v-max",
                 "step-1.5v-mini",
                 "step-r1-v-mini",
             ],
-            "default_model": "step-1.5v-mini",
+            "default_model": "step-3-vl-mini",
             "supports_video": True,
             "supports_task": False,
         },
         "Qwen": {
             "key_name": "qwenVL_api_key",
             "models": [
-                "qwen-vl-max-latest",
-                "qwen-vl-max",
-                "qwen-vl-plus-latest",
-                "qwen-vl-plus",
-                "qwen2.5-vl-72b-instruct",
-                "qwen2.5-vl-32b-instruct",
-                "qwen2.5-vl-7b-instruct",
-                "qwen2.5-vl-3b-instruct",
+                "qwen3-max-lastest",
+                "qwen3-vl-plus",
+                "qwen3-vl-plus-latest",
+                "qwen3-vl-flash",
+                "qwen3-vl-flash-latest",
+                "qwen-vl-ocr",
+                "qwen-vl-ocr-latest",
             ],
-            "default_model": "qwen-vl-max-latest",
+            "default_model": "qwen3-vl-plus",
             "supports_video": True,
             "supports_task": False,
         },
@@ -85,6 +83,7 @@ class CaptionStep:
             "default_model": "kimi-k2.5",
             "supports_video": True,
             "supports_task": False,
+            "note": "kimi-latest 已于 2026年1月28日停止新用户使用",
         },
         "Kimi-Code": {
             "key_name": "kimi_code_api_key",
@@ -98,13 +97,13 @@ class CaptionStep:
         "GLM": {
             "key_name": "glm_api_key",
             "models": [
-                "glm-4v-plus-0111",
+                "glm-5",
+                "glm-4.5v",
+                "glm-4.1v",
                 "glm-4v-plus",
                 "glm-4v",
-                "glm-4v-flash",
-                "glm-4.1v-thinking",
             ],
-            "default_model": "glm-4v-plus-0111",
+            "default_model": "glm-5",
             "supports_video": True,
             "supports_task": False,
         },
@@ -467,7 +466,7 @@ class CaptionStep:
         self.start_btn.set_enabled(False)
         self.stop_btn.set_enabled(True)
 
-        self.log_viewer.info(f"开始字幕生成...")
+        self.log_viewer.info("开始字幕生成...")
         self.log_viewer.info(f"数据集路径: {dataset_path}")
         self.log_viewer.info(f"模式: {self.mode.value}")
 
