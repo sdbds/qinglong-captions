@@ -52,7 +52,7 @@ class TaggerStep:
 
             with ui.stepper().props("vertical").classes("w-full") as stepper:
                 # 步骤 3.1: 配置路径和模型
-                with ui.step(t("config_paths", "Configure Paths")):
+                with ui.step(t("config_paths")):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("folder_open", size="22px").style(f"color: {COLORS['info']};")
@@ -134,7 +134,7 @@ class TaggerStep:
 
                         # 功能开关 - 使用按钮式开关
                         with ui.card().classes(get_classes("card") + " w-full q-pa-md q-mt-md"):
-                            ui.label("功能开关").classes("text-subtitle1 text-weight-bold").style("color: var(--color-text);")
+                            ui.label(t("feature_toggles")).classes("text-subtitle1 text-weight-bold").style("color: var(--color-text);")
 
                             with ui.grid(columns=3).classes("w-full gap-4 q-mt-sm"):
                                 toggle_switch("remove_underscore", self.config, "remove_underscore")
@@ -147,7 +147,7 @@ class TaggerStep:
                                 toggle_switch("overwrite", self.config, "overwrite")
 
                         # 高级标签设置
-                        with ui.expansion("高级标签设置").classes("w-full q-mt-md"):
+                        with ui.expansion(t("advanced_tag_settings")).classes("w-full q-mt-md"):
                             self.undesired_tags = ui.input(label=t("undesired_tags"), placeholder="tag1,tag2,tag3")
                             self.undesired_tags.classes("modern-input w-full")
 
@@ -199,7 +199,7 @@ class TaggerStep:
         try:
             train_data_dir = self.train_data_dir.value
             if not train_data_dir or not Path(train_data_dir).exists():
-                ui.notify("请选择有效的训练数据目录", type="warning")
+                ui.notify(t("select_valid_train_dir"), type="warning")
                 return
 
             self.is_running = True
@@ -213,10 +213,10 @@ class TaggerStep:
             general_threshold = self.config["general_threshold"]
             character_threshold = self.config["character_threshold"]
 
-            self.log_viewer.info(f"开始数据集打标...")
-            self.log_viewer.info(f"数据目录: {train_data_dir}")
-            self.log_viewer.info(f"模型: {repo_id}")
-            self.log_viewer.info(f"批处理大小: {batch_size}")
+            self.log_viewer.info(t("log_start_tagging"))
+            self.log_viewer.info(f"{t('log_data_dir')}: {train_data_dir}")
+            self.log_viewer.info(f"{t('log_model')}: {repo_id}")
+            self.log_viewer.info(f"{t('log_batch_size')}: {batch_size}")
 
             # 将日志回调连接到 log_viewer
             process_runner.set_callbacks(log_callback=self.log_viewer.info)
@@ -257,21 +257,21 @@ class TaggerStep:
             if self.tag_replacement.value:
                 args.append(f"--tag_replacement={self.tag_replacement.value}")
 
-            self.log_viewer.info(f"参数: {args}")
+            self.log_viewer.info(f"{t('log_params')}: {args}")
 
             # 运行打标
             result = await process_runner.run_python_script("utils.wdtagger", args)
 
             if result.status == ProcessStatus.SUCCESS:
-                self.log_viewer.success("打标完成")
-                ui.notify("打标完成", type="positive")
+                self.log_viewer.success(t("tagging_success"))
+                ui.notify(t("tagging_success"), type="positive")
             else:
-                self.log_viewer.error(f"打标失败: {result.message}")
-                ui.notify("打标失败", type="negative")
+                self.log_viewer.error(f"{t('tagging_failed')}: {result.message}")
+                ui.notify(t("tagging_failed"), type="negative")
 
         except Exception as e:
-            self.log_viewer.error(f"打标出错: {e}")
-            ui.notify(f"打标出错: {e}", type="negative")
+            self.log_viewer.error(f"{t('tagging_error')}: {e}")
+            ui.notify(f"{t('tagging_error')}: {e}", type="negative")
         finally:
             process_runner.set_callbacks(log_callback=None)
             self.is_running = False

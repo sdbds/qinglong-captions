@@ -55,7 +55,7 @@ class VideoSplitStep:
 
             with ui.stepper().props("vertical").classes("w-full") as stepper:
                 # 步骤 2.1: 配置路径
-                with ui.step(t("config_paths", "Configure Paths")):
+                with ui.step(t("config_paths")):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("folder_open", size="22px").style(f"color: {COLORS['info']};")
@@ -126,7 +126,7 @@ class VideoSplitStep:
                             step=1,
                             decimals=0,
                         )
-                        ui.label("设为0则不保存图片").classes("text-caption").style("color: var(--color-text-secondary);")
+                        ui.label(t("images_per_scene_hint")).classes("text-caption").style("color: var(--color-text-secondary);")
 
                         # 选项 - 使用按钮式开关
                         with ui.row().classes("w-full gap-4 q-mt-md"):
@@ -175,7 +175,7 @@ class VideoSplitStep:
         """开始分割"""
         input_dir = self.input_video_dir.value
         if not input_dir or not Path(input_dir).exists():
-            ui.notify("请选择有效的输入目录", type="warning")
+            ui.notify(t("select_valid_input"), type="warning")
             return
 
         self.is_running = True
@@ -186,11 +186,11 @@ class VideoSplitStep:
         threshold = self.config["threshold"]
         min_scene_len = int(self.config["min_scene_len"])
 
-        self.log_viewer.info(f"开始视频场景分割...")
-        self.log_viewer.info(f"输入目录: {input_dir}")
-        self.log_viewer.info(f"检测器: {detector}")
-        self.log_viewer.info(f"阈值: {threshold}")
-        self.log_viewer.info(f"最小场景长度: {min_scene_len}")
+        self.log_viewer.info(t("log_start_split"))
+        self.log_viewer.info(f"{t('log_input_path')}: {input_dir}")
+        self.log_viewer.info(f"{t('log_detector')}: {detector}")
+        self.log_viewer.info(f"{t('log_threshold')}: {threshold}")
+        self.log_viewer.info(f"{t('log_min_scene_len')}: {min_scene_len}")
 
         # 将日志回调连接到 log_viewer
         process_runner.set_callbacks(log_callback=self.log_viewer.info)
@@ -223,17 +223,17 @@ class VideoSplitStep:
         if images_per_scene > 0:
             args.append(f"--video2images_min_number={images_per_scene}")
 
-        self.log_viewer.info(f"参数: {args}")
+        self.log_viewer.info(f"{t('log_params')}: {args}")
 
         # 运行分割
         result = await process_runner.run_python_script("module.videospilter", args)
 
         if result.status == ProcessStatus.SUCCESS:
-            self.log_viewer.success("视频分割完成")
-            ui.notify("视频分割完成", type="positive")
+            self.log_viewer.success(t("split_success"))
+            ui.notify(t("split_success"), type="positive")
         else:
-            self.log_viewer.error("视频分割失败")
-            ui.notify("视频分割失败", type="negative")
+            self.log_viewer.error(t("split_failed"))
+            ui.notify(t("split_failed"), type="negative")
 
         process_runner.set_callbacks(log_callback=None)
         self.is_running = False

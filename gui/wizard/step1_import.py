@@ -133,7 +133,7 @@ class ImportStep:
         """开始导入"""
         input_path = self.input_path.value
         if not input_path or not Path(input_path).exists():
-            ui.notify("请选择有效的输入路径", type="warning")
+            ui.notify(t("select_valid_input"), type="warning")
             return
 
         output_name = self.output_name.value or "dataset"
@@ -144,11 +144,11 @@ class ImportStep:
         self.start_btn.set_enabled(False)
         self.stop_btn.set_enabled(True)
 
-        self.log_viewer.info(f"开始导入数据集...")
-        self.log_viewer.info(f"输入路径: {input_path}")
-        self.log_viewer.info(f"输出名称: {output_name}")
-        self.log_viewer.info(f"导入模式: {self.import_mode.value}")
-        self.log_viewer.info(f"标签: {tag}")
+        self.log_viewer.info(t("log_start_import"))
+        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
+        self.log_viewer.info(f"{t('log_output_name')}: {output_name}")
+        self.log_viewer.info(f"{t('log_import_mode')}: {self.import_mode.value}")
+        self.log_viewer.info(f"{t('log_tag')}: {tag}")
 
         # 将日志回调连接到 log_viewer
         process_runner.set_callbacks(log_callback=self.log_viewer.info)
@@ -164,7 +164,7 @@ class ImportStep:
         if self.config["not_save_disk"]:
             args.append("--not_save_disk")
 
-        self.log_viewer.info(f"参数: {args}")
+        self.log_viewer.info(f"{t('log_params')}: {args}")
 
         # 运行导入
         result = await process_runner.run_python_script("module.lanceImport", args)

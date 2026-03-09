@@ -102,7 +102,7 @@ def create_header():
                 ):
                     ui.label("🐉").classes("text-2xl")
                 with ui.column().classes("gap-0"):
-                    ui.label(APP_TITLE).classes("text-h6 text-weight-bold header-title")
+                    ui.label(t("app_title")).classes("text-h6 text-weight-bold header-title")
                     ui.label(f"v{APP_VERSION}").classes("text-caption header-version")
 
             # 导航菜单
@@ -183,7 +183,7 @@ def home_page():
         with ui.column().classes(get_classes("page_container") + " gap-6"):
             # Hero Section
             with ui.element("div").classes("w-full text-center q-py-xl"):
-                ui.label("青龙字幕工具").classes("text-h2 text-weight-bold q-mb-md").style(f"""
+                ui.label(t("app_title")).classes("text-h2 text-weight-bold q-mb-md").style(f"""
                     background: linear-gradient(135deg, {COLORS["primary_light"]}, {COLORS["secondary"]});
                     -webkit-background-clip: text;
                     -webkit-text-fill-color: transparent;
@@ -308,11 +308,11 @@ def not_found_page():
     def content():
         with ui.column().classes(get_classes("page_container") + " gap-6 items-center justify-center").style("min-height: 60vh;"):
             ui.icon("error_outline", size="80px").style(f"color: {COLORS['warning']};")
-            ui.label("页面不存在").classes("text-h3 text-weight-bold").style("color: var(--color-text);")
-            ui.label("您访问的页面不存在或已被移除").classes("text-body1").style("color: var(--color-text-secondary);")
+            ui.label(t("page_not_found")).classes("text-h3 text-weight-bold").style("color: var(--color-text);")
+            ui.label(t("page_not_found_desc")).classes("text-body1").style("color: var(--color-text-secondary);")
 
             with ui.row().classes("gap-4 q-mt-lg"):
-                home_btn = ui.button("返回首页", on_click=lambda: ui.navigate.to("/"), icon="home")
+                home_btn = ui.button(t("back_to_home"), on_click=lambda: ui.navigate.to("/"), icon="home")
                 home_btn.classes("modern-btn-primary")
                 home_btn.classes(remove="bg-primary bg-secondary text-white")
 
@@ -332,14 +332,14 @@ def main():
     ui.page("/setup")(setup_page)
 
     # 设置应用标题
-    app.config.title = APP_TITLE
+    app.config.title = t("app_title")
 
     # 404 页面 - 捕获所有未定义的路由
     ui.page("/{path:path}")(not_found_page)
 
     # 运行应用
     ui.run(
-        title=APP_TITLE,
+        title=t("app_title"),
         favicon="🐉",
         dark=False,
         reload=False,

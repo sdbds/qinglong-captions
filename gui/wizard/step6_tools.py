@@ -162,9 +162,9 @@ class ToolsStep:
 
             # 对齐输入目录
             self.preprocess_align = create_path_selector(
-                label=t("align_input_dir", "Align Input Directory"),
+                label=t("align_input_dir"),
                 selection_type="dir",
-                placeholder="Optional: for image pair alignment",
+                placeholder=t("optional_pair_align_placeholder"),
             )
 
             # 使用可编辑滑块
@@ -276,7 +276,7 @@ class ToolsStep:
         """开始水印检测"""
         input_path = self.watermark_input.value
         if not input_path or not Path(input_path).exists():
-            ui.notify("请选择有效的输入路径", type="warning")
+            ui.notify(t("select_valid_input"), type="warning")
             return
 
         self.current_tool = "watermark"
@@ -284,8 +284,8 @@ class ToolsStep:
         self.stop_btn.set_enabled(True)
         self.log_viewer.clear()
 
-        self.log_viewer.info(f"开始水印检测...")
-        self.log_viewer.info(f"输入路径: {input_path}")
+        self.log_viewer.info(t("log_start_watermark"))
+        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
 
         # 将日志回调连接到 log_viewer
         process_runner.set_callbacks(log_callback=self.log_viewer.info)
@@ -299,17 +299,17 @@ class ToolsStep:
         if self.config["watermark_thresh"] != 1.0:
             args.append(f"--thresh={self.config['watermark_thresh']}")
 
-        self.log_viewer.info(f"模型: {self.watermark_model.value}")
+        self.log_viewer.info(f"{t('log_model')}: {self.watermark_model.value}")
 
         # 运行水印检测
         result = await process_runner.run_python_script("module.waterdetect", args)
 
         if result.status == ProcessStatus.SUCCESS:
-            self.log_viewer.success("水印检测完成")
-            ui.notify("水印检测完成", type="positive")
+            self.log_viewer.success(t("watermark_success"))
+            ui.notify(t("watermark_success"), type="positive")
         else:
-            self.log_viewer.error("水印检测失败")
-            ui.notify("水印检测失败", type="negative")
+            self.log_viewer.error(t("watermark_failed"))
+            ui.notify(t("watermark_failed"), type="negative")
 
         process_runner.set_callbacks(log_callback=None)
         self.is_running = False
@@ -319,7 +319,7 @@ class ToolsStep:
         """开始图像预处理"""
         input_path = self.preprocess_input.value
         if not input_path or not Path(input_path).exists():
-            ui.notify("请选择有效的输入路径", type="warning")
+            ui.notify(t("select_valid_input"), type="warning")
             return
 
         self.current_tool = "preprocess"
@@ -327,8 +327,8 @@ class ToolsStep:
         self.stop_btn.set_enabled(True)
         self.log_viewer.clear()
 
-        self.log_viewer.info(f"开始图像预处理...")
-        self.log_viewer.info(f"输入路径: {input_path}")
+        self.log_viewer.info(t("log_start_preprocess"))
+        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
 
         # 将日志回调连接到 log_viewer
         process_runner.set_callbacks(log_callback=self.log_viewer.info)
@@ -359,17 +359,17 @@ class ToolsStep:
         if self.config["crop_transparent"]:
             args.append("--crop-transparent")
 
-        self.log_viewer.info(f"参数: {args}")
+        self.log_viewer.info(f"{t('log_params')}: {args}")
 
         # 运行预处理
         result = await process_runner.run_python_script("utils.preprocess_datasets", args)
 
         if result.status == ProcessStatus.SUCCESS:
-            self.log_viewer.success("预处理完成")
-            ui.notify("预处理完成", type="positive")
+            self.log_viewer.success(t("preprocess_success"))
+            ui.notify(t("preprocess_success"), type="positive")
         else:
-            self.log_viewer.error("预处理失败")
-            ui.notify("预处理失败", type="negative")
+            self.log_viewer.error(t("preprocess_failed"))
+            ui.notify(t("preprocess_failed"), type="negative")
 
         process_runner.set_callbacks(log_callback=None)
         self.is_running = False
@@ -379,7 +379,7 @@ class ToolsStep:
         """开始图像评分"""
         input_path = self.reward_input.value
         if not input_path or not Path(input_path).exists():
-            ui.notify("请选择有效的输入路径", type="warning")
+            ui.notify(t("select_valid_input"), type="warning")
             return
 
         self.current_tool = "reward"
@@ -387,8 +387,8 @@ class ToolsStep:
         self.stop_btn.set_enabled(True)
         self.log_viewer.clear()
 
-        self.log_viewer.info(f"开始图像评分...")
-        self.log_viewer.info(f"输入路径: {input_path}")
+        self.log_viewer.info(t("log_start_scoring"))
+        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
 
         # 将日志回调连接到 log_viewer
         process_runner.set_callbacks(log_callback=self.log_viewer.info)
@@ -400,17 +400,17 @@ class ToolsStep:
         args.append(f"--device={self.reward_device.value}")
         args.append(f"--dtype={self.reward_dtype.value}")
 
-        self.log_viewer.info(f"模型: {self.reward_model.value}")
+        self.log_viewer.info(f"{t('log_model')}: {self.reward_model.value}")
 
         # 运行评分
         result = await process_runner.run_python_script("module.rewardmodel", args)
 
         if result.status == ProcessStatus.SUCCESS:
-            self.log_viewer.success("评分完成")
-            ui.notify("评分完成", type="positive")
+            self.log_viewer.success(t("scoring_success"))
+            ui.notify(t("scoring_success"), type="positive")
         else:
-            self.log_viewer.error("评分失败")
-            ui.notify("评分失败", type="negative")
+            self.log_viewer.error(t("scoring_failed"))
+            ui.notify(t("scoring_failed"), type="negative")
 
         process_runner.set_callbacks(log_callback=None)
         self.is_running = False

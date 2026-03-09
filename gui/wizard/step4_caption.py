@@ -287,7 +287,7 @@ class CaptionStep:
                 with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                     # Kimi-Code 提示
                     if api_name == "Kimi-Code":
-                        ui.label("Kimi-Code 使用独立 API Key（来自 kimi.com/code），与 Moonshot 平台的 Key 不通用").classes(
+                        ui.label(t("kimi_code_desc")).classes(
                             "text-caption q-mb-sm"
                         ).style("color: var(--color-text-secondary);")
 
@@ -305,7 +305,7 @@ class CaptionStep:
                     if config.get("custom_model_input"):
                         # Ark 等需要用户手动输入 endpoint model ID
                         model_input = ui.input(
-                            label=t("model_path"), placeholder="输入你的 Endpoint Model ID", value=config["default_model"]
+                            label=t("model_path"), placeholder=t("enter_endpoint_model_id"), value=config["default_model"]
                         )
                         model_input.classes("modern-input w-full")
                         setattr(self, f"{config['key_name']}_model", model_input)
@@ -328,10 +328,7 @@ class CaptionStep:
 
     def _render_openai_compatible_settings(self, api_name: str, config: dict):
         """渲染 OpenAI Compatible API 的专用设置"""
-        ui.label(
-            "通用 OpenAI 兼容接口，支持 vLLM / Ollama / LM Studio / SGLang 等本地或远程服务。"
-            "配置 Base URL 后将优先使用此接口。"
-        ).classes("text-caption q-mb-sm").style("color: var(--color-text-secondary);")
+        ui.label(t("openai_compatible_desc")).classes("text-caption q-mb-sm").style("color: var(--color-text-secondary);")
 
         # Base URL（必填）
         self.openai_base_url = styled_input(
@@ -346,7 +343,7 @@ class CaptionStep:
             # API Key（可选）
             key_input = ui.input(
                 label=f"{api_name} API Key",
-                placeholder="sk-no-key-required（本地服务可留空）",
+                placeholder=t("openai_no_key_hint"),
                 password=True,
             )
             key_input.classes("modern-input w-full")
@@ -452,23 +449,23 @@ class CaptionStep:
         """开始字幕生成"""
         dataset_path = self.dataset_path.value
         if not dataset_path or not Path(dataset_path).exists():
-            ui.notify("请选择有效的数据集路径", type="warning")
+            ui.notify(t("select_valid_dataset"), type="warning")
             return
 
         # 检查至少有一个 API key 或 OpenAI base_url
         has_api = any(key_input.value for key_input in self.api_keys.values())
         has_openai_url = hasattr(self, "openai_base_url") and self.openai_base_url.value
         if not has_api and not has_openai_url:
-            ui.notify("请至少配置一个 API 密钥或 OpenAI Base URL", type="warning")
+            ui.notify(t("at_least_one_api"), type="warning")
             return
 
         self.is_running = True
         self.start_btn.set_enabled(False)
         self.stop_btn.set_enabled(True)
 
-        self.log_viewer.info("开始字幕生成...")
-        self.log_viewer.info(f"数据集路径: {dataset_path}")
-        self.log_viewer.info(f"模式: {self.mode.value}")
+        self.log_viewer.info(t("log_start_caption"))
+        self.log_viewer.info(f"{t('log_dataset_path')}: {dataset_path}")
+        self.log_viewer.info(f"{t('log_mode')}: {self.mode.value}")
 
         # 将日志回调连接到 log_viewer
         process_runner.set_callbacks(log_callback=self.log_viewer.info)
@@ -550,7 +547,7 @@ class CaptionStep:
         if self.vlm_image_model.value:
             args.append(f"--vlm_image_model={self.vlm_image_model.value}")
 
-        self.log_viewer.info(f"参数: {args[:5]}...")  # 只显示前几个参数，避免泄露 API key
+        self.log_viewer.info(f"{t('log_params')}: {args[:5]}...")
 
         # 运行字幕生成
         result = await process_runner.run_python_script("module.captioner", args)

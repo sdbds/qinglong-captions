@@ -59,7 +59,7 @@ class ExportStep:
                         next_btn.classes("modern-btn-primary").props('type="button"')
 
                 # 步骤 5.2: 配置导出选项
-                with ui.step(t("export_settings", "Export Settings")):
+                with ui.step(t("export_settings")):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("settings", size="22px").style(f"color: {COLORS['warning']};")
@@ -122,7 +122,7 @@ class ExportStep:
         """开始导出"""
         lance_file = self.lance_file.value
         if not lance_file or not Path(lance_file).exists():
-            ui.notify("请选择有效的 Lance 数据集文件", type="warning")
+            ui.notify(t("select_valid_lance"), type="warning")
             return
 
         self.is_running = True
@@ -132,10 +132,10 @@ class ExportStep:
         output_dir = self.output_dir.value or "./datasets"
         version = self.version.value
 
-        self.log_viewer.info(f"开始导出数据集...")
-        self.log_viewer.info(f"Lance 文件: {lance_file}")
-        self.log_viewer.info(f"输出目录: {output_dir}")
-        self.log_viewer.info(f"版本: {version}")
+        self.log_viewer.info(t("log_start_export"))
+        self.log_viewer.info(f"{t('log_lance_file')}: {lance_file}")
+        self.log_viewer.info(f"{t('log_output_dir')}: {output_dir}")
+        self.log_viewer.info(f"{t('log_version')}: {version}")
 
         # 将日志回调连接到 log_viewer
         process_runner.set_callbacks(log_callback=self.log_viewer.info)
@@ -148,7 +148,7 @@ class ExportStep:
         if self.config["not_clip_with_caption"]:
             args.append("--not_clip_with_caption")
 
-        self.log_viewer.info(f"参数: {args}")
+        self.log_viewer.info(f"{t('log_params')}: {args}")
 
         # 运行导出
         result = await process_runner.run_python_script("module.lanceexport", args)
