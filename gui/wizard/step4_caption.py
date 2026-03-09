@@ -152,6 +152,7 @@ class CaptionStep:
         "moondream",
         "qwen_vl_local",
         "step_vl_local",
+        "penguin_vl_local",
     ]
 
     def __init__(self):

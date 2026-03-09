@@ -66,6 +66,7 @@ class ProviderRegistry:
                 "moondream",
                 "qwen_vl_local",
                 "step_vl_local",
+                "penguin_vl_local",
                 # Vision API
                 "pixtral",
                 "gemini",
