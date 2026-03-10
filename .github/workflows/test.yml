@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest rich rich_pixels Pillow openai transformers torch imageio_ffmpeg
+          pip install -r requirements-test.txt
 
       - name: Run tests
         env:
