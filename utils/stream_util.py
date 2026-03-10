@@ -4,7 +4,6 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
-import imageio_ffmpeg
 import toml
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TimeRemainingColumn
@@ -149,6 +148,7 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_t
         subs (pysrt.SubRipFile): Subtitles to process
         save_caption_func (callable, optional): Function to save captions
     """
+    import imageio_ffmpeg
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
     with Progress(
         "[progress.description]{task.description}",

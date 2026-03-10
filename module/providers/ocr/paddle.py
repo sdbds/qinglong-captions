@@ -10,7 +10,11 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from paddleocr import PaddleOCRVL
+try:
+    from paddleocr import PaddleOCRVL
+except ImportError as e:
+    PaddleOCRVL = None
+    _IMPORT_ERROR = e
 from rich.console import Console
 from rich.progress import Progress
 from rich_pixels import Pixels
