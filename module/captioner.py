@@ -30,7 +30,10 @@ from config.config import (
 )
 import os as _os
 
-if _os.environ.get("QINGLONG_API_V2", "0") == "1":
+if _os.environ.get("QINGLONG_API_V2", "1") == "0":
+    # 旧架构：通过 QINGLONG_API_V2=0 显式回退
+    from module.api_handler import api_process_batch
+else:
     from module.api_handler_v2 import api_process_batch as _api_process_batch_v2
 
     def api_process_batch(uri, mime, config, args, sha256hash, progress=None, task_id=None):
@@ -45,8 +48,6 @@ if _os.environ.get("QINGLONG_API_V2", "0") == "1":
         if hasattr(result, 'raw'):
             return result.raw
         return result
-else:
-    from module.api_handler import api_process_batch
 from module.lanceexport import extract_from_lance
 from module.lanceImport import transform2lance
 from utils.parse_display import process_llm_response

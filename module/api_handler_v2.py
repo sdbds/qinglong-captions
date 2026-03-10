@@ -4,9 +4,9 @@ Provider V2 统一入口
 重构后的 api_process_batch，使用新的 Provider 架构
 
 用法:
-    # 通过环境变量切换新旧代码
-    export QINGLONG_API_V2=1  # 使用新架构
-    export QINGLONG_API_V2=0  # 使用旧代码（默认）
+    # 默认使用 V2 新架构
+    # 通过环境变量显式回退到旧代码
+    export QINGLONG_API_V2=0  # 回退到旧代码
 
     from module.api_handler_v2 import api_process_batch
     result = api_process_batch(uri, mime, config, args, hash)
@@ -115,8 +115,8 @@ def api_process_batch_legacy(
 
 # 便捷函数：检查是否使用 V2
 def is_v2_enabled() -> bool:
-    """检查是否启用了 V2 架构"""
-    return os.environ.get("QINGLONG_API_V2", "0") == "1"
+    """检查是否启用了 V2 架构（默认启用）"""
+    return os.environ.get("QINGLONG_API_V2", "1") != "0"
 
 
 # 便捷函数：切换版本

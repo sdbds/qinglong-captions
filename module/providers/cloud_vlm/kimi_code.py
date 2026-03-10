@@ -27,7 +27,7 @@ class KimiCodeProvider(CloudVLMProvider):
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         from openai import OpenAI
-        from module.providers.kimi_vl_provider import attempt_kimi_vl
+        from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl
 
         base_url = getattr(self.ctx.args, "kimi_code_base_url", "https://api.kimi.com/coding/v1")
         client = OpenAI(
