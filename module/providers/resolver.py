@@ -96,14 +96,30 @@ class PromptResolver:
                 f"{provider_prefix}_video_prompt", f"{self.provider_name}_video_prompt", "step_video_prompt", user
             )
         elif mime.startswith("image"):
+            # 修复：kimi_code/kimi_vl 兼容性，添加 kimi_image_prompt fallback
+            kimi_fallback = ""
+            if self.provider_name in ("kimi_code", "kimi_vl"):
+                kimi_fallback = "kimi_image_system_prompt"
+            
             system = self._get_with_fallback(
                 f"{self.provider_name}_image_system_prompt",
                 f"{provider_prefix}_image_system_prompt",
-                "pixtral_image_system_prompt",  # 兼容性 fallback
+                kimi_fallback,
+                "pixtral_image_system_prompt",  # 通用兼容性 fallback
                 system,
             )
+            
+            # 修复：kimi_code/kimi_vl 兼容性，添加 kimi_image_prompt fallback
+            kimi_prompt_fallback = ""
+            if self.provider_name in ("kimi_code", "kimi_vl"):
+                kimi_prompt_fallback = "kimi_image_prompt"
+            
             user = self._get_with_fallback(
-                f"{self.provider_name}_image_prompt", f"{provider_prefix}_image_prompt", "pixtral_image_prompt", user
+                f"{self.provider_name}_image_prompt",
+                f"{provider_prefix}_image_prompt",
+                kimi_prompt_fallback,
+                "pixtral_image_prompt",
+                user
             )
         elif mime.startswith("audio"):
             system = self._get_with_fallback(f"{self.provider_name}_audio_system_prompt", system)

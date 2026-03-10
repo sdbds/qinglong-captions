@@ -62,6 +62,11 @@ SCRIPT_REGISTRY = {
 _WRAPPER_PATH = str(Path(__file__).parent / "console_wrapper.py")
 
 
+def _ps_escape(s: str) -> str:
+    """对字符串做 PowerShell 单引号转义（' → ''）"""
+    return str(s).replace("'", "''")
+
+
 class ProcessRunner:
     """运行外部进程并捕获输出（非阻塞）
 
@@ -98,8 +103,18 @@ class ProcessRunner:
             self.status_callback(status)
 
     def _build_env(self, env_vars: Optional[dict] = None) -> dict:
-        """构建子进程环境变量（与 PowerShell 脚本保持一致）"""
+        """构建子进程环境变量（与 PowerShell 脚本保持一致）
+
+        优先级: env_vars 参数 > env_config (GUI 配置) > 系统环境
+        """
+        from gui.utils.env_config import get_env_for_subprocess
+
         env = os.environ.copy()
+
+        # 注入 GUI 环境变量配置（来自 config/env_vars.json）
+        env.update(get_env_for_subprocess())
+
+        # 调用方传入的 env_vars 优先级最高
         if env_vars:
             env.update(env_vars)
 
@@ -107,10 +122,6 @@ class ProcessRunner:
         existing = env.get("PYTHONPATH", "")
         if self.PROJECT_ROOT not in existing:
             env["PYTHONPATH"] = self.PROJECT_ROOT + os.pathsep + existing if existing else self.PROJECT_ROOT
-
-        # HF_HOME - 与 .ps1 脚本一致
-        env.setdefault("HF_HOME", "huggingface")
-        env.setdefault("XFORMERS_FORCE_DISABLE_TRITON", "1")
 
         return env
 
@@ -328,8 +339,12 @@ class ProcessRunner:
             except OSError:
                 pass
 
-        # 包装命令: python console_wrapper.py <exit_file> <log_file> <cmd...>
-        wrapper_cmd = [sys.executable, _WRAPPER_PATH, exit_file, log_file] + cmd
+        # 包装命令: 通过 PowerShell 启动 console_wrapper.py
+        # 优先使用 pwsh.exe (PowerShell 7)，回退到 powershell.exe (5.1)
+        ps_exe = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
+        parts = [sys.executable, _WRAPPER_PATH, exit_file, log_file] + cmd
+        ps_cmd = "& " + " ".join(f"'{_ps_escape(p)}'" for p in parts)
+        wrapper_cmd = [ps_exe, "-NoProfile", "-NoLogo", "-Command", ps_cmd]
 
         self.process = await asyncio.create_subprocess_exec(
             *wrapper_cmd,
@@ -337,7 +352,7 @@ class ProcessRunner:
             env=env,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
-        self._notify_log("已在原生控制台窗口中启动，输出同步显示在下方")
+        self._notify_log("已在 PowerShell 控制台窗口中启动，输出同步显示在下方")
 
         # 启动日志尾随任务
         self._tail_task = asyncio.create_task(self._tail_log_file(log_file))

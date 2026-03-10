@@ -69,9 +69,9 @@ def attempt_stepfun(
         cfg_model_id = "stepfun-ai/Step3-VL-10B"
         gen_defaults = {"temperature": 1.0, "top_p": 1.0, "top_k": 0, "eos_token_id": [151643, 151645, 151679]}
         try:
-            import toml  # type: ignore
+            from config.loader import load_config
 
-            cfg = toml.load(root_dir / "config" / "config.toml")
+            cfg = load_config(str(root_dir / "config"))
             section = cfg.get("stepfun_local", {}) or {}
             cfg_model_id = section.get("model_id", cfg_model_id)
             for k in gen_defaults.keys():

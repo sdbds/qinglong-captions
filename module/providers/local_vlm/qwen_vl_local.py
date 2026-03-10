@@ -11,7 +11,7 @@ from providers.registry import register_provider
 class QwenVLLocalProvider(LocalVLMProvider):
     """Qwen VL Local Provider"""
 
-    default_model_id = "Qwen/Qwen2-VL-7B-Instruct"
+    default_model_id = "Qwen/Qwen3-VL-8B-Instruct"
     _attn_implementation = "eager"
 
     @classmethod

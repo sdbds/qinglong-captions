@@ -1,0 +1,200 @@
+# Generation configuration
+[generation_config]
+
+candidate_count = 1
+
+[generation_config.default]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-2_5-pro]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-2_5-flash]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+thinking_budget = 8000
+
+[generation_config.gemini-2_5-flash-lite]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+thinking_budget = 8192
+
+[generation_config.gemini-2_5-flash-image-preview]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 8192
+response_modalities = ["image", "text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-3-pro-preview]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-3-pro-image-preview]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["image", "text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-3_1-pro-preview]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-3_1-flash-image-preview]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["image", "text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-3_1-flash-lite-preview]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+
+[olmocr]
+model_id = "allenai/olmOCR-2-7B-1025"
+temperature = 0.1
+max_new_tokens = 512
+
+[deepseek_ocr]
+model_id = "deepseek-ai/DeepSeek-OCR-2"
+base_size = 1024
+image_size = 768
+crop_mode = true
+
+# HunyuanOCR configuration
+# Requires: pip install git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4
+[hunyuan_ocr]
+model_id = "tencent/HunyuanOCR"
+max_new_tokens = 16384
+
+# GLM-OCR configuration
+# Model: https://huggingface.co/zai-org/GLM-OCR
+# Requires: pip install git+https://github.com/huggingface/transformers.git
+[glm_ocr]
+model_id = "zai-org/GLM-OCR"
+max_new_tokens = 8192
+
+# Nanonets-OCR2 configuration
+# Model: https://huggingface.co/nanonets/Nanonets-OCR2-3B
+# GitHub: https://github.com/NanoNets/docstrange
+[nanonets_ocr]
+model_id = "nanonets/Nanonets-OCR2-3B"
+max_new_tokens = 15000
+
+# Chandra OCR configuration
+# Model: https://huggingface.co/datalab-to/chandra
+# Requires: pip install chandra-ocr
+[chandra_ocr]
+model_id = "datalab-to/chandra"
+max_new_tokens = 8192
+prompt_type = "ocr_layout"
+
+[paddle_ocr.save]
+save_json = true
+save_markdown = true
+save_img = true
+save_xlsx = false
+save_html = true
+save_csv = false
+save_video = false
+
+[paddle_ocr.pipeline]
+use_doc_orientation_classify = false
+use_doc_unwarping = false
+use_layout_detection = false
+use_chart_recognition = ""
+use_seal_recognition = ""
+use_ocr_for_image_block = true
+enable_hpi = ""
+use_tensorrt = ""
+format_block_content = true
+merge_layout_blocks = true
+markdown_ignore_labels = []
+layout_threshold = ""
+layout_nms = ""
+layout_unclip_ratio = ""
+layout_merge_bboxes_mode = ""
+
+[paddle_ocr.pdf]
+use_queues = ""
+merge_table = ""
+relevel_titles = ""
+merge_pages = ""
+
+[ark]
+fps = 2
+
+[moondream]
+model_id = "moondream/moondream3-preview"
+prompt = ""
+reasoning = false
+# Available task combinations (comma-separated list):
+# - "caption": Generate image descriptions (short, normal, long)
+# - "query": Ask open-ended questions about images (supports reasoning mode)
+# - "point": Identify specific points (x, y coordinates) for objects in an image
+# - "detect": Provide bounding boxes for objects in an image
+# Examples:
+#   tasks = "caption" (default: only caption generation)
+#   tasks = "caption,query" (caption + VQA)
+#   tasks = "query,point,detect" (VQA + point + detect)
+#   tasks = "all" (all available tasks)
+tasks = "caption"
+
+[qwen_vl_local]
+model_id = "Qwen/Qwen3-VL-8B-Instruct"
+prompt = ""
+greedy = false
+top_p = 0.8
+top_k = 20
+temperature = 0.7
+repetition_penalty = 1.0
+presence_penalty = 1.5
+out_seq_length = 16384
+
+[penguin]
+model_id = "tencent/Penguin-VL-8B"
+prompt = ""
+greedy = false
+top_p = 0.8
+top_k = 20
+temperature = 0.7
+repetition_penalty = 1.0
+out_seq_length = 4096
+
+[kimi_vl]
+thinking = "enabled"  # enabled | disabled

@@ -122,7 +122,7 @@ class KimiCodeProvider(CloudVLMProvider):
                 return 59.0
             if "502" in msg or "RETRY_EMPTY_CONTENT" in msg:
                 return cfg.base_wait
-            return None
+            return cfg.base_wait
 
         cfg.classify_error = classify
         return cfg

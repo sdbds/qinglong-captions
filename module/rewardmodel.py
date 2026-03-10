@@ -409,11 +409,13 @@ def load_model(args, device, dtype):
 def main(args):
     global console
 
-    # 从 config/config.toml 读取质量阈值并创建对应文件夹
+    # 从 config 目录读取质量阈值并创建对应文件夹
     project_root = Path(__file__).resolve().parents[1]
-    config_path = project_root / "config" / "config.toml"
+    config_dir = project_root / "config"
     try:
-        cfg = toml.load(config_path)
+        from config.loader import load_config
+
+        cfg = load_config(str(config_dir))
         rm_cfg = cfg.get("reward_model", {}) if isinstance(cfg, dict) else {}
 
         # 新格式：reward_model.quality = [{ name, score, color }]
@@ -437,7 +439,7 @@ def main(args):
             if not isinstance(colors_by_rank, list) or not all(isinstance(c, str) and c for c in colors_by_rank):
                 colors_by_rank = ["bold red", "bold yellow", "bold blue", "bold green"]
     except Exception as e:
-        console.print(f"[red]Failed to read config.toml: {e}[/red]")
+        console.print(f"[red]Failed to read config: {e}[/red]")
         thresholds_cfg = []
         colors_by_rank = ["bold red", "bold yellow", "bold blue", "bold green"]
 

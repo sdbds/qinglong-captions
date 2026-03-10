@@ -36,18 +36,16 @@ from module.lanceImport import transform2lance
 console = Console()
 
 # --- Config Loading ---
-# Load configuration from config.toml
-# This allows for dynamic configuration of the series exclusion list.
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "config.toml"
+# Load configuration from split TOML files (general.toml contains wdtagger section).
+CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 SERIES_EXCLUDE_LIST = set()
 try:
-    if CONFIG_PATH.exists():
-        config = toml.load(CONFIG_PATH)
-        SERIES_EXCLUDE_LIST = set(config.get("wdtagger", {}).get("series_exclude_list", []))
-    else:
-        console.print(f"[yellow]Config file not found at {CONFIG_PATH}, using default empty exclude list.[/yellow]")
+    from config.loader import load_config
+
+    _cfg = load_config(str(CONFIG_DIR))
+    SERIES_EXCLUDE_LIST = set(_cfg.get("wdtagger", {}).get("series_exclude_list", []))
 except Exception as e:
-    console.print(f"[red]Error loading config file: {e}, using default empty exclude list.[/red]")
+    console.print(f"[red]Error loading config: {e}, using default empty exclude list.[/red]")
 # --- End Config Loading ---
 
 

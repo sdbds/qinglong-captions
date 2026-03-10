@@ -26,6 +26,7 @@ from wizard.step3_tagger import render_tagger_step
 from wizard.step4_caption import render_caption_step
 from wizard.step5_export import render_export_step
 from wizard.step6_tools import render_tools_step
+from wizard.step7_settings import create_settings_dialog
 from theme import apply_theme, get_classes, COLORS
 from gui.utils.i18n import t, set_language, get_i18n
 
@@ -123,8 +124,17 @@ def create_header():
                     # 移除 Quasar 默认颜色类，防止闪烁
                     btn.classes(remove="bg-primary bg-secondary text-white q-btn--active")
 
-            # 右侧：主题切换 + 语言选择
+            # 右侧：配置 + 主题切换 + 语言选择
             with ui.row().classes("items-center gap-3"):
+                # 配置管理按钮
+                settings_dlg = create_settings_dialog()
+                settings_btn = ui.button(icon="settings", on_click=settings_dlg.open).props("flat round dense")
+                settings_btn.style(f"color: {COLORS['accent']};")
+                settings_btn.tooltip(t("nav_settings"))
+
+                # 分隔线
+                ui.element("div").style(f"width: 1px; height: 24px; background: {COLORS['accent']}; opacity: 0.5;")
+
                 # 主题切换按钮
                 theme_btn = ui.button(icon="light_mode").props("flat round dense").classes("theme-toggle-btn")
                 theme_btn.on_click(lambda: ui.run_javascript("window.toggleDarkMode()"))

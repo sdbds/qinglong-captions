@@ -2,7 +2,7 @@
 # GUI settings
 $Config = @{
     host = "127.0.0.1"    # Bind address | 绑定地址
-    port = 8080           # Port | 端口
+    port = 7899           # Port | 端口
     cloud = $false        # Cloud mode (bind 0.0.0.0) | 云模式
     native = $false       # Native window mode | 原生窗口模式 (默认关闭，使用浏览器)
     no_browser = $false   # Don't auto-open browser | 不自动打开浏览器 (默认自动打开浏览器)

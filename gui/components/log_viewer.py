@@ -9,12 +9,17 @@ from gui.components.advanced_inputs import toggle_switch_simple
 
 
 class LogViewer:
-    """日志查看器，支持实时滚动和导出 - 现代化样式"""
+    """日志查看器，支持实时滚动和导出 - 现代化样式
+
+    使用缓冲区 + 定时刷新机制，将日志批量推送到前端，
+    避免高速输出时大量 WebSocket 消息导致浏览器断连。
+    """
 
     def __init__(self, max_lines: int = 1000, height: str = "50vh"):
         self.max_lines = max_lines
         self.lines: list[str] = []
         self.auto_scroll = True
+        self._buffer: list[str] = []
 
         with ui.card().classes(get_classes("card")).style("width: 66vw; max-width: 100%; box-sizing: border-box;"):
             # 工具栏
@@ -61,8 +66,31 @@ class LogViewer:
                 self.log_area = ui.log(max_lines=max_lines).classes("w-full font-mono text-sm")
                 self.log_area.style(f"height: {height}; padding: 12px;")
 
+        # 定时刷新缓冲区（150ms 间隔，WebSocket 消息频率最多 ~7次/秒）
+        ui.timer(0.15, self._flush_buffer)
+
+    def _flush_buffer(self):
+        """将缓冲区中的日志批量推送到前端"""
+        if not self._buffer:
+            return
+
+        # 取出所有缓冲消息并清空
+        batch = self._buffer
+        self._buffer = []
+
+        # 批量追加到 lines
+        self.lines.extend(batch)
+
+        # 裁剪超出 max_lines 的部分
+        if len(self.lines) > self.max_lines:
+            self.lines = self.lines[-self.max_lines:]
+
+        # 批量推送到前端（同一同步回调中，NiceGUI 会合并为单次 WebSocket 发送）
+        for line in batch:
+            self.log_area.push(line)
+
     def append(self, message: str, level: str = "info"):
-        """添加日志行"""
+        """添加日志行（写入缓冲区，由定时器批量推送）"""
         timestamp = datetime.now().strftime("%H:%M:%S")
 
         # 根据级别着色
@@ -75,13 +103,7 @@ class LogViewer:
         emoji, color = color_map.get(level, ("📝", COLORS["text_secondary"]))
 
         formatted = f"[{timestamp}] {emoji} {message}"
-        self.lines.append(formatted)
-
-        # 限制行数
-        if len(self.lines) > self.max_lines:
-            self.lines = self.lines[-self.max_lines :]
-
-        self.log_area.push(formatted)
+        self._buffer.append(formatted)
 
     def info(self, message: str):
         """添加信息日志"""

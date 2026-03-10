@@ -115,28 +115,41 @@ def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
 
 
 def load_toml_config(config_path: str, section: str) -> Dict[str, Any]:
-    """Load a configuration section from a TOML file.
+    """Load a configuration section from TOML config files.
+
+    Supports both the new split config directory layout (prompts.toml,
+    model.toml, general.toml) and the legacy single config.toml file.
 
     Args:
-        config_path: Path to the TOML file
+        config_path: Path to a TOML file or a config directory
         section: Name of the section to load
 
     Returns:
         Dictionary containing the configuration data
     """
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Config file not found: {config_path}")
+    from config.loader import load_config as _load_merged
 
-    try:
-        config = toml.load(config_path)
-        section_data = config.get(section, {})
+    path = os.path.normpath(config_path)
 
-        if not section_data:
-            raise ValueError(f"No {section} configuration found in TOML file")
+    # If config_path is a directory, load merged config from it
+    if os.path.isdir(path):
+        config = _load_merged(path)
+    else:
+        # If it's a file, try treating its parent as a config dir first
+        parent = os.path.dirname(path)
+        config = _load_merged(parent)
+        # Fall back to loading the single file directly
+        if not config and os.path.exists(path):
+            config = toml.load(path)
 
-        return section_data
-    except Exception as e:
-        raise ValueError(f"Failed to parse config file: {str(e)}")
+    if not config:
+        raise FileNotFoundError(f"Config not found at: {config_path}")
+
+    section_data = config.get(section, {})
+    if not section_data:
+        raise ValueError(f"No {section} configuration found in TOML file")
+
+    return section_data
 
 
 def load_schema_from_toml(config_path: str) -> List[Tuple[str, str]]:

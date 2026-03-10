@@ -75,9 +75,9 @@ def attempt_qwenvl(
             "out_seq_length": 16384,
         }
         try:
-            import toml  # type: ignore
+            from config.loader import load_config
 
-            cfg = toml.load(root_dir / "config" / "config.toml")
+            cfg = load_config(str(root_dir / "config"))
             section = cfg.get("qwen_vl_local", {}) or {}
             cfg_model_id = section.get("model_id", cfg_model_id)
             for k in gen_defaults.keys():

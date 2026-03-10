@@ -732,7 +732,14 @@ def setup_parser() -> argparse.ArgumentParser:
         "--config",
         type=str,
         default="config/config.toml",
-        help="Path to config file",
+        help="Path to legacy config file (deprecated, use --config_dir instead)",
+    )
+
+    parser.add_argument(
+        "--config_dir",
+        type=str,
+        default="config",
+        help="Path to config directory containing prompts.toml, model.toml, general.toml",
     )
 
     parser.add_argument(
@@ -850,6 +857,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    config = toml.load(args.config)
+    from config.loader import load_config
+
+    config = load_config(args.config_dir)
 
     process_batch(args, config)
