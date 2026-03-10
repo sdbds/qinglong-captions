@@ -51,6 +51,7 @@ else:
 from module.lanceexport import extract_from_lance
 from module.lanceImport import transform2lance
 from utils.parse_display import process_llm_response
+from utils.path_safety import safe_child_path, safe_leaf_name
 from utils.stream_util import (
     get_video_duration,
     split_media_stream_clips,
@@ -60,6 +61,68 @@ from utils.stream_util import (
 Image.MAX_IMAGE_PIXELS = None  # Disable image size limit check
 
 console = Console(color_system="truecolor", force_terminal=True)
+
+
+def _deduplicate_filename(filename: str, used_names: set[str]) -> str:
+    """Keep OCR image filenames stable without allowing collisions."""
+    candidate = filename
+    stem = Path(filename).stem or "image"
+    suffix = Path(filename).suffix
+    counter = 2
+
+    while candidate.lower() in used_names:
+        candidate = f"{stem}_{counter}{suffix}"
+        counter += 1
+
+    used_names.add(candidate.lower())
+    return candidate
+
+
+def _assign_ocr_image_names(images) -> tuple[list[str], dict[str, str], dict[str, str]]:
+    """Assign safe leaf filenames for OCR images and build rewrite maps."""
+    assigned_names: list[str] = []
+    raw_name_map: dict[str, str] = {}
+    leaf_name_map: dict[str, str] = {}
+    used_names: set[str] = set()
+
+    for index, image in enumerate(images, start=1):
+        raw_name = str(getattr(image, "id", "") or "")
+        default_name = f"image_{index}.png"
+        safe_name = _deduplicate_filename(
+            safe_leaf_name(raw_name, default_name=default_name),
+            used_names,
+        )
+        assigned_names.append(safe_name)
+
+        if raw_name and raw_name not in raw_name_map:
+            raw_name_map[raw_name] = safe_name
+
+        if raw_name:
+            leaf_name = Path(raw_name.replace("\\", "/")).name
+            if leaf_name and leaf_name not in leaf_name_map:
+                leaf_name_map[leaf_name] = safe_name
+
+    return assigned_names, raw_name_map, leaf_name_map
+
+
+def _rewrite_ocr_image_paths(markdown: str, parent_dir: str, raw_name_map: dict[str, str], leaf_name_map: dict[str, str]) -> str:
+    """Rewrite OCR markdown image links so they match the sanitized filenames on disk."""
+    if not raw_name_map and not leaf_name_map:
+        return markdown
+
+    pattern = re.compile(r"!\[(.*?)\]\(([^)]+)\)")
+
+    def replace(match: re.Match[str]) -> str:
+        target = match.group(2).strip()
+        normalized_target = target.replace("\\", "/")
+        safe_name = raw_name_map.get(target) or raw_name_map.get(normalized_target)
+        if not safe_name:
+            safe_name = leaf_name_map.get(Path(normalized_target).name)
+        if not safe_name:
+            return match.group(0)
+        return f"![{match.group(1)}]({parent_dir}/{safe_name})"
+
+    return pattern.sub(replace, markdown)
 
 
 def process_batch(args, config):
@@ -446,19 +509,15 @@ def _postprocess_caption_content(output, filepath, args):
                 combined_output += f'<header style="background-color: #f5f5f5; padding: 8px; margin-bottom: 20px; text-align: center; border-bottom: 1px solid #ddd;">\n<strong> Page {page_index + 1} </strong>\n</header>\n\n'
                 # 添加页面内容
                 page_markdown = page.markdown if hasattr(page, "markdown") else str(page)
+                page_images = list(getattr(page, "images", []) or [])
+                image_names, raw_name_map, leaf_name_map = _assign_ocr_image_names(page_images)
                 # 替换图片路径，将图片路径改为上一级目录
-                if hasattr(page, "images") and args.document_image:
-                    # 查找并替换所有图片引用格式 ![...](filename)
-                    img_pattern = r"!\[(.*?)\]\(([^/)]+)\)"
+                if page_images and args.document_image:
                     parent_dir = Path(filepath).stem
-                    page_markdown = re.sub(
-                        img_pattern,
-                        lambda m: f"![{m.group(1)}]({parent_dir}/{m.group(2)})",
-                        page_markdown,
-                    )
+                    page_markdown = _rewrite_ocr_image_paths(page_markdown, parent_dir, raw_name_map, leaf_name_map)
 
-                if hasattr(page, "images") and args.document_image:
-                    for image in page.images:
+                if page_images and args.document_image:
+                    for image_index, image in enumerate(page_images):
                         if hasattr(image, "image_base64") and image.image_base64:
                             try:
                                 base64_str = image.image_base64
@@ -470,10 +529,13 @@ def _postprocess_caption_content(output, filepath, args):
                                 else:
                                     image_data = base64.b64decode(base64_str)
 
-                                image_filename = image.id
                                 image_dir = Path(filepath).with_suffix("")
                                 image_dir.mkdir(parents=True, exist_ok=True)
-                                image_path = image_dir / image_filename
+                                image_path = safe_child_path(
+                                    image_dir,
+                                    image_names[image_index],
+                                    default_name=f"image_{image_index + 1}.png",
+                                )
                                 with open(image_path, "wb") as img_file:
                                     img_file.write(image_data)
                             except Exception as e:
