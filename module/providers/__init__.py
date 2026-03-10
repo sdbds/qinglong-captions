@@ -31,6 +31,7 @@ from .resolver import PromptResolver, PromptTemplate
 
 # 分类基类
 from .cloud_vlm_base import CloudVLMProvider
+from .local_llm_base import LocalLLMProvider
 from .local_vlm_base import LocalVLMProvider
 from .ocr_base import OCRProvider
 from .vision_api_base import VisionAPIProvider, StructuredOutputConfig
@@ -64,6 +65,7 @@ __all__ = [
     "PromptTemplate",
     # 分类基类
     "CloudVLMProvider",
+    "LocalLLMProvider",
     "LocalVLMProvider",
     "OCRProvider",
     "VisionAPIProvider",

@@ -58,9 +58,22 @@ BASE_AUDIO_EXTENSIONS: List[str] = [
     ".mka",
 ]
 
+BASE_TEXT_EXTENSIONS: List[str] = [
+    ".txt",
+    ".md",
+]
+
 BASE_APPLICATION_EXTENSIONS: List[str] = [
     ".pdf",
     ".psd",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".rtf",
+    ".epub",
 ]
 
 # Frozen sets for O(1) membership testing (already lowercase).
@@ -68,6 +81,7 @@ IMAGE_EXTENSIONS_SET: FrozenSet[str] = frozenset(BASE_IMAGE_EXTENSIONS)
 ANIMATION_EXTENSIONS_SET: FrozenSet[str] = frozenset(BASE_ANIMATION_EXTENSIONS)
 VIDEO_EXTENSIONS_SET: FrozenSet[str] = frozenset(BASE_VIDEO_EXTENSIONS)
 AUDIO_EXTENSIONS_SET: FrozenSet[str] = frozenset(BASE_AUDIO_EXTENSIONS)
+TEXT_EXTENSIONS_SET: FrozenSet[str] = frozenset(BASE_TEXT_EXTENSIONS)
 APPLICATION_EXTENSIONS_SET: FrozenSet[str] = frozenset(BASE_APPLICATION_EXTENSIONS)
 
 
@@ -108,6 +122,8 @@ def get_supported_extensions(media_type: str = "image") -> Tuple[str, ...]:
         extensions = BASE_VIDEO_EXTENSIONS.copy()
     elif media_type == "audio":
         extensions = BASE_AUDIO_EXTENSIONS.copy()
+    elif media_type == "text":
+        extensions = BASE_TEXT_EXTENSIONS.copy()
     elif media_type == "application":
         extensions = BASE_APPLICATION_EXTENSIONS.copy()
 
@@ -206,6 +222,7 @@ DEFAULT_DATASET_SCHEMA = [
     ("frame_rate", pa.float32()),
     ("blob", pa.large_binary()),
     ("captions", pa.list_(pa.string())),
+    ("chunk_offsets", pa.list_(pa.int32())),
 ]
 
 # Default console colors

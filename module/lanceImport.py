@@ -49,20 +49,25 @@ from config.config import (
     DATASET_SCHEMA,
     get_supported_extensions,
 )
+from utils.lance_utils import update_or_create_tag
 
 console = Console()
 image_extensions = get_supported_extensions("image")
 animation_extensions = get_supported_extensions("animation")
 video_extensions = get_supported_extensions("video")
 audio_extensions = get_supported_extensions("audio")
+text_extensions = get_supported_extensions("text")
 application_extensions = get_supported_extensions("application")
 # Frozen sets for O(1) membership testing (all lowercase)
 _image_ext_set = frozenset(image_extensions)
 _animation_ext_set = frozenset(animation_extensions)
 _video_ext_set = frozenset(video_extensions)
 _audio_ext_set = frozenset(audio_extensions)
+_text_ext_set = frozenset(text_extensions)
 _application_ext_set = frozenset(application_extensions)
-_all_ext_set = _image_ext_set | _animation_ext_set | _video_ext_set | _audio_ext_set | _application_ext_set
+_sidecar_text_ext_set = frozenset({".txt", ".md"})
+_non_text_primary_ext_set = _image_ext_set | _animation_ext_set | _video_ext_set | _audio_ext_set | _application_ext_set
+_all_ext_set = _non_text_primary_ext_set | _text_ext_set
 
 
 @dataclass
@@ -419,6 +424,35 @@ class FileProcessor:
                     console.print(f"[red]Error processing audio {file_path}: {str(e)}[/red]")
                     return None
 
+            elif _suffix in _text_ext_set:
+                try:
+                    binary_data = Path(file_path).read_bytes()
+                    text_hash = hashlib.sha256(binary_data).hexdigest()
+                    mime_type, _ = mimetypes.guess_type(file_path)
+
+                    if _suffix == ".md":
+                        mime = "text/markdown"
+                    else:
+                        mime = mime_type or "text/plain"
+
+                    return Metadata(
+                        uris=file_path,
+                        mime=mime,
+                        width=0,
+                        height=0,
+                        depth=0,
+                        channels=0,
+                        hash=text_hash,
+                        size=Path(file_path).stat().st_size,
+                        has_audio=False,
+                        duration=0,
+                        num_frames=0,
+                        frame_rate=0,
+                        blob=binary_data if save_binary else b"",
+                    )
+                except Exception as e:
+                    console.print(f"[red]Error processing text asset {file_path}: {str(e)}[/red]")
+                    return None
             elif _suffix in _application_ext_set:
                 try:
                     # Read application file as binary first
@@ -454,71 +488,79 @@ class FileProcessor:
             return None
 
 
-def load_data(datasets_dir: str, texts_dir: Optional[str] = None) -> List[Dict[str, Any]]:
-    """
-    Load image and caption data from directories.
+def _iter_candidate_files(root: Path, recursive: bool = True) -> List[Path]:
+    iterator = root.rglob("*") if recursive else root.iterdir()
+    return sorted(path for path in iterator if path.is_file())
 
-    Args:
-        datasets_dir: Directory containing images or videos
-        texts_dir: Optional directory containing caption text files
 
-    Returns:
-        List of image-caption pairs
+def _read_caption_file(path: Path) -> List[str]:
+    content = path.read_text(encoding="utf-8")
+    if path.suffix.lower() == ".txt":
+        return content.splitlines()
+    return [content]
+
+
+def _find_sidecar_caption(file_path: Path, caption_root: Optional[Path] = None, dataset_root: Optional[Path] = None) -> List[str]:
+    if caption_root is None:
+        sidecar_base = file_path.with_suffix("")
+    else:
+        relative_path = file_path.relative_to(dataset_root) if dataset_root is not None else Path(file_path.name)
+        sidecar_base = (caption_root / relative_path).with_suffix("")
+
+    for extension in (".txt", ".md", ".srt"):
+        candidate = sidecar_base.with_suffix(extension)
+        if candidate.exists() and candidate != file_path:
+            return _read_caption_file(candidate)
+    return []
+
+
+def _make_data_item(file_path: Path, caption: Optional[List[str]] = None) -> Dict[str, Any]:
+    return {
+        "file_path": str(file_path),
+        "caption": caption or [],
+        "chunk_offsets": [],
+    }
+
+
+def load_data(datasets_dir: str, texts_dir: Optional[str] = None, include_text_assets: bool = True) -> List[Dict[str, Any]]:
     """
-    data = []
+    Load primary assets and optional sidecar text files from directories.
+
+    Sidecar detection only applies to .txt/.md/.srt files paired with a
+    non-text asset of the same stem. Standalone .txt/.md files are imported
+    as primary assets by default.
+    """
+    dataset_root = Path(datasets_dir).absolute()
+    data: List[Dict[str, Any]] = []
 
     if texts_dir:
-        # Paired directory structure
-        for file in Path(datasets_dir).iterdir():
-            if not file.is_file() or file.suffix.lower() not in _all_ext_set:
+        caption_root = Path(texts_dir).absolute()
+        allowed_exts = _all_ext_set if include_text_assets else _non_text_primary_ext_set
+        for file_path in _iter_candidate_files(dataset_root, recursive=True):
+            if file_path.suffix.lower() not in allowed_exts:
                 continue
+            caption = _find_sidecar_caption(file_path, caption_root=caption_root, dataset_root=dataset_root)
+            data.append(_make_data_item(file_path, caption))
+        return data
 
-            text_path = Path(texts_dir) / (file.stem + ".txt")
-            srt_path = Path(texts_dir) / (file.stem + ".srt")
-            md_path = Path(texts_dir) / (file.stem + ".md")
+    files = _iter_candidate_files(dataset_root, recursive=True)
+    non_text_stems = {file_path.with_suffix("") for file_path in files if file_path.suffix.lower() in _non_text_primary_ext_set}
 
-            caption = None
-            if text_path.exists():
-                with open(text_path, "r", encoding="utf-8") as f:
-                    caption = f.read().splitlines()
-            elif md_path.exists():
-                with open(md_path, "r", encoding="utf-8") as f:
-                    caption = [f.read()]  # 将整个 Markdown 内容作为单个字符串
-            elif srt_path.exists():
-                with open(srt_path, "r", encoding="utf-8") as f:
-                    caption = [f.read()]  # Store entire SRT content as a single string
-            else:
-                caption = []
+    for file_path in files:
+        suffix = file_path.suffix.lower()
+        if suffix in _non_text_primary_ext_set:
+            data.append(_make_data_item(file_path, _find_sidecar_caption(file_path)))
+            continue
 
-            data.append({"file_path": str(file), "caption": caption})
-    else:
-        # Single directory structure
-        datasets_path = Path(datasets_dir).absolute()  # 转换为绝对路径
-        for file_path in datasets_path.rglob("*"):
-            if not file_path.is_file() or file_path.suffix.lower() not in _all_ext_set:
-                continue
+        if not include_text_assets or suffix not in _text_ext_set:
+            continue
 
-            text_path = file_path.with_suffix(".txt")
-            srt_path = file_path.with_suffix(".srt")
-            md_path = file_path.with_suffix(".md")
+        if suffix in _sidecar_text_ext_set and file_path.with_suffix("") in non_text_stems:
+            continue
 
-            caption = None
-            if text_path.exists():
-                with open(text_path, "r", encoding="utf-8") as f:
-                    caption = f.read().splitlines()
-            elif md_path.exists():
-                with open(md_path, "r", encoding="utf-8") as f:
-                    caption = [f.read()]  # 将整个 Markdown 内容作为单个字符串
-            elif srt_path.exists():
-                with open(srt_path, "r", encoding="utf-8") as f:
-                    caption = [f.read()]  # Store entire SRT content as a single string
-            else:
-                caption = []
-
-            data.append({"file_path": str(file_path), "caption": caption})
+        data.append(_make_data_item(file_path))
 
     return data
-
 
 def process(
     data: List[Dict[str, Any]],
@@ -547,13 +589,13 @@ def process(
         SpinnerColumn(spinner_name="dots"),
         MofNCompleteColumn(separator="/"),
         BarColumn(bar_width=40, complete_style="green", finished_style="bold green"),
-        TextColumn("•"),
+        TextColumn("|"),
         TaskProgressColumn(),
-        TextColumn("•"),
+        TextColumn("|"),
         TransferSpeedColumn(),
-        TextColumn("•"),
+        TextColumn("|"),
         TimeElapsedColumn(),
-        TextColumn("•"),
+        TextColumn("|"),
         TimeRemainingColumn(),
         expand=True,
         transient=False,  # 防止进度条随刷新滚动
@@ -566,7 +608,7 @@ def process(
 
         for item in data:
             file_path = item["file_path"]
-            caption = item["caption"]
+            caption = item.get("caption", [])
 
             console.print()
 
@@ -585,6 +627,9 @@ def process(
             elif suffix in _audio_ext_set:
                 color = CONSOLE_COLORS["audio"]
                 media_type = "audio"
+            elif suffix in _text_ext_set:
+                color = CONSOLE_COLORS["text"]
+                media_type = "text"
             elif suffix in _application_ext_set:
                 color = CONSOLE_COLORS["application"]
                 media_type = "application"
@@ -609,6 +654,8 @@ def process(
                     array = pa.array([value], type=field_type)
                 elif field_name == "captions":
                     array = pa.array([caption], type=field_type)
+                elif field_name in item:
+                    array = pa.array([item[field_name]], type=field_type)
                 elif field_name == "blob":
                     array = pa.array([getattr(metadata, field_name)], type=field_type)
                 else:
@@ -643,28 +690,16 @@ def transform2lance(
     not_save_disk: bool = False,
     import_mode: VideoImportMode = VideoImportMode.ALL,
     tag: str = "gemini",
-    load_condition: Callable[[str, Optional[str]], List[Dict[str, Any]]] = load_data,
+    load_condition: Callable[..., List[Dict[str, Any]]] = load_data,
+    include_text_assets: bool = True,
 ) -> Optional[lance.LanceDataset]:
     """
-    Transform image-caption pairs into Lance dataset.
-
-    Args:
-        dataset_dir: Directory containing training images
-        caption_dir: Optional directory containing captions
-        output_name: Name of output dataset
-        save_binary: Whether to save binary data in the dataset.
-        not_save_disk: If True, don't save to disk
-        import_mode: Mode for importing video components:
-                    - ALL: Complete video with audio
-                    - VIDEO_ONLY: Video only
-                    - AUDIO_ONLY: Audio only
-                    - VIDEO_SPLIT_AUDIO: Split video and audio
-        load_condition: Function to load data
-
-    Returns:
-        Lance dataset object or None if error occurs
+    Transform dataset assets into Lance format.
     """
-    data = load_condition(dataset_dir, caption_dir)
+    try:
+        data = load_condition(dataset_dir, caption_dir, include_text_assets=include_text_assets)
+    except TypeError:
+        data = load_condition(dataset_dir, caption_dir)
 
     schema = pa.schema(
         [
@@ -681,7 +716,7 @@ def transform2lance(
         reader = pa.RecordBatchReader.from_batches(schema, process(data, save_binary, import_mode))
 
         dataset_path = Path(dataset_dir) / f"{output_name}.lance"
-        mode = "append" if dataset_path.exists() else "create"
+        mode = "append" if dataset_path.exists() and not not_save_disk else "create"
 
         lancedataset = lance.write_dataset(
             reader,
@@ -689,18 +724,12 @@ def transform2lance(
             schema,
             mode=mode if not_save_disk else "overwrite",
         )
-
-        try:
-            lancedataset.tags.create(tag, 1)
-        except Exception:
-            lancedataset.tags.update(tag, 1)
-
+        update_or_create_tag(lancedataset, tag)
         return lancedataset
 
     except AttributeError as e:
         console.print(f"[red]AttributeError: {e}[/red]")
         return None
-
 
 def setup_parser() -> argparse.ArgumentParser:
     """Setup argument parser."""
@@ -736,6 +765,19 @@ def setup_parser() -> argparse.ArgumentParser:
         default="gemini",
         help="Tag for the dataset",
     )
+    parser.add_argument(
+        "--include_text_assets",
+        dest="include_text_assets",
+        action="store_true",
+        default=True,
+        help="Import standalone .txt/.md files as primary assets (default: enabled)",
+    )
+    parser.add_argument(
+        "--exclude_text_assets",
+        dest="include_text_assets",
+        action="store_false",
+        help="Skip standalone .txt/.md primary assets and only import non-text primary assets",
+    )
     return parser
 
 
@@ -751,4 +793,5 @@ if __name__ == "__main__":
         not_save_disk=args.not_save_disk,
         import_mode=VideoImportMode.from_int(args.import_mode),
         tag=args.tag,
+        include_text_assets=args.include_text_assets,
     )

@@ -42,12 +42,14 @@ image_extensions = get_supported_extensions("image")
 animation_extensions = get_supported_extensions("animation")
 video_extensions = get_supported_extensions("video")
 audio_extensions = get_supported_extensions("audio")
+text_extensions = get_supported_extensions("text")
 application_extensions = get_supported_extensions("application")
 # Frozen sets for O(1) membership testing (all lowercase)
 _image_ext_set = frozenset(image_extensions)
 _animation_ext_set = frozenset(animation_extensions)
 _video_ext_set = frozenset(video_extensions)
 _audio_ext_set = frozenset(audio_extensions)
+_text_ext_set = frozenset(text_extensions)
 _application_ext_set = frozenset(application_extensions)
 
 
@@ -138,52 +140,59 @@ def save_blob(
         return False
 
 
-def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -> bool:
-    """Save caption data to disk.
+def _resolve_caption_target_path(
+    base_path: Path,
+    media_type: Optional[str],
+    caption_suffix: str = "",
+    caption_extension: Optional[str] = None,
+) -> Path:
+    extension = caption_extension
+    if extension:
+        if not extension.startswith("."):
+            extension = f".{extension}"
+    elif media_type in {"audio", "video"}:
+        extension = ".srt"
+    elif media_type == "application":
+        extension = ".md"
+    else:
+        extension = ".txt"
 
-    Args:
-        caption_path: Path to save caption file
-        caption_lines: List of caption lines
-        media_type: Type of media (image/video/audio)
+    if caption_suffix:
+        return base_path.with_name(f"{base_path.stem}{caption_suffix}{extension}")
+    return base_path.with_suffix(extension)
 
-    Returns:
-        bool: True if save successful, False otherwise
-    """
+
+def save_caption(
+    caption_path: str,
+    caption_lines: List[str],
+    media_type: Optional[str],
+    caption_suffix: str = "",
+    caption_extension: Optional[str] = None,
+) -> bool:
+    """Save caption data to disk."""
     try:
-        # 检查caption_lines是否为空或只包含空字符串
         has_content = any(line.strip() for line in caption_lines if line)
         if not has_content:
             console.print(f"[red]No caption content found for {caption_path}[/red]")
             return False
-        caption_path = Path(caption_path)
-        caption_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if media_type == "audio" or media_type == "video":
-            caption_path = caption_path.with_suffix(".srt")
-        elif media_type == "application":
-            caption_path = caption_path.with_suffix(".md")
-        else:
-            caption_path = caption_path.with_suffix(".txt")
+        caption_path = _resolve_caption_target_path(Path(caption_path), media_type, caption_suffix, caption_extension)
+        caption_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(caption_path, "w", encoding="utf-8") as f:
             if caption_path.suffix == ".srt":
-                # For SRT files, preserve all lines including empty ones
                 f.write("\n".join(caption_lines))
             elif caption_path.suffix == ".md":
-                # For MD files, preserve original markdown formatting
                 f.write("".join(caption_lines))
             else:
-                # For TXT files, strip empty lines and whitespace
                 for line in caption_lines:
                     if "<font color=" in line:
                         line = line.replace('<font color="green">', "").replace("<font color='green'>", "").replace("</font>", "")
 
-                    # Check if the content is in JSON format and parse it if possible
                     if line.strip().startswith("{") and line.strip().endswith("}"):
                         try:
                             json_content = line.strip()
                             parsed_json = json.loads(json_content)
-                            # Format JSON content with indentation for better readability
                             with open(caption_path.with_suffix(".json"), "w", encoding="utf-8") as j:
                                 json.dump(parsed_json, j, indent=2, ensure_ascii=False)
 
@@ -195,7 +204,6 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
                             )
                             f.write(desc if desc else "")
                         except json.JSONDecodeError:
-                            # If not valid JSON, continue with normal text processing
                             if line and line.strip():
                                 f.write(line.strip() + "\n")
                         except Exception as e:
@@ -210,7 +218,6 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
     except Exception as e:
         console.print(f"[red]Error saving caption: {e}[/red]")
         return False
-
 
 def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
     """将多页文档分割为单独的页面并分别保存
@@ -439,60 +446,59 @@ def extract_from_lance(
     version: str = "gemini",
     clip_with_caption: bool = True,
     caption_dir: Optional[str] = None,
+    caption_suffix: str = "",
+    caption_extension: Optional[str] = None,
+    allowed_caption_types: Optional[List[str]] = None,
 ) -> None:
     """
     Extract images and captions from Lance dataset.
-
-    Args:
-        lance_or_path: Path to Lance dataset or Lance dataset object
-        output_dir: Directory to save extracted images
-        caption_dir: Optional directory to save caption files
-        save_binary: Whether to save binary data
     """
     ds = lance.dataset(lance_or_path, version=version) if isinstance(lance_or_path, str) else lance_or_path
 
-    # Create output directories
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
+    captions_dir_path = None
     if caption_dir:
         captions_dir_path = Path(caption_dir)
         captions_dir_path.mkdir(parents=True, exist_ok=True)
+
+    allowed_caption_type_set = set(allowed_caption_types) if allowed_caption_types else None
 
     with Progress(
         "[progress.description]{task.description}",
         SpinnerColumn(spinner_name="dots"),
         MofNCompleteColumn(separator="/"),
         BarColumn(bar_width=40, complete_style="green", finished_style="bold green"),
-        TextColumn("•"),
+        TextColumn("|"),
         TaskProgressColumn(),
-        TextColumn("•"),
+        TextColumn("|"),
         TransferSpeedColumn(),
-        TextColumn("•"),
+        TextColumn("|"),
         TimeElapsedColumn(),
-        TextColumn("•"),
+        TextColumn("|"),
         TimeRemainingColumn(),
         expand=True,
-        transient=False,  # 防止进度条随刷新滚动
+        transient=False,
     ) as progress:
         global console
 
         console = progress.console
-
         task = progress.add_task("[green]Extracting files...", total=ds.count_rows())
+        row_offset = 0
 
         for batch in ds.to_batches():
-            # Get all metadata columns
+            batch_field_names = set(batch.schema.names)
             metadata_batch = {
                 field[0]: batch.column(field[0]).to_pylist()
                 for field in DATASET_SCHEMA
-                if field[0] != "blob"  # Skip blob to save memory
+                if field[0] != "blob" and field[0] in batch_field_names
             }
-            indices = list(range(len(batch)))
-            blobs = ds.take_blobs("blob", indices=indices)
+            indices = list(range(row_offset, row_offset + len(batch)))
+            blobs = ds.take_blobs(indices, "blob") if "blob" in batch_field_names else [None] * len(batch)
+            row_offset += len(batch)
 
             for i in range(len(batch)):
-                # Create metadata dict for current item
                 metadata = {key: values[i] for key, values in metadata_batch.items()}
                 uri = Path(metadata["uris"])
                 blob = blobs[i]
@@ -507,11 +513,15 @@ def extract_from_lance(
                     media_type = "video"
                 elif suffix in _audio_ext_set:
                     media_type = "audio"
+                elif suffix in _text_ext_set:
+                    media_type = "text"
                 elif suffix in _application_ext_set:
                     media_type = "application"
+
+                blob_target = uri if uri.exists() else output_path / uri.name
                 if not uri.exists() and blob:
                     if media_type:
-                        if not save_blob(uri, blob, metadata, media_type):
+                        if not save_blob(blob_target, blob, metadata, media_type):
                             progress.advance(task)
                             continue
                     else:
@@ -519,25 +529,32 @@ def extract_from_lance(
                         progress.advance(task)
                         continue
 
-                # Save caption if available
                 caption = metadata.get("captions", [])
-                if caption:
-                    caption_file_path = captions_dir_path if caption_dir else uri
+                should_save_caption = bool(caption) and (
+                    allowed_caption_type_set is None or media_type in allowed_caption_type_set
+                )
+                if should_save_caption:
+                    caption_file_path = (captions_dir_path / uri.name) if captions_dir_path else (uri if uri.exists() else output_path / uri.name)
                     caption_file_path.parent.mkdir(parents=True, exist_ok=True)
-                    save_caption(caption_file_path, caption, media_type)
+                    save_caption(
+                        str(caption_file_path),
+                        caption,
+                        media_type,
+                        caption_suffix=caption_suffix,
+                        caption_extension=caption_extension,
+                    )
 
-                    if clip_with_caption and (uri.with_suffix(".srt")).exists():
+                    if clip_with_caption and not caption_suffix and (uri.with_suffix(".srt")).exists():
                         subs = pysrt.open(uri.with_suffix(".srt"), encoding="utf-8")
                         try:
                             split_video_with_imageio_ffmpeg(uri, subs, save_caption)
                         except Exception as e:
                             console.print(f"[red]Error splitting video: {e}[/red]")
                             split_media_stream_clips(uri, media_type, subs, save_caption)
-                    elif clip_with_caption and (uri.with_suffix(".md")).exists():
+                    elif clip_with_caption and not caption_suffix and (uri.with_suffix(".md")).exists():
                         split_md_document(uri, caption, save_caption)
 
                 progress.advance(task)
-
 
 def main():
     parser = argparse.ArgumentParser(description="Extract images and captions from a Lance dataset")
@@ -552,7 +569,21 @@ def main():
         default="gemini",
         help="Dataset version",
     )
-
+    parser.add_argument(
+        "--caption_suffix",
+        default="",
+        help="Suffix inserted before the exported caption extension, for example _zh_cn",
+    )
+    parser.add_argument(
+        "--caption_extension",
+        default=None,
+        help="Optional caption extension override, for example .md",
+    )
+    parser.add_argument(
+        "--allowed_caption_types",
+        default="",
+        help="Comma separated caption media types to export, for example text,application",
+    )
     parser.add_argument(
         "--not_clip_with_caption",
         action="store_true",
@@ -560,7 +591,16 @@ def main():
     )
 
     args = parser.parse_args()
-    extract_from_lance(args.lance_file, args.output_dir, args.version, not args.not_clip_with_caption)
+    allowed_caption_types = [item.strip() for item in args.allowed_caption_types.split(",") if item.strip()]
+    extract_from_lance(
+        args.lance_file,
+        args.output_dir,
+        args.version,
+        not args.not_clip_with_caption,
+        caption_suffix=args.caption_suffix,
+        caption_extension=args.caption_extension,
+        allowed_caption_types=allowed_caption_types or None,
+    )
 
 
 if __name__ == "__main__":
