@@ -1,0 +1,103 @@
+import sys
+from pathlib import Path
+
+import lance
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'module'))
+
+from module.lanceImport import load_data, transform2lance
+from module.lanceexport import save_caption
+from module.texttranslate import normalize_dataset, translate_dataset
+from utils.doc_normalize import normalize_text_asset
+from utils.text_chunker import compute_chunk_offsets, slice_by_offsets
+
+
+def test_load_data_keeps_sidecars_and_standalone_text_by_default(tmp_path):
+    media = tmp_path / 'clip.mp4'
+    media.write_bytes(b'video')
+    (tmp_path / 'clip.txt').write_text('paired caption', encoding='utf-8')
+    (tmp_path / 'notes.txt').write_text('standalone text', encoding='utf-8')
+
+    default_rows = load_data(str(tmp_path))
+    assert [Path(row['file_path']).name for row in default_rows] == ['clip.mp4', 'notes.txt']
+    assert default_rows[0]['caption'] == ['paired caption']
+    assert default_rows[1]['caption'] == []
+
+    media_only_rows = load_data(str(tmp_path), include_text_assets=False)
+    assert [Path(row['file_path']).name for row in media_only_rows] == ['clip.mp4']
+
+
+def test_normalize_txt_to_markdown():
+    markdown = normalize_text_asset(Path('sample.txt'), b'Hello\n\nWorld')
+    assert markdown == 'Hello\n\nWorld\n'
+
+
+def test_chunk_offsets_roundtrip():
+    markdown = (
+        '# Title\n\n'
+        '> quoted line one. quoted line two.\n>\n> quoted line three.\n\n'
+        '- first item. second sentence.\n'
+        '- second item.\n\n'
+        '| col |\n| --- |\n| value |\n\n'
+        '```python\nprint(1)\n```\n\n'
+        'Last line.\n'
+    )
+    offsets = compute_chunk_offsets(markdown, max_chars=30)
+    chunks = slice_by_offsets(markdown, offsets)
+    assert ''.join(chunks) == markdown
+    assert offsets[-1] == len(markdown)
+    assert len(offsets) >= 2
+
+
+def test_save_caption_with_language_suffix(tmp_path):
+    base = tmp_path / 'foo.md'
+    ok = save_caption(str(base), ['# Hello\n'], 'text', caption_suffix='_zh_cn', caption_extension='.md')
+    assert ok is True
+    assert (tmp_path / 'foo_zh_cn.md').read_text(encoding='utf-8') == '# Hello\n'
+
+
+class UppercaseTranslator:
+    def translate(self, text, source_lang, target_lang, *, context='', glossary=''):
+        return text.upper()
+
+
+def test_normalize_and_translate_dataset_roundtrip(tmp_path):
+    source_file = tmp_path / 'story.txt'
+    source_file.write_text('hello world.\n\nnext line.', encoding='utf-8')
+    source_bytes = source_file.read_bytes()
+
+    dataset = transform2lance(str(tmp_path), output_name='sample', save_binary=True, tag='raw.import.test')
+    assert dataset is not None
+
+    dataset_path = tmp_path / 'sample.lance'
+    raw_ds = lance.dataset(str(dataset_path), version='raw.import.test')
+    raw_row = raw_ds.to_table().to_pylist()[0]
+    assert raw_row['captions'] == []
+    assert raw_row['chunk_offsets'] == []
+    assert raw_ds.take_blobs([0], 'blob')[0].readall() == source_bytes
+
+    normalize_dataset(dataset_path, source_version='raw.import.test', norm_tag='norm.docling.test', max_chars=10)
+    norm_ds = lance.dataset(str(dataset_path), version='norm.docling.test')
+    norm_row = norm_ds.to_table().to_pylist()[0]
+    assert norm_row['captions'] == ['hello world.\n\nnext line.\n']
+    assert norm_row['chunk_offsets'][-1] == len(norm_row['captions'][0])
+    assert norm_ds.take_blobs([0], 'blob')[0].readall() == source_bytes
+
+    translate_dataset(
+        dataset_path=dataset_path,
+        source_version='norm.docling.test',
+        translation_tag='tr.mock.zh_cn.test',
+        translator=UppercaseTranslator(),
+        source_lang='en',
+        target_lang='zh_cn',
+        max_chars=10,
+        context_chars=0,
+        glossary='',
+    )
+    tr_ds = lance.dataset(str(dataset_path), version='tr.mock.zh_cn.test')
+    tr_row = tr_ds.to_table().to_pylist()[0]
+    assert tr_row['captions'] == ['HELLO WORLD.\n\nNEXT LINE.\n']
+    assert tr_row['chunk_offsets'][-1] == len(tr_row['captions'][0])
+    assert tr_ds.take_blobs([0], 'blob')[0].readall() == source_bytes

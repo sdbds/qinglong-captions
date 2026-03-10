@@ -1,0 +1,7 @@
+docling
+markitdown[all]
+torch>=2.8.0
+transformers==4.56.0
+accelerate
+sentencepiece
+huggingface_hub[hf_xet]>=0.35.2
