@@ -34,7 +34,7 @@ from gui.utils.i18n import t, set_language, get_i18n
 # 页面标题和样式
 APP_TITLE = "青龙字幕工具"
 APP_TITLE_EN = "Qinglong Captions"
-APP_VERSION = "3.7.0"
+APP_VERSION = "4.0.0"
 
 # 全局主题脚本
 THEME_SCRIPT = """

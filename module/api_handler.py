@@ -50,6 +50,10 @@ def api_process_batch(
                 return "kimi_code"
             if getattr(args, "kimi_api_key", "") != "" and (mime.startswith("image") or mime.startswith("video")):
                 return "kimi_vl"
+            if getattr(args, "minimax_code_api_key", "") != "" and (mime.startswith("image") or mime.startswith("video")):
+                return "minimax_code"
+            if getattr(args, "minimax_api_key", "") != "" and (mime.startswith("image") or mime.startswith("video")):
+                return "minimax_api"
             # OCR model selection with document_image logic
             ocr_model = getattr(args, "ocr_model", "")
             if ocr_model != "":
@@ -825,6 +829,248 @@ def api_process_batch(
                     return parsed
             except Exception as e:
                 console.print(f"[red]Failed to parse Kimi JSON response: {e}[/red]")
+                console.print(f"[yellow]Raw response: {raw_result}[/yellow]")
+        return result
+
+    elif provider == "minimax_code":
+        from module.providers.cloud_vlm.minimax_code import attempt_minimax_code as minimax_code_attempt
+
+        try:
+            from openai import OpenAI
+        except Exception as e:
+            console.print(Text(f"OpenAI SDK not installed: {e}", style="red"))
+            return ""
+
+        if not getattr(args, "minimax_code_api_key", ""):
+            console.print(Text("MiniMax-Code API key is empty. Please set --minimax_code_api_key.", style="red"))
+            return ""
+
+        base_url = getattr(args, "minimax_code_base_url", "https://api.minimax.io/v1")
+        client = OpenAI(api_key=args.minimax_code_api_key, base_url=base_url)
+        console.print(f"[blue]MiniMax-Code base_url:[/blue] {base_url}")
+
+        system_prompt, prompt = get_prompts(config, mime, args, provider, console)
+
+        pair_pixels = None
+        image_pixels = None
+        messages = []
+
+        if mime.startswith("video"):
+            with open(uri, "rb") as f:
+                video_base = base64.b64encode(f.read()).decode("utf-8")
+            video_data_url = f"data:{mime};base64,{video_base}"
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "video_url", "video_url": {"url": video_data_url}},
+                        {"type": "text", "text": prompt},
+                    ],
+                },
+            ]
+        elif mime.startswith("image"):
+            base64_image, image_pixels, pair_blob, pair_pixels, _ = prepare_media(uri, mime, args, console)
+            if base64_image is None:
+                return ""
+
+            if getattr(args, "pair_dir", "") != "":
+                if not pair_blob or not pair_pixels:
+                    return ""
+
+            messages = build_vision_messages(
+                system_prompt,
+                prompt,
+                base64_image,
+                pair_blob=pair_blob if getattr(args, "pair_dir", "") else None,
+                text_first=False
+            )
+        else:
+            console.print(f"[yellow]Unsupported mime for MiniMax-Code branch:[/yellow] {mime}")
+            return ""
+
+        # Read minimax_code config from config.toml
+        minimax_code_config = config.get("minimax_code", {}) if isinstance(config, dict) else {}
+        reasoning_split = minimax_code_config.get("reasoning_split", True)
+
+        def _attempt_minimax_code() -> str:
+            return minimax_code_attempt(
+                client=client,
+                model_path=getattr(args, "minimax_code_model_path", "MiniMax-M2"),
+                messages=messages,
+                console=console,
+                progress=progress,
+                task_id=task_id,
+                uri=uri,
+                image_pixels=image_pixels,
+                pair_pixels=pair_pixels,
+                reasoning_split=reasoning_split,
+                mode=getattr(args, "mode", "all")
+            )
+
+        result = with_retry(
+            _attempt_minimax_code,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: (
+                59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
+            ),
+            on_exhausted=lambda e: (console.print(Text(f"MiniMax-Code retries exhausted: {e}", style="yellow")) or ""),
+        )
+        if result:
+            try:
+                raw_result = str(result).strip()
+                if raw_result.startswith("```"):
+                    raw_result = re.sub(r"^```[a-zA-Z]*", "", raw_result).strip()
+                    if raw_result.endswith("```"):
+                        raw_result = raw_result[:-3].strip()
+                parsed = json.loads(raw_result)
+                if isinstance(parsed, dict):
+                    short_value = parsed.get("short_description") or parsed.get("short") or ""
+                    long_value = parsed.get("long_description") or parsed.get("long") or ""
+                    if "short_description" not in parsed and short_value:
+                        parsed["short_description"] = short_value
+                    if "long_description" not in parsed and long_value:
+                        parsed["long_description"] = long_value
+                    mode = getattr(args, "mode", "all")
+                    if mode == "short":
+                        parsed.pop("long", None)
+                        parsed.pop("long_description", None)
+                        parsed.pop("short", None)
+                        parsed["short_description"] = short_value
+                        return parsed
+                    if mode == "long":
+                        parsed.pop("short", None)
+                        parsed.pop("short_description", None)
+                        parsed.pop("long", None)
+                        parsed["long_description"] = long_value
+                        return parsed
+                    return parsed
+            except Exception as e:
+                console.print(f"[red]Failed to parse MiniMax-Code JSON response: {e}[/red]")
+                console.print(f"[yellow]Raw response: {raw_result}[/yellow]")
+        return result
+
+    elif provider == "minimax_api":
+        from module.providers.cloud_vlm.minimax_api import attempt_minimax as minimax_attempt
+
+        try:
+            from openai import OpenAI
+        except Exception as e:
+            console.print(Text(f"OpenAI SDK not installed: {e}", style="red"))
+            return ""
+
+        if not getattr(args, "minimax_api_key", ""):
+            console.print(Text("MiniMax API key is empty. Please set --minimax_api_key.", style="red"))
+            return ""
+
+        base_url = getattr(args, "minimax_api_base_url", "https://api.minimax.io/v1")
+        client = OpenAI(api_key=args.minimax_api_key, base_url=base_url)
+        console.print(f"[blue]MiniMax API base_url:[/blue] {base_url}")
+
+        system_prompt, prompt = get_prompts(config, mime, args, provider, console)
+
+        pair_pixels = None
+        image_pixels = None
+        messages = []
+
+        if mime.startswith("video"):
+            with open(uri, "rb") as f:
+                video_base = base64.b64encode(f.read()).decode("utf-8")
+            video_data_url = f"data:{mime};base64,{video_base}"
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "video_url", "video_url": {"url": video_data_url}},
+                        {"type": "text", "text": prompt},
+                    ],
+                },
+            ]
+        elif mime.startswith("image"):
+            base64_image, image_pixels, pair_blob, pair_pixels, _ = prepare_media(uri, mime, args, console)
+            if base64_image is None:
+                return ""
+
+            if getattr(args, "pair_dir", "") != "":
+                if not pair_blob or not pair_pixels:
+                    return ""
+
+            messages = build_vision_messages(
+                system_prompt,
+                prompt,
+                base64_image,
+                pair_blob=pair_blob if getattr(args, "pair_dir", "") else None,
+                text_first=False
+            )
+        else:
+            console.print(f"[yellow]Unsupported mime for MiniMax API branch:[/yellow] {mime}")
+            return ""
+
+        # Read minimax_api config from config.toml
+        minimax_api_config = config.get("minimax_api", {}) if isinstance(config, dict) else {}
+        reasoning_split = minimax_api_config.get("reasoning_split", False)
+
+        def _attempt_minimax() -> str:
+            return minimax_attempt(
+                client=client,
+                model_path=getattr(args, "minimax_model_path", "MiniMax-M2.5"),
+                messages=messages,
+                console=console,
+                progress=progress,
+                task_id=task_id,
+                uri=uri,
+                image_pixels=image_pixels,
+                pair_pixels=pair_pixels,
+                reasoning_split=reasoning_split,
+                mode=getattr(args, "mode", "all")
+            )
+
+        result = with_retry(
+            _attempt_minimax,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: (
+                59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
+            ),
+            on_exhausted=lambda e: (console.print(Text(f"MiniMax API retries exhausted: {e}", style="yellow")) or ""),
+        )
+        if result:
+            try:
+                raw_result = str(result).strip()
+                if raw_result.startswith("```"):
+                    raw_result = re.sub(r"^```[a-zA-Z]*", "", raw_result).strip()
+                    if raw_result.endswith("```"):
+                        raw_result = raw_result[:-3].strip()
+                parsed = json.loads(raw_result)
+                if isinstance(parsed, dict):
+                    short_value = parsed.get("short_description") or parsed.get("short") or ""
+                    long_value = parsed.get("long_description") or parsed.get("long") or ""
+                    if "short_description" not in parsed and short_value:
+                        parsed["short_description"] = short_value
+                    if "long_description" not in parsed and long_value:
+                        parsed["long_description"] = long_value
+                    mode = getattr(args, "mode", "all")
+                    if mode == "short":
+                        parsed.pop("long", None)
+                        parsed.pop("long_description", None)
+                        parsed.pop("short", None)
+                        parsed["short_description"] = short_value
+                        return parsed
+                    if mode == "long":
+                        parsed.pop("short", None)
+                        parsed.pop("short_description", None)
+                        parsed.pop("long", None)
+                        parsed["long_description"] = long_value
+                        return parsed
+                    return parsed
+            except Exception as e:
+                console.print(f"[red]Failed to parse MiniMax API JSON response: {e}[/red]")
                 console.print(f"[yellow]Raw response: {raw_result}[/yellow]")
         return result
 

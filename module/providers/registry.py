@@ -45,6 +45,7 @@ class ProviderRegistry:
             self._providers: Dict[str, Type["Provider"]] = {}
 
             # 修复 #1: kimi_code 排在 kimi_vl 之前
+            # minimax_code 优先级高于 minimax_api（类似 kimi_code > kimi_vl）
             self._priority_order: List[str] = [
                 "openai_compatible",  # 通用 OpenAI 兼容接口（最高优先级）
                 "stepfun",
@@ -53,6 +54,8 @@ class ProviderRegistry:
                 "glm",
                 "kimi_code",  # 优先级高于 kimi_vl
                 "kimi_vl",
+                "minimax_code",  # 优先级高于 minimax_api
+                "minimax_api",
                 # OCR models
                 "deepseek_ocr",
                 "hunyuan_ocr",

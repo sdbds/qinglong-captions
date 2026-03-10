@@ -3,7 +3,7 @@
 <details>
 <summary>中文说明（点击展开）</summary>
 
-# 青龙字幕工具 (3.6)
+# 青龙字幕工具 (4.0)
 
 ## 更新日志
 
@@ -22,6 +22,21 @@
    - 自动降级：JSON 模式不支持时自动切换到文本模式
    - 支持本地 GPU 部署（Qwen2-VL、LLaVA、MiniCPM-V 等）
    - 查看 [docs/openai_compatible.md](docs/openai_compatible.md) 获取详细使用指南
+
+### 3.9
+
+1. **新增 MiniMax API 支持** - 集成 MiniMax 开放平台多模态能力
+   - 支持模型：MiniMax-M2.5、MiniMax-M2.5-highspeed、MiniMax-M2.1、MiniMax-M2.1-highspeed、MiniMax-M2
+   - 支持图像和视频理解
+   - 支持 Tags 自动加载和高亮显示（与 Kimi VL 相同的体验）
+   - 配置参数：`--minimax_api_key`、`--minimax_model_path`、`--minimax_api_base_url`
+
+2. **新增 MiniMax Code 支持** - 针对代码和结构化输出优化的 Provider
+   - 默认使用 MiniMax-M2 模型，专为代码理解和 Agent 工作流优化
+   - 支持 reasoning_split 分离推理过程
+   - 更强的 JSON 结构化输出能力
+   - 支持 Tags 自动加载和高亮显示
+   - 配置参数：`--minimax_code_api_key`、`--minimax_code_model_path`、`--minimax_code_base_url`
 
 ### 3.8
 
@@ -93,7 +108,7 @@
 - 在源视频所在目录导出 SRT 格式字幕
 
 ### 自动字幕生成 (`captioner.py` & `api_handler.py`)
-- **Provider V2 架构**，支持 19+ 种 Provider（Cloud VLM、Local VLM、OCR、Vision API）
+- **Provider V2 架构**，支持 21+ 种 Provider（Cloud VLM、Local VLM、OCR、Vision API）
 - **OpenAI 兼容 Provider**，支持本地推理（vLLM、SGLang、Ollama、LM Studio）
 - 使用 Gemini API 进行视频场景描述
 - 支持批量处理
@@ -171,6 +186,16 @@ $glm_model_path = "GLM-4V-Plus-0111"
 $ark_api_key = ""
 $ark_model_path = "doubao-seed-1-6"
 
+# MiniMax API 配置
+$minimax_api_key = ""              # MiniMax API 密钥 (从 platform.minimaxi.com 获取)
+$minimax_model_path = "MiniMax-M2.5"  # 可选: MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1, MiniMax-M2.1-highspeed, MiniMax-M2
+$minimax_api_base_url = "https://api.minimax.io/v1"
+
+# MiniMax Code API 配置 (针对代码和结构化输出优化)
+$minimax_code_api_key = ""         # MiniMax Code API 密钥
+$minimax_code_model_path = "MiniMax-M2"  # 默认使用 M2 模型，专为代码和Agent工作流优化
+$minimax_code_base_url = "https://api.minimax.io/v1"
+
 # OpenAI Compatible API 配置（支持 vLLM、SGLang、Ollama、LM Studio）
 # 当配置了 openai_base_url 时，会优先使用此接口进行本地 GPU 推理
 $openai_api_key = ""           # API 密钥（本地服务可填任意值）
@@ -202,7 +227,7 @@ $tags_highlightrate = 0.3
 
 </details>
 
-# qinglong-captioner (3.6)
+# qinglong-captioner (4.0)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
@@ -223,6 +248,21 @@ A Python toolkit for generating video captions using the Lance database format a
    - Auto-fallback: Automatically switches to text mode when JSON mode is unsupported
    - Support local GPU deployment (Qwen2-VL, LLaVA, MiniCPM-V, etc.)
    - See [docs/openai_compatible.md](docs/openai_compatible.md) for detailed usage guide
+
+### 3.9
+
+1. **Added MiniMax API Support** - Integrated MiniMax platform multimodal capabilities
+   - Supported models: MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1, MiniMax-M2.1-highspeed, MiniMax-M2
+   - Support for image and video understanding
+   - Tags auto-loading and highlight display (same experience as Kimi VL)
+   - Configuration: `--minimax_api_key`, `--minimax_model_path`, `--minimax_api_base_url`
+
+2. **Added MiniMax Code Support** - Provider optimized for coding and structured output
+   - Default MiniMax-M2 model optimized for code understanding and Agent workflows
+   - Support reasoning_split to separate reasoning process
+   - Enhanced JSON structured output capability
+   - Tags auto-loading and highlight display
+   - Configuration: `--minimax_code_api_key`, `--minimax_code_model_path`, `--minimax_code_base_url`
 
 ### 3.8
 
@@ -500,7 +540,7 @@ At the same time, the millisecond-level alignment function has been updated. Aft
 - Auto Clip with SRT timestamps
 
 ### Auto Captioning (`captioner.py` & `api_handler.py`)
-- **Provider V2 Architecture** with 19+ providers (Cloud VLM, Local VLM, OCR, Vision API)
+- **Provider V2 Architecture** with 21+ providers (Cloud VLM, Local VLM, OCR, Vision API)
 - **OpenAI Compatible Provider** for local inference (vLLM, SGLang, Ollama, LM Studio)
 - Automatic video scene description using Gemini API or Pixtral API
 - Batch processing support
@@ -601,6 +641,17 @@ $glm_api_key = ""
 $glm_model_path = "GLM-4V-Plus-0111"
 $ark_api_key = ""
 $ark_model_path = "doubao-seed-1-6"
+
+# MiniMax API Configuration
+$minimax_api_key = ""              # MiniMax API key (from platform.minimaxi.com)
+$minimax_model_path = "MiniMax-M2.5"  # Options: MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1, MiniMax-M2.1-highspeed, MiniMax-M2
+$minimax_api_base_url = "https://api.minimax.io/v1"
+
+# MiniMax Code API Configuration (optimized for coding and structured output)
+$minimax_code_api_key = ""         # MiniMax Code API key
+$minimax_code_model_path = "MiniMax-M2"  # Default M2 model optimized for coding and Agent workflows
+$minimax_code_base_url = "https://api.minimax.io/v1"
+
 $dir_name = $false
 $mode = "long"
 $not_clip_with_caption = $true              # Not clip with caption | 不根据caption裁剪

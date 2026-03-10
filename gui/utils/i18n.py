@@ -74,6 +74,8 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
             "step": "Stepfun Step-VL for video/image",
             "qwen": "Alibaba Qwen-VL for video/image",
             "kimi": "Moonshot Kimi for image",
+            "minimax": "MiniMax API for video/image",
+            "minimax_code": "MiniMax Code for structured output",
             "glm": "Zhipu GLM for video/image",
         },
         "feature_list": {
@@ -314,6 +316,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "enter_endpoint_model_id": "Enter your Endpoint Model ID",
         "openai_compatible_desc": "Generic OpenAI-compatible interface, supports vLLM / Ollama / LM Studio / SGLang etc. Will be used when Base URL is configured.",
         "kimi_code_desc": "Kimi-Code uses a separate API Key (from kimi.com/code), not compatible with Moonshot platform keys",
+        "minimax_code_desc": "MiniMax-Code uses MiniMax-M2 model optimized for coding and structured output, supports reasoning_split",
         "openai_no_key_hint": "sk-no-key-required (can be empty for local service)",
         "optional_pair_align_placeholder": "Optional: for image pair alignment",
         # Setup check results
@@ -445,6 +448,8 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
             "step": "阶跃星辰 Step-VL，视频/图像",
             "qwen": "阿里通义千问 Qwen-VL，视频/图像",
             "kimi": "月之暗面 Kimi，图像描述",
+            "minimax": "MiniMax API，支持视频/图像",
+            "minimax_code": "MiniMax Code，结构化输出优化",
             "glm": "智谱 GLM，视频/图像",
         },
         "feature_list": {
@@ -685,6 +690,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "enter_endpoint_model_id": "输入你的 Endpoint Model ID",
         "openai_compatible_desc": "通用 OpenAI 兼容接口，支持 vLLM / Ollama / LM Studio / SGLang 等本地或远程服务。配置 Base URL 后将优先使用此接口。",
         "kimi_code_desc": "Kimi-Code 使用独立 API Key（来自 kimi.com/code），与 Moonshot 平台的 Key 不通用",
+        "minimax_code_desc": "MiniMax-Code 使用 MiniMax-M2 模型，专为代码理解和结构化输出优化，支持 reasoning_split 分离推理过程",
         "openai_no_key_hint": "sk-no-key-required（本地服务可留空）",
         "optional_pair_align_placeholder": "可选：用于图像配对对齐",
         # Setup check results
@@ -808,6 +814,8 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
             "step": "Stepfun Step-VL",
             "qwen": "Alibaba Qwen-VL",
             "kimi": "Moonshot Kimi",
+            "minimax": "MiniMax API",
+            "minimax_code": "MiniMax Code",
             "glm": "Zhipu GLM",
         },
         "feature_list": {
@@ -947,6 +955,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "enter_endpoint_model_id": "Endpoint Model ID を入力",
         "openai_compatible_desc": "汎用 OpenAI 互換インターフェース。vLLM / Ollama / LM Studio / SGLang 等に対応。",
         "kimi_code_desc": "Kimi-Code は独立した API キー（kimi.com/code）を使用します",
+        "minimax_code_desc": "MiniMax-Code はコーディングと構造化出力に最適化された MiniMax-M2 モデルを使用します",
         "openai_no_key_hint": "sk-no-key-required（ローカルサービスは空欄可）",
         "optional_pair_align_placeholder": "オプション：画像ペアアラインメント用",
         # Setup check results
@@ -1070,6 +1079,8 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
             "step": "Stepfun Step-VL",
             "qwen": "Alibaba Qwen-VL",
             "kimi": "Moonshot Kimi",
+            "minimax": "MiniMax API",
+            "minimax_code": "MiniMax Code",
             "glm": "Zhipu GLM",
         },
         "feature_list": {
@@ -1208,6 +1219,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "enter_endpoint_model_id": "Endpoint Model ID 입력",
         "openai_compatible_desc": "범용 OpenAI 호환 인터페이스. vLLM / Ollama / LM Studio / SGLang 등 지원.",
         "kimi_code_desc": "Kimi-Code는 별도 API 키(kimi.com/code)를 사용합니다",
+        "minimax_code_desc": "MiniMax-Code는 코딩 및 구조화된 출력에 최적화된 MiniMax-M2 모델을 사용합니다",
         "openai_no_key_hint": "sk-no-key-required (로컬 서비스는 비워둘 수 있음)",
         "optional_pair_align_placeholder": "선택사항: 이미지 쌍 정렬용",
         # Setup check results

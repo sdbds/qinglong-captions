@@ -96,7 +96,7 @@ class PromptResolver:
                 f"{provider_prefix}_video_prompt", f"{self.provider_name}_video_prompt", "step_video_prompt", user
             )
         elif mime.startswith("image"):
-            # 修复：kimi_code/kimi_vl 兼容性，添加 kimi_image_prompt fallback
+            # 修复：kimi_code/kimi_vl/minimax 兼容性，添加特定 fallback
             kimi_fallback = ""
             if self.provider_name in ("kimi_code", "kimi_vl"):
                 kimi_fallback = "kimi_image_system_prompt"
@@ -109,15 +109,20 @@ class PromptResolver:
                 system,
             )
             
-            # 修复：kimi_code/kimi_vl 兼容性，添加 kimi_image_prompt fallback
+            # 修复：kimi_code/kimi_vl/minimax 兼容性，添加特定 fallback
             kimi_prompt_fallback = ""
             if self.provider_name in ("kimi_code", "kimi_vl"):
                 kimi_prompt_fallback = "kimi_image_prompt"
+            # minimax_code 可以回退到 minimax_api 的 prompt
+            minimax_fallback = ""
+            if self.provider_name == "minimax_code":
+                minimax_fallback = "minimax_api_image_prompt"
             
             user = self._get_with_fallback(
                 f"{self.provider_name}_image_prompt",
                 f"{provider_prefix}_image_prompt",
                 kimi_prompt_fallback,
+                minimax_fallback,
                 "pixtral_image_prompt",
                 user
             )

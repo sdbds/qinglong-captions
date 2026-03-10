@@ -94,6 +94,30 @@ class CaptionStep:
             "supports_video": True,
             "supports_task": False,
         },
+        "MiniMax": {
+            "key_name": "minimax_api_key",
+            "models": [
+                "MiniMax-M2.5",
+                "MiniMax-M2.5-highspeed",
+                "MiniMax-M2.1",
+                "MiniMax-M2.1-highspeed",
+                "MiniMax-M2",
+            ],
+            "default_model": "MiniMax-M2.5",
+            "supports_video": True,
+            "supports_task": False,
+        },
+        "MiniMax-Code": {
+            "key_name": "minimax_code_api_key",
+            "models": [
+                "MiniMax-M2.5",
+                "MiniMax-M2.5-highspeed",
+                "MiniMax-M2.1",
+            ],
+            "default_model": "MiniMax-M2.5",
+            "supports_video": True,
+            "supports_task": False,
+        },
         "GLM": {
             "key_name": "glm_api_key",
             "models": [

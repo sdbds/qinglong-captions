@@ -13,6 +13,17 @@ $kimi_base_url = "https://api.moonshot.cn/v1" # "https://integrate.api.nvidia.co
 $kimi_code_api_key = ""
 $kimi_code_model_path = "k2p5"
 $kimi_code_base_url = "https://api.kimi.com/coding/v1"
+
+# MiniMax API 配置
+$minimax_api_key = ""              # MiniMax API 密钥 (从 platform.minimaxi.com 获取)
+$minimax_model_path = "MiniMax-M2.5"  # 可选: MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1, MiniMax-M2.1-highspeed, MiniMax-M2
+$minimax_api_base_url = "https://api.minimax.io/v1"
+
+# MiniMax Code API 配置 (针对代码和结构化输出优化)
+$minimax_code_api_key = ""         # MiniMax Code API 密钥
+$minimax_code_model_path = "MiniMax-M2"  # 默认使用 M2 模型，专为代码和Agent工作流优化
+$minimax_code_base_url = "https://api.minimax.io/v1"
+
 $qwenVL_api_key = ""
 $qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
 $glm_api_key = ""
@@ -147,6 +158,32 @@ if ($kimi_code_model_path -and $kimi_code_model_path -ne "k2p5") {
 
 if ($kimi_code_base_url) {
   [void]$ext_args.Add("--kimi_code_base_url=$kimi_code_base_url")
+}
+
+# MiniMax API 参数
+if ($minimax_api_key) {
+  [void]$ext_args.Add("--minimax_api_key=$minimax_api_key")
+}
+
+if ($minimax_model_path -and $minimax_model_path -ne "MiniMax-M2.5") {
+  [void]$ext_args.Add("--minimax_model_path=$minimax_model_path")
+}
+
+if ($minimax_api_base_url -and $minimax_api_base_url -ne "https://api.minimax.io/v1") {
+  [void]$ext_args.Add("--minimax_api_base_url=$minimax_api_base_url")
+}
+
+# MiniMax Code API 参数
+if ($minimax_code_api_key) {
+  [void]$ext_args.Add("--minimax_code_api_key=$minimax_code_api_key")
+}
+
+if ($minimax_code_model_path -and $minimax_code_model_path -ne "MiniMax-M2") {
+  [void]$ext_args.Add("--minimax_code_model_path=$minimax_code_model_path")
+}
+
+if ($minimax_code_base_url -and $minimax_code_base_url -ne "https://api.minimax.io/v1") {
+  [void]$ext_args.Add("--minimax_code_base_url=$minimax_code_base_url")
 }
 
 if ($qwenVL_api_key) {

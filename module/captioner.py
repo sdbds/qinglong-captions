@@ -625,6 +625,46 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Base URL for Kimi-Code API",
     )
 
+    # MiniMax API
+    parser.add_argument(
+        "--minimax_api_key",
+        type=str,
+        default="",
+        help="API key for MiniMax API (from platform.minimaxi.com)",
+    )
+    parser.add_argument(
+        "--minimax_model_path",
+        type=str,
+        default="MiniMax-M2.5",
+        help="Model name for MiniMax API (default: MiniMax-M2.5, options: MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1, MiniMax-M2.1-highspeed, MiniMax-M2)",
+    )
+    parser.add_argument(
+        "--minimax_api_base_url",
+        type=str,
+        default="https://api.minimax.io/v1",
+        help="Base URL for MiniMax API",
+    )
+
+    # MiniMax Code (针对代码和结构化输出优化)
+    parser.add_argument(
+        "--minimax_code_api_key",
+        type=str,
+        default="",
+        help="API key for MiniMax Code API (from platform.minimaxi.com)",
+    )
+    parser.add_argument(
+        "--minimax_code_model_path",
+        type=str,
+        default="MiniMax-M2.5",
+        help="Model name for MiniMax Code API (default: MiniMax-M2.5, optimized for coding and structured output)",
+    )
+    parser.add_argument(
+        "--minimax_code_base_url",
+        type=str,
+        default="https://api.minimax.io/v1",
+        help="Base URL for MiniMax Code API",
+    )
+
     parser.add_argument(
         "--step_model_path",
         type=str,
