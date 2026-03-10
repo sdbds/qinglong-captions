@@ -353,7 +353,7 @@ def api_process_batch(
     system_prompt, prompt = get_prompts(config, mime, args, provider, console)
 
     if provider == "stepfun":
-        from module.providers.stepfun_provider import attempt_stepfun as stepfun_attempt
+        from module.providers.cloud_vlm.stepfun import attempt_stepfun as stepfun_attempt
         try:
             from openai import OpenAI
         except Exception as e:
@@ -421,7 +421,7 @@ def api_process_batch(
         return result
 
     elif provider == "qwenvl":
-        from module.providers.qwenvl_provider import attempt_qwenvl as qwenvl_attempt
+        from module.providers.cloud_vlm.qwenvl import attempt_qwenvl as qwenvl_attempt
         file = f"file://{Path(uri).resolve().as_posix()}"
 
         if mime.startswith("video"):
@@ -518,7 +518,7 @@ def api_process_batch(
         return content
 
     elif provider == "glm":
-        from module.providers.glm_provider import attempt_glm as glm_attempt
+        from module.providers.cloud_vlm.glm import attempt_glm as glm_attempt
         from zhipuai import ZhipuAI
 
         client = ZhipuAI(api_key=args.glm_api_key)
@@ -563,7 +563,7 @@ def api_process_batch(
         return content
 
     elif provider == "kimi_code":
-        from module.providers.kimi_vl_provider import attempt_kimi_vl as kimi_attempt
+        from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl as kimi_attempt
 
         try:
             from openai import OpenAI
@@ -698,7 +698,7 @@ def api_process_batch(
         return result
 
     elif provider == "kimi_vl":
-        from module.providers.kimi_vl_provider import attempt_kimi_vl as kimi_attempt
+        from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl as kimi_attempt
 
         try:
             from openai import OpenAI
@@ -829,7 +829,7 @@ def api_process_batch(
         return result
 
     elif provider == "ark":
-        from module.providers.ark_provider import attempt_ark as ark_attempt
+        from module.providers.cloud_vlm.ark import attempt_ark as ark_attempt
         try:
             from volcenginesdkarkruntime import Ark  # local import to avoid hard dep
         except Exception as e:
@@ -940,7 +940,7 @@ def api_process_batch(
 
         def _attempt_deepseek() -> str:
             try:
-                from module.providers.deepseek_ocr_provider import (
+                from module.providers.ocr.deepseek import (
                     attempt_deepseek_ocr as deepseek_attempt,
                 )
             except Exception as e:
@@ -996,7 +996,7 @@ def api_process_batch(
 
         def _attempt_hunyuan() -> str:
             try:
-                from module.providers.hunyuan_ocr_provider import (
+                from module.providers.ocr.hunyuan import (
                     attempt_hunyuan_ocr as hunyuan_attempt,
                 )
             except Exception as e:
@@ -1053,7 +1053,7 @@ def api_process_batch(
 
         def _attempt_glm() -> str:
             try:
-                from module.providers.glm_ocr_provider import (
+                from module.providers.ocr.glm import (
                     attempt_glm_ocr as glm_attempt,
                 )
             except Exception as e:
@@ -1110,7 +1110,7 @@ def api_process_batch(
 
         def _attempt_chandra() -> str:
             try:
-                from module.providers.chandra_ocr_provider import (
+                from module.providers.ocr.chandra import (
                     attempt_chandra_ocr as chandra_attempt,
                 )
             except Exception as e:
@@ -1168,7 +1168,7 @@ def api_process_batch(
 
         def _attempt_olmocr() -> str:
             try:
-                from module.providers.olmocr_provider import (
+                from module.providers.ocr.olmocr import (
                     attempt_olmocr as olmocr_attempt,
                 )
             except Exception as e:
@@ -1325,7 +1325,7 @@ def api_process_batch(
 
         def _attempt_paddle_ocr() -> str:
             try:
-                from module.providers.paddle_ocr_provider import (
+                from module.providers.ocr.paddle import (
                     attempt_paddle_ocr as paddle_attempt,
                 )
             except Exception as e:
@@ -1379,7 +1379,7 @@ def api_process_batch(
 
         def _attempt_nanonets() -> str:
             try:
-                from module.providers.nanonets_ocr_provider import (
+                from module.providers.ocr.nanonets import (
                     attempt_nanonets_ocr as nanonets_attempt,
                 )
             except Exception as e:
@@ -1433,7 +1433,7 @@ def api_process_batch(
 
         def _attempt_firered() -> str:
             try:
-                from module.providers.firered_ocr_provider import (
+                from module.providers.ocr.firered import (
                     attempt_firered_ocr as firered_attempt,
                 )
             except Exception as e:
@@ -1493,7 +1493,7 @@ def api_process_batch(
         def _attempt_vlm() -> str:
             if provider == "moondream":
                 try:
-                    from module.providers.moondream_provider import (
+                    from module.providers.local_vlm.moondream import (
                         attempt_moondream as vlm_attempt,
                     )
                 except Exception as e:
@@ -1517,7 +1517,7 @@ def api_process_batch(
                     task=vlm_section.get("tasks", "caption"),
                 )
             elif provider == "qwen_vl_local":
-                from module.providers.qwenvl_provider import attempt_qwenvl as qwenvl_attempt
+                from module.providers.cloud_vlm.qwenvl import attempt_qwenvl as qwenvl_attempt
                 # Build messages for Qwen-VL local model
                 file = f"file://{Path(uri).resolve().as_posix()}"
                 content_items = []
@@ -1552,7 +1552,7 @@ def api_process_batch(
                 )
             elif provider == "step_vl_local":
                 try:
-                    from module.providers.stepfun_provider import attempt_stepfun
+                    from module.providers.cloud_vlm.stepfun import attempt_stepfun
                 except Exception as e:
                     console.print(Text(f"Step3-VL Local provider not available: {e}", style="red"))
                     raise
@@ -1598,7 +1598,7 @@ def api_process_batch(
         return content
 
     elif provider == "pixtral" or provider == "pixtral_ocr":
-        from module.providers.pixtral_provider import attempt_pixtral as pixtral_attempt
+        from module.providers.vision_api.pixtral import attempt_pixtral as pixtral_attempt
         from utils.stream_util import sanitize_filename, split_name_series
         try:
             from mistralai import Mistral
@@ -1724,7 +1724,7 @@ def api_process_batch(
         return result
 
     elif provider == "gemini":
-        from module.providers.gemini_provider import attempt_gemini as gemini_attempt
+        from module.providers.vision_api.gemini import attempt_gemini as gemini_attempt
         from module.providers.gemini_utils import upload_or_get
         try:
             from google import genai

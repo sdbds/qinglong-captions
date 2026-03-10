@@ -19,7 +19,7 @@ class QwenVLLocalProvider(LocalVLMProvider):
         return getattr(args, "vlm_image_model", "") == "qwen_vl_local" and mime.startswith("image")
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
-        from module.providers.qwenvl_provider import attempt_qwenvl
+        from module.providers.cloud_vlm.qwenvl import attempt_qwenvl
 
         file = f"file://{Path(media.uri).resolve().as_posix()}"
 

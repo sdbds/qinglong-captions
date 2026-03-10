@@ -19,7 +19,7 @@ class StepVLLocalProvider(LocalVLMProvider):
         return getattr(args, "vlm_image_model", "") == "step_vl_local" and mime.startswith("image")
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
-        from module.providers.stepfun_provider import attempt_stepfun
+        from module.providers.cloud_vlm.stepfun import attempt_stepfun
 
         # 注意：step_vl_local 使用 stepfun_provider 的 attempt_stepfun
         # 但传入的参数不同

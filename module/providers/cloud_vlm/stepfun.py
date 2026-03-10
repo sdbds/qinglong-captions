@@ -20,7 +20,6 @@ from rich_pixels import Pixels
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.cloud_vlm_base import CloudVLMProvider
 from providers.registry import register_provider
-from providers.utils import build_vision_messages
 from utils.parse_display import (
     display_caption_and_rate,
     display_caption_layout,
@@ -318,9 +317,12 @@ class StepfunProvider(CloudVLMProvider):
         return CaptionResult(raw=result, metadata={"provider": self.name})
 
     def _build_messages(self, media: MediaContext, prompts: PromptContext):
-        """构建 StepFun 消息格式"""
+        """构建 StepFun 消息格式
+
+        视频使用 StepFun 文件上传 (stepfile://) 协议，其余委托给基类。
+        """
         if media.mime.startswith("video"):
-            # 视频需要上传
+            # StepFun 特有：视频需要先上传到 StepFun 文件服务
             from openai import OpenAI
 
             client = OpenAI(api_key=self.ctx.args.step_api_key, base_url="https://api.stepfun.com/v1")
@@ -341,15 +343,7 @@ class StepfunProvider(CloudVLMProvider):
                 },
             ]
 
-        elif media.mime.startswith("image"):
-            return build_vision_messages(
-                prompts.system, prompts.user, media.blob or "", pair_blob=media.pair_blob, text_first=False
-            )
-
-        return [
-            {"role": "system", "content": prompts.system},
-            {"role": "user", "content": prompts.user},
-        ]
+        return self.build_cloud_vlm_messages(media, prompts)
 
     def get_retry_config(self):
         cfg = super().get_retry_config()

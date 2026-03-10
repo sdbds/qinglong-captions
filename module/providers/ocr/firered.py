@@ -51,16 +51,12 @@ Please strictly follow these guidelines to ensure accuracy and consistency in th
 
 
 def _build_messages(image_path: str, prompt_text: str) -> list[dict]:
-    """Build chat messages for FireRed-OCR inference."""
-    return [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image", "image": image_path},
-                {"type": "text", "text": prompt_text},
-            ],
-        }
-    ]
+    """Build chat messages for FireRed-OCR inference.
+
+    Delegates to OCRProvider.build_ocr_messages for the shared logic.
+    """
+    from module.providers.ocr_base import OCRProvider
+    return OCRProvider.build_ocr_messages(image_path, prompt_text)
 
 
 @torch.inference_mode()

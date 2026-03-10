@@ -3,112 +3,27 @@
 from __future__ import annotations
 
 import base64
-import time
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
-from rich.console import Console
 from rich.progress import Progress
-from rich.text import Text
 
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.cloud_vlm_base import CloudVLMProvider
 from providers.registry import register_provider
-from utils.parse_display import extract_code_block_content
 
 
 # ---------------------------------------------------------------------------
 # Ark streaming / attempt helpers (migrated from ark_provider.py)
 # ---------------------------------------------------------------------------
 
-def _collect_stream_ark(responses: Iterable[Any], console: Console) -> str:
-    """Collect streamed text from Ark responses.
-
-    Tries OpenAI-like delta.content first, falls back to other possible fields.
-    """
-    chunks: list[str] = []
-    for chunk in responses:
-        text_piece = ""
-        try:
-            # OpenAI-like streaming
-            if (
-                hasattr(chunk, "choices")
-                and chunk.choices
-                and hasattr(chunk.choices[0], "delta")
-                and getattr(chunk.choices[0].delta, "content", None) is not None
-            ):
-                text_piece = chunk.choices[0].delta.content
-            # Sometimes streaming message content can appear fully in message
-            elif (
-                hasattr(chunk, "choices")
-                and chunk.choices
-                and hasattr(chunk.choices[0], "message")
-                and getattr(chunk.choices[0].message, "content", None)
-            ):
-                text_piece = chunk.choices[0].message.content  # type: ignore
-            else:
-                # Generic fallback
-                text_piece = getattr(chunk, "text", "") or ""
-        except Exception:
-            pass
-
-        if text_piece:
-            chunks.append(text_piece)
-            try:
-                console.print(text_piece, end="", overflow="ellipsis")
-            except Exception:
-                console.print(Text(text_piece), end="", overflow="ellipsis")
-            finally:
-                console.file.flush()
-
-    console.print("\n")
-    return "".join(chunks)
-
-
-def attempt_ark(
-    *,
-    client: Any,
-    model_path: str,
-    messages: list[dict[str, Any]],
-    console: Console,
-    progress: Optional[Progress],
-    task_id: Optional[Any],
-) -> str:
-    """Single-attempt Ark request.
-
-    Returns SRT content. Raises on retryable conditions (RETRY_EMPTY_CONTENT).
-    """
-    start_time = time.time()
-
-    completion = client.chat.completions.create(
-        model=model_path.replace(".", "-"),
-        messages=messages,
-        stream=True,
+def attempt_ark(*, client, model_path, messages, console, progress=None, task_id=None) -> str:
+    """Single-attempt Ark request. Delegates to base class."""
+    return CloudVLMProvider.attempt_openai_chat(
+        client=client, model_path=model_path, messages=messages,
+        console=console, progress=progress, task_id=task_id,
+        model_path_replace=(".", "-"),
     )
-
-    if progress and task_id is not None:
-        progress.update(task_id, description="Generating captions")
-    response_text = _collect_stream_ark(completion, console)
-
-    elapsed_time = time.time() - start_time
-    console.print(f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds")
-
-    try:
-        console.print(response_text)
-    except Exception:
-        console.print(Text(response_text))
-
-    # Normalize inline color tags to HTML-like for consistency
-    response_text = response_text.replace("[green]", "<font color='green'>").replace("[/green]", "</font>")
-
-    content = extract_code_block_content(response_text, "srt", console)
-    if not content:
-        # Trigger retry when content is empty
-        raise Exception("RETRY_EMPTY_CONTENT")
-
-    if progress and task_id is not None:
-        progress.update(task_id, description="Processing media...")
-    return content
 
 
 # ---------------------------------------------------------------------------

@@ -8,14 +8,23 @@ CloudVLMProvider - 云端 VLM Provider 基类
 - 支持多图输入（pair_extras）
 - 支持视频上传
 - 支持音频
+- collect_openai_stream: 通用 OpenAI 兼容流式收集
+- attempt_openai_chat: 通用 OpenAI 流式 Chat + SRT 提取
 """
 
+import time
 from pathlib import Path
-from typing import Any, List
+from typing import Any, Iterable, List, Optional
 
-from .base import MediaContext, MediaModality, Provider, ProviderContext, ProviderType
+import base64 as _base64
+
+from rich.console import Console
+from rich.progress import Progress
+from rich.text import Text
+
+from .base import MediaContext, MediaModality, Provider, ProviderContext, PromptContext, ProviderType
 from .capabilities import ProviderCapabilities
-from .utils import encode_image_to_blob
+from .utils import build_vision_messages, encode_image_to_blob
 
 
 class CloudVLMProvider(Provider):
@@ -96,6 +105,182 @@ class CloudVLMProvider(Provider):
             pair_extras=pair_extras,
             audio_blob=audio_blob,
         )
+
+    def build_cloud_vlm_messages(
+        self,
+        media: MediaContext,
+        prompts: PromptContext,
+        *,
+        text_first: bool = False,
+    ) -> list:
+        """构建云端 VLM 通用消息格式
+
+        处理 video / image / 纯文本 三种场景，子类如有特殊逻辑可覆盖。
+        """
+        if media.mime.startswith("video"):
+            with open(media.uri, "rb") as f:
+                video_base = _base64.b64encode(f.read()).decode("utf-8")
+            video_data_url = f"data:{media.mime};base64,{video_base}"
+            return [
+                {"role": "system", "content": prompts.system},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "video_url", "video_url": {"url": video_data_url}},
+                        {"type": "text", "text": prompts.user},
+                    ],
+                },
+            ]
+
+        if media.mime.startswith("image"):
+            if media.blob is None:
+                return []
+            pair_dir = getattr(self.ctx.args, "pair_dir", "") if self.ctx else ""
+            if pair_dir and not media.pair_blob:
+                return []
+            return build_vision_messages(
+                prompts.system,
+                prompts.user,
+                media.blob,
+                pair_blob=media.pair_blob if pair_dir else None,
+                text_first=text_first,
+            )
+
+        # 纯文本 fallback
+        return [
+            {"role": "system", "content": prompts.system},
+            {"role": "user", "content": prompts.user},
+        ]
+
+    # ------------------------------------------------------------------
+    #  通用流式收集 & attempt
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def collect_openai_stream(
+        responses: Iterable[Any],
+        console: Console,
+        *,
+        style: str = "",
+    ) -> str:
+        """通用 OpenAI 兼容流式文本收集
+
+        适用于 Ark / GLM / StepFun / Kimi 等使用 ``choices[0].delta.content``
+        协议的 provider。
+
+        Args:
+            responses: 流式响应迭代器
+            console: Rich Console
+            style: 打印样式，"dot" 表示只打印进度点，空字符串打印实际文本
+        """
+        chunks: list[str] = []
+        for chunk in responses:
+            text_piece = ""
+            try:
+                if (
+                    hasattr(chunk, "choices")
+                    and chunk.choices
+                    and hasattr(chunk.choices[0], "delta")
+                    and getattr(chunk.choices[0].delta, "content", None) is not None
+                ):
+                    text_piece = chunk.choices[0].delta.content
+                elif (
+                    hasattr(chunk, "choices")
+                    and chunk.choices
+                    and hasattr(chunk.choices[0], "message")
+                    and getattr(chunk.choices[0].message, "content", None)
+                ):
+                    text_piece = chunk.choices[0].message.content  # type: ignore[union-attr]
+                else:
+                    text_piece = getattr(chunk, "text", "") or ""
+            except Exception:
+                pass
+
+            if text_piece:
+                chunks.append(text_piece)
+                if style == "dot":
+                    console.print(".", end="", style="blue")
+                else:
+                    try:
+                        console.print(text_piece, end="", overflow="ellipsis")
+                    except Exception:
+                        console.print(Text(text_piece), end="", overflow="ellipsis")
+                    finally:
+                        console.file.flush()
+
+        console.print("\n")
+        return "".join(chunks)
+
+    @staticmethod
+    def attempt_openai_chat(
+        *,
+        client: Any,
+        model_path: str,
+        messages: list,
+        console: Console,
+        progress: Optional[Progress] = None,
+        task_id: Optional[Any] = None,
+        stream_style: str = "",
+        extract_format: str = "srt",
+        model_path_replace: Optional[tuple[str, str]] = None,
+    ) -> str:
+        """通用 OpenAI Chat Completion 流式 attempt
+
+        覆盖 ark / glm / stepfun(cloud) 等的公共流程:
+          1. client.chat.completions.create(stream=True)
+          2. collect_openai_stream
+          3. extract_code_block_content
+
+        Args:
+            client: OpenAI / Ark / ZhipuAI 客户端
+            model_path: 模型路径
+            messages: 消息列表
+            console: Rich Console
+            progress: 进度条（可选）
+            task_id: 进度条任务 ID（可选）
+            stream_style: 流式打印样式（"dot" 或 ""）
+            extract_format: extract_code_block_content 的格式参数
+            model_path_replace: 模型路径字符替换 (old, new)，如 Ark 需要 (".", "-")
+        """
+        from utils.parse_display import extract_code_block_content
+
+        effective_model = model_path
+        if model_path_replace:
+            effective_model = model_path.replace(*model_path_replace)
+
+        start_time = time.time()
+
+        completion = client.chat.completions.create(
+            model=effective_model,
+            messages=messages,
+            stream=True,
+        )
+
+        if progress and task_id is not None:
+            progress.update(task_id, description="Generating captions")
+        response_text = CloudVLMProvider.collect_openai_stream(
+            completion, console, style=stream_style,
+        )
+
+        elapsed = time.time() - start_time
+        console.print(f"[blue]Caption generation took:[/blue] {elapsed:.2f} seconds")
+
+        try:
+            console.print(response_text)
+        except Exception:
+            console.print(Text(response_text))
+
+        response_text = response_text.replace(
+            "[green]", "<font color='green'>"
+        ).replace("[/green]", "</font>")
+
+        content = extract_code_block_content(response_text, extract_format, console)
+        if not content:
+            raise Exception("RETRY_EMPTY_CONTENT")
+
+        if progress and task_id is not None:
+            progress.update(task_id, description="Processing media...")
+        return content
 
     def _scan_pair_extras(self, uri: str, pair_dir: str) -> List[str]:
         """

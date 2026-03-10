@@ -109,6 +109,35 @@ class OCRProvider(Provider):
         cfg.classify_error = lambda e: cfg.base_wait
         return cfg
 
+    @staticmethod
+    def build_ocr_messages(
+        image_path: str,
+        prompt_text: str,
+        *,
+        system_prompt: str = "",
+        image_uri_prefix: str = "",
+    ) -> list:
+        """构建 OCR 推理的聊天消息
+
+        Args:
+            image_path: 图像文件路径
+            prompt_text: 提示文本
+            system_prompt: 系统提示（可选，nanonets 等需要）
+            image_uri_prefix: 图像路径前缀（如 "file://"）
+        """
+        image_ref = f"{image_uri_prefix}{image_path}" if image_uri_prefix else image_path
+        messages: list = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({
+            "role": "user",
+            "content": [
+                {"type": "image", "image": image_ref},
+                {"type": "text", "text": prompt_text},
+            ],
+        })
+        return messages
+
     def _get_model_config(self, key: str, default: Any = None) -> Any:
         """
         从 config.{provider_name} 读取配置

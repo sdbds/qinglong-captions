@@ -36,17 +36,16 @@ DEFAULT_OCR_PROMPT = (
 
 
 def _build_messages(image_path: str, prompt_text: str) -> list[dict]:
-    """Build chat messages for Nanonets OCR inference."""
-    return [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {
-            "role": "user",
-            "content": [
-                {"type": "image", "image": f"file://{image_path}"},
-                {"type": "text", "text": prompt_text},
-            ],
-        },
-    ]
+    """Build chat messages for Nanonets OCR inference.
+
+    Delegates to OCRProvider.build_ocr_messages for the shared logic.
+    """
+    from module.providers.ocr_base import OCRProvider
+    return OCRProvider.build_ocr_messages(
+        image_path, prompt_text,
+        system_prompt="You are a helpful assistant.",
+        image_uri_prefix="file://",
+    )
 
 
 @torch.inference_mode()

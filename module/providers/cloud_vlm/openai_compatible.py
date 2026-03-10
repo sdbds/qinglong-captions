@@ -14,14 +14,12 @@
 """
 
 import json
-import base64
 from pathlib import Path
 from typing import Any, Optional
 
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.cloud_vlm_base import CloudVLMProvider
 from providers.registry import register_provider
-from providers.utils import build_vision_messages
 
 
 @register_provider("openai_compatible")
@@ -123,48 +121,8 @@ class OpenAICompatibleProvider(CloudVLMProvider):
         )
 
     def _build_messages(self, media: MediaContext, prompts: PromptContext) -> list[dict]:
-        """构建 OpenAI 格式的消息"""
-        
-        if media.mime.startswith("video"):
-            # 视频：编码为 base64 data URL
-            with open(media.uri, "rb") as f:
-                video_base = base64.b64encode(f.read()).decode("utf-8")
-            video_data_url = f"data:{media.mime};base64,{video_base}"
-
-            return [
-                {"role": "system", "content": prompts.system},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "video_url", "video_url": {"url": video_data_url}},
-                        {"type": "text", "text": prompts.user},
-                    ],
-                },
-            ]
-        
-        elif media.mime.startswith("image"):
-            # 图片：使用 base64 编码
-            if media.blob is None:
-                return []
-
-            pair_dir = getattr(self.ctx.args, "pair_dir", "")
-            if pair_dir and (not media.pair_blob):
-                return []
-
-            return build_vision_messages(
-                prompts.system,
-                prompts.user,
-                media.blob,
-                pair_blob=media.pair_blob if pair_dir else None,
-                text_first=False
-            )
-        
-        else:
-            # 纯文本（不应该走到这里，因为 can_handle 已过滤）
-            return [
-                {"role": "system", "content": prompts.system},
-                {"role": "user", "content": prompts.user},
-            ]
+        """构建 OpenAI 格式的消息（委托给基类通用实现）"""
+        return self.build_cloud_vlm_messages(media, prompts)
 
     def _parse_result(self, result: str) -> Optional[dict]:
         """尝试解析结果为 JSON"""
