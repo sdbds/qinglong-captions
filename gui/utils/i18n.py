@@ -269,6 +269,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "copy_log": "Copy Log",
         "save_log": "Save Log",
         "auto_scroll": "Auto Scroll",
+        "open_console": "Open Console",
         # Components - Path Selector
         "select_path": "Select Path",
         "select_file": "Select File",
@@ -643,6 +644,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "copy_log": "复制日志",
         "save_log": "保存日志",
         "auto_scroll": "自动滚动",
+        "open_console": "打开控制台",
         # Components - Path Selector
         "select_path": "选择路径",
         "select_file": "选择文件",
@@ -917,6 +919,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "copy_log": "ログコピー",
         "save_log": "ログ保存",
         "auto_scroll": "自動スクロール",
+        "open_console": "コンソールを開く",
         "select_path": "パス選択",
         "select_file": "ファイル選択",
         "select_directory": "ディレクトリ選択",
@@ -1181,6 +1184,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "copy_log": "로그 복사",
         "save_log": "로그 저장",
         "auto_scroll": "자동 스크롤",
+        "open_console": "콘솔 열기",
         "select_path": "경로 선택",
         "select_file": "파일 선택",
         "select_directory": "디렉토리 선택",

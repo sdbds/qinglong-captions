@@ -210,10 +210,10 @@ class CaptionStep:
 
             # 使用标签页组织内容
             with ui.tabs().classes("w-full") as tabs:
-                basic_tab = ui.tab(t("basic_settings"))
-                api_tab = ui.tab(t("api_configuration"))
-                scene_tab = ui.tab(t("scene_detector"))
-                ocr_tab = ui.tab("OCR/VLM")
+                basic_tab = ui.tab(t("basic_settings"), icon="tune")
+                api_tab = ui.tab(t("api_configuration"), icon="key")
+                scene_tab = ui.tab(t("scene_detector"), icon="radar")
+                ocr_tab = ui.tab("OCR/VLM", icon="text_fields")
 
             with ui.tab_panels(tabs, value=basic_tab).classes("w-full"):
                 # 基础设置

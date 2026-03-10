@@ -27,6 +27,7 @@ from wizard.step4_caption import render_caption_step
 from wizard.step5_export import render_export_step
 from wizard.step6_tools import render_tools_step
 from wizard.step7_settings import create_settings_dialog
+from wizard.console_page import render_console_page
 from theme import apply_theme, get_classes, COLORS
 from gui.utils.i18n import t, set_language, get_i18n
 
@@ -312,6 +313,11 @@ def setup_page():
     page_base(render_setup_step)
 
 
+def console_page():
+    """全屏终端页面（无导航栏）"""
+    render_console_page()
+
+
 def not_found_page():
     """404 页面 - 页面不存在"""
 
@@ -340,6 +346,7 @@ def main():
     ui.page("/export")(export_page)
     ui.page("/tools")(tools_page)
     ui.page("/setup")(setup_page)
+    ui.page("/console")(console_page)
 
     # 设置应用标题
     app.config.title = t("app_title")

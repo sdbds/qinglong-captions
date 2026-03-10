@@ -55,6 +55,7 @@ from main import (
     export_page,
     tools_page,
     setup_page,
+    console_page,
     not_found_page,  # 404 页面
 )
 from theme import apply_theme
@@ -68,6 +69,7 @@ ui.page("/caption")(caption_page)
 ui.page("/export")(export_page)
 ui.page("/tools")(tools_page)
 ui.page("/setup")(setup_page)
+ui.page("/console")(console_page)
 
 # 404 页面 - 捕获所有未定义的路由（如 /cache, /train 等）
 ui.page("/{path:path}")(not_found_page)

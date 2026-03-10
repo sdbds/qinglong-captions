@@ -739,11 +739,6 @@ def get_green_gold_styles(COLORS: Dict[str, str]) -> str:
         background: linear-gradient(180deg, #34d399 0%, {COLORS["emerald"]} 100%) !important;
     }}
     
-    /* ===== Layout Utilities ===== */
-    .gap-4 {{
-        gap: 8px !important;
-    }}
-    
     /* Fix: Force light background on tab panel to prevent dark flash */
     /* CRITICAL: Prevent black flash during tab switches */
     /* 同时去掉 tab panel 容器的正方形边框 */
@@ -1619,12 +1614,8 @@ def get_modern_css() -> str:
             color: var(--color-text);
         }}
         
-        /* Body Background - Dark Mode */
-        body.dark-mode {{
-            background: linear-gradient(135deg, #022c22 0%, #064e3b 40%, #065f46 60%, #022c22 100%);
-            color: var(--color-text);
-        }}
-        
+        /* Body Background - Dark Mode is in Dark Mode Overrides section below */
+
         /* ===== Cards ===== */
         .modern-card {{
             background: var(--card-bg) !important;
@@ -2826,13 +2817,8 @@ def get_modern_css() -> str:
             font-size: 0.85em !important;
         }}
         
-        .modern-log {{
-            background: rgba(15, 23, 42, 0.8) !important;
-            border: 1px solid rgba(5, 150, 105, 0.2) !important;
-            border-radius: 12px !important;
-            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace !important;
-        }}
-        
+        /* .modern-log is defined above in Log Viewer section */
+
         /* ===== Language Selector ===== */
         .title-glow {{
             text-shadow: 0 0 20px rgba(74, 222, 128, 0.5), 0 0 40px rgba(251, 191, 36, 0.3) !important;
@@ -2849,8 +2835,7 @@ def get_modern_css() -> str:
             background: linear-gradient(135deg, #0d1f1a 0%, #1a2e26 50%, #0f1f18 100%) !important;
         }}
 
-        /* Text colors */
-        body.dark-mode .q-field__label,
+        /* Text colors (.q-field__label is overridden to text-secondary below) */
         body.dark-mode .q-field__native,
         body.dark-mode .q-field__input,
         body.dark-mode .q-field__counter,
@@ -2883,14 +2868,7 @@ def get_modern_css() -> str:
             border-color: var(--card-border) !important;
         }}
 
-        /* Tab panel 容器本身去掉正方形边框 */
-        body.dark-mode .q-tab-panel,
-        body.dark-mode .q-tab-panel.nicegui-tab-panel,
-        body.dark-mode .q-tab-panels {{
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-        }}
+        /* Dark mode tab panel transparency is in the BOTH MODES section below */
 
         /* Inputs - use CSS variables */
         body.dark-mode .q-field__control,
@@ -3147,12 +3125,8 @@ def get_modern_css() -> str:
             border-color: rgba(5, 150, 105, 0.5) !important;
         }}
         
-        /* Placeholder in dark mode */
-        body.dark-mode .q-field__input::placeholder,
-        body.dark-mode .q-input::placeholder {{
-            color: rgba(110, 231, 183, 0.5) !important;
-        }}
-        
+        /* Dark mode placeholder is defined above */
+
         /* Dialog dark mode */
         body.dark-mode .q-dialog .q-card--dark {{
             background: rgba(6, 78, 59, 0.95) !important;

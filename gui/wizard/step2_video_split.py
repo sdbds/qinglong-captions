@@ -55,7 +55,7 @@ class VideoSplitStep:
 
             with ui.stepper().props("vertical").classes("w-full") as stepper:
                 # 步骤 2.1: 配置路径
-                with ui.step(t("config_paths")):
+                with ui.step(t("config_paths"), icon="folder_open"):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("folder_open", size="22px").style(f"color: {COLORS['info']};")
@@ -71,12 +71,12 @@ class VideoSplitStep:
                             label=t("output_dir"), selection_type="dir", placeholder=t("output_dir_placeholder")
                         )
 
-                    with ui.row().classes("q-mt-md"):
+                    with ui.row().classes("w-full justify-end q-mt-md"):
                         next_btn = ui.button(t("next_step"), on_click=stepper.next, icon="arrow_forward")
                         next_btn.classes("modern-btn-primary").props('type="button"')
 
                 # 步骤 2.2: 配置检测器
-                with ui.step(t("detector")):
+                with ui.step(t("detector"), icon="radar"):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("radar", size="22px").style(f"color: {COLORS['warning']};")
@@ -134,7 +134,7 @@ class VideoSplitStep:
                             toggle_switch("save_html", self.config, "save_html")
                             toggle_switch("recursive", self.config, "recursive")
 
-                    with ui.row().classes("q-mt-md gap-2"):
+                    with ui.row().classes("w-full items-center justify-between q-mt-md"):
                         prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
                         prev_btn.classes("modern-btn-ghost").props('type="button"')
 
@@ -142,7 +142,7 @@ class VideoSplitStep:
                         next_btn.classes("modern-btn-primary").props('type="button"')
 
                 # 步骤 2.3: 开始分割
-                with ui.step(t("start_split")):
+                with ui.step(t("start_split"), icon="play_circle"):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("play_circle", size="22px").style(f"color: {COLORS['success']};")

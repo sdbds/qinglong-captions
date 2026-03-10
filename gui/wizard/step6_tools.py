@@ -62,9 +62,9 @@ class ToolsStep:
 
             # 使用标签页组织工具
             with ui.tabs().classes("w-full") as tabs:
-                watermark_tab = ui.tab(t("watermark_detection"))
-                preprocess_tab = ui.tab(t("preprocess"))
-                reward_tab = ui.tab(t("reward_model"))
+                watermark_tab = ui.tab(t("watermark_detection"), icon="water_drop")
+                preprocess_tab = ui.tab(t("preprocess"), icon="image")
+                reward_tab = ui.tab(t("reward_model"), icon="stars")
 
             with ui.tab_panels(tabs, value=watermark_tab).classes("w-full"):
                 # 水印检测

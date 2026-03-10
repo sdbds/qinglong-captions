@@ -1,4 +1,4 @@
-"""日志查看器组件 - 现代化样式"""
+"""日志查看器组件 - 支持 ANSI 彩色渲染"""
 
 from nicegui import ui
 from typing import Optional
@@ -6,10 +6,11 @@ from datetime import datetime
 from gui.theme import get_classes, COLORS
 from gui.utils.i18n import t
 from gui.components.advanced_inputs import toggle_switch_simple
+from gui.utils.ansi_to_html import AnsiToHtmlConverter, strip_ansi
 
 
 class LogViewer:
-    """日志查看器，支持实时滚动和导出 - 现代化样式
+    """日志查看器，支持 ANSI 彩色渲染、实时滚动和导出
 
     使用缓冲区 + 定时刷新机制，将日志批量推送到前端，
     避免高速输出时大量 WebSocket 消息导致浏览器断连。
@@ -17,9 +18,11 @@ class LogViewer:
 
     def __init__(self, max_lines: int = 1000, height: str = "50vh"):
         self.max_lines = max_lines
-        self.lines: list[str] = []
+        self.lines: list[str] = []  # 原始文本（可能含 ANSI）
         self.auto_scroll = True
         self._buffer: list[str] = []
+        self._line_count = 0  # 已渲染到 DOM 的行数
+        self._converter = AnsiToHtmlConverter()
 
         with ui.card().classes(get_classes("card")).style("width: 66vw; max-width: 100%; box-sizing: border-box;"):
             # 工具栏
@@ -29,7 +32,7 @@ class LogViewer:
                     ui.label(t("log_output")).classes("text-subtitle1 text-weight-bold").style("color: var(--color-text);")
 
                 with ui.row().classes("items-center gap-2"):
-                    # 自动滚动开关 - 使用按钮式开关
+                    # 自动滚动开关
                     def on_auto_scroll_change(new_value):
                         self.auto_scroll = new_value
 
@@ -52,7 +55,17 @@ class LogViewer:
                     copy_btn.classes("modern-btn-secondary")
                     copy_btn.props('dense type="button"').tooltip(t("copy_log"))
 
-            # 日志文本区域 - 现代化样式
+                    ui.separator().props("vertical")
+
+                    # 弹出控制台按钮
+                    console_btn = ui.button(
+                        icon="open_in_new",
+                        on_click=lambda: ui.run_javascript("window.open('/console', '_blank')")
+                    )
+                    console_btn.classes("modern-btn-secondary")
+                    console_btn.props('dense type="button"').tooltip(t("open_console", "Open Console"))
+
+            # 日志 HTML 渲染区域
             with (
                 ui.element("div")
                 .classes("w-full q-px-md q-mb-md")
@@ -63,51 +76,75 @@ class LogViewer:
                 overflow: hidden;
             """)
             ):
-                self.log_area = ui.log(max_lines=max_lines).classes("w-full font-mono text-sm")
-                self.log_area.style(f"height: {height}; padding: 12px;")
+                self.scroll_area = ui.scroll_area().classes("w-full").style(f"height: {height};")
+                with self.scroll_area:
+                    self.log_container = ui.element("div").style(
+                        "font-family: 'Cascadia Code', 'Consolas', 'Monaco', monospace; "
+                        "font-size: 13px; line-height: 1.5; padding: 12px; "
+                        "white-space: pre-wrap; word-break: break-all; "
+                        "color: #e5e5e5;"
+                    )
 
-        # 定时刷新缓冲区（150ms 间隔，WebSocket 消息频率最多 ~7次/秒）
+        # 定时刷新缓冲区（150ms 间隔）
         ui.timer(0.15, self._flush_buffer)
 
     def _flush_buffer(self):
-        """将缓冲区中的日志批量推送到前端"""
+        """将缓冲区中的日志批量渲染为 HTML 推送到前端"""
         if not self._buffer:
             return
 
-        # 取出所有缓冲消息并清空
         batch = self._buffer
         self._buffer = []
 
-        # 批量追加到 lines
         self.lines.extend(batch)
+        self._line_count += len(batch)
 
-        # 裁剪超出 max_lines 的部分
-        if len(self.lines) > self.max_lines:
-            self.lines = self.lines[-self.max_lines:]
-
-        # 批量推送到前端（同一同步回调中，NiceGUI 会合并为单次 WebSocket 发送）
+        # 将批量行转为 HTML
+        html_parts = []
         for line in batch:
-            self.log_area.push(line)
+            html_line = self._converter.convert_line(line)
+            html_parts.append(html_line)
+
+        html_block = "<br>".join(html_parts) + "<br>"
+
+        # 追加到容器
+        with self.log_container:
+            ui.html(html_block).style("display: inline;")
+
+        # DOM 超过 max_lines 时清理最早的子元素
+        if self._line_count > self.max_lines:
+            overflow = self._line_count - self.max_lines
+            # 删除前 overflow 对应的行（粗略：每个 ui.html 块是一批）
+            # 使用 JS 精确移除最早的子元素
+            ui.run_javascript(f'''
+                (() => {{
+                    const container = document.querySelector('[id="{self.log_container.id}"]');
+                    if (!container) return;
+                    let toRemove = Math.min({overflow}, container.children.length - 1);
+                    while (toRemove > 0 && container.firstChild) {{
+                        container.removeChild(container.firstChild);
+                        toRemove--;
+                    }}
+                }})();
+            ''')
+            self._line_count = self.max_lines
+            # 裁剪 lines 列表
+            if len(self.lines) > self.max_lines:
+                self.lines = self.lines[-self.max_lines:]
+
+        # 自动滚动
+        if self.auto_scroll:
+            self.scroll_area.scroll_to(percent=1.0)
 
     def append(self, message: str, level: str = "info"):
         """添加日志行（写入缓冲区，由定时器批量推送）"""
         timestamp = datetime.now().strftime("%H:%M:%S")
-
-        # 根据级别着色
-        color_map = {
-            "info": ("💙", COLORS["info"]),
-            "success": ("💚", COLORS["success"]),
-            "warning": ("💛", COLORS["warning"]),
-            "error": ("❌", COLORS["error"]),
-        }
-        emoji, color = color_map.get(level, ("📝", COLORS["text_secondary"]))
-
-        formatted = f"[{timestamp}] {emoji} {message}"
+        formatted = f"[{timestamp}] {message}"
         self._buffer.append(formatted)
 
     def info(self, message: str):
-        """添加信息日志"""
-        self.append(message, "info")
+        """添加信息日志（直接缓冲原始文本，可能含 ANSI）"""
+        self._buffer.append(message)
 
     def success(self, message: str):
         """添加成功日志"""
@@ -124,11 +161,14 @@ class LogViewer:
     def clear(self):
         """清空日志"""
         self.lines.clear()
-        self.log_area.clear()
+        self._buffer.clear()
+        self._line_count = 0
+        self._converter.reset()
+        self.log_container.clear()
         self.info("日志已清空")
 
     def _save_log(self):
-        """保存日志到文件"""
+        """保存日志到文件（纯文本，无 ANSI）"""
         from tkinter import filedialog, Tk
         from datetime import datetime
 
@@ -145,22 +185,24 @@ class LogViewer:
 
         if filename:
             try:
+                clean_lines = [strip_ansi(line) for line in self.lines]
                 with open(filename, "w", encoding="utf-8") as f:
-                    f.write("\n".join(self.lines))
+                    f.write("\n".join(clean_lines))
                 self.success(f"日志已保存: {filename}")
             except Exception as e:
                 self.error(f"保存失败: {e}")
 
     def _copy_all(self):
-        """复制所有日志到剪贴板"""
-        text = "\n".join(self.lines)
+        """复制所有日志到剪贴板（纯文本，无 ANSI）"""
+        clean_lines = [strip_ansi(line) for line in self.lines]
+        text = "\n".join(clean_lines)
         escaped_text = text.replace("`", "\\`").replace("\\", "\\\\")
         ui.run_javascript(f"navigator.clipboard.writeText(`{escaped_text}`)")
-        ui.notify("✅ 日志已复制到剪贴板", type="positive")
+        ui.notify("日志已复制到剪贴板", type="positive")
 
     def get_text(self) -> str:
-        """获取所有日志文本"""
-        return "\n".join(self.lines)
+        """获取所有日志纯文本"""
+        return "\n".join(strip_ansi(line) for line in self.lines)
 
 
 def create_log_viewer(**kwargs) -> LogViewer:

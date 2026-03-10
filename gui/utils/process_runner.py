@@ -20,6 +20,9 @@ from typing import Callable, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+from gui.utils.ansi_to_html import strip_ansi
+from gui.utils.log_buffer import log_buffer
+
 
 # 用于剥离 ANSI 转义码（日志文件 → GUI 纯文本）
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\r")
@@ -93,7 +96,8 @@ class ProcessRunner:
         self.status_callback = status_callback
 
     def _notify_log(self, message: str):
-        """通知日志回调"""
+        """通知日志回调，同时推送到全局 log_buffer"""
+        log_buffer.push(message)
         if self.log_callback:
             self.log_callback(message)
 
@@ -150,7 +154,7 @@ class ProcessRunner:
     #  日志文件尾随（原生控制台模式）
     # ------------------------------------------------------------------
     async def _tail_log_file(self, log_file: str):
-        """异步尾随日志文件，将新增内容（去除 ANSI）回传 GUI"""
+        """异步尾随日志文件，原始 ANSI 推送到 log_buffer，纯文本回传 GUI"""
         offset = 0
         try:
             while self._running:
@@ -163,9 +167,15 @@ class ProcessRunner:
                                 offset += len(new_data)
                                 text = new_data.decode("utf-8", errors="replace")
                                 for line in text.splitlines():
-                                    clean = _ANSI_RE.sub("", line).rstrip()
-                                    if clean:
-                                        self._notify_log(clean)
+                                    raw = line.rstrip()
+                                    if not raw:
+                                        continue
+                                    # 推送原始 ANSI 到 log_buffer
+                                    log_buffer.push(raw)
+                                    # 回调仍传纯文本（兼容旧逻辑）
+                                    clean = strip_ansi(raw)
+                                    if clean and self.log_callback:
+                                        self.log_callback(clean)
                 except Exception:
                     pass
                 await asyncio.sleep(0.5)
@@ -237,6 +247,7 @@ class ProcessRunner:
 
         self._running = True
         self._notify_status(ProcessStatus.RUNNING)
+        log_buffer.clear()
 
         use_native = native_console and sys.platform == "win32"
         exit_file = ""
@@ -247,6 +258,8 @@ class ProcessRunner:
             env = self._build_env(env_vars)
             if not use_native:
                 env["PYTHONIOENCODING"] = "utf-8"
+                env["FORCE_COLOR"] = "1"
+                env["PYTHONUNBUFFERED"] = "1"
 
             # 从 registry 查找脚本路径和默认依赖
             registry_entry = SCRIPT_REGISTRY.get(script_key)

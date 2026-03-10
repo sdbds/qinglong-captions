@@ -52,7 +52,7 @@ class TaggerStep:
 
             with ui.stepper().props("vertical").classes("w-full") as stepper:
                 # 步骤 3.1: 配置路径和模型
-                with ui.step(t("config_paths")):
+                with ui.step(t("config_paths"), icon="folder_open"):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("folder_open", size="22px").style(f"color: {COLORS['info']};")
@@ -78,12 +78,12 @@ class TaggerStep:
                             value="wd14_tagger_model", label=t("model_dir"), icon="folder", icon_color=COLORS["primary"]
                         )
 
-                    with ui.row().classes("q-mt-md"):
+                    with ui.row().classes("w-full justify-end q-mt-md"):
                         next_btn = ui.button(t("next_step"), on_click=stepper.next, icon="arrow_forward")
                         next_btn.classes("modern-btn-primary").props('type="button"')
 
                 # 步骤 3.2: 配置参数
-                with ui.step(t("tagging_settings")):
+                with ui.step(t("tagging_settings"), icon="tune"):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("tune", size="22px").style(f"color: {COLORS['warning']};")
@@ -163,7 +163,7 @@ class TaggerStep:
                             )
                             self.tag_replacement.classes("modern-input w-full")
 
-                    with ui.row().classes("q-mt-md gap-2"):
+                    with ui.row().classes("w-full items-center justify-between q-mt-md"):
                         prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
                         prev_btn.classes("modern-btn-ghost").props('type="button"')
 
@@ -171,7 +171,7 @@ class TaggerStep:
                         next_btn.classes("modern-btn-primary").props('type="button"')
 
                 # 步骤 3.3: 开始打标
-                with ui.step(t("start_tagging")):
+                with ui.step(t("start_tagging"), icon="play_circle"):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("play_circle", size="22px").style(f"color: {COLORS['success']};")

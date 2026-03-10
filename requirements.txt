@@ -34,8 +34,6 @@ scenedetect>=0.6.6
 #onnxruntime-gpu>=1.20.2; sys_platform == 'linux'
 #tensorrt>=10.9
 
-scenedetect>=0.6.6
-
 #WatermarkDetect
 #transformers>4.50
 #torchvision
@@ -44,3 +42,7 @@ scenedetect>=0.6.6
 #rewardmodel
 #imscore
 psd-tools
+
+#gui
+nicegui
+tomlkit

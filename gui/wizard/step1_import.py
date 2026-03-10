@@ -43,7 +43,7 @@ class ImportStep:
 
             with ui.stepper().props("vertical").classes("w-full") as stepper:
                 # 步骤 1.1: 选择输入路径
-                with ui.step(t("input_path")):
+                with ui.step(t("input_path"), icon="folder_open"):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("folder_open", size="22px").style(f"color: {COLORS['info']};")
@@ -60,12 +60,12 @@ class ImportStep:
                         )
                         self.output_name.classes("modern-input w-full")
 
-                    with ui.row().classes("q-mt-md"):
+                    with ui.row().classes("w-full justify-end q-mt-md"):
                         next_btn = ui.button(t("next_step"), on_click=stepper.next, icon="arrow_forward")
                         next_btn.classes("modern-btn-primary").props('type="button"')
 
                 # 步骤 1.2: 配置导入选项
-                with ui.step(t("import_mode")):
+                with ui.step(t("import_mode"), icon="settings"):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("settings", size="22px").style(f"color: {COLORS['warning']};")
@@ -88,7 +88,7 @@ class ImportStep:
                             toggle_switch("no_save_binary", self.config, "no_save_binary")
                             toggle_switch("not_save_disk", self.config, "not_save_disk")
 
-                    with ui.row().classes("q-mt-md gap-2"):
+                    with ui.row().classes("w-full items-center justify-between q-mt-md"):
                         prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
                         prev_btn.classes("modern-btn-ghost").props('type="button"')
 
@@ -96,7 +96,7 @@ class ImportStep:
                         next_btn.classes("modern-btn-primary").props('type="button"')
 
                 # 步骤 1.3: 开始导入
-                with ui.step(t("start_import")):
+                with ui.step(t("start_import"), icon="play_circle"):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("play_circle", size="22px").style(f"color: {COLORS['success']};")

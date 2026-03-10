@@ -35,7 +35,7 @@ class ExportStep:
 
             with ui.stepper().props("vertical").classes("w-full") as stepper:
                 # 步骤 5.1: 选择 Lance 文件
-                with ui.step(t("lance_file")):
+                with ui.step(t("lance_file"), icon="insert_drive_file"):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("insert_drive_file", size="22px").style(f"color: {COLORS['info']};")
@@ -54,12 +54,12 @@ class ExportStep:
                         if default_lance.exists():
                             self.lance_file.value = str(default_lance)
 
-                    with ui.row().classes("q-mt-md"):
+                    with ui.row().classes("w-full justify-end q-mt-md"):
                         next_btn = ui.button(t("next_step"), on_click=stepper.next, icon="arrow_forward")
                         next_btn.classes("modern-btn-primary").props('type="button"')
 
                 # 步骤 5.2: 配置导出选项
-                with ui.step(t("export_settings")):
+                with ui.step(t("export_settings"), icon="settings"):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("settings", size="22px").style(f"color: {COLORS['warning']};")
@@ -87,7 +87,7 @@ class ExportStep:
                         # 不根据字幕裁剪
                         toggle_switch("not_clip_with_caption", self.config, "not_clip_with_caption")
 
-                    with ui.row().classes("q-mt-md gap-2"):
+                    with ui.row().classes("w-full items-center justify-between q-mt-md"):
                         prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
                         prev_btn.classes("modern-btn-ghost").props('type="button"')
 
@@ -95,7 +95,7 @@ class ExportStep:
                         next_btn.classes("modern-btn-primary").props('type="button"')
 
                 # 步骤 5.3: 开始导出
-                with ui.step(t("start_export")):
+                with ui.step(t("start_export"), icon="play_circle"):
                     with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
                         with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                             ui.icon("play_circle", size="22px").style(f"color: {COLORS['success']};")
