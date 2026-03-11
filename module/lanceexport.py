@@ -2,7 +2,7 @@
 # dependencies = [
 #   "setuptools",
 #   "pillow>=11.3",
-#   "pylance>=0.20.0",
+#   "pylance>=2.0.1",
 #   "pysrt",
 #   "rich>=13.5.0",
 #   "imageio>=2.31.1",
@@ -35,6 +35,7 @@ from rich.progress import (
 )
 
 from config.config import CONSOLE_COLORS, DATASET_SCHEMA, get_supported_extensions
+from utils.lance_blob import take_blob_files
 from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
 
 console = Console()
@@ -495,7 +496,7 @@ def extract_from_lance(
                 if field[0] != "blob" and field[0] in batch_field_names
             }
             indices = list(range(row_offset, row_offset + len(batch)))
-            blobs = ds.take_blobs(indices, "blob") if "blob" in batch_field_names else [None] * len(batch)
+            blobs = take_blob_files(ds, indices, "blob") if "blob" in batch_field_names else [None] * len(batch)
             row_offset += len(batch)
 
             for i in range(len(batch)):

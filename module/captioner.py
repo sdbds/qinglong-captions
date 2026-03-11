@@ -28,6 +28,7 @@ from config.config import (
     AUDIO_EXTENSIONS_SET,
     VIDEO_EXTENSIONS_SET,
 )
+from module.providers.catalog import normalize_runtime_args, route_choices
 import os as _os
 
 if _os.environ.get("QINGLONG_API_V2", "1") == "0":
@@ -128,7 +129,7 @@ def _rewrite_ocr_image_paths(markdown: str, parent_dir: str, raw_name_map: dict[
 def process_batch(args, config):
     # Load the dataset
     if not isinstance(args.dataset_dir, lance.LanceDataset):
-        if args.gemini_api_key == "" and args.pixtral_api_key == "":
+        if args.gemini_api_key == "" and args.mistral_api_key == "":
             dataset = transform2lance(dataset_dir=args.dataset_dir)
         else:
             dataset = transform2lance(dataset_dir=args.dataset_dir, save_binary=False)
@@ -749,17 +750,31 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--mistral_api_key",
+        type=str,
+        default="",
+        help="API key for Mistral OCR API",
+    )
+
+    parser.add_argument(
+        "--mistral_model_path",
+        type=str,
+        default="mistral-large-latest",
+        help="Model path for Mistral OCR",
+    )
+
+    parser.add_argument(
         "--pixtral_api_key",
         type=str,
         default="",
-        help="API key for pixtral API",
+        help="Deprecated alias for --mistral_api_key",
     )
 
     parser.add_argument(
         "--pixtral_model_path",
         type=str,
-        default="pixtral-large-2411",
-        help="Model path for pixtral",
+        default="",
+        help="Deprecated alias for --mistral_model_path",
     )
 
     parser.add_argument(
@@ -875,18 +890,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ocr_model",
         type=str,
-        choices=[
-            "pixtral_ocr",
-            "deepseek_ocr",
-            "hunyuan_ocr",
-            "olmocr",
-            "paddle_ocr",
-            "moondream",
-            "glm_ocr",
-            "nanonets_ocr",
-            "chandra_ocr",
-            "",
-        ],
+        choices=route_choices("ocr_model", include_aliases=True),
         default="",
         help="OCR model to use for text extraction (default: empty)",
     )
@@ -959,6 +963,7 @@ if __name__ == "__main__":
     parser = setup_parser()
 
     args = parser.parse_args()
+    normalize_runtime_args(args)
 
     from config.loader import load_config
 

@@ -1,4 +1,4 @@
-"""Pixtral Provider"""
+"""Mistral OCR Provider."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from rich.progress import Progress
 from rich.text import Text
 from rich_pixels import Pixels
 
+from providers.catalog import get_first_attr, route_matches_provider
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.registry import register_provider
 from providers.utils import build_vision_messages
@@ -55,7 +56,7 @@ def attempt_pixtral(
     document_image: bool = False,
     signed_url_url: Optional[str] = None,
 ) -> Any:
-    """Single-attempt Pixtral request.
+    """Single-attempt Mistral OCR request.
 
     Returns:
       - For image chat: str content (model response)
@@ -218,32 +219,34 @@ def attempt_pixtral(
 
 
 # ---------------------------------------------------------------------------
-# PixtralProvider  –  V2 provider class
+# MistralOCRProvider  –  V2 provider class
 # ---------------------------------------------------------------------------
 
-@register_provider("pixtral")
-class PixtralProvider(VisionAPIProvider):
-    """Pixtral Provider"""
+@register_provider("mistral_ocr")
+class MistralOCRProvider(VisionAPIProvider):
+    """Mistral OCR Provider."""
 
     @classmethod
     def can_handle(cls, args, mime: str) -> bool:
-        # pixtral_ocr 模式：用户选择 ocr_model=pixtral_ocr 时走 pixtral
-        if getattr(args, "ocr_model", "") == "pixtral_ocr":
+        # OCR 模式：用户选择 ocr_model 时走 Mistral OCR
+        if route_matches_provider("ocr_model", getattr(args, "ocr_model", ""), cls.name):
             if mime.startswith("application"):
                 return True
             if mime.startswith("image") and getattr(args, "document_image", False):
                 return True
-        return getattr(args, "pixtral_api_key", "") != "" and (mime.startswith("image") or mime.startswith("application"))
+        return get_first_attr(args, "mistral_api_key", "pixtral_api_key", default="") != "" and (
+            mime.startswith("image") or mime.startswith("application")
+        )
 
     def prepare_media(self, uri: str, mime: str, args) -> MediaContext:
-        """Pixtral 支持 PDF，需要特殊处理"""
+        """Mistral OCR 支持 PDF，需要特殊处理"""
         media = super().prepare_media(uri, mime, args)
 
         # PDF 处理
         if mime.startswith("application"):
             from mistralai import Mistral
 
-            client = Mistral(api_key=self.ctx.args.pixtral_api_key)
+            client = Mistral(api_key=get_first_attr(self.ctx.args, "mistral_api_key", "pixtral_api_key", default=""))
 
             # 上传 PDF
             for upload_attempt in range(getattr(args, "max_retries", 10)):
@@ -275,12 +278,11 @@ class PixtralProvider(VisionAPIProvider):
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         from mistralai import Mistral
-        from utils.stream_util import sanitize_filename
 
-        client = Mistral(api_key=self.ctx.args.pixtral_api_key)
+        client = Mistral(api_key=get_first_attr(self.ctx.args, "mistral_api_key", "pixtral_api_key", default=""))
 
         # 检查是否是 OCR 模式
-        ocr_mode = getattr(self.ctx.args, "ocr_model", "") == "pixtral"
+        ocr_mode = route_matches_provider("ocr_model", getattr(self.ctx.args, "ocr_model", ""), self.name)
 
         # 准备 captions（用于 tag highlight）
         captions = []
@@ -299,7 +301,7 @@ class PixtralProvider(VisionAPIProvider):
 
             result = attempt_pixtral(
                 client=client,
-                model_path=self.ctx.args.pixtral_model_path,
+                model_path=get_first_attr(self.ctx.args, "mistral_model_path", "pixtral_model_path", default=""),
                 mime=media.mime,
                 console=self.ctx.console,
                 progress=self.ctx.progress,
@@ -312,7 +314,7 @@ class PixtralProvider(VisionAPIProvider):
             # OCR 模式
             result = attempt_pixtral(
                 client=client,
-                model_path=self.ctx.args.pixtral_model_path,
+                model_path=get_first_attr(self.ctx.args, "mistral_model_path", "pixtral_model_path", default=""),
                 mime=media.mime,
                 console=self.ctx.console,
                 progress=self.ctx.progress,
@@ -329,7 +331,8 @@ class PixtralProvider(VisionAPIProvider):
                 character_name = f"{prompts.character_name}, "
 
             # 读取 captions[0] 或 config prompt
-            config_prompt = self.ctx.config.get("prompts", {}).get("pixtral_image_prompt", "")
+            prompts_config = self.ctx.config.get("prompts", {})
+            config_prompt = prompts_config.get("mistral_ocr_image_prompt", prompts_config.get("pixtral_image_prompt", ""))
             prompt_text = Text(
                 f"<s>[INST]{prompts.character_prompt}{character_name}{captions[0] if captions else config_prompt}\n[IMG][/INST]"
             ).plain
@@ -338,7 +341,7 @@ class PixtralProvider(VisionAPIProvider):
 
             result = attempt_pixtral(
                 client=client,
-                model_path=self.ctx.args.pixtral_model_path,
+                model_path=get_first_attr(self.ctx.args, "mistral_model_path", "pixtral_model_path", default=""),
                 mime=media.mime,
                 console=self.ctx.console,
                 progress=self.ctx.progress,
@@ -355,7 +358,7 @@ class PixtralProvider(VisionAPIProvider):
         return CaptionResult(raw=result, metadata={"provider": self.name})
 
     def post_validate(self, result: CaptionResult, media: MediaContext, args) -> CaptionResult:
-        """Pixtral 特殊的后验证：角色名校验"""
+        """Mistral OCR 特殊的后验证：角色名校验"""
         description = result.description
 
         # 角色名校验（如果设置了）

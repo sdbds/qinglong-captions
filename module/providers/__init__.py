@@ -20,6 +20,17 @@ from .base import (
 from .capabilities import ProviderCapabilities
 
 # 注册表
+from .catalog import (
+    canonicalize_provider_name,
+    canonicalize_route_value,
+    normalize_runtime_args,
+    provider_aliases,
+    provider_config_sections,
+    provider_prompt_prefixes,
+    route_choices,
+    route_matches_provider,
+    route_provider_name,
+)
 from .registry import (
     ProviderRegistry,
     get_registry,
@@ -56,6 +67,15 @@ __all__ = [
     "RetryConfig",
     # 能力声明
     "ProviderCapabilities",
+    "canonicalize_provider_name",
+    "canonicalize_route_value",
+    "normalize_runtime_args",
+    "provider_aliases",
+    "provider_config_sections",
+    "provider_prompt_prefixes",
+    "route_choices",
+    "route_matches_provider",
+    "route_provider_name",
     # 注册表
     "ProviderRegistry",
     "get_registry",

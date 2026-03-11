@@ -24,6 +24,7 @@ from rich.console import Console
 from rich.progress import Progress
 
 from module.providers import CaptionResult, ProviderContext, get_registry
+from module.providers.catalog import normalize_runtime_args
 
 
 def api_process_batch(
@@ -46,6 +47,7 @@ def api_process_batch(
     5. 返回 CaptionResult
     """
     console = progress.console if progress else Console(color_system="truecolor")
+    normalize_runtime_args(args)
 
     # 创建上下文
     ctx = ProviderContext(

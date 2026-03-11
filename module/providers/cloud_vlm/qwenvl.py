@@ -52,6 +52,7 @@ def attempt_qwenvl(
     console: Console,
     progress: Optional[Progress],
     task_id: Optional[Any],
+    local_config: Optional[dict[str, Any]] = None,
 ) -> str:
     """Single-attempt Qwen-VL request.
 
@@ -74,17 +75,19 @@ def attempt_qwenvl(
             "presence_penalty": 1.5,
             "out_seq_length": 16384,
         }
-        try:
-            from config.loader import load_config
+        section = local_config or {}
+        if not section:
+            try:
+                from config.loader import load_config
 
-            cfg = load_config(str(root_dir / "config"))
-            section = cfg.get("qwen_vl_local", {}) or {}
-            cfg_model_id = section.get("model_id", cfg_model_id)
-            for k in gen_defaults.keys():
-                if k in section:
-                    gen_defaults[k] = section[k]
-        except Exception:
-            pass
+                cfg = load_config(str(root_dir / "config"))
+                section = cfg.get("qwen_vl_local", {}) or {}
+            except Exception:
+                section = {}
+        cfg_model_id = section.get("model_id", cfg_model_id)
+        for k in gen_defaults.keys():
+            if k in section:
+                gen_defaults[k] = section[k]
 
         device, dtype, attn_impl = resolve_device_dtype()
         loader = getattr(attempt_qwenvl, "_TRANS_LOADER", None)

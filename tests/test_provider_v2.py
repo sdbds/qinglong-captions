@@ -236,7 +236,7 @@ class TestProviderRegistry:
             "deepseek_ocr", "hunyuan_ocr", "glm_ocr", "chandra_ocr",
             "olmocr", "paddle_ocr", "nanonets_ocr", "firered_ocr",
             "moondream", "qwen_vl_local", "step_vl_local",
-            "pixtral", "gemini",
+            "mistral_ocr", "gemini",
         ]
         for name in expected:
             assert name in providers, f"Missing provider: {name}"
@@ -287,7 +287,7 @@ class TestFindProvider:
         defaults = {
             "step_api_key": "", "ark_api_key": "", "qwenVL_api_key": "",
             "glm_api_key": "", "kimi_code_api_key": "", "kimi_api_key": "",
-            "pixtral_api_key": "", "gemini_api_key": "",
+            "mistral_api_key": "", "pixtral_api_key": "", "gemini_api_key": "",
             "ocr_model": "", "document_image": False,
             "vlm_image_model": "", "pair_dir": "",
         }
@@ -343,34 +343,41 @@ class TestFindProvider:
         p = reg.find_provider(args, "image/jpeg")
         assert p is not None and p.name == "gemini"
 
-    def test_pixtral_image(self):
+    def test_mistral_image(self):
         from providers.registry import get_registry
         reg = get_registry()
         args = self._make_args(pixtral_api_key="px-xxx")
         p = reg.find_provider(args, "image/jpeg")
-        assert p is not None and p.name == "pixtral"
+        assert p is not None and p.name == "mistral_ocr"
 
-    def test_pixtral_pdf(self):
+    def test_mistral_pdf(self):
         from providers.registry import get_registry
         reg = get_registry()
         args = self._make_args(pixtral_api_key="px-xxx")
         p = reg.find_provider(args, "application/pdf")
-        assert p is not None and p.name == "pixtral"
+        assert p is not None and p.name == "mistral_ocr"
 
-    def test_pixtral_ocr_mode(self):
-        """pixtral_ocr 模式：通过 ocr_model 参数触发"""
+    def test_mistral_ocr_alias_mode(self):
+        """旧 pixtral_ocr 别名仍应路由到 mistral_ocr。"""
         from providers.registry import get_registry
         reg = get_registry()
         args = self._make_args(ocr_model="pixtral_ocr", pixtral_api_key="pk-xxx", document_image=True)
         p = reg.find_provider(args, "image/jpeg")
-        assert p is not None and p.name == "pixtral"
+        assert p is not None and p.name == "mistral_ocr"
 
-    def test_pixtral_ocr_mode_pdf(self):
+    def test_mistral_ocr_mode_pdf(self):
         from providers.registry import get_registry
         reg = get_registry()
         args = self._make_args(ocr_model="pixtral_ocr", pixtral_api_key="pk-xxx")
         p = reg.find_provider(args, "application/pdf")
-        assert p is not None and p.name == "pixtral"
+        assert p is not None and p.name == "mistral_ocr"
+
+    def test_mistral_ocr_canonical_mode(self):
+        from providers.registry import get_registry
+        reg = get_registry()
+        args = self._make_args(ocr_model="mistral_ocr", mistral_api_key="mk-xxx", document_image=True)
+        p = reg.find_provider(args, "image/jpeg")
+        assert p is not None and p.name == "mistral_ocr"
 
     def test_deepseek_ocr(self):
         from providers.registry import get_registry
@@ -875,6 +882,92 @@ class TestKimiCodeUserAgent:
             else:
                 sys.modules.pop("module.providers.kimi_vl_provider", None)
 
+    def test_kimi_code_image_prompt_requests_short_and_long(self):
+        from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+        from providers.registry import get_registry
+        from rich.console import Console
+
+        reg = get_registry()
+        cls = reg.get_provider("kimi_code")
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO()),
+            config={"kimi_vl": {"thinking": "disabled"}, "prompts": {}},
+            args=SimpleNamespace(
+                kimi_code_api_key="test-key",
+                kimi_code_base_url="https://api.kimi.com/coding/v1",
+                kimi_code_model_path="k2p5",
+                pair_dir="", mode="long",
+                max_retries=1, wait_time=0.01,
+            ),
+        )
+        instance = cls(ctx)
+
+        captured = {}
+
+        def fake_build_messages(system_prompt, user_prompt, blob, pair_blob=None, text_first=False):
+            captured["system_prompt"] = system_prompt
+            captured["user_prompt"] = user_prompt
+            return [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+
+        with (
+            patch("openai.OpenAI", MagicMock(return_value=MagicMock())),
+            patch("module.providers.cloud_vlm.kimi_code.build_vision_messages", side_effect=fake_build_messages),
+            patch("module.providers.cloud_vlm.kimi_vl.attempt_kimi_vl", return_value="{}"),
+        ):
+            media = MediaContext(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                sha256hash="",
+                modality=MediaModality.IMAGE,
+                blob="base64data",
+                pixels=object(),
+            )
+            prompts = PromptContext(system="Only output one long paragraph.", user="Describe the image.")
+            instance.attempt(media, prompts)
+
+        assert "###Short:" in captured["system_prompt"]
+        assert "###Long:" in captured["system_prompt"]
+        assert "Do not return only a single long paragraph." in captured["system_prompt"]
+
+
+class TestKimiStructuredDisplay:
+
+    def test_attempt_kimi_vl_keeps_short_for_display_when_mode_long(self):
+        from rich.console import Console
+        from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl
+
+        response_payload = {
+            "short_description": "short text",
+            "long_description": "long text",
+        }
+        response_text = json.dumps(response_payload, ensure_ascii=False)
+
+        chunk = SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content=response_text))]
+        )
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = [chunk]
+
+        with patch("module.providers.cloud_vlm.kimi_vl.display_caption_layout") as mock_display:
+            returned = attempt_kimi_vl(
+                client=mock_client,
+                model_path="kimi-k2.5",
+                messages=[],
+                console=Console(file=io.StringIO()),
+                progress=None,
+                task_id=None,
+                uri="/fake.jpg",
+                image_pixels=object(),
+                pair_pixels=None,
+                thinking="disabled",
+                mode="long",
+            )
+
+        assert json.loads(returned) == {"long_description": "long text"}
+        assert mock_display.call_args.kwargs["short_description"] == "short text"
+        assert mock_display.call_args.kwargs["long_description"] == "long text"
+
 
 # ──────────────────────────────────────────────
 #  api_handler_v2 入口函数
@@ -887,7 +980,7 @@ class TestApiHandlerV2:
         args = SimpleNamespace(
             step_api_key="", ark_api_key="", qwenVL_api_key="",
             glm_api_key="", kimi_code_api_key="", kimi_api_key="",
-            pixtral_api_key="", gemini_api_key="",
+            mistral_api_key="", pixtral_api_key="", gemini_api_key="",
             ocr_model="", document_image=False,
             vlm_image_model="", pair_dir="",
         )
@@ -906,7 +999,7 @@ class TestApiHandlerV2:
             step_api_key="sk-xxx",
             ark_api_key="", qwenVL_api_key="", glm_api_key="",
             kimi_code_api_key="", kimi_api_key="",
-            pixtral_api_key="", gemini_api_key="",
+            mistral_api_key="", pixtral_api_key="", gemini_api_key="",
             ocr_model="", document_image=False,
             vlm_image_model="", pair_dir="",
             max_retries=1, wait_time=0.01, dir_name=False,

@@ -20,29 +20,32 @@ class StepVLLocalProvider(LocalVLMProvider):
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         from module.providers.cloud_vlm.stepfun import attempt_stepfun
-
-        # 注意：step_vl_local 使用 stepfun_provider 的 attempt_stepfun
-        # 但传入的参数不同
+        from pathlib import Path
 
         pair_dir = getattr(self.ctx.args, "pair_dir", "")
         has_pair = bool(pair_dir and media.pair_blob)
+        pair_uri = ""
+        if has_pair:
+            pair_path = (Path(pair_dir) / Path(media.uri).name).resolve()
+            if not pair_path.exists():
+                self.log(f"Pair not found: {pair_path}", "red")
+                return CaptionResult(raw="")
+            pair_uri = str(pair_path)
 
         result = attempt_stepfun(
             client=None,  # 本地模型
             model_path="",  # 本地模型
-            mime=media.mime,
             system_prompt=prompts.system,
             prompt=prompts.user,
             console=self.ctx.console,
             progress=self.ctx.progress,
             task_id=self.ctx.task_id,
             uri=media.uri,
-            image_blob=media.blob,
             image_pixels=media.pixels,
             has_pair=has_pair,
-            pair_blob=media.pair_blob if has_pair else None,
+            pair_uri=pair_uri if has_pair else None,
             pair_pixels=media.pair_pixels if has_pair else None,
-            video_file_id=None,
+            local_config=self.model_config,
         )
 
         return CaptionResult(raw=result, metadata={"provider": self.name})

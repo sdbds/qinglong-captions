@@ -1,5 +1,5 @@
 av
-pylance>=0.20.0
+pylance>=2.0.1
 rich[markdown]>=14.3.1
 rich_pixels
 pandas

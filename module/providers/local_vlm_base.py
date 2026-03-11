@@ -14,6 +14,7 @@ import gc
 import threading
 from typing import Any, ClassVar, Dict, Optional
 
+from .catalog import provider_config_sections
 from .base import MediaContext, MediaModality, Provider, ProviderType
 from .capabilities import ProviderCapabilities
 from .utils import encode_image_to_blob
@@ -49,16 +50,20 @@ class LocalVLMProvider(Provider):
     @property
     def model_id(self) -> str:
         """从 config 或 args 获取模型 ID"""
-        # 从 {provider_name} section 读取，去掉 _vl_local 后缀
-        section_name = self.name.replace("_vl_local", "")
-        section = self.ctx.config.get(section_name, {})
-        return section.get("model_id", self.default_model_id)
+        for section_name in provider_config_sections(self.name):
+            section = self.ctx.config.get(section_name, {})
+            if "model_id" in section:
+                return section["model_id"]
+        return self.default_model_id
 
     @property
     def model_config(self) -> Dict[str, Any]:
         """获取模型配置 section"""
-        section_name = self.name.replace("_vl_local", "")
-        return self.ctx.config.get(section_name, {})
+        for section_name in provider_config_sections(self.name):
+            section = self.ctx.config.get(section_name, {})
+            if section:
+                return section
+        return {}
 
     def prepare_media(self, uri: str, mime: str, args: Any) -> MediaContext:
         """本地 VLM 通用的媒体准备"""

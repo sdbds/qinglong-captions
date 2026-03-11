@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from .catalog import canonicalize_provider_name, provider_prompt_prefixes
 from .base import PromptContext
 
 
@@ -37,7 +38,7 @@ class PromptResolver:
 
     def __init__(self, config: Dict[str, Any], provider_name: str):
         self.config = config
-        self.provider_name = provider_name
+        self.provider_name = canonicalize_provider_name(provider_name)
         self.prompts = config.get("prompts", {})
 
     def resolve(self, mime: str, args: Any, character_prompt: str = "") -> PromptContext:
@@ -83,32 +84,33 @@ class PromptResolver:
 
     def _provider_override(self, system: str, user: str, mime: str) -> Tuple[str, str]:
         """Provider 特定覆盖"""
-        provider_prefix = self.provider_name.replace("_", "")
+        provider_names = provider_prompt_prefixes(self.provider_name)
+        provider_prefixes = _unique_preserve_order(name.replace("_", "") for name in provider_names)
 
         if mime.startswith("video"):
-            system = self._get_with_fallback(
-                f"{provider_prefix}_video_system_prompt",
-                f"{self.provider_name}_video_system_prompt",
-                "step_video_system_prompt",  # 兼容性 fallback
-                system,
-            )
-            user = self._get_with_fallback(
-                f"{provider_prefix}_video_prompt", f"{self.provider_name}_video_prompt", "step_video_prompt", user
-            )
+            system_keys = [f"{name}_video_system_prompt" for name in provider_names]
+            system_keys.extend(f"{name}_video_system_prompt" for name in provider_prefixes)
+            system = self._get_with_fallback(*system_keys, "step_video_system_prompt", system)
+
+            user_keys = [f"{name}_video_prompt" for name in provider_names]
+            user_keys.extend(f"{name}_video_prompt" for name in provider_prefixes)
+            user = self._get_with_fallback(*user_keys, "step_video_prompt", user)
         elif mime.startswith("image"):
             # 修复：kimi_code/kimi_vl/minimax 兼容性，添加特定 fallback
             kimi_fallback = ""
             if self.provider_name in ("kimi_code", "kimi_vl"):
                 kimi_fallback = "kimi_image_system_prompt"
-            
+
+            system_keys = [f"{name}_image_system_prompt" for name in provider_names]
+            system_keys.extend(f"{name}_image_system_prompt" for name in provider_prefixes)
             system = self._get_with_fallback(
-                f"{self.provider_name}_image_system_prompt",
-                f"{provider_prefix}_image_system_prompt",
+                *system_keys,
                 kimi_fallback,
+                "mistral_ocr_image_system_prompt",
                 "pixtral_image_system_prompt",  # 通用兼容性 fallback
                 system,
             )
-            
+
             # 修复：kimi_code/kimi_vl/minimax 兼容性，添加特定 fallback
             kimi_prompt_fallback = ""
             if self.provider_name in ("kimi_code", "kimi_vl"):
@@ -117,18 +119,22 @@ class PromptResolver:
             minimax_fallback = ""
             if self.provider_name == "minimax_code":
                 minimax_fallback = "minimax_api_image_prompt"
-            
+
+            user_keys = [f"{name}_image_prompt" for name in provider_names]
+            user_keys.extend(f"{name}_image_prompt" for name in provider_prefixes)
             user = self._get_with_fallback(
-                f"{self.provider_name}_image_prompt",
-                f"{provider_prefix}_image_prompt",
+                *user_keys,
                 kimi_prompt_fallback,
                 minimax_fallback,
+                "mistral_ocr_image_prompt",
                 "pixtral_image_prompt",
-                user
+                user,
             )
         elif mime.startswith("audio"):
-            system = self._get_with_fallback(f"{self.provider_name}_audio_system_prompt", system)
-            user = self._get_with_fallback(f"{self.provider_name}_audio_prompt", user)
+            system_keys = [f"{name}_audio_system_prompt" for name in provider_names]
+            user_keys = [f"{name}_audio_prompt" for name in provider_names]
+            system = self._get_with_fallback(*system_keys, system)
+            user = self._get_with_fallback(*user_keys, user)
 
         return system, user
 
@@ -204,3 +210,13 @@ class PromptResolver:
 
         # 直接匹配模板名或返回原 task
         return task_prompts.get(task, task)
+
+
+def _unique_preserve_order(values):
+    seen = set()
+    ordered = []
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            ordered.append(value)
+    return ordered

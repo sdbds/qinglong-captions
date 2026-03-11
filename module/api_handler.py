@@ -16,6 +16,8 @@ from rich.progress import Progress
 from rich.text import Text
 from rich_pixels import Pixels
 
+from module.providers.catalog import get_first_attr, normalize_runtime_args, route_matches_provider
+
 console = Console(color_system="truecolor", force_terminal=True)
 
 
@@ -32,6 +34,7 @@ def api_process_batch(
     global console
     if progress is not None:
         console = progress.console
+    normalize_runtime_args(args)
 
     def get_provider(args, mime):
         """Decide which provider branch to use based on args and mime.
@@ -67,8 +70,10 @@ def api_process_batch(
             vlm_model = getattr(args, "vlm_image_model", "")
             if vlm_model != "" and mime.startswith("image") and getattr(args, "pair_dir", "") == "":
                 return vlm_model
-            if getattr(args, "pixtral_api_key", "") != "" and (mime.startswith("image") or mime.startswith("application")):
-                return "pixtral"
+            if get_first_attr(args, "mistral_api_key", "pixtral_api_key", default="") != "" and (
+                mime.startswith("image") or mime.startswith("application")
+            ):
+                return "mistral_ocr"
             if getattr(args, "gemini_api_key", "") != "":
                 return "gemini"
         except Exception:
@@ -134,14 +139,14 @@ def api_process_batch(
                     system_prompt = prompts.get("kimi_image_system_prompt", system_prompt)
                     prompt = prompts.get("kimi_image_prompt", prompt)
 
-        elif provider == "pixtral":
+        elif provider in ("mistral_ocr", "pixtral"):
             if mime.startswith("image"):
                 if getattr(args, "pair_dir", "") != "":
                     system_prompt = prompts.get("pair_image_system_prompt", system_prompt)
                     prompt = prompts.get("pair_image_prompt", prompt)
                 else:
-                    system_prompt = prompts.get("pixtral_image_system_prompt", system_prompt)
-                    prompt = prompts.get("pixtral_image_prompt", prompt)
+                    system_prompt = prompts.get("mistral_ocr_image_system_prompt", prompts.get("pixtral_image_system_prompt", system_prompt))
+                    prompt = prompts.get("mistral_ocr_image_prompt", prompts.get("pixtral_image_prompt", prompt))
 
         elif provider == "moondream":
             if mime.startswith("image"):
@@ -149,8 +154,8 @@ def api_process_batch(
                     system_prompt = prompts.get("pair_image_system_prompt", system_prompt)
                     prompt = prompts.get("pair_image_prompt", prompt)
                 else:
-                    system_prompt = prompts.get("pixtral_image_system_prompt", system_prompt)
-                    prompt = prompts.get("pixtral_image_prompt", prompt)
+                    system_prompt = prompts.get("mistral_ocr_image_system_prompt", prompts.get("pixtral_image_system_prompt", system_prompt))
+                    prompt = prompts.get("mistral_ocr_image_prompt", prompts.get("pixtral_image_prompt", prompt))
 
         elif provider == "qwen_vl_local":
             if mime.startswith("image"):
@@ -158,8 +163,8 @@ def api_process_batch(
                     system_prompt = prompts.get("pair_image_system_prompt", system_prompt)
                     prompt = prompts.get("pair_image_prompt", prompt)
                 else:
-                    system_prompt = prompts.get("pixtral_image_system_prompt", system_prompt)
-                    prompt = prompts.get("pixtral_image_prompt", prompt)
+                    system_prompt = prompts.get("mistral_ocr_image_system_prompt", prompts.get("pixtral_image_system_prompt", system_prompt))
+                    prompt = prompts.get("mistral_ocr_image_prompt", prompts.get("pixtral_image_prompt", prompt))
 
         elif provider == "step_vl_local":
             if mime.startswith("image"):
@@ -167,8 +172,8 @@ def api_process_batch(
                     system_prompt = prompts.get("pair_image_system_prompt", system_prompt)
                     prompt = prompts.get("pair_image_prompt", prompt)
                 else:
-                    system_prompt = prompts.get("pixtral_image_system_prompt", system_prompt)
-                    prompt = prompts.get("pixtral_image_prompt", prompt)
+                    system_prompt = prompts.get("mistral_ocr_image_system_prompt", prompts.get("pixtral_image_system_prompt", system_prompt))
+                    prompt = prompts.get("mistral_ocr_image_prompt", prompts.get("pixtral_image_prompt", prompt))
 
         elif provider == "gemini":
             # Gemini image task mode builds prompt from task templates
@@ -1843,7 +1848,7 @@ def api_process_batch(
         )
         return content
 
-    elif provider == "pixtral" or provider == "pixtral_ocr":
+    elif provider in {"mistral_ocr", "pixtral", "pixtral_ocr"}:
         from module.providers.vision_api.pixtral import attempt_pixtral as pixtral_attempt
         from utils.stream_util import sanitize_filename, split_name_series
         try:
@@ -1851,7 +1856,7 @@ def api_process_batch(
         except Exception as e:
             console.print(Text(f"Mistral SDK not installed: {e}", style="red"))
             return ""
-        client = Mistral(api_key=args.pixtral_api_key)
+        client = Mistral(api_key=get_first_attr(args, "mistral_api_key", "pixtral_api_key", default=""))
         captions = []
         character_name = ""
 
@@ -1860,7 +1865,7 @@ def api_process_batch(
 
             character_name, character_prompt = get_character_prompt(uri, args, config)
             character_name = f"{character_name}, " if character_name else ""
-            config_prompt = config["prompts"]["pixtral_image_prompt"]
+            config_prompt = config["prompts"].get("mistral_ocr_image_prompt", config["prompts"].get("pixtral_image_prompt", ""))
 
             # Read captions from file if it exists
             captions_path = Path(uri).with_suffix(".txt")
@@ -1917,7 +1922,7 @@ def api_process_batch(
             if mime.startswith("application"):
                 return pixtral_attempt(
                     client=client,
-                    model_path=args.pixtral_model_path,
+                    model_path=get_first_attr(args, "mistral_model_path", "pixtral_model_path", default=""),
                     mime=mime,
                     console=console,
                     progress=progress,
@@ -1926,10 +1931,10 @@ def api_process_batch(
                     document_image=args.document_image,
                     signed_url_url=signed_url.url,
                 )
-            elif getattr(args, "ocr_model", "none") == "pixtral":
+            elif route_matches_provider("ocr_model", getattr(args, "ocr_model", ""), "mistral_ocr"):
                 return pixtral_attempt(
                     client=client,
-                    model_path=args.pixtral_model_path,
+                    model_path=get_first_attr(args, "mistral_model_path", "pixtral_model_path", default=""),
                     mime=mime,
                     console=console,
                     progress=progress,
@@ -1943,7 +1948,7 @@ def api_process_batch(
                 # image chat
                 return pixtral_attempt(
                     client=client,
-                    model_path=args.pixtral_model_path,
+                    model_path=get_first_attr(args, "mistral_model_path", "pixtral_model_path", default=""),
                     mime=mime,
                     console=console,
                     progress=progress,

@@ -4,7 +4,7 @@
 rich
 pillow>=11.3
 av
-pylance>=0.20.0
+pylance>=2.0.1
 rich_pixels
 pandas
 pillow-heif

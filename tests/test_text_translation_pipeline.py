@@ -11,6 +11,7 @@ from module.lanceImport import load_data, transform2lance
 from module.lanceexport import save_caption
 from module.texttranslate import normalize_dataset, translate_dataset
 from utils.doc_normalize import normalize_text_asset
+from utils.lance_blob import take_blob_files
 from utils.text_chunker import compute_chunk_offsets, slice_by_offsets
 
 
@@ -76,14 +77,14 @@ def test_normalize_and_translate_dataset_roundtrip(tmp_path):
     raw_row = raw_ds.to_table().to_pylist()[0]
     assert raw_row['captions'] == []
     assert raw_row['chunk_offsets'] == []
-    assert raw_ds.take_blobs([0], 'blob')[0].readall() == source_bytes
+    assert take_blob_files(raw_ds, [0], 'blob')[0].readall() == source_bytes
 
     normalize_dataset(dataset_path, source_version='raw.import.test', norm_tag='norm.docling.test', max_chars=10)
     norm_ds = lance.dataset(str(dataset_path), version='norm.docling.test')
     norm_row = norm_ds.to_table().to_pylist()[0]
     assert norm_row['captions'] == ['hello world.\n\nnext line.\n']
     assert norm_row['chunk_offsets'][-1] == len(norm_row['captions'][0])
-    assert norm_ds.take_blobs([0], 'blob')[0].readall() == source_bytes
+    assert take_blob_files(norm_ds, [0], 'blob')[0].readall() == source_bytes
 
     translate_dataset(
         dataset_path=dataset_path,
@@ -100,4 +101,4 @@ def test_normalize_and_translate_dataset_roundtrip(tmp_path):
     tr_row = tr_ds.to_table().to_pylist()[0]
     assert tr_row['captions'] == ['HELLO WORLD.\n\nNEXT LINE.\n']
     assert tr_row['chunk_offsets'][-1] == len(tr_row['captions'][0])
-    assert tr_ds.take_blobs([0], 'blob')[0].readall() == source_bytes
+    assert take_blob_files(tr_ds, [0], 'blob')[0].readall() == source_bytes

@@ -2,7 +2,7 @@
 # dependencies = [
 #   "setuptools",
 #   "pillow>=11.3",
-#   "pylance>=0.20.0",
+#   "pylance>=2.0.1",
 #   "rich>=13.5.0",
 #   "imageio>=2.31.1",
 #   "imageio-ffmpeg>=0.4.8",

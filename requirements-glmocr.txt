@@ -1,5 +1,5 @@
 av
-pylance>=0.20.0
+pylance>=2.0.1
 rich
 rich_pixels
 pandas

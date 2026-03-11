@@ -52,6 +52,7 @@ class QwenVLLocalProvider(LocalVLMProvider):
             console=self.ctx.console,
             progress=self.ctx.progress,
             task_id=self.ctx.task_id,
+            local_config=self.model_config,
         )
 
         return CaptionResult(raw=result, metadata={"provider": self.name})

@@ -60,6 +60,7 @@ def attempt_stepfun(
     prompt: Optional[str] = None,
     has_pair: bool = False,
     pair_uri: Optional[str] = None,
+    local_config: Optional[dict[str, Any]] = None,
 ) -> str:
     """Single-attempt StepFun request.
 
@@ -78,17 +79,19 @@ def attempt_stepfun(
         root_dir = Path(__file__).resolve().parent.parent.parent.parent
         cfg_model_id = "stepfun-ai/Step3-VL-10B"
         gen_defaults = {"temperature": 1.0, "top_p": 1.0, "top_k": 0, "eos_token_id": [151643, 151645, 151679]}
-        try:
-            from config.loader import load_config
+        section = local_config or {}
+        if not section:
+            try:
+                from config.loader import load_config
 
-            cfg = load_config(str(root_dir / "config"))
-            section = cfg.get("stepfun_local", {}) or {}
-            cfg_model_id = section.get("model_id", cfg_model_id)
-            for k in gen_defaults.keys():
-                if k in section:
-                    gen_defaults[k] = section[k]
-        except Exception:
-            pass
+                cfg = load_config(str(root_dir / "config"))
+                section = cfg.get("stepfun_local", {}) or {}
+            except Exception:
+                section = {}
+        cfg_model_id = section.get("model_id", cfg_model_id)
+        for k in gen_defaults.keys():
+            if k in section:
+                gen_defaults[k] = section[k]
 
         device, dtype, attn_impl = resolve_device_dtype()
         # Step3-VL does not support Flash Attention 2.0, force eager mode

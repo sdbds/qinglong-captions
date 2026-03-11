@@ -71,7 +71,7 @@ class ProviderRegistry:
                 "step_vl_local",
                 "penguin_vl_local",
                 # Vision API
-                "pixtral",
+                "mistral_ocr",
                 "gemini",
             ]
 

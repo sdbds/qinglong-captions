@@ -1,15 +1,18 @@
 # /// script
 # dependencies = [
 #   "setuptools",
-#   "pylance>=0.20.0",
+#   "pylance>=2.0.1",
 #   "rich>=13.5.0",
 #   "pyarrow",
+#   "pysrt",
 #   "toml",
 #   "torch>=2.8.0",
 #   "transformers==4.56.0",
 #   "sentencepiece",
 #   "accelerate",
 #   "huggingface_hub[hf_xet]>=0.35.2",
+#   "imageio>=2.31.1",
+#   "imageio-ffmpeg>=0.4.8",
 # ]
 # ///
 from __future__ import annotations
@@ -28,6 +31,7 @@ from config.config import get_supported_extensions
 from module.lanceImport import transform2lance
 from module.lanceexport import extract_from_lance
 from module.providers.local_llm.hy_mt import HYMTProvider
+from utils.lance_blob import take_blob_files
 from utils.doc_normalize import NormalizationError, normalize_asset
 from utils.lance_utils import build_version_tag, get_latest_version_number, sanitize_tag_component, update_or_create_tag
 from utils.text_chunker import compute_chunk_offsets, slice_by_offsets
@@ -139,7 +143,7 @@ def load_batch_blobs(dataset: lance.LanceDataset, batch: pa.RecordBatch, row_off
         return [None] * len(batch)
     indices = list(range(row_offset, row_offset + len(batch)))
     blobs: List[Optional[bytes]] = []
-    for blob_file in dataset.take_blobs(indices, "blob"):
+    for blob_file in take_blob_files(dataset, indices, "blob"):
         blobs.append(blob_file.readall() if blob_file is not None else None)
     return blobs
 
