@@ -39,6 +39,7 @@ class ToolsStep:
     # 翻译模型
     TRANSLATE_MODELS = [
         "tencent/HY-MT1.5-7B",
+        "tencent/HY-MT1.5-1.8B",
     ]
 
     # 翻译支持的语言

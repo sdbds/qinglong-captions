@@ -54,7 +54,7 @@ $wait_time = 1
 $max_retries = 100
 $segment_time = 600
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image tasks

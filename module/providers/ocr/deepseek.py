@@ -14,7 +14,6 @@ import torch
 from rich.console import Console
 from rich.progress import Progress
 from rich_pixels import Pixels
-from transformers import AutoModel, AutoTokenizer
 
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.ocr_base import OCRProvider
@@ -57,6 +56,8 @@ def attempt_deepseek_ocr(
     if not output_dir:
         output_dir = str(p.with_suffix(""))
     Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    from transformers import AutoModel, AutoTokenizer
 
     device, dtype, attn_impl = resolve_device_dtype()
     global _TRANS_LOADER

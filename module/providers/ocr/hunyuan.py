@@ -10,14 +10,6 @@ from PIL import Image
 from rich.console import Console
 from rich.progress import Progress
 from rich_pixels import Pixels
-from transformers import AutoProcessor
-
-# HunYuanVLForConditionalGeneration requires transformers from:
-# pip install git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4
-try:
-    from transformers import HunYuanVLForConditionalGeneration
-except ImportError:
-    HunYuanVLForConditionalGeneration = None  # type: ignore
 
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.ocr_base import OCRProvider
@@ -74,12 +66,14 @@ def attempt_hunyuan_ocr(
     """
     start_time = time.time()
 
-    if HunYuanVLForConditionalGeneration is None:
+    try:
+        from transformers import AutoProcessor, HunYuanVLForConditionalGeneration
+    except ImportError as exc:
         raise ImportError(
             "HunYuanVLForConditionalGeneration not available. "
             "Install required transformers version:\n"
             "pip install git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4"
-        )
+        ) from exc
 
     if not prompt_text:
         prompt_text = DEFAULT_OCR_PROMPT

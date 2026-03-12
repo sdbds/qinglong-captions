@@ -10,7 +10,6 @@ from PIL import Image
 from rich.console import Console
 from rich.progress import Progress
 from rich.text import Text
-from transformers import AutoModelForCausalLM
 
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.local_vlm_base import LocalVLMProvider
@@ -83,6 +82,8 @@ def attempt_moondream(
     if image is None:
         console.print(Text("Moondream requires an image object from api_handler", style="red"))
         return ""
+
+    from transformers import AutoModelForCausalLM
 
     device, dtype, _ = resolve_device_dtype()
     device_map = {"": device}

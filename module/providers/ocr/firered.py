@@ -11,7 +11,6 @@ from PIL import Image
 from rich.console import Console
 from rich.progress import Progress
 from rich_pixels import Pixels
-from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.ocr_base import OCRProvider
@@ -89,6 +88,8 @@ def attempt_firered_ocr(
       Extracted text content in markdown format
     """
     start_time = time.time()
+
+    from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
     if not prompt_text:
         prompt_text = DEFAULT_OCR_PROMPT

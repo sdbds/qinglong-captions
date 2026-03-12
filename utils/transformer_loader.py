@@ -3,10 +3,24 @@ from __future__ import annotations
 import importlib.util
 import sys
 from functools import lru_cache
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import torch
-from transformers import AutoModel, AutoProcessor
+
+if TYPE_CHECKING:
+    from transformers import AutoModel, AutoProcessor
+
+
+def _default_auto_model():
+    from transformers import AutoModel
+
+    return AutoModel
+
+
+def _default_auto_processor():
+    from transformers import AutoProcessor
+
+    return AutoProcessor
 
 
 class BufferedTextStreamer:
@@ -100,11 +114,13 @@ class transformerLoader:
     def load_processor(
         self,
         processor_id: str,
-        processor_cls: Any = AutoProcessor,
+        processor_cls: Any = None,
         console: Optional[Any] = None,
         use_fast: Optional[bool] = None,
         trust_remote_code: bool = True,
     ) -> Any:
+        if processor_cls is None:
+            processor_cls = _default_auto_processor()
         # Include use_fast in cache key to differentiate configurations
         key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
         if key in self._processor_cache:
@@ -119,20 +135,24 @@ class transformerLoader:
         self._processor_cache[key] = processor
         return processor
 
-    def is_processor_cached(self, processor_id: str, processor_cls: Any = AutoProcessor, use_fast: Optional[bool] = None) -> bool:
+    def is_processor_cached(self, processor_id: str, processor_cls: Any = None, use_fast: Optional[bool] = None) -> bool:
+        if processor_cls is None:
+            processor_cls = _default_auto_processor()
         key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
         return key in self._processor_cache
 
     def get_cached_processor(
-        self, processor_id: str, processor_cls: Any = AutoProcessor, use_fast: Optional[bool] = None
+        self, processor_id: str, processor_cls: Any = None, use_fast: Optional[bool] = None
     ) -> Optional[Any]:
+        if processor_cls is None:
+            processor_cls = _default_auto_processor()
         key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
         return self._processor_cache.get(key)
 
     def load_model(
         self,
         model_id: str,
-        model_cls: Any = AutoModel,
+        model_cls: Any = None,
         *,
         dtype: torch.dtype,
         attn_impl: Optional[str] = None,
@@ -143,6 +163,8 @@ class transformerLoader:
         console: Optional[Any] = None,
         extra_kwargs: Optional[dict[str, Any]] = None,
     ) -> Any:
+        if model_cls is None:
+            model_cls = _default_auto_model()
         key = (model_cls, model_id)
         if key in self._model_cache:
             return self._model_cache[key]
@@ -176,22 +198,28 @@ class transformerLoader:
         self._model_cache[key] = model
         return model
 
-    def is_model_cached(self, model_id: str, model_cls: Any = AutoModel) -> bool:
+    def is_model_cached(self, model_id: str, model_cls: Any = None) -> bool:
+        if model_cls is None:
+            model_cls = _default_auto_model()
         key = (model_cls, model_id)
         return key in self._model_cache
 
-    def get_cached_model(self, model_id: str, model_cls: Any = AutoModel) -> Optional[Any]:
+    def get_cached_model(self, model_id: str, model_cls: Any = None) -> Optional[Any]:
+        if model_cls is None:
+            model_cls = _default_auto_model()
         key = (model_cls, model_id)
         return self._model_cache.get(key)
 
     def get_or_load_processor(
         self,
         processor_id: str,
-        processor_cls: Any = AutoProcessor,
+        processor_cls: Any = None,
         console: Optional[Any] = None,
         use_fast: Optional[bool] = None,
         trust_remote_code: bool = True,
     ) -> Any:
+        if processor_cls is None:
+            processor_cls = _default_auto_processor()
         key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
         if key in self._processor_cache:
             if console:
@@ -204,7 +232,7 @@ class transformerLoader:
     def get_or_load_model(
         self,
         model_id: str,
-        model_cls: Any = AutoModel,
+        model_cls: Any = None,
         *,
         dtype: torch.dtype,
         attn_impl: Optional[str] = None,
@@ -215,6 +243,8 @@ class transformerLoader:
         console: Optional[Any] = None,
         extra_kwargs: Optional[dict[str, Any]] = None,
     ) -> Any:
+        if model_cls is None:
+            model_cls = _default_auto_model()
         key = (model_cls, model_id)
         if key in self._model_cache:
             if console:
@@ -289,7 +319,9 @@ class transformerLoader:
                 pass
         return inputs
 
-    def evict_model(self, model_id: str, model_cls: Any = AutoModel) -> bool:
+    def evict_model(self, model_id: str, model_cls: Any = None) -> bool:
+        if model_cls is None:
+            model_cls = _default_auto_model()
         key = (model_cls, model_id)
         return self._model_cache.pop(key, None) is not None
 

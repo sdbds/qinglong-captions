@@ -10,7 +10,6 @@ import torch
 from rich.console import Console
 from rich.progress import Progress
 from rich_pixels import Pixels
-from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.ocr_base import OCRProvider
@@ -104,6 +103,8 @@ def attempt_olmocr(
         build_no_anchoring_v4_yaml_prompt = None  # type: ignore
 
     start_time = time.time()
+
+    from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
     # Default prompt
     if not prompt_text:
