@@ -204,6 +204,9 @@ class GLMOCRProvider(OCRProvider):
     default_prompt = "Text Recognition:"
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
+        if self.get_runtime_backend().is_openai:
+            return self.attempt_via_openai_backend(media, prompts)
+
         output_dir = media.extras.get("output_dir")
 
         result = attempt_glm_ocr(

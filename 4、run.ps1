@@ -31,8 +31,9 @@ $glm_model_path = "GLM-4V-Plus-0111"
 $ark_api_key = ""
 $ark_model_path = "doubao-seed-1-6"
 
-# OpenAI Compatible API 配置（支持 vLLM、Ollama、LM Studio、SGLang 等）
-# 当配置了 openai_base_url 时，会优先使用此接口
+# OpenAI Compatible API 配置（本地/自托管服务统一连接参数）
+# - 直接走 openai_compatible provider 时：使用 openai_model_name
+# - 本地 transformers provider 切到 server backend 时：复用 openai_base_url/openai_api_key/openai_model_name
 $openai_api_key = ""           # API 密钥（本地服务可填任意值，如 "sk-no-key"）
 $openai_base_url = ""          # 服务器地址，如：
                                # - vLLM:     http://localhost:8000/v1
@@ -46,6 +47,7 @@ $openai_model_name = ""        # 模型名称，如：
 $openai_temperature = 0.7      # 生成温度 (0.0 - 2.0)
 $openai_max_tokens = 2048      # 最大生成 token 数
 $openai_json_mode = $true      # 是否尝试使用 JSON 模式（如果服务器支持）
+$local_runtime_backend = ""    # "", "direct", "openai"
 
 $dir_name = $false
 $mode = "long" # all, short, long
@@ -57,8 +59,8 @@ $segment_time = 600
 $ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
-# VLM model configuration for image tasks
-$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "" 
+# VLM model configuration for image/video tasks
+$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]

@@ -1,7 +1,10 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import lance
+import pyarrow as pa
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -9,7 +12,15 @@ sys.path.insert(0, str(ROOT / 'module'))
 
 from module.lanceImport import load_data, transform2lance
 from module.lanceexport import save_caption
-from module.texttranslate import normalize_dataset, translate_dataset
+from module.texttranslate import (
+    load_or_create_dataset,
+    merge_translations,
+    normalize_dataset,
+    protect_markdown,
+    preserve_chunk_whitespace,
+    restore_placeholders,
+    translate_dataset,
+)
 from utils.doc_normalize import normalize_text_asset
 from utils.lance_blob import take_blob_files
 from utils.text_chunker import compute_chunk_offsets, slice_by_offsets
@@ -102,3 +113,100 @@ def test_normalize_and_translate_dataset_roundtrip(tmp_path):
     assert tr_row['captions'] == ['HELLO WORLD.\n\nNEXT LINE.\n']
     assert tr_row['chunk_offsets'][-1] == len(tr_row['captions'][0])
     assert take_blob_files(tr_ds, [0], 'blob')[0].readall() == source_bytes
+
+
+def test_load_or_create_dataset_reuses_existing_lance(tmp_path):
+    existing = tmp_path / 'existing.lance'
+    existing.mkdir()
+
+    dataset_path, created = load_or_create_dataset(str(tmp_path), output_name='sample', raw_tag='raw.test')
+
+    assert dataset_path == existing
+    assert created is False
+
+
+def test_load_or_create_dataset_force_reimport_calls_transform(tmp_path):
+    with patch('module.texttranslate.transform2lance', return_value=object()) as mock_transform:
+        dataset_path, created = load_or_create_dataset(
+            str(tmp_path),
+            output_name='sample',
+            raw_tag='raw.test',
+            force_reimport=True,
+        )
+
+    assert dataset_path == tmp_path / 'sample.lance'
+    assert created is True
+    mock_transform.assert_called_once_with(
+        dataset_dir=str(tmp_path),
+        output_name='sample',
+        save_binary=True,
+        not_save_disk=False,
+        tag='raw.test',
+        include_text_assets=True,
+    )
+
+
+def test_merge_translations_reads_saved_markdown_and_updates_tag(tmp_path):
+    translated = tmp_path / 'story_zh_cn.md'
+    translated.write_text('translated body\n', encoding='utf-8')
+
+    schema = pa.schema(
+        [
+            pa.field('uris', pa.string()),
+            pa.field('captions', pa.list_(pa.string())),
+            pa.field('chunk_offsets', pa.list_(pa.int32())),
+        ]
+    )
+
+    executed_tables = []
+
+    class MergeBuilder:
+        def when_matched_update_all(self):
+            return self
+
+        def execute(self, table):
+            executed_tables.append(table)
+
+    class TargetDataset:
+        def __init__(self):
+            self.schema = schema
+
+        def merge_insert(self, on):
+            assert on == 'uris'
+            return MergeBuilder()
+
+    latest_dataset = SimpleNamespace(
+        version=4,
+        tags=SimpleNamespace(create=MagicMock(), update=MagicMock()),
+    )
+
+    with patch('module.texttranslate.lance.dataset', side_effect=[TargetDataset(), latest_dataset]):
+        merged = merge_translations(
+            dataset_path=tmp_path / 'sample.lance',
+            base_version='norm.test',
+            translation_tag='tr.test',
+            merge_candidates=['story.txt'],
+            current_run_translations={},
+            export_root=tmp_path,
+            target_lang='zh-cn',
+            max_chars=8,
+            merge_batch_size=1,
+        )
+
+    assert merged == 1
+    assert len(executed_tables) == 1
+    row = executed_tables[0].to_pylist()[0]
+    assert row['uris'] == 'story.txt'
+    assert row['captions'] == ['translated body\n']
+    assert row['chunk_offsets'][-1] == len('translated body\n')
+    latest_dataset.tags.create.assert_called_once_with('tr.test', 4)
+
+
+def test_translation_helpers_preserve_protected_tokens_and_whitespace():
+    original = '  code: `x = 1` and https://example.com/docs  '
+    masked, replacements = protect_markdown(original)
+
+    assert masked != original
+    restored = restore_placeholders(masked, replacements)
+    assert restored == original
+    assert preserve_chunk_whitespace('  hello \n', 'world') == '  world \n'

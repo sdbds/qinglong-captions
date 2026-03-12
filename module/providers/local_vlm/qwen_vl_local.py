@@ -19,22 +19,19 @@ class QwenVLLocalProvider(LocalVLMProvider):
         return getattr(args, "vlm_image_model", "") == "qwen_vl_local" and mime.startswith("image")
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
+        if self.get_runtime_backend().is_openai:
+            return self.attempt_via_openai_backend(media, prompts)
+
         from module.providers.cloud_vlm.qwenvl import attempt_qwenvl
 
         file = f"file://{Path(media.uri).resolve().as_posix()}"
 
         content_items = []
 
-        pair_dir = getattr(self.ctx.args, "pair_dir", "")
-        if pair_dir:
-            pair_path = (Path(pair_dir) / Path(media.uri).name).resolve()
-            if pair_path.exists():
-                pair_file = f"file://{pair_path.as_posix()}"
-                self.log(f"Pair image: {pair_file}", "yellow")
-                content_items.extend([{"image": file}, {"image": pair_file}])
-            else:
-                self.log(f"Pair not found: {pair_path}", "red")
-                return CaptionResult(raw="")
+        if media.extras.get("pair_uri"):
+            pair_file = f"file://{Path(media.extras['pair_uri']).as_posix()}"
+            self.log(f"Pair image: {pair_file}", "yellow")
+            content_items.extend([{"image": file}, {"image": pair_file}])
         else:
             content_items.append({"image": file})
 

@@ -19,18 +19,13 @@ class StepVLLocalProvider(LocalVLMProvider):
         return getattr(args, "vlm_image_model", "") == "step_vl_local" and mime.startswith("image")
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
-        from module.providers.cloud_vlm.stepfun import attempt_stepfun
-        from pathlib import Path
+        if self.get_runtime_backend().is_openai:
+            return self.attempt_via_openai_backend(media, prompts)
 
-        pair_dir = getattr(self.ctx.args, "pair_dir", "")
-        has_pair = bool(pair_dir and media.pair_blob)
-        pair_uri = ""
-        if has_pair:
-            pair_path = (Path(pair_dir) / Path(media.uri).name).resolve()
-            if not pair_path.exists():
-                self.log(f"Pair not found: {pair_path}", "red")
-                return CaptionResult(raw="")
-            pair_uri = str(pair_path)
+        from module.providers.cloud_vlm.stepfun import attempt_stepfun
+
+        has_pair = bool(media.extras.get("pair_uri") and media.pair_blob)
+        pair_uri = media.extras.get("pair_uri", "")
 
         result = attempt_stepfun(
             client=None,  # 本地模型

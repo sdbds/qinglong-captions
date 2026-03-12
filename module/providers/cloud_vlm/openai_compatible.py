@@ -40,6 +40,11 @@ class OpenAICompatibleProvider(CloudVLMProvider):
         """
         has_base_url = getattr(args, "openai_base_url", "") != ""
         supports_mime = mime.startswith(("image", "video"))
+        has_explicit_local_route = bool(
+            getattr(args, "vlm_image_model", "") or getattr(args, "ocr_model", "")
+        )
+        if has_explicit_local_route:
+            return False
         return has_base_url and supports_mime
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:

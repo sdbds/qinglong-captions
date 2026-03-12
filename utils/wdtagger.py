@@ -431,7 +431,7 @@ def load_model_and_tags(args):
     providers = []
     if "NvTensorRtRtxExecutionProvider" in ort.get_available_providers():
         providers.append("NvTensorRtRtxExecutionProvider")
-        console.print("[green]Using TensorRT for inference[/green]")
+        console.print("[green]Using TensorRT RTX for inference[/green]")
         console.print("[yellow]compile may take a long time, please wait...[/yellow]")
     elif "TensorrtExecutionProvider" in ort.get_available_providers():
         providers.append("TensorrtExecutionProvider")
@@ -463,7 +463,10 @@ def load_model_and_tags(args):
                 {
                     "nv_dump_subgraphs": False,
                     "nv_detailed_build_log": True,
-                    "nv_cuda_graph_enable": True,
+                    "enable_cuda_graph": True,
+                    "nv_multi_profile_enable": False,
+                    "nv_use_external_data_initializer": False,
+                    "nv_runtime_cache_path": f"{Path(args.model_dir) / args.repo_id.replace('/', '_')}/trt_engines",
                 },
             ),
             (

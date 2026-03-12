@@ -183,6 +183,8 @@ class DeepSeekOCRProvider(OCRProvider):
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         """执行 DeepSeek OCR"""
+        if self.get_runtime_backend().is_openai:
+            return self.attempt_via_openai_backend(media, prompts)
         output_dir = media.extras.get("output_dir")
 
         result = attempt_deepseek_ocr(

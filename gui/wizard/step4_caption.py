@@ -181,6 +181,7 @@ class CaptionStep:
         "moondream": "moondream",
         "qwen_vl_local": "qwen-vl-local",
         "step_vl_local": "step-vl-local",
+        "reka_edge_local": "reka-edge-local",
     }
 
     def __init__(self):

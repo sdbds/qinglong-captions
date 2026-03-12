@@ -780,9 +780,9 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--vlm_image_model",
         type=str,
-        choices=["moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", ""],
+        choices=route_choices("vlm_image_model", include_aliases=True),
         default="",
-        help="VLM model for image tasks (default: empty)",
+        help="VLM model for image/video tasks (default: empty)",
     )
 
     parser.add_argument(
@@ -831,6 +831,13 @@ def setup_parser() -> argparse.ArgumentParser:
         type=str,
         default="",
         help="Model name for OpenAI-compatible API (e.g., Qwen2-VL-7B-Instruct)",
+    )
+    parser.add_argument(
+        "--local_runtime_backend",
+        type=str,
+        choices=["", "direct", "openai"],
+        default="",
+        help="Backend for local transformers providers: empty=use config, direct=in-process, openai=OpenAI-compatible local server",
     )
 
     parser.add_argument(

@@ -16,6 +16,14 @@ $force_reimport = $false                   # 即使已有 .lance 也重新导入
 $skip_normalize = $false                   # 直接把 source_version 当作 norm 版本
 $normalize_only = $false                   # 只做规范化，不翻译
 $no_export = $false                        # 不导出 *_lang.md 文件
+$runtime_backend = ""                      # "", "direct", "openai"
+
+# OpenAI Compatible API 配置（仅在 runtime_backend="openai" 时使用）
+# - 共享传输参数，不再单独维护 runtime_base_url/runtime_api_key
+# - openai_model_name 为空时，默认复用上面的 $model_id
+$openai_api_key = ""                       # API 密钥（本地服务可填任意值，如 "sk-no-key"）
+$openai_base_url = ""                      # 服务器地址，如 http://127.0.0.1:8000/v1
+$openai_model_name = ""                    # 可选：单独覆盖 OpenAI-compatible server 上的模型名
 
 # ============= DO NOT MODIFY CONTENTS BELOW | 请勿修改下方内容 =====================
 Set-Location $PSScriptRoot
@@ -140,6 +148,22 @@ if ($output_name) {
 
 if ($model_id) {
   [void]$ext_args.Add("--model_id=$model_id")
+}
+
+if ($runtime_backend) {
+  [void]$ext_args.Add("--runtime_backend=$runtime_backend")
+}
+
+if ($openai_api_key) {
+  [void]$ext_args.Add("--openai_api_key=$openai_api_key")
+}
+
+if ($openai_base_url) {
+  [void]$ext_args.Add("--openai_base_url=$openai_base_url")
+}
+
+if ($openai_model_name) {
+  [void]$ext_args.Add("--openai_model_name=$openai_model_name")
 }
 
 if ($source_lang) {

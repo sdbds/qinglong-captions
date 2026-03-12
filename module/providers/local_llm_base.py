@@ -15,6 +15,8 @@ from typing import Any, ClassVar, Dict, Optional, Tuple
 
 from rich.console import Console
 
+from .backends import OpenAIChatRuntime, make_runtime_backend_config
+
 _global_model_cache: Dict[str, Tuple[Any, Any]] = {}
 _global_cache_lock = threading.Lock()
 
@@ -32,6 +34,13 @@ class LocalLLMProvider(ABC):
         max_new_tokens: int = 2048,
         temperature: float = 0.0,
         trust_remote_code: bool = True,
+        backend: str = "direct",
+        openai_base_url: str = "",
+        openai_api_key: str = "",
+        openai_model_name: str = "",
+        runtime_base_url: str = "",
+        runtime_api_key: str = "",
+        runtime_model_id: str = "",
     ) -> None:
         self.console = console
         self.model_id = model_id or self.default_model_id
@@ -39,6 +48,14 @@ class LocalLLMProvider(ABC):
         self.temperature = temperature
         self.trust_remote_code = trust_remote_code
         self._model_key = f"{type(self).__name__}:{self.model_id}"
+        self.runtime_backend = make_runtime_backend_config(
+            mode=backend,
+            base_url=openai_base_url or runtime_base_url,
+            api_key=openai_api_key or runtime_api_key,
+            model_id=openai_model_name or runtime_model_id or self.model_id,
+            temperature=temperature,
+            max_tokens=max_new_tokens,
+        )
 
     def _resolve_device_dtype(self) -> tuple[str, Any, str]:
         from utils.transformer_loader import resolve_device_dtype
@@ -116,6 +133,10 @@ class LocalLLMProvider(ABC):
         return filtered
 
     def generate_text(self, prompt: str) -> str:
+        if self.runtime_backend.is_openai:
+            runtime = OpenAIChatRuntime(self.runtime_backend)
+            return runtime.complete([{"role": "user", "content": prompt}])
+
         tokenizer, model = self._get_or_load_components()
         inputs = tokenizer(prompt, return_tensors="pt")
         model_device = next(model.parameters()).device

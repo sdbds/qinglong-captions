@@ -32,7 +32,7 @@ DEFAULT_OCR_PROMPT = '''You are an AI assistant specialized in converting PDF im
 2. Mathematical Formula Processing:
 - Convert all mathematical formulas to LaTeX format.
 - Enclose inline formulas with,(,). For example: This is an inline formula,( E = mc^2,)
-- Enclose block formulas with,\\[,\\]. For example:,\[,frac{-b,pm,sqrt{b^2 - 4ac}}{2a},\]
+- Enclose block formulas with,\\[,\\]. For example:,\\[,frac{-b,pm,sqrt{b^2 - 4ac}}{2a},\\]
 
 3. Table Processing:
 - Convert tables to HTML format.
@@ -235,6 +235,9 @@ class FireRedOCRProvider(OCRProvider):
     default_prompt = ""
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
+        if self.get_runtime_backend().is_openai:
+            return self.attempt_via_openai_backend(media, prompts)
+
         output_dir = media.extras.get("output_dir")
 
         result = attempt_firered_ocr(

@@ -70,6 +70,7 @@ class ProviderRegistry:
                 "qwen_vl_local",
                 "step_vl_local",
                 "penguin_vl_local",
+                "reka_edge_local",
                 # Vision API
                 "mistral_ocr",
                 "gemini",

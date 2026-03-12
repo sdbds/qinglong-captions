@@ -359,17 +359,32 @@ class MoondreamProvider(LocalVLMProvider):
         return (vlm_model == "moondream" or ocr_model == "moondream") and mime.startswith("image")
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
+        # 读取配置
+        vlm_section = self.model_config
+        reasoning = vlm_section.get("reasoning")
+        ocr_mode = getattr(self.ctx.args, "ocr_model", "") == "moondream"
+        tasks = vlm_section.get("tasks", "caption")
+
+        runtime = self.get_runtime_backend()
+        if runtime.is_openai:
+            task_names = {item.strip() for item in str(tasks).split(",") if item.strip()}
+            if "all" in task_names or "point" in task_names or "detect" in task_names:
+                self.log("Moondream point/detect tasks require direct backend; falling back to direct runtime.", "yellow")
+            else:
+                user_prompt = prompts.user
+                if ocr_mode:
+                    user_prompt = (
+                        "Convert all visible text in the image to clean Markdown. "
+                        "Preserve headings, lists, tables, and structure where possible."
+                    )
+                return self.attempt_via_openai_backend(media, prompts, user_prompt=user_prompt)
+
         # 读取 captions
         captions: List[str] = []
         captions_path = Path(media.uri).with_suffix(".txt")
         if captions_path.exists():
             with open(captions_path, "r", encoding="utf-8") as f:
                 captions = [line.strip() for line in f.readlines()]
-
-        # 读取配置
-        vlm_section = self.model_config
-        reasoning = vlm_section.get("reasoning")
-        ocr_mode = getattr(self.ctx.args, "ocr_model", "") == "moondream"
 
         result = attempt_moondream(
             model_id=self.model_id,
@@ -385,7 +400,7 @@ class MoondreamProvider(LocalVLMProvider):
             prompt_text=prompts.user,
             reasoning=bool(reasoning) if reasoning is not None else False,
             ocr=ocr_mode,
-            task=vlm_section.get("tasks", "caption"),
+            task=tasks,
         )
 
         return CaptionResult(raw=result, metadata={"provider": self.name})

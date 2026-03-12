@@ -109,4 +109,5 @@ class HYMTProvider(LocalLLMProvider):
             context=context,
             glossary=glossary,
         )
-        return clean_translation_output(self._generate_hy_mt(prompt))
+        raw_output = self.generate_text(prompt) if self.runtime_backend.is_openai else self._generate_hy_mt(prompt)
+        return clean_translation_output(raw_output)

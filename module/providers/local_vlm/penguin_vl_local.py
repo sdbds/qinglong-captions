@@ -57,6 +57,9 @@ class PenguinVLLocalProvider(LocalVLMProvider):
         return {"model": model, "processor": processor, "device": device}
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
+        if self.get_runtime_backend().is_openai:
+            return self.attempt_via_openai_backend(media, prompts)
+
         import torch
 
         start_time = time.time()
@@ -69,16 +72,11 @@ class PenguinVLLocalProvider(LocalVLMProvider):
         user_content = []
 
         # Handle pair images
-        pair_dir = getattr(self.ctx.args, "pair_dir", "")
-        if pair_dir:
-            pair_path = (Path(pair_dir) / Path(media.uri).name).resolve()
-            if pair_path.exists():
-                self.log(f"Pair image: {pair_path}", "yellow")
-                user_content.append({"type": "image", "image": {"image_path": str(Path(media.uri).resolve())}})
-                user_content.append({"type": "image", "image": {"image_path": str(pair_path)}})
-            else:
-                self.log(f"Pair not found: {pair_path}", "red")
-                return CaptionResult(raw="")
+        if media.extras.get("pair_uri"):
+            pair_path = Path(media.extras["pair_uri"])
+            self.log(f"Pair image: {pair_path}", "yellow")
+            user_content.append({"type": "image", "image": {"image_path": str(Path(media.uri).resolve())}})
+            user_content.append({"type": "image", "image": {"image_path": str(pair_path)}})
         else:
             user_content.append({"type": "image", "image": {"image_path": str(Path(media.uri).resolve())}})
 

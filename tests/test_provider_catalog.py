@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import sys
-from types import SimpleNamespace
 from pathlib import Path
-
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -55,6 +54,7 @@ def test_catalog_config_section_candidates_cover_local_provider_compat():
     assert provider_config_sections("qwen_vl_local") == ("qwen_vl_local", "qwen")
     assert provider_config_sections("penguin_vl_local") == ("penguin_vl_local", "penguin")
     assert provider_config_sections("step_vl_local") == ("step_vl_local", "stepfun_local")
+    assert provider_config_sections("reka_edge_local") == ("reka_edge_local", "reka_edge")
 
 
 def test_catalog_marks_only_remote_routes_as_needing_api_config():
@@ -64,3 +64,4 @@ def test_catalog_marks_only_remote_routes_as_needing_api_config():
     assert route_requires_remote_config("ocr_model", "pixtral") is True
     assert route_requires_remote_config("ocr_model", "deepseek_ocr") is False
     assert route_requires_remote_config("vlm_image_model", "qwen_vl_local") is False
+    assert route_requires_remote_config("vlm_image_model", "reka_edge_local") is False

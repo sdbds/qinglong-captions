@@ -13,9 +13,10 @@ OCRProvider - OCR Provider 基类
 from pathlib import Path
 from typing import Any, ClassVar, Optional
 
+from .backends import OpenAIChatRuntime, find_model_config_section, resolve_runtime_backend
 from .base import MediaContext, MediaModality, Provider, ProviderType
 from .capabilities import ProviderCapabilities
-from .utils import encode_image_to_blob
+from .utils import build_vision_messages, encode_image_to_blob
 
 
 class OCRProvider(Provider):
@@ -98,6 +99,128 @@ class OCRProvider(Provider):
         prompt = prompts.get(prompt_key, self.default_prompt)
 
         return "", prompt  # OCR 通常不需要 system prompt
+
+    def get_runtime_backend(self):
+        """Resolve OCR runtime backend."""
+        provider_section = self.ctx.config.get(self.name, {})
+        runtime_model_name = (
+            getattr(self.ctx.args, "openai_model_name", "")
+            or provider_section.get("runtime_model_id", "")
+            or provider_section.get("model_id", "")
+            or self.default_model_id
+        )
+        model_section = find_model_config_section(
+            self.ctx.config,
+            runtime_model_name,
+            preferred_sections=(self.name,),
+        )
+        default_temperature = float(
+            model_section.get("temperature", provider_section.get("runtime_temperature", provider_section.get("temperature", 0.0)))
+        )
+        default_max_tokens = int(
+            model_section.get(
+                "runtime_max_tokens",
+                model_section.get(
+                    "max_new_tokens",
+                    provider_section.get("runtime_max_tokens", provider_section.get("max_new_tokens", 4096)),
+                ),
+            )
+        )
+        default_model_id = (
+            model_section.get("runtime_model_id", "")
+            or model_section.get("model_id", "")
+            or provider_section.get("runtime_model_id", "")
+            or provider_section.get("model_id", "")
+            or self.default_model_id
+        )
+        return resolve_runtime_backend(
+            self.ctx.args,
+            provider_section,
+            arg_prefix="local_runtime",
+            shared_prefix="openai",
+            default_model_id=default_model_id,
+            default_temperature=default_temperature,
+            default_max_tokens=default_max_tokens,
+        )
+
+    def attempt_via_openai_backend(self, media: MediaContext, prompts):
+        """Run OCR via a local OpenAI-compatible server while keeping OCR side effects."""
+        from utils.parse_display import display_markdown
+        from utils.stream_util import pdf_to_images_high_quality
+
+        runtime = self.get_runtime_backend()
+        backend = OpenAIChatRuntime(runtime)
+        output_dir = media.extras.get("output_dir")
+
+        def infer_from_blob(blob: str) -> str:
+            messages = build_vision_messages(
+                prompts.system,
+                prompts.user,
+                blob,
+                text_first=False,
+            )
+            return backend.complete(messages)
+
+        if media.mime.startswith("application/pdf"):
+            images = pdf_to_images_high_quality(media.uri)
+            all_contents = []
+            for idx, pil_img in enumerate(images):
+                page_dir = Path(output_dir) / f"page_{idx + 1:04d}"
+                page_dir.mkdir(parents=True, exist_ok=True)
+                page_img_path = page_dir / f"page_{idx + 1:04d}.png"
+                try:
+                    pil_img.save(page_img_path)
+                except Exception:
+                    try:
+                        pil_img.convert("RGB").save(page_img_path)
+                    except Exception:
+                        continue
+
+                page_blob, _ = encode_image_to_blob(str(page_img_path), to_rgb=True)
+                if not page_blob:
+                    continue
+                page_content = infer_from_blob(page_blob)
+                try:
+                    (page_dir / "result.md").write_text(page_content, encoding="utf-8")
+                except Exception:
+                    pass
+                all_contents.append(page_content.strip())
+
+            content = "\n<--- Page Split --->\n".join(all_contents)
+        else:
+            if not media.blob:
+                content = ""
+            else:
+                content = infer_from_blob(media.blob)
+
+        try:
+            if output_dir:
+                (Path(output_dir) / "result.md").write_text(content, encoding="utf-8")
+        except Exception:
+            pass
+
+        try:
+            display_markdown(
+                title=Path(media.uri).name,
+                markdown_content=content,
+                pixels=media.pixels,
+                panel_height=32,
+                console=self.ctx.console,
+            )
+        except Exception:
+            pass
+
+        from .base import CaptionResult
+
+        return CaptionResult(
+            raw=content,
+            metadata={
+                "provider": self.name,
+                "output_dir": str(output_dir),
+                "runtime_backend": runtime.mode,
+                "runtime_model_id": runtime.model_id,
+            },
+        )
 
     def get_retry_config(self):
         """

@@ -58,6 +58,11 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
         canonical_name="penguin_vl_local",
         config_sections=("penguin_vl_local", "penguin"),
     ),
+    "reka_edge_local": ProviderSpec(
+        canonical_name="reka_edge_local",
+        config_sections=("reka_edge_local", "reka_edge"),
+        prompt_prefixes=("reka_edge",),
+    ),
 }
 
 ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
@@ -78,6 +83,7 @@ ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
         RouteSpec("qwen_vl_local", "qwen_vl_local"),
         RouteSpec("step_vl_local", "step_vl_local"),
         RouteSpec("penguin_vl_local", "penguin_vl_local"),
+        RouteSpec("reka_edge_local", "reka_edge_local"),
     ),
 }
 

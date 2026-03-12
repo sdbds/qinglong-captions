@@ -482,6 +482,19 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument("input_path", help="Dataset directory or .lance path")
     parser.add_argument("--output_name", default="dataset", help="Lance dataset name when importing a directory")
     parser.add_argument("--model_id", default="tencent/HY-MT1.5-7B", help="Translation model id")
+    parser.add_argument(
+        "--runtime_backend",
+        choices=["direct", "openai"],
+        default="direct",
+        help="Translation execution backend: direct transformers or OpenAI-compatible local server",
+    )
+    parser.add_argument("--openai_base_url", default="", help="Base URL for OpenAI-compatible translation backend")
+    parser.add_argument("--openai_api_key", default="", help="API key for OpenAI-compatible translation backend")
+    parser.add_argument(
+        "--openai_model_name",
+        default="",
+        help="Optional OpenAI-compatible model name override for translation backend",
+    )
     parser.add_argument("--source_lang", default="auto", help="Source language code")
     parser.add_argument("--target_lang", default="zh_cn", help="Target language code used for tags and file suffixes")
     parser.add_argument("--max_chars", type=int, default=2200, help="Maximum characters per translation chunk")
@@ -546,6 +559,10 @@ def main() -> None:
         console=console,
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
+        backend=args.runtime_backend,
+        openai_base_url=args.openai_base_url,
+        openai_api_key=args.openai_api_key,
+        openai_model_name=args.openai_model_name,
     )
     export_root = None if args.no_export else (
         Path(args.input_path).parent if Path(args.input_path).suffix.lower() == '.lance' else Path(args.input_path)

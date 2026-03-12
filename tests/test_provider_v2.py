@@ -14,7 +14,7 @@ Provider V2 单元测试
 - build_vision_messages 消息构建
 - OCRProvider.can_handle 基类逻辑
 - CloudVLMProvider 基类逻辑
-- 所有 19 个 Provider 的 can_handle 路由
+- 所有 20+ 个 Provider 的 can_handle 路由
 - api_handler_v2 入口函数
 - kimi_code User-Agent header
 """
@@ -225,17 +225,17 @@ class TestProviderRegistry:
         reg = get_registry()
         assert reg is not None
 
-    def test_discover_all_19(self):
+    def test_discover_all_20(self):
         from providers.registry import get_registry
         reg = get_registry()
         reg.discover()
         providers = reg.list_providers()
-        assert len(providers) >= 19
+        assert len(providers) >= 20
         expected = [
             "stepfun", "ark", "qwenvl", "glm", "kimi_code", "kimi_vl",
             "deepseek_ocr", "hunyuan_ocr", "glm_ocr", "chandra_ocr",
             "olmocr", "paddle_ocr", "nanonets_ocr", "firered_ocr",
-            "moondream", "qwen_vl_local", "step_vl_local",
+            "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local",
             "mistral_ocr", "gemini",
         ]
         for name in expected:
@@ -277,7 +277,7 @@ class TestProviderRegistry:
 
 
 # ──────────────────────────────────────────────
-#  find_provider 路由（所有 19 个 Provider 的 can_handle）
+#  find_provider 路由（所有 20+ 个 Provider 的 can_handle）
 # ──────────────────────────────────────────────
 
 class TestFindProvider:
@@ -421,6 +421,20 @@ class TestFindProvider:
         args = self._make_args(vlm_image_model="step_vl_local")
         p = reg.find_provider(args, "image/jpeg")
         assert p is not None and p.name == "step_vl_local"
+
+    def test_reka_edge_local_image(self):
+        from providers.registry import get_registry
+        reg = get_registry()
+        args = self._make_args(vlm_image_model="reka_edge_local")
+        p = reg.find_provider(args, "image/jpeg")
+        assert p is not None and p.name == "reka_edge_local"
+
+    def test_reka_edge_local_video(self):
+        from providers.registry import get_registry
+        reg = get_registry()
+        args = self._make_args(vlm_image_model="reka_edge_local")
+        p = reg.find_provider(args, "video/mp4")
+        assert p is not None and p.name == "reka_edge_local"
 
     def test_no_provider_returns_none(self):
         from providers.registry import get_registry
