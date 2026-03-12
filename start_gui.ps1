@@ -39,6 +39,19 @@ $Env:UV_NO_CACHE = "0"
 $Env:UV_LINK_MODE = "symlink"
 #endregion
 
+function Get-GuiEnvName {
+    if ($Env:VIRTUAL_ENV) {
+        return Split-Path -Path $Env:VIRTUAL_ENV -Leaf
+    }
+    if (Test-Path "./.venv") {
+        return ".venv"
+    }
+    if (Test-Path "./venv") {
+        return "venv"
+    }
+    return "unknown"
+}
+
 #region Build Arguments
 $exargs = @()
 
@@ -69,6 +82,8 @@ Write-Output "  青龙字幕工具 GUI (Qinglong Captions GUI)"
 Write-Output "============================================================"
 Write-Output ""
 Write-Output "  URL: http://$($Config.host):$($Config.port)"
+Write-Output "  Python: $((Get-Command python).Source)"
+Write-Output "  Environment: $(Get-GuiEnvName)"
 if ($Config.native) {
     Write-Output "  Mode: Native window (原生窗口模式)"
 } else {

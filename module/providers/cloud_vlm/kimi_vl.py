@@ -37,6 +37,38 @@ from providers.utils import build_vision_messages
 # Shared helpers – used by both KimiVLProvider and KimiCodeProvider
 # ---------------------------------------------------------------------------
 
+def ensure_kimi_dual_caption_prompt(system_prompt: str) -> str:
+    """Normalize Kimi image prompts so models always return both short and long text."""
+    prompt = (system_prompt or "").strip()
+
+    replacements = {
+        "Only output one long paragraph.": "Provide both a short description and a long description.",
+        "Note: Only output the detailed description, do not include any summary or overall description.": (
+            "Provide both a short description and a long description."
+        ),
+        "Must including all details and concepts in a long paragraph.": (
+            "Short description should summarize the main concepts in one to three sentences. "
+            "Long description must include all details and concepts in a long paragraph."
+        ),
+    }
+
+    for old, new in replacements.items():
+        if old in prompt:
+            prompt = prompt.replace(old, new)
+
+    additions: list[str] = []
+    if "###Short:" not in prompt or "###Long:" not in prompt:
+        additions.append("Answer format with '###Short:' and '###Long:'.")
+    if "Do not return only a single long paragraph." not in prompt:
+        additions.append("Do not return only a single long paragraph.")
+
+    if additions:
+        prompt = f"{prompt}\n" if prompt else ""
+        prompt += "\n".join(additions)
+
+    return prompt
+
+
 def _collect_stream_kimi(completion: Any, console: Console) -> str:
     chunks: list[str] = []
     for chunk in completion:
@@ -187,10 +219,11 @@ def attempt_kimi_vl(
         progress.update(task_id, description="Generating captions")
 
     # In JSON mode, content is a JSON string
-    response_text = _collect_stream_kimi(completion, console)
+    raw_response_text = _collect_stream_kimi(completion, console)
+    response_text = raw_response_text
 
     try:
-        parsed = json.loads(response_text)
+        parsed = json.loads(raw_response_text)
         if isinstance(parsed, dict):
             if mode == "short":
                 parsed.pop("long", None)
@@ -210,9 +243,9 @@ def attempt_kimi_vl(
     except Exception:
         console.print(Text(response_text))
 
-    response_text = response_text.replace("[green]", "<font color='green'>").replace("[/green]", "</font>")
+    display_response_text = raw_response_text.replace("[green]", "<font color='green'>").replace("[/green]", "</font>")
 
-    tag_description, short_desc, long_desc, rating, average_score = _parse_kimi_response(response_text, mode=mode)
+    tag_description, short_desc, long_desc, rating, average_score = _parse_kimi_response(display_response_text, mode="all")
 
     # If model didn't return tags but we have sidecar/json tags, use them as tags source
     if not tag_description and merged_tags:
@@ -299,8 +332,9 @@ class KimiVLProvider(CloudVLMProvider):
             if pair_dir and (not media.pair_blob):
                 return CaptionResult(raw="")
 
+            system_prompt = ensure_kimi_dual_caption_prompt(prompts.system)
             messages = build_vision_messages(
-                prompts.system, prompts.user, media.blob, pair_blob=media.pair_blob if pair_dir else None, text_first=False
+                system_prompt, prompts.user, media.blob, pair_blob=media.pair_blob if pair_dir else None, text_first=False
             )
             image_pixels = media.pixels
             pair_pixels = media.pair_pixels

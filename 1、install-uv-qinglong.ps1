@@ -30,6 +30,41 @@ function Check {
     }
 }
 
+function Get-UvEnvName {
+    if ($Env:VIRTUAL_ENV) {
+        return Split-Path -Path $Env:VIRTUAL_ENV -Leaf
+    }
+    if (Test-Path "./.venv") {
+        return ".venv"
+    }
+    if (Test-Path "./venv") {
+        return "venv"
+    }
+    return "uv-managed"
+}
+
+function Get-ProjectPython {
+    $Candidates = @(
+        "./.venv/Scripts/python.exe",
+        "./venv/Scripts/python.exe",
+        "./.venv/bin/python",
+        "./venv/bin/python"
+    )
+
+    foreach ($Candidate in $Candidates) {
+        if (Test-Path $Candidate) {
+            return (Resolve-Path $Candidate).Path
+        }
+    }
+
+    $PythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($PythonCommand) {
+        return $PythonCommand.Source
+    }
+
+    return $null
+}
+
 try {
     ~/.local/bin/uv --version
     Write-Output "uv installed|UV模块已安装."
@@ -104,10 +139,28 @@ else {
     . ./.venv/bin/activate.ps1
 }
 
-Write-Output "Syncing project dependencies from pyproject.toml"
+Write-Output "Exporting project dependencies from pyproject.toml"
+Write-Output "uv pip install target environment: $(Get-UvEnvName)"
+Write-Output "uv pip install dependency profile: default"
 
-~/.local/bin/uv sync --active --frozen
-Check "Install main requirements failed"
+$PythonExe = Get-ProjectPython
+$ReqFile = Join-Path $env:TEMP "qinglong_uv_install_$PID.txt"
+
+try {
+    ~/.local/bin/uv export --frozen --no-emit-project --format requirements-txt --output-file $ReqFile
+    Check "Export main requirements failed"
+
+    if ($PythonExe) {
+        ~/.local/bin/uv pip install --no-build-isolation --python $PythonExe -r $ReqFile
+    }
+    else {
+        ~/.local/bin/uv pip install --no-build-isolation -r $ReqFile
+    }
+    Check "Install main requirements failed"
+}
+finally {
+    Remove-Item $ReqFile -ErrorAction SilentlyContinue
+}
 
 Write-Output "Install finished"
 Read-Host | Out-Null ;

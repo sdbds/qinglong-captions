@@ -27,7 +27,7 @@ class KimiCodeProvider(CloudVLMProvider):
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         from openai import OpenAI
-        from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl
+        from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl, ensure_kimi_dual_caption_prompt
 
         base_url = getattr(self.ctx.args, "kimi_code_base_url", "https://api.kimi.com/coding/v1")
         client = OpenAI(
@@ -65,8 +65,9 @@ class KimiCodeProvider(CloudVLMProvider):
             if pair_dir and (not media.pair_blob):
                 return CaptionResult(raw="")
 
+            system_prompt = ensure_kimi_dual_caption_prompt(prompts.system)
             messages = build_vision_messages(
-                prompts.system, prompts.user, media.blob, pair_blob=media.pair_blob if pair_dir else None, text_first=False
+                system_prompt, prompts.user, media.blob, pair_blob=media.pair_blob if pair_dir else None, text_first=False
             )
             image_pixels = media.pixels
             pair_pixels = media.pair_pixels

@@ -15,6 +15,7 @@
 
 import sys
 import argparse
+import os
 from pathlib import Path
 
 # 获取项目根目录（当前文件的上级目录）
@@ -25,9 +26,6 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 if str(project_root / "gui") not in sys.path:
     sys.path.insert(0, str(project_root / "gui"))
-
-# 设置工作目录
-import os
 
 os.chdir(project_root)
 
@@ -93,6 +91,45 @@ def find_available_port(start_port, max_attempts=10):
     return None
 
 
+def print_runtime_snapshot(actual_port: int) -> None:
+    env_name = Path(os.environ.get("VIRTUAL_ENV", "")).name or (".venv" if (project_root / ".venv").exists() else "unknown")
+    tracked_env_keys = [
+        "VIRTUAL_ENV",
+        "PYTHONPATH",
+        "HF_HOME",
+        "HF_ENDPOINT",
+        "XFORMERS_FORCE_DISABLE_TRITON",
+        "CUDA_HOME",
+        "UV_CACHE_DIR",
+        "UV_EXTRA_INDEX_URL",
+        "UV_NO_BUILD_ISOLATION",
+        "UV_NO_CACHE",
+        "UV_LINK_MODE",
+    ]
+
+    print(f"=" * 60)
+    print(f"  {APP_TITLE} GUI")
+    print(f"=" * 60)
+    print(f"  Language: {get_i18n().lang}")
+    print(f"  URL: http://{args.host}:{actual_port}")
+    print(f"  Reload: False")
+    print(f"  Python: {sys.executable}")
+    print(f"  Environment: {env_name}")
+    print(f"  Project Root: {project_root}")
+    if args.native:
+        print(f"  Mode: Native window (原生窗口模式)")
+    else:
+        print(f"  Mode: Web browser (网页浏览器模式)")
+    if not args.no_browser and not args.native:
+        print(f"  将自动打开浏览器...")
+    elif not args.native:
+        print(f"  请手动在浏览器中打开上述 URL")
+    print(f"  Environment Variables:")
+    for key in tracked_env_keys:
+        print(f"    {key}={os.environ.get(key, '')}")
+    print(f"=" * 60)
+
+
 if __name__ == "__main__":
     # 初始化语言
     from gui.utils.i18n import t, get_i18n
@@ -106,20 +143,7 @@ if __name__ == "__main__":
     if actual_port != args.port:
         print(f"⚠️  端口 {args.port} 被占用，自动切换到端口 {actual_port}")
 
-    print(f"=" * 60)
-    print(f"  {APP_TITLE} GUI")
-    print(f"=" * 60)
-    print(f"  Language: {get_i18n().lang}")
-    print(f"  URL: http://{args.host}:{actual_port}")
-    if args.native:
-        print(f"  Mode: Native window (原生窗口模式)")
-    else:
-        print(f"  Mode: Web browser (网页浏览器模式)")
-    if not args.no_browser and not args.native:
-        print(f"  将自动打开浏览器...")
-    elif not args.native:
-        print(f"  请手动在浏览器中打开上述 URL")
-    print(f"=" * 60)
+    print_runtime_snapshot(actual_port)
 
     # 显式设置 native=False 确保使用浏览器模式（除非用户指定 --native）
     run_kwargs = {

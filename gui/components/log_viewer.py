@@ -16,13 +16,17 @@ class LogViewer:
     避免高速输出时大量 WebSocket 消息导致浏览器断连。
     """
 
+    _styles_injected = False
+
     def __init__(self, max_lines: int = 1000, height: str = "50vh"):
+        self._ensure_scroll_styles()
         self.max_lines = max_lines
         self.lines: list[str] = []  # 原始文本（可能含 ANSI）
         self.auto_scroll = True
         self._buffer: list[str] = []
         self._line_count = 0  # 已渲染到 DOM 的行数
         self._converter = AnsiToHtmlConverter()
+        self._stick_to_bottom = True
 
         with ui.card().classes(get_classes("card")).style("width: 66vw; max-width: 100%; box-sizing: border-box;"):
             # 工具栏
@@ -35,6 +39,9 @@ class LogViewer:
                     # 自动滚动开关
                     def on_auto_scroll_change(new_value):
                         self.auto_scroll = new_value
+                        if new_value:
+                            self._stick_to_bottom = True
+                            self.scroll_area.scroll_to(percent=1.0)
 
                     self.scroll_toggle, self.get_scroll_value = toggle_switch_simple(
                         label=t("auto_scroll", "Auto Scroll"), value=True, on_change=on_auto_scroll_change
@@ -76,7 +83,7 @@ class LogViewer:
                 overflow: hidden;
             """)
             ):
-                self.scroll_area = ui.scroll_area().classes("w-full").style(f"height: {height};")
+                self.scroll_area = ui.scroll_area(on_scroll=self._handle_scroll).classes("w-full log-scroll-area").style(f"height: {height};")
                 with self.scroll_area:
                     self.log_container = ui.element("div").style(
                         "font-family: 'Cascadia Code', 'Consolas', 'Monaco', monospace; "
@@ -87,6 +94,47 @@ class LogViewer:
 
         # 定时刷新缓冲区（150ms 间隔）
         ui.timer(0.15, self._flush_buffer)
+
+    @classmethod
+    def _ensure_scroll_styles(cls):
+        """为日志滚动区注入更明显的滚动条样式。"""
+        if cls._styles_injected:
+            return
+        ui.add_head_html(f"""
+        <style>
+            .log-scroll-area .q-scrollarea__bar,
+            .log-scroll-area .q-scrollarea__thumb {{
+                opacity: 0.9 !important;
+            }}
+
+            .log-scroll-area .q-scrollarea__bar--v {{
+                width: 10px !important;
+                background: rgba(15, 23, 42, 0.28) !important;
+                border-radius: 999px !important;
+            }}
+
+            .log-scroll-area .q-scrollarea__thumb--v {{
+                width: 10px !important;
+                background: linear-gradient(180deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%) !important;
+                border-radius: 999px !important;
+            }}
+        </style>
+        """)
+        cls._styles_injected = True
+
+    @staticmethod
+    def _is_near_bottom(vertical_position: float, vertical_size: float, container_size: float, threshold: float = 24.0) -> bool:
+        """判断当前滚动位置是否仍可视为贴底。"""
+        max_position = max(0.0, vertical_size - container_size)
+        return max_position <= threshold or vertical_position >= max_position - threshold
+
+    def _handle_scroll(self, e):
+        """跟踪用户是否仍停留在日志底部。"""
+        self._stick_to_bottom = self._is_near_bottom(
+            e.vertical_position,
+            e.vertical_size,
+            e.vertical_container_size,
+        )
 
     def _flush_buffer(self):
         """将缓冲区中的日志批量渲染为 HTML 推送到前端"""
@@ -127,7 +175,7 @@ class LogViewer:
                 self.lines = self.lines[-self.max_lines:]
 
         # 自动滚动
-        if self.auto_scroll:
+        if self.auto_scroll and self._stick_to_bottom:
             self.scroll_area.scroll_to(percent=1.0)
 
     def append(self, message: str, level: str = "info"):

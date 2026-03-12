@@ -120,6 +120,138 @@ function Add-UvExtra {
   }
 }
 
+function Get-UvEnvName {
+  if ($env:VIRTUAL_ENV) {
+    return Split-Path -Path $env:VIRTUAL_ENV -Leaf
+  }
+  if (Test-Path "./.venv") {
+    return ".venv"
+  }
+  if (Test-Path "./venv") {
+    return "venv"
+  }
+  return "uv-managed"
+}
+
+function Get-UvProfile {
+  param (
+    [System.Collections.ArrayList]$ArgsList
+  )
+
+  if ($ArgsList.Count -eq 0) {
+    return "default"
+  }
+
+  return ($ArgsList | ForEach-Object { $_.ToString().Replace("--extra=", "extra:").Replace("--group=", "group:") }) -join ", "
+}
+
+function Get-ProjectPython {
+  $Candidates = @(
+    "./.venv/Scripts/python.exe",
+    "./venv/Scripts/python.exe",
+    "./.venv/bin/python",
+    "./venv/bin/python"
+  )
+
+  foreach ($Candidate in $Candidates) {
+    if (Test-Path $Candidate) {
+      return (Resolve-Path $Candidate).Path
+    }
+  }
+
+  $PythonCommand = Get-Command python -ErrorAction SilentlyContinue
+  if ($PythonCommand) {
+    return $PythonCommand.Source
+  }
+
+  return $null
+}
+
+function Install-UvDependencyPatch {
+  param (
+    [System.Collections.ArrayList]$ArgsList
+  )
+
+  if ($ArgsList.Count -eq 0) {
+    return
+  }
+
+  $Profile = Get-UvProfile $ArgsList
+  $UvEnvName = Get-UvEnvName
+  $Extras = @()
+  $Groups = @()
+
+  foreach ($Arg in $ArgsList) {
+    $Text = $Arg.ToString()
+    if ($Text.StartsWith("--extra=")) {
+      $Extras += $Text.Substring(8)
+    }
+    elseif ($Text.StartsWith("--group=")) {
+      $Groups += $Text.Substring(8)
+    }
+  }
+
+  if ($Extras -contains "paddleocr") {
+    Write-Output "检测到 paddleocr，使用 uv sync --inexact 处理冲突依赖"
+    Write-Output "uv sync target environment: $UvEnvName"
+    Write-Output "uv sync dependency profile: $Profile"
+    uv sync --active --frozen --inexact $ArgsList
+    if (!($?)) {
+      throw "uv sync failed"
+    }
+    return
+  }
+
+  $PythonExe = Get-ProjectPython
+  $ReqFile = Join-Path $env:TEMP "qinglong_uv_patch_$PID.txt"
+  $ExportArgs = [System.Collections.ArrayList]::new()
+  [void]$ExportArgs.Add("export")
+  [void]$ExportArgs.Add("--frozen")
+  [void]$ExportArgs.Add("--no-emit-project")
+  [void]$ExportArgs.Add("--format")
+  [void]$ExportArgs.Add("requirements-txt")
+  [void]$ExportArgs.Add("--output-file")
+  [void]$ExportArgs.Add($ReqFile)
+  foreach ($Extra in ($Extras | Select-Object -Unique)) {
+    [void]$ExportArgs.Add("--extra")
+    [void]$ExportArgs.Add($Extra)
+  }
+  foreach ($Group in ($Groups | Select-Object -Unique)) {
+    [void]$ExportArgs.Add("--group")
+    [void]$ExportArgs.Add($Group)
+  }
+
+  Write-Output "导出当前功能所需依赖清单，避免构建本地项目包"
+  uv @ExportArgs
+  if (!($?)) {
+    throw "uv export failed"
+  }
+
+  $InstallArgs = [System.Collections.ArrayList]::new()
+  [void]$InstallArgs.Add("pip")
+  [void]$InstallArgs.Add("install")
+  [void]$InstallArgs.Add("--no-build-isolation")
+  if ($PythonExe) {
+    [void]$InstallArgs.Add("--python")
+    [void]$InstallArgs.Add($PythonExe)
+  }
+  [void]$InstallArgs.Add("-r")
+  [void]$InstallArgs.Add($ReqFile)
+
+  Write-Output "使用共享 .venv 增量安装依赖补丁"
+  Write-Output "uv pip install target environment: $UvEnvName"
+  Write-Output "uv pip install dependency profile: $Profile"
+  try {
+    uv @InstallArgs
+    if (!($?)) {
+      throw "uv pip install failed"
+    }
+  }
+  finally {
+    Remove-Item $ReqFile -ErrorAction SilentlyContinue
+  }
+}
+
 if ($pair_dir) {
   [void]$ext_args.Add("--pair_dir=$pair_dir")
 }
@@ -307,6 +439,9 @@ if ($ocr_model) {
   elseif ($ocr_model -eq "firered_ocr") {
     Add-UvExtra "firered-ocr"
   }
+  elseif ($ocr_model -eq "chandra_ocr") {
+    Add-UvExtra "chandra-ocr"
+  }
 }
 
 # VLM model selection for image tasks
@@ -346,7 +481,12 @@ if ($tags_highlightrate -ne 0.4) {
 }
 
 # run train
-uv run $uv_args "./module/captioner.py" $dataset_path $ext_args
+$UvEnvName = Get-UvEnvName
+$UvProfile = Get-UvProfile $uv_args
+Install-UvDependencyPatch $uv_args
+Write-Output "runtime target environment: $UvEnvName"
+Write-Output "runtime dependency profile: $UvProfile"
+python "./module/captioner.py" $dataset_path $ext_args
 
 Write-Output "Captioner finished"
 Read-Host | Out-Null ;

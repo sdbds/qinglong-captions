@@ -125,6 +125,20 @@ if ($Config.crop_transparent) {
 
 #region Execute Image Processing Script
 Write-Output "Starting Image Processing..."
+if ($env:VIRTUAL_ENV) {
+    $UvEnvName = Split-Path -Path $env:VIRTUAL_ENV -Leaf
+}
+elseif (Test-Path "./.venv") {
+    $UvEnvName = ".venv"
+}
+elseif (Test-Path "./venv") {
+    $UvEnvName = "venv"
+}
+else {
+    $UvEnvName = "uv-managed"
+}
+Write-Output "uv run target environment: $UvEnvName"
+Write-Output "uv dependency profile: default"
 
 # Execute the Python script
 uv run $Config.python_script_path `

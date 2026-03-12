@@ -7,6 +7,8 @@ from rich.style import Style
 from rich.text import Text
 from rich_pixels import Pixels
 
+from utils.tag_highlighting import get_tag_classifier
+
 # 全局控制台实例
 console = Console(color_system="truecolor", force_terminal=True)
 
@@ -89,13 +91,12 @@ class CaptionLayout(BaseLayout):
             console: Rich控制台实例
         """
         super().__init__(panel_height, console)
-        from utils.wdtagger import TagClassifier
 
-        tagClassifier = TagClassifier()
+        tag_classifier = get_tag_classifier()
         # Process tag_description to handle various spacing and comma combinations
         cleaned_description = tag_description.replace("<", "").replace(">", "")
         processed_tags = [tag.strip() for tag in cleaned_description.split(",") if tag.strip()]
-        tag_values = tagClassifier.classify(processed_tags).values()
+        tag_values = tag_classifier.classify(processed_tags).values()
         self.tag_description = ",".join([",".join(value) for value in tag_values])
         self.short_description = short_description
         self.long_description = long_description

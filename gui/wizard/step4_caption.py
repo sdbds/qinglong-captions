@@ -165,6 +165,24 @@ class CaptionStep:
 
     VLM_MODELS = list(route_choices("vlm_image_model"))
 
+    OCR_EXTRA_MAP = {
+        "paddle_ocr": "paddleocr",
+        "deepseek_ocr": "deepseek-ocr",
+        "olmocr": "olmocr",
+        "hunyuan_ocr": "hunyuan-ocr",
+        "moondream": "moondream",
+        "glm_ocr": "glm-ocr",
+        "nanonets_ocr": "nanonets-ocr",
+        "firered_ocr": "firered-ocr",
+        "chandra_ocr": "chandra-ocr",
+    }
+
+    VLM_EXTRA_MAP = {
+        "moondream": "moondream",
+        "qwen_vl_local": "qwen-vl-local",
+        "step_vl_local": "step-vl-local",
+    }
+
     def __init__(self):
         self.config: Dict[str, Any] = {
             "mode": "long",
@@ -202,6 +220,22 @@ class CaptionStep:
 
     def _has_caption_provider_config(self) -> bool:
         return self._has_remote_provider_config() or self._has_local_route_config()
+
+    @staticmethod
+    def _append_extra(extra_args: list[str], seen: set[str], extra_name: Optional[str]) -> None:
+        if not extra_name or extra_name in seen:
+            return
+        seen.add(extra_name)
+        extra_args.extend(["--extra", extra_name])
+
+    def _build_local_extra_args(self) -> list[str]:
+        extra_args: list[str] = []
+        seen: set[str] = set()
+
+        self._append_extra(extra_args, seen, self.OCR_EXTRA_MAP.get(self.ocr_model.value or ""))
+        self._append_extra(extra_args, seen, self.VLM_EXTRA_MAP.get(self.vlm_image_model.value or ""))
+
+        return extra_args
 
     def render(self):
         """渲染页面"""
@@ -575,10 +609,14 @@ class CaptionStep:
         if self.vlm_image_model.value:
             args.append(f"--vlm_image_model={self.vlm_image_model.value}")
 
+        uv_extra_args = self._build_local_extra_args()
+
         self.log_viewer.info(f"{t('log_params')}: {args[:5]}...")
+        if uv_extra_args:
+            self.log_viewer.info(f"uv extras: {uv_extra_args}")
 
         # 运行字幕生成
-        result = await process_runner.run_python_script("module.captioner", args)
+        result = await process_runner.run_python_script("module.captioner", args, uv_extra_args=uv_extra_args or None)
 
         try:
             if result.status == ProcessStatus.SUCCESS:

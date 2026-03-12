@@ -8,6 +8,8 @@ import toml
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TimeRemainingColumn
 
+from utils.tag_highlighting import get_tag_classifier
+
 console = Console(color_system="truecolor", force_terminal=True)
 
 
@@ -453,7 +455,6 @@ def format_description(text: str, tag_description: str = "") -> str:
     Returns:
         Formatted text with rich markup
     """
-    from utils.wdtagger import TagClassifier
     has_green = bool(re.search(r"<[^>]+>", text))
     has_purple = bool(re.search(r"\([^)]+\)", text))
 
@@ -462,7 +463,7 @@ def format_description(text: str, tag_description: str = "") -> str:
     # 高亮()内的内容
     text = re.sub(r"\(([^)]+)\)", r"[dark_magenta]\1[/dark_magenta]", text)
 
-    tagClassifier = TagClassifier()
+    tag_classifier = get_tag_classifier()
     matched_tags = set()
     tags = []
 
@@ -475,7 +476,7 @@ def format_description(text: str, tag_description: str = "") -> str:
 
             def _replace(match: re.Match) -> str:
                 matched_tags.add(match.group(0).lower())
-                return tagClassifier.get_colored_tag(match.group(0))
+                return tag_classifier.get_colored_tag(match.group(0))
 
             text = re.sub(pattern, _replace, text, flags=re.IGNORECASE)
 

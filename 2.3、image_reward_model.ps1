@@ -87,6 +87,20 @@ if ($Config.dtype) { [void]$ExtArgs.Add("--dtype=$($Config.dtype)") }
 
 #region Execute Reward Model
 Write-Output "Starting Reward Model..."
+if ($env:VIRTUAL_ENV) {
+    $UvEnvName = Split-Path -Path $env:VIRTUAL_ENV -Leaf
+}
+elseif (Test-Path "./.venv") {
+    $UvEnvName = ".venv"
+}
+elseif (Test-Path "./venv") {
+    $UvEnvName = "venv"
+}
+else {
+    $UvEnvName = "uv-managed"
+}
+Write-Output "uv run target environment: $UvEnvName"
+Write-Output "uv dependency profile: default"
 
 # Run tagger
 uv run "./module/rewardmodel.py" `

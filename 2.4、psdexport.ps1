@@ -48,6 +48,80 @@ foreach ($Path in $VenvPaths) {
 
 # uv options
 $uv_args = [System.Collections.ArrayList]::new()
+
+function Get-UvEnvName {
+    if ($env:VIRTUAL_ENV) {
+        return Split-Path -Path $env:VIRTUAL_ENV -Leaf
+    }
+    if (Test-Path "./.venv") {
+        return ".venv"
+    }
+    if (Test-Path "./venv") {
+        return "venv"
+    }
+    return "uv-managed"
+}
+
+function Get-ProjectPython {
+    $Candidates = @(
+        "./.venv/Scripts/python.exe",
+        "./venv/Scripts/python.exe",
+        "./.venv/bin/python",
+        "./venv/bin/python"
+    )
+
+    foreach ($Candidate in $Candidates) {
+        if (Test-Path $Candidate) {
+            return (Resolve-Path $Candidate).Path
+        }
+    }
+
+    $PythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($PythonCommand) {
+        return $PythonCommand.Source
+    }
+
+    return $null
+}
+
+function Install-UvExtraPatch {
+    param (
+        [string[]]$Extras
+    )
+
+    if (-not $Extras -or $Extras.Count -eq 0) {
+        return
+    }
+
+    $PythonExe = Get-ProjectPython
+    $UvEnvName = Get-UvEnvName
+    $Profile = ($Extras | Select-Object -Unique | ForEach-Object { "extra:$_" }) -join ", "
+    $ReqFile = Join-Path $env:TEMP "qinglong_uv_patch_$PID.txt"
+    uv export --frozen --no-emit-project --format requirements-txt --output-file $ReqFile --extra ($Extras | Select-Object -Unique)
+    if (!($?)) {
+        throw "uv export failed"
+    }
+
+    Write-Output "使用共享 .venv 增量安装依赖补丁"
+    Write-Output "uv pip install target environment: $UvEnvName"
+    Write-Output "uv pip install dependency profile: $Profile"
+
+    try {
+        if ($PythonExe) {
+            uv pip install --no-build-isolation --python $PythonExe -r $ReqFile
+        }
+        else {
+            uv pip install --no-build-isolation -r $ReqFile
+        }
+
+        if (!($?)) {
+            throw "uv pip install failed"
+        }
+    }
+    finally {
+        Remove-Item $ReqFile -ErrorAction SilentlyContinue
+    }
+}
 #endregion
 
 #region Build Arguments
@@ -70,8 +144,11 @@ Write-Output "Starting PSD export pipeline..."
 
 # Install deps from pyproject optional extras
 [void]$uv_args.Add("--extra=psdexport")
+Install-UvExtraPatch @("psdexport")
+Write-Output "runtime target environment: $(Get-UvEnvName)"
+Write-Output "runtime dependency profile: extra:psdexport"
 
-uv run $uv_args "./utils/psd_dataset_pipeline.py" `
+python "./utils/psd_dataset_pipeline.py" `
     $Config.psd_dir `
     $ExtArgs
 

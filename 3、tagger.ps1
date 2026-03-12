@@ -80,6 +80,80 @@ $ExtArgs = [System.Collections.ArrayList]::new()
 $uv_args = [System.Collections.ArrayList]::new()
 [void]$uv_args.Add("--extra=wdtagger")
 
+function Get-UvEnvName {
+    if ($env:VIRTUAL_ENV) {
+        return Split-Path -Path $env:VIRTUAL_ENV -Leaf
+    }
+    if (Test-Path "./.venv") {
+        return ".venv"
+    }
+    if (Test-Path "./venv") {
+        return "venv"
+    }
+    return "uv-managed"
+}
+
+function Get-ProjectPython {
+    $Candidates = @(
+        "./.venv/Scripts/python.exe",
+        "./venv/Scripts/python.exe",
+        "./.venv/bin/python",
+        "./venv/bin/python"
+    )
+
+    foreach ($Candidate in $Candidates) {
+        if (Test-Path $Candidate) {
+            return (Resolve-Path $Candidate).Path
+        }
+    }
+
+    $PythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($PythonCommand) {
+        return $PythonCommand.Source
+    }
+
+    return $null
+}
+
+function Install-UvExtraPatch {
+    param (
+        [string[]]$Extras
+    )
+
+    if (-not $Extras -or $Extras.Count -eq 0) {
+        return
+    }
+
+    $PythonExe = Get-ProjectPython
+    $UvEnvName = Get-UvEnvName
+    $Profile = ($Extras | Select-Object -Unique | ForEach-Object { "extra:$_" }) -join ", "
+    $ReqFile = Join-Path $env:TEMP "qinglong_uv_patch_$PID.txt"
+    uv export --frozen --no-emit-project --format requirements-txt --output-file $ReqFile --extra ($Extras | Select-Object -Unique)
+    if (!($?)) {
+        throw "uv export failed"
+    }
+
+    Write-Output "使用共享 .venv 增量安装依赖补丁"
+    Write-Output "uv pip install target environment: $UvEnvName"
+    Write-Output "uv pip install dependency profile: $Profile"
+
+    try {
+        if ($PythonExe) {
+            uv pip install --no-build-isolation --python $PythonExe -r $ReqFile
+        }
+        else {
+            uv pip install --no-build-isolation -r $ReqFile
+        }
+
+        if (!($?)) {
+            throw "uv pip install failed"
+        }
+    }
+    finally {
+        Remove-Item $ReqFile -ErrorAction SilentlyContinue
+    }
+}
+
 # Add configuration arguments
 if ($Config.repo_id) { [void]$ExtArgs.Add("--repo_id=$($Config.repo_id)") }
 if ($Config.model_dir) { [void]$ExtArgs.Add("--model_dir=$($Config.model_dir)") }
@@ -110,9 +184,12 @@ if ($TagConfig.tag_replacement) { [void]$ExtArgs.Add("--tag_replacement=$($TagCo
 
 #region Execute Tagger
 Write-Output "Starting tagger..."
+Install-UvExtraPatch @("wdtagger")
+Write-Output "runtime target environment: $(Get-UvEnvName)"
+Write-Output "runtime dependency profile: extra:wdtagger"
 
 # Run tagger
-uv run $uv_args "./utils/wdtagger.py" `
+python "./utils/wdtagger.py" `
     $Config.train_data_dir `
     --thresh=$($Config.thresh) `
     --caption_extension .txt `

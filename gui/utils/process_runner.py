@@ -1,7 +1,8 @@
 """进程运行工具 - 管理外部 Python 脚本的调用和日志输出
 
-执行方式与 PowerShell 启动脚本一致:
-  uv run --extra <name> ./script.py <args>
+依赖策略与共享 .venv 的 PowerShell 脚本保持一致:
+  1. 先按功能往共享环境里打补丁
+  2. 再执行目标脚本
 
 关键：使用 asyncio.create_subprocess_exec 进行非阻塞 I/O，
 避免阻塞 NiceGUI 事件循环导致 WebSocket 断开。
@@ -13,12 +14,17 @@ import subprocess
 import sys
 import os
 import tempfile
+import traceback
 from pathlib import Path
 from typing import Callable, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
 from gui.utils.log_buffer import log_buffer
+from gui.utils.ansi_to_html import strip_ansi
+
+
+_TRANSIENT_SPINNER_FRAMES = frozenset("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
 
 class ProcessStatus(Enum):
@@ -35,7 +41,7 @@ class ProcessResult:
     message: str = ""
 
 
-# 脚本路径映射: module_key -> (script_path, uv_extra | None)
+# 脚本路径映射: module_key -> (script_path, default_extra | None)
 # script_path 相对于项目根目录
 SCRIPT_REGISTRY = {
     # step 1 - 数据集导入
@@ -79,11 +85,14 @@ class ProcessRunner:
     PROJECT_ROOT = str(Path(__file__).parent.parent.parent.resolve())
 
     def __init__(self):
-        self.process: Optional[asyncio.subprocess.Process] = None
+        self.process = None
         self.log_callback: Optional[Callable[[str], None]] = None
         self.status_callback: Optional[Callable[[ProcessStatus], None]] = None
         self._running = False
         self._tail_task: Optional[asyncio.Task] = None
+        self._tail_line = ""
+        self._tail_pending_cr = False
+        self._tail_line_overwritten = False
 
     def set_callbacks(
         self,
@@ -133,6 +142,159 @@ class ProcessRunner:
         """查找 uv 可执行文件路径"""
         return shutil.which("uv")
 
+    @staticmethod
+    def _detect_project_env_name(work_dir: Path, env: dict) -> str:
+        for name in (".venv", "venv"):
+            if (work_dir / name).exists():
+                return name
+        venv_path = env.get("VIRTUAL_ENV")
+        if venv_path:
+            return Path(venv_path).name or venv_path
+        return "uv-managed"
+
+    @staticmethod
+    def _collect_uv_profiles(extra_name: Optional[str], uv_extra_args: Optional[List[str]] = None) -> tuple[list[str], list[str]]:
+        extras: list[str] = []
+        groups: list[str] = []
+        seen_extras: set[str] = set()
+        seen_groups: set[str] = set()
+
+        def add_value(bucket: list[str], seen: set[str], value: Optional[str]) -> None:
+            if not value or value in seen:
+                return
+            seen.add(value)
+            bucket.append(value)
+
+        add_value(extras, seen_extras, extra_name)
+
+        args_iter = iter(uv_extra_args or [])
+        for arg in args_iter:
+            if arg == "--extra":
+                add_value(extras, seen_extras, next(args_iter, None))
+                continue
+            if arg == "--group":
+                add_value(groups, seen_groups, next(args_iter, None))
+                continue
+            if arg.startswith("--extra="):
+                add_value(extras, seen_extras, arg.split("=", 1)[1])
+                continue
+            if arg.startswith("--group="):
+                add_value(groups, seen_groups, arg.split("=", 1)[1])
+
+        return extras, groups
+
+    @staticmethod
+    def _profile_parts(extras: list[str], groups: list[str]) -> list[str]:
+        parts = ["default"]
+        parts.extend(f"extra:{name}" for name in extras)
+        parts.extend(f"group:{name}" for name in groups)
+        return parts
+
+    @staticmethod
+    def _resolve_project_python(work_dir: Path, env: dict) -> Optional[str]:
+        candidates: list[Path] = []
+
+        for name in (".venv", "venv"):
+            base = work_dir / name
+            if sys.platform == "win32":
+                python_path = base / "Scripts" / "python.exe"
+            else:
+                python_path = base / "bin" / "python"
+            candidates.append(python_path)
+
+        venv_path = env.get("VIRTUAL_ENV")
+        if venv_path:
+            venv_base = Path(venv_path)
+            if sys.platform == "win32":
+                candidates.append(venv_base / "Scripts" / "python.exe")
+            else:
+                candidates.append(venv_base / "bin" / "python")
+
+        candidates.append(Path(sys.executable))
+
+        for candidate in candidates:
+            if candidate.exists():
+                return str(candidate)
+        return None
+
+    @staticmethod
+    def _needs_sync_patch(extras: list[str]) -> bool:
+        return "paddleocr" in extras
+
+    def _reset_tail_state(self):
+        """重置原生控制台日志解析状态。"""
+        self._tail_line = ""
+        self._tail_pending_cr = False
+        self._tail_line_overwritten = False
+
+    @staticmethod
+    def _is_transient_console_update(line: str) -> bool:
+        """判断是否为仅用于终端刷新的瞬时进度帧。"""
+        plain = strip_ansi(line).strip()
+        return bool(plain) and plain[0] in _TRANSIENT_SPINNER_FRAMES
+
+    def _emit_tail_line(self, lines: list[str], *, final_flush: bool = False):
+        """提交一行稳定日志，跳过 spinner 这类瞬时刷新。"""
+        raw = self._tail_line.rstrip()
+        overwritten = self._tail_line_overwritten
+        self._tail_line = ""
+        self._tail_line_overwritten = False
+
+        if not raw:
+            return
+
+        if self._is_transient_console_update(raw) and (overwritten or final_flush):
+            return
+
+        lines.append(raw)
+
+    def _publish_tailed_line(self, raw: str):
+        """将稳定日志推送给主窗口和同步窗口。"""
+        if not raw:
+            return
+        log_buffer.push(raw)
+        if self.log_callback:
+            self.log_callback(raw)
+
+    def _consume_native_log_chunk(self, text: str, *, final_flush: bool = False) -> list[str]:
+        """按终端语义解析原生控制台输出。
+
+        裸 `\r` 表示覆盖当前行，不应当当成一条新日志。
+        """
+        committed: list[str] = []
+        index = 0
+
+        while index < len(text):
+            char = text[index]
+
+            if self._tail_pending_cr:
+                self._tail_pending_cr = False
+                if char == "\n":
+                    self._emit_tail_line(committed)
+                    index += 1
+                    continue
+                self._tail_line = ""
+                self._tail_line_overwritten = True
+                continue
+
+            if char == "\r":
+                self._tail_pending_cr = True
+            elif char == "\n":
+                self._emit_tail_line(committed)
+            else:
+                self._tail_line += char
+
+            index += 1
+
+        if final_flush:
+            if self._tail_pending_cr:
+                self._tail_pending_cr = False
+                self._tail_line = ""
+                self._tail_line_overwritten = True
+            self._emit_tail_line(committed, final_flush=True)
+
+        return committed
+
     # ------------------------------------------------------------------
     #  非阻塞读取子进程输出
     # ------------------------------------------------------------------
@@ -149,12 +311,148 @@ class ProcessRunner:
                 line = str(line_bytes)
             self._notify_log(line)
 
+    async def _stream_output_popen(self, proc: subprocess.Popen):
+        """在 selector event loop 下通过线程读取 Popen 输出。"""
+        assert proc.stdout is not None
+        while True:
+            line = await asyncio.to_thread(proc.stdout.readline)
+            if not line:
+                break
+            self._notify_log(str(line).rstrip())
+
+    @staticmethod
+    def _requires_threaded_subprocess() -> bool:
+        if sys.platform != "win32":
+            return False
+        return type(asyncio.get_event_loop_policy()).__name__ == "WindowsSelectorEventLoopPolicy"
+
+    async def _run_pipe_with_popen(self, cmd: List[str], work_dir: Path, env: dict) -> int:
+        """Windows reload 模式下，避免 asyncio 子进程不可用。"""
+        self.process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=str(work_dir),
+            env=env,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        await self._stream_output_popen(self.process)
+        return await asyncio.to_thread(self.process.wait)
+
+    async def _run_logged_subprocess(self, cmd: List[str], work_dir: Path, env: dict) -> int:
+        """在 GUI 日志中同步显示命令输出。"""
+        if self._requires_threaded_subprocess():
+            self._notify_log("检测到 Windows reload 模式，使用线程子进程回退")
+            return await self._run_pipe_with_popen(cmd, work_dir, env)
+
+        try:
+            self.process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=str(work_dir),
+                env=env,
+            )
+        except NotImplementedError:
+            self._notify_log("当前事件循环不支持 asyncio 子进程，回退到线程子进程模式")
+            return await self._run_pipe_with_popen(cmd, work_dir, env)
+
+        await self._stream_output(self.process)
+        return await self.process.wait()
+
+    async def _patch_shared_environment(
+        self,
+        uv: str,
+        work_dir: Path,
+        env: dict,
+        env_name: str,
+        extras: list[str],
+        groups: list[str],
+    ) -> Optional[ProcessResult]:
+        if not extras and not groups:
+            return None
+
+        target_python = self._resolve_project_python(work_dir, env)
+        profile_parts = self._profile_parts(extras, groups)
+
+        if self._needs_sync_patch(extras):
+            cmd = [uv, "sync", "--frozen", "--inexact"]
+            action = "uv sync"
+            if target_python:
+                cmd.extend(["--python", target_python])
+            for extra in extras:
+                cmd.extend(["--extra", extra])
+            for group in groups:
+                cmd.extend(["--group", group])
+            self._notify_log("检测到 paddleocr，使用 uv sync --inexact 处理冲突依赖")
+        else:
+            req_file = tempfile.NamedTemporaryFile(prefix="qinglong_uv_patch_", suffix=".txt", delete=False)
+            req_file.close()
+            export_cmd = [
+                uv,
+                "export",
+                "--frozen",
+                "--no-emit-project",
+                "--format",
+                "requirements-txt",
+                "--output-file",
+                req_file.name,
+            ]
+            for extra in extras:
+                export_cmd.extend(["--extra", extra])
+            for group in groups:
+                export_cmd.extend(["--group", group])
+
+            self._notify_log("导出当前功能所需依赖清单，避免构建本地项目包")
+            self._notify_log(f"开始导出依赖: {' '.join(export_cmd[:15])}{'...' if len(export_cmd) > 15 else ''}")
+            export_code = await self._run_logged_subprocess(export_cmd, work_dir, env)
+            self.process = None
+            if export_code != 0:
+                try:
+                    os.unlink(req_file.name)
+                except OSError:
+                    pass
+                message = f"uv export 失败，返回码: {export_code}"
+                self._notify_log(message)
+                return ProcessResult(ProcessStatus.ERROR, export_code, message)
+
+            cmd = [uv, "pip", "install", "--no-build-isolation"]
+            action = "uv pip install"
+            if target_python:
+                cmd.extend(["--python", target_python])
+            cmd.extend(["-r", req_file.name])
+            self._notify_log("使用共享 .venv 增量安装依赖补丁")
+
+        self._notify_log(f"{action} target environment: {env_name}")
+        self._notify_log(f"{action} dependency profile: {', '.join(profile_parts)}")
+        self._notify_log(f"开始同步依赖: {' '.join(cmd[:15])}{'...' if len(cmd) > 15 else ''}")
+
+        return_code = await self._run_logged_subprocess(cmd, work_dir, env)
+        self.process = None
+
+        if not self._needs_sync_patch(extras):
+            try:
+                os.unlink(req_file.name)
+            except OSError:
+                pass
+
+        if return_code != 0:
+            message = f"{action} 失败，返回码: {return_code}"
+            self._notify_log(message)
+            return ProcessResult(ProcessStatus.ERROR, return_code, message)
+
+        return None
+
     # ------------------------------------------------------------------
     #  日志文件尾随（原生控制台模式）
     # ------------------------------------------------------------------
     async def _tail_log_file(self, log_file: str):
         """异步尾随日志文件，原始 ANSI 推送到 log_buffer，纯文本回传 GUI"""
         offset = 0
+        self._reset_tail_state()
         try:
             while self._running:
                 try:
@@ -165,20 +463,26 @@ class ProcessRunner:
                             if new_data:
                                 offset += len(new_data)
                                 text = new_data.decode("utf-8", errors="replace")
-                                for line in text.splitlines():
-                                    raw = line.rstrip()
-                                    if not raw:
-                                        continue
-                                    # 推送原始 ANSI 到 log_buffer
-                                    log_buffer.push(raw)
-                                    # 回调传原始 ANSI 文本，LogViewer 支持 ANSI→HTML 渲染
-                                    if raw and self.log_callback:
-                                        self.log_callback(raw)
+                                for line in self._consume_native_log_chunk(text):
+                                    self._publish_tailed_line(line.rstrip())
                 except Exception:
                     pass
                 await asyncio.sleep(0.5)
+
+            if os.path.exists(log_file):
+                with open(log_file, "rb") as f:
+                    f.seek(offset)
+                    remaining = f.read()
+                offset += len(remaining)
+                text = remaining.decode("utf-8", errors="replace") if remaining else ""
+                for line in self._consume_native_log_chunk(text, final_flush=True):
+                    self._publish_tailed_line(line.rstrip())
+            else:
+                for line in self._consume_native_log_chunk("", final_flush=True):
+                    self._publish_tailed_line(line.rstrip())
         except asyncio.CancelledError:
-            pass
+            for line in self._consume_native_log_chunk("", final_flush=True):
+                self._publish_tailed_line(line.rstrip())
 
     # ------------------------------------------------------------------
     #  主要运行方法
@@ -201,7 +505,7 @@ class ProcessRunner:
             cwd: 工作目录 (默认项目根目录)。
             env_vars: 额外环境变量。
             uv_extra: 强制指定 pyproject optional dependency extra。
-            uv_extra_args: uv run 额外参数。
+            uv_extra_args: 额外的依赖 profile 参数（如 extra/group）。
             native_console: Windows 下使用原生控制台窗口（支持 rich 颜色/图片）。
         """
         if self._running:
@@ -234,23 +538,33 @@ class ProcessRunner:
                 default_extra = None
 
             extra_name = uv_extra or default_extra
+            extras, groups = self._collect_uv_profiles(extra_name, uv_extra_args)
+            profile_parts = self._profile_parts(extras, groups)
+            env_name = self._detect_project_env_name(work_dir, env)
+            runtime_python = self._resolve_project_python(work_dir, env)
 
             # Step 1: 构建运行命令
             uv = self._find_uv()
             if uv:
-                cmd = [uv, "run"]
-                if extra_name:
-                    cmd.extend(["--extra", extra_name])
-                if uv_extra_args:
-                    cmd.extend(uv_extra_args)
-                cmd.append(script_path)
+                patch_result = await self._patch_shared_environment(uv, work_dir, env, env_name, extras, groups)
+                if patch_result:
+                    self._running = False
+                    self._notify_status(ProcessStatus.ERROR)
+                    return patch_result
+
+            if runtime_python:
+                cmd = [runtime_python, script_path]
+            elif uv:
+                cmd = [uv, "run", script_path]
             else:
-                if extra_name:
-                    self._notify_log(f"未找到 uv，无法自动启用 extra: {extra_name}")
+                if extras or groups:
+                    self._notify_log("未找到 uv，无法自动安装依赖补丁，将直接尝试运行脚本")
                 cmd = [sys.executable, script_path]
 
             cmd.extend(args)
 
+            self._notify_log(f"runtime target environment: {env_name}")
+            self._notify_log(f"runtime dependency profile: {', '.join(profile_parts)}")
             self._notify_log(f"开始执行: {' '.join(cmd[:15])}{'...' if len(cmd) > 15 else ''}")
             self._notify_log(f"工作目录: {work_dir.absolute()}")
             self._notify_log("=" * 60)
@@ -259,16 +573,7 @@ class ProcessRunner:
             if use_native:
                 return_code = await self._run_native(cmd, work_dir, env)
             else:
-                # 管道模式：输出回传到 GUI 日志
-                self.process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,
-                    cwd=str(work_dir),
-                    env=env,
-                )
-                await self._stream_output(self.process)
-                return_code = await self.process.wait()
+                return_code = await self._run_logged_subprocess(cmd, work_dir, env)
 
             self._running = False
 
@@ -282,8 +587,10 @@ class ProcessRunner:
         except Exception as e:
             self._running = False
             self._notify_status(ProcessStatus.ERROR)
-            error_msg = f"执行出错: {str(e)}"
+            detail = str(e) or repr(e)
+            error_msg = f"执行出错: {type(e).__name__}: {detail}"
             self._notify_log(error_msg)
+            self._notify_log(traceback.format_exc(limit=6))
             return ProcessResult(ProcessStatus.ERROR, -1, error_msg)
         finally:
             self.process = None
@@ -321,8 +628,8 @@ class ProcessRunner:
         ps_cmd = _powershell_call(parts)
         wrapper_cmd = [ps_exe, "-NoProfile", "-NoLogo", "-Command", ps_cmd]
 
-        self.process = await asyncio.create_subprocess_exec(
-            *wrapper_cmd,
+        self.process = subprocess.Popen(
+            wrapper_cmd,
             cwd=str(work_dir),
             env=env,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
@@ -408,16 +715,20 @@ class ProcessRunner:
             self._notify_log(f"工作目录: {work_dir.absolute()}")
             self._notify_log("=" * 60)
 
-            self.process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                cwd=str(work_dir),
-                env=env,
-            )
+            if self._requires_threaded_subprocess():
+                self._notify_log("检测到 Windows reload 模式，使用线程子进程回退")
+                return_code = await self._run_pipe_with_popen(cmd, work_dir, env)
+            else:
+                self.process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    cwd=str(work_dir),
+                    env=env,
+                )
 
-            await self._stream_output(self.process)
-            return_code = await self.process.wait()
+                await self._stream_output(self.process)
+                return_code = await self.process.wait()
             self._running = False
 
             if return_code == 0:
@@ -430,8 +741,10 @@ class ProcessRunner:
         except Exception as e:
             self._running = False
             self._notify_status(ProcessStatus.ERROR)
-            error_msg = f"执行出错: {str(e)}"
+            detail = str(e) or repr(e)
+            error_msg = f"执行出错: {type(e).__name__}: {detail}"
             self._notify_log(error_msg)
+            self._notify_log(traceback.format_exc(limit=6))
             return ProcessResult(ProcessStatus.ERROR, -1, error_msg)
         finally:
             self.process = None

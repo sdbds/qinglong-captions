@@ -61,6 +61,20 @@ if ($Config.thresh -ne 1.0) { [void]$ExtArgs.Add("--thresh=$($Config.thresh)") }
 
 #region Execute Watermark Detection
 Write-Output "Starting Watermark Detection..."
+if ($env:VIRTUAL_ENV) {
+    $UvEnvName = Split-Path -Path $env:VIRTUAL_ENV -Leaf
+}
+elseif (Test-Path "./.venv") {
+    $UvEnvName = ".venv"
+}
+elseif (Test-Path "./venv") {
+    $UvEnvName = "venv"
+}
+else {
+    $UvEnvName = "uv-managed"
+}
+Write-Output "uv run target environment: $UvEnvName"
+Write-Output "uv dependency profile: default"
 
 # Run tagger
 uv run "./module/waterdetect.py" `

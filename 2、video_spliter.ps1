@@ -59,6 +59,20 @@ if ($Config.recursive) { [void]$ExtArgs.Add("--recursive") }
 
 #region Execute Scene Detection
 Write-Output "Starting scene detection..."
+if ($env:VIRTUAL_ENV) {
+    $UvEnvName = Split-Path -Path $env:VIRTUAL_ENV -Leaf
+}
+elseif (Test-Path "./.venv") {
+    $UvEnvName = ".venv"
+}
+elseif (Test-Path "./venv") {
+    $UvEnvName = "venv"
+}
+else {
+    $UvEnvName = "uv-managed"
+}
+Write-Output "uv run target environment: $UvEnvName"
+Write-Output "uv dependency profile: default"
 
 # 运行场景检测程序
 uv run "./module/videospilter.py" `

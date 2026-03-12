@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
 import sys
-import time
+from functools import lru_cache
 from typing import Any, Optional
 
 import torch
@@ -70,9 +71,20 @@ class BufferedTextStreamer:
         self._flush()
 
 
+@lru_cache(maxsize=1)
+def _has_flash_attn() -> bool:
+    return importlib.util.find_spec("flash_attn") is not None
+
+
+def _is_missing_flash_attn_error(exc: BaseException) -> bool:
+    message = str(exc)
+    return "flash_attn" in message or "FlashAttention2 has been toggled on" in message
+
+
 def resolve_device_dtype() -> tuple[str, torch.dtype, str]:
     if torch.cuda.is_available():
-        return "cuda", getattr(torch, "bfloat16", torch.float16), "flash_attention_2"
+        attn_impl = "flash_attention_2" if _has_flash_attn() else "eager"
+        return "cuda", getattr(torch, "bfloat16", torch.float16), attn_impl
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         return "mps", torch.float16, "eager"
     return "cpu", torch.float32, "eager"
@@ -135,7 +147,7 @@ class transformerLoader:
         if key in self._model_cache:
             return self._model_cache[key]
         if console:
-            console.print(f"[green]Loading model:[/green] {model_id} (dtype={dtype})")
+            console.print(f"[green]Loading model:[/green] {model_id} (dtype={dtype}, attn={attn_impl or 'default'})")
         kwargs: dict[str, Any] = {}
         kwargs["trust_remote_code"] = trust_remote_code
         kwargs["low_cpu_mem_usage"] = low_cpu_mem_usage
@@ -147,7 +159,16 @@ class transformerLoader:
             kwargs[self.attn_kw] = attn_impl
         if extra_kwargs:
             kwargs.update(extra_kwargs)
-        model = model_cls.from_pretrained(model_id, **kwargs)
+        try:
+            model = model_cls.from_pretrained(model_id, **kwargs)
+        except ImportError as exc:
+            if not (self.attn_kw and attn_impl and attn_impl != "eager" and _is_missing_flash_attn_error(exc)):
+                raise
+            fallback_kwargs = dict(kwargs)
+            fallback_kwargs[self.attn_kw] = "eager"
+            if console:
+                console.print("[yellow]flash_attn 不可用，回退到 eager attention 继续加载[/yellow]")
+            model = model_cls.from_pretrained(model_id, **fallback_kwargs)
         try:
             model = model.eval()
         except Exception:
