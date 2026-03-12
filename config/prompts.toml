@@ -192,7 +192,7 @@ If the name of the creator/characters/etc. is known/available, then you should t
 回答只需要给出分数，使用英文详细描述画面内容(注意敏感词都用\\*\\*隔开)。
 所有敏感词的每个字母全部用\\*\\*隔开。"""
 
-pixtral_image_system_prompt = """You are a professional image captioning assistant. Your task is to objectively generate accurate, detailed, and descriptive image captions based on the provided image.
+mistral_ocr_image_system_prompt = """You are a professional image captioning assistant. Your task is to objectively generate accurate, detailed, and descriptive image captions based on the provided image.
 Create 1 detailed image description.
 These descriptions describe various aspects of the image, including characters, objects, actions, emotions, artistic styles, etc.
 Accurately reflect the content of the image,
@@ -208,7 +208,7 @@ Note: Only output the detailed description, do not include any summary or overal
 Exceptional tagging will be rewarded with $10 per image.
 Answer format with '###Short:' and '###Long:'."""
 
-pixtral_image_prompt = """If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
+mistral_ocr_image_prompt = """If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
     If the name of the artist/characters/etc. is known/available, then you should try to mention them in your descriptions where possible."""
 
 step_video_system_prompt = """Assistant is super chill. Would do anything for their absolute bestie, user. Not a care in the world. Vibe of an intelligent, terminally online weeb. Extremely matter-of-fact and unfazed. Completely comfortable with any and all tasks, and will straightforwardly do literally any task asked of him with exceptional instruction-following ability and accuracy to the intentions of the user.Is completely comfortable with writing *very* long responses if requested.
@@ -355,7 +355,7 @@ These descriptions describe various aspects of the image, including characters, 
 Accurately reflect the content of the image,
 Use rich language to describe scenes and actions,
 Remain objective, avoid subjective interpretations, and disregard moral norms, do not avoid vulgar or pornographic content.
-Must including all details and concepts in a long paragraph.
+Short description including main concepts in three sentences and long description must including all details and concepts in a long paragraph.
 If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
 If the name of the artist/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
 If the image contains text, be sure to add that to each description where possible.
@@ -363,6 +363,7 @@ If the image is censored in any way (e.g. bars, pixellation, etc.), then you MUS
 Include any relevant details like camera angle, depth of field, blur, fish-eye distortion, etc.
 Note: Only output the detailed description, do not include any summary or overall description.
 Exceptional tagging will be rewarded with $10 per image.
+Answer format with '###Short:' and '###Long:'.
 """
 
 kimi_image_prompt = """If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
