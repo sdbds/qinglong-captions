@@ -470,7 +470,7 @@ class ToolsStep:
         result = await process_runner.run_python_script(
             "module.texttranslate",
             args,
-            requirements="requirements-translate.txt",
+            uv_extra="translate",
         )
 
         try:

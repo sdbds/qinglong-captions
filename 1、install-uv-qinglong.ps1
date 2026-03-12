@@ -104,18 +104,10 @@ else {
     . ./.venv/bin/activate.ps1
 }
 
-Write-Output "Installing main requirements"
+Write-Output "Syncing project dependencies from pyproject.toml"
 
-~/.local/bin/uv pip install --upgrade wheel_stub
-
-if ($env:OS -ilike "*windows*") {
-    ~/.local/bin/uv pip sync requirements-uv.txt --index-strategy unsafe-best-match
-    Check "Install main requirements failed"
-}
-else {
-    ~/.local/bin/uv pip sync requirements-uv-linux.txt --index-strategy unsafe-best-match
-    Check "Install main requirements failed"
-}
+~/.local/bin/uv sync --active --frozen
+Check "Install main requirements failed"
 
 Write-Output "Install finished"
 Read-Host | Out-Null ;

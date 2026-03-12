@@ -1,0 +1,429 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qinglong-captions"
+version = "4.1.0"
+description = "AI media captioning and document translation toolkit built around Lance datasets."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "av",
+    "pylance>=2.0.1",
+    "rich",
+    "rich_pixels",
+    "pandas",
+    "pillow-heif",
+    "pillow-jxl-plugin",
+    "pysrt",
+    "toml",
+    "imageio>=2.31.1",
+    "imageio-ffmpeg>=0.4.8",
+    "pymediainfo",
+    "mutagen",
+    "mistralai>=1.9.11",
+    "google-genai>=1.52.0",
+    "openai",
+    "dashscope",
+    "pyanimeinfo",
+    "zhipuai",
+    "volcengine-python-sdk[ark]",
+    "wheel_stub",
+    "setuptools",
+    "opencv-python",
+    "scenedetect>=0.6.6",
+    "psd-tools",
+    "nicegui",
+    "tomlkit",
+]
+
+[project.optional-dependencies]
+translate = [
+    "docling",
+    "markitdown[all]",
+    "sentencepiece",
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers==4.56.0",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "matplotlib",
+    "einops",
+    "addict",
+    "easydict",
+    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "triton-windows; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl; sys_platform == 'win32' and python_version == '3.11'",
+    "safetensors",
+    "PyMuPDF",
+    "img2pdf",
+]
+wdtagger = [
+    "pillow>=11.3",
+    "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.12.0.88/opencv_contrib_python-4.12.0.88-cp37-abi3-win_amd64.whl; sys_platform == 'win32'",
+    "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.12.0.88/opencv_contrib_python-4.12.0.88-cp37-abi3-linux_x86_64.whl; sys_platform == 'linux'",
+    "onnxruntime-gpu==1.20.2; sys_platform == 'win32'",
+    "onnxruntime-gpu>=1.20.2; sys_platform == 'linux'",
+    "tensorrt==10.9.0.34",
+    "torch>=2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers>=4.57",
+    "huggingface_hub[hf_xet]>=0.35.2",
+]
+moondream = [
+    "torch==2.8.0",
+    "transformers>=4.44.0",
+    "accelerate>=0.34.0",
+    "Pillow>=9.5.0",
+    "safetensors>=0.4.2",
+]
+olmocr = [
+    "torch==2.8.0",
+    "torchvision",
+    "transformers>=4.44.0",
+    "huggingface_hub[hf_xet]",
+    "accelerate>=0.34.0",
+    "Pillow>=9.5.0",
+    "sentencepiece>=0.1.99",
+    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "triton-windows; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl; sys_platform == 'win32' and python_version == '3.11'",
+    "safetensors>=0.4.2",
+    "olmocr; python_version >= '3.11'",
+    "PyMuPDF",
+    "img2pdf",
+]
+paddleocr = [
+    "rich>=14.3.1",
+    "pillow",
+    "pyarrow",
+    "numpy",
+    "setuptools<75",
+    "paddlepaddle-gpu @ https://paddle-whl.bj.bcebos.com/nightly/cu129/paddlepaddle-gpu/paddlepaddle_gpu-3.4.0.dev20260129-cp310-cp310-linux_x86_64.whl; sys_platform == 'linux' and python_version == '3.10'",
+    "paddlepaddle-gpu @ https://paddle-whl.bj.bcebos.com/nightly/cu129/paddlepaddle-gpu/paddlepaddle_gpu-3.4.0.dev20260129-cp310-cp310-win_amd64.whl; sys_platform == 'win32' and python_version == '3.10'",
+    "paddlepaddle-gpu @ https://paddle-whl.bj.bcebos.com/nightly/cu129/paddlepaddle-gpu/paddlepaddle_gpu-3.4.0.dev20260129-cp311-cp311-linux_x86_64.whl; sys_platform == 'linux' and python_version == '3.11'",
+    "paddlepaddle-gpu @ https://paddle-whl.bj.bcebos.com/nightly/cu129/paddlepaddle-gpu/paddlepaddle_gpu-3.4.0.dev20260129-cp311-cp311-win_amd64.whl; sys_platform == 'win32' and python_version == '3.11'",
+    "paddlepaddle-gpu @ https://paddle-whl.bj.bcebos.com/nightly/cu129/paddlepaddle-gpu/paddlepaddle_gpu-3.4.0.dev20260129-cp312-cp312-linux_x86_64.whl; sys_platform == 'linux' and python_version == '3.12'",
+    "paddlepaddle-gpu @ https://paddle-whl.bj.bcebos.com/nightly/cu129/paddlepaddle-gpu/paddlepaddle_gpu-3.4.0.dev20260129-cp312-cp312-win_amd64.whl; sys_platform == 'win32' and python_version == '3.12'",
+    "paddleocr[doc-parser]",
+    "safetensors==0.7.0",
+]
+psdexport = [
+    "psd-tools[composite]",
+]
+deepseek-ocr = [
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers==4.46.3",
+    "tokenizers==0.20.3",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "matplotlib",
+    "einops",
+    "addict",
+    "easydict",
+    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "triton-windows; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl; sys_platform == 'win32' and python_version == '3.11'",
+    "safetensors",
+    "PyMuPDF",
+    "img2pdf",
+]
+hunyuan-ocr = [
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers @ git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "triton-windows; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl; sys_platform == 'win32' and python_version == '3.11'",
+    "safetensors",
+    "PyMuPDF",
+    "img2pdf",
+]
+glm-ocr = [
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers @ git+https://github.com/huggingface/transformers.git",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "matplotlib",
+    "einops",
+    "addict",
+    "easydict",
+    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "triton-windows; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl; sys_platform == 'win32' and python_version == '3.11'",
+    "safetensors",
+    "PyMuPDF",
+    "img2pdf",
+]
+nanonets-ocr = [
+    "transformers>=4.45.0",
+    "torch>=2.0.0",
+    "pillow",
+    "accelerate",
+    "safetensors",
+    "flash-attn>=2.0.0; sys_platform != 'darwin'",
+]
+firered-ocr = [
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers @ git+https://github.com/huggingface/transformers.git",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "matplotlib",
+    "einops",
+    "addict",
+    "easydict",
+    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "triton-windows; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl; sys_platform == 'win32' and python_version == '3.11'",
+    "safetensors",
+    "qwen-vl-utils",
+    "PyMuPDF",
+    "img2pdf",
+]
+chandra-ocr = [
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers @ git+https://github.com/huggingface/transformers.git",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "matplotlib",
+    "einops",
+    "addict",
+    "easydict",
+    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "triton-windows; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl; sys_platform == 'win32' and python_version == '3.11'",
+    "safetensors",
+    "chandra-ocr",
+    "PyMuPDF",
+    "img2pdf",
+]
+qwen-vl-local = [
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers @ git+https://github.com/huggingface/transformers.git",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "matplotlib",
+    "einops",
+    "addict",
+    "easydict",
+    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "triton-windows; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl; sys_platform == 'win32' and python_version == '3.11'",
+    "safetensors",
+    "qwen-vl-utils",
+]
+step-vl-local = [
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers>=4.56.0",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "safetensors",
+]
+
+[dependency-groups]
+test = [
+    "pytest",
+    "transformers>=4.57.0",
+    "torch>=2.8.0",
+    "scikit-learn>=1.4.0",
+]
+
+[tool.uv]
+package = false
+conflicts = [
+    [
+        { extra = "deepseek-ocr" },
+        { extra = "translate" },
+    ],
+    [
+        { extra = "deepseek-ocr" },
+        { extra = "wdtagger" },
+    ],
+    [
+        { extra = "deepseek-ocr" },
+        { extra = "step-vl-local" },
+    ],
+    [
+        { extra = "deepseek-ocr" },
+        { extra = "hunyuan-ocr" },
+    ],
+    [
+        { extra = "deepseek-ocr" },
+        { extra = "glm-ocr" },
+    ],
+    [
+        { extra = "deepseek-ocr" },
+        { extra = "firered-ocr" },
+    ],
+    [
+        { extra = "deepseek-ocr" },
+        { extra = "chandra-ocr" },
+    ],
+    [
+        { extra = "deepseek-ocr" },
+        { extra = "qwen-vl-local" },
+    ],
+    [
+        { extra = "translate" },
+        { extra = "wdtagger" },
+    ],
+    [
+        { extra = "translate" },
+        { extra = "hunyuan-ocr" },
+    ],
+    [
+        { extra = "translate" },
+        { extra = "glm-ocr" },
+    ],
+    [
+        { extra = "translate" },
+        { extra = "firered-ocr" },
+    ],
+    [
+        { extra = "translate" },
+        { extra = "chandra-ocr" },
+    ],
+    [
+        { extra = "translate" },
+        { extra = "qwen-vl-local" },
+    ],
+    [
+        { extra = "olmocr" },
+        { extra = "paddleocr" },
+    ],
+    [
+        { extra = "olmocr" },
+        { extra = "translate" },
+    ],
+    [
+        { extra = "olmocr" },
+        { extra = "wdtagger" },
+    ],
+    [
+        { extra = "olmocr" },
+        { extra = "deepseek-ocr" },
+    ],
+    [
+        { extra = "olmocr" },
+        { extra = "hunyuan-ocr" },
+    ],
+    [
+        { extra = "olmocr" },
+        { extra = "glm-ocr" },
+    ],
+    [
+        { extra = "olmocr" },
+        { extra = "firered-ocr" },
+    ],
+    [
+        { extra = "olmocr" },
+        { extra = "chandra-ocr" },
+    ],
+    [
+        { extra = "olmocr" },
+        { extra = "qwen-vl-local" },
+    ],
+    [
+        { extra = "olmocr" },
+        { extra = "step-vl-local" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "moondream" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "translate" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "wdtagger" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "deepseek-ocr" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "hunyuan-ocr" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "glm-ocr" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "firered-ocr" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "chandra-ocr" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "qwen-vl-local" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "step-vl-local" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "nanonets-ocr" },
+    ],
+    [
+        { group = "test" },
+        { extra = "translate" },
+    ],
+    [
+        { group = "test" },
+        { extra = "deepseek-ocr" },
+    ],
+    [
+        { group = "test" },
+        { extra = "paddleocr" },
+    ],
+    [
+        { extra = "hunyuan-ocr" },
+        { extra = "glm-ocr" },
+    ],
+    [
+        { extra = "hunyuan-ocr" },
+        { extra = "firered-ocr" },
+    ],
+    [
+        { extra = "hunyuan-ocr" },
+        { extra = "chandra-ocr" },
+    ],
+    [
+        { extra = "hunyuan-ocr" },
+        { extra = "qwen-vl-local" },
+    ],
+]
+
+[tool.ruff]
+line-length = 132
+indent-width = 4
+target-version = "py311"
+
+[tool.ruff.lint]
+# Select specific rule sets
+select = ["E", "F", "W", "I"]
+# Ignore all unused imports (including torch)
+ignore = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

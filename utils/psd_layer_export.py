@@ -43,7 +43,7 @@ class LayerFeatures:
 def _ensure_psd_tools_available() -> None:
     if PSDImage is None:
         raise RuntimeError(
-            "psd-tools is not available. Please install dependencies first (pip install -r requirements.txt). "
+            "psd-tools is not available. Please sync dependencies from pyproject.toml first (for example: uv sync). "
             f"Import error: {_PSD_IMPORT_ERROR}"
         )
 

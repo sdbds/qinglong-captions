@@ -54,7 +54,11 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 $ext_args = [System.Collections.ArrayList]::new()
 $uv_args = [System.Collections.ArrayList]::new()
 
-[void]$uv_args.Add("--with-requirements=requirements-translate.txt")
+[void]$uv_args.Add("--extra=translate")
+
+function Has-Value($value) {
+  return -not [string]::IsNullOrWhiteSpace([string]$value)
+}
 
 if ($output_name) {
   [void]$ext_args.Add("--output_name=$output_name")
@@ -72,19 +76,19 @@ if ($target_lang) {
   [void]$ext_args.Add("--target_lang=$target_lang")
 }
 
-if ($max_chars -ne 2200) {
+if ((Has-Value $max_chars) -and $max_chars -ne 2200) {
   [void]$ext_args.Add("--max_chars=$max_chars")
 }
 
-if ($context_chars -ne 300) {
+if ((Has-Value $context_chars) -and $context_chars -ne 300) {
   [void]$ext_args.Add("--context_chars=$context_chars")
 }
 
-if ($max_new_tokens -ne 2048) {
+if ((Has-Value $max_new_tokens) -and $max_new_tokens -ne 2048) {
   [void]$ext_args.Add("--max_new_tokens=$max_new_tokens")
 }
 
-if ($temperature -ne 0.0) {
+if ((Has-Value $temperature) -and $temperature -ne 0.0) {
   [void]$ext_args.Add("--temperature=$temperature")
 }
 

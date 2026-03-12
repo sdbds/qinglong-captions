@@ -9,7 +9,7 @@ from components.log_viewer import create_log_viewer
 from components.advanced_inputs import editable_slider, toggle_switch, styled_select, styled_input
 from gui.utils.process_runner import process_runner, ProcessStatus
 from gui.utils.i18n import t
-from module.providers.catalog import route_choices
+from module.providers.catalog import route_choices, route_requires_remote_config
 
 
 class CaptionStep:
@@ -183,6 +183,25 @@ class CaptionStep:
         self.log_viewer = None
         self.is_running = False
         self.api_keys = {}
+
+    @staticmethod
+    def _has_text(value: Any) -> bool:
+        return value is not None and str(value).strip() != ""
+
+    def _has_remote_provider_config(self) -> bool:
+        has_api = any(self._has_text(getattr(key_input, "value", "")) for key_input in self.api_keys.values())
+        has_openai_url = hasattr(self, "openai_base_url") and self._has_text(self.openai_base_url.value)
+        return has_api or has_openai_url
+
+    def _has_local_route_config(self) -> bool:
+        if self._has_text(self.ocr_model.value) and not route_requires_remote_config("ocr_model", self.ocr_model.value):
+            return True
+        if self._has_text(self.vlm_image_model.value) and not route_requires_remote_config("vlm_image_model", self.vlm_image_model.value):
+            return True
+        return False
+
+    def _has_caption_provider_config(self) -> bool:
+        return self._has_remote_provider_config() or self._has_local_route_config()
 
     def render(self):
         """渲染页面"""
@@ -463,10 +482,8 @@ class CaptionStep:
             ui.notify(t("select_valid_dataset"), type="warning")
             return
 
-        # 检查至少有一个 API key 或 OpenAI base_url
-        has_api = any(key_input.value for key_input in self.api_keys.values())
-        has_openai_url = hasattr(self, "openai_base_url") and self.openai_base_url.value
-        if not has_api and not has_openai_url:
+        # 至少要有一个可执行的 provider：远程 API，或本地 OCR/VLM 路由
+        if not self._has_caption_provider_config():
             ui.notify(t("at_least_one_api"), type="warning")
             return
 

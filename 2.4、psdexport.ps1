@@ -68,8 +68,8 @@ if ($Features.export_lance_to) { [void]$ExtArgs.Add("--export-lance-to=$($Featur
 #region Execute
 Write-Output "Starting PSD export pipeline..."
 
-# Install deps (Windows uv supports --with-requirements)
-[void]$uv_args.Add("--with-requirements=requirements-psdexport.txt")
+# Install deps from pyproject optional extras
+[void]$uv_args.Add("--extra=psdexport")
 
 uv run $uv_args "./utils/psd_dataset_pipeline.py" `
     $Config.psd_dir `

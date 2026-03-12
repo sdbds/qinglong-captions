@@ -105,6 +105,21 @@ $env:QINGLONG_API_V2="1"
 $ext_args = [System.Collections.ArrayList]::new()
 $uv_args = [System.Collections.ArrayList]::new()
 
+function Add-UvExtra {
+  param (
+    [string]$Name
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Name)) {
+    return
+  }
+
+  $Arg = "--extra=$Name"
+  if (-not $uv_args.Contains($Arg)) {
+    [void]$uv_args.Add($Arg)
+  }
+}
+
 if ($pair_dir) {
   [void]$ext_args.Add("--pair_dir=$pair_dir")
 }
@@ -266,65 +281,31 @@ if ($ocr_model) {
     [void]$ext_args.Add("--document_image")
   }
   
-  # Model-specific requirements
+  # Model-specific extras
   if ($ocr_model -eq "paddle_ocr") {
     $Env:UV_EXTRA_INDEX_URL = "https://www.paddlepaddle.org.cn/packages/nightly/cu129/"
-    if ($env:OS -eq "Windows_NT") {
-      uv pip sync requirements-paddleocr.txt
-      uv pip install -r requirements-paddleocr.txt
-    }else{
-      uv pip install -r requirements-paddleocr.txt
-    }
+    Add-UvExtra "paddleocr"
   }
   elseif ($ocr_model -eq "deepseek_ocr") {
-    if ($env:OS -eq "Windows_NT") {
-      [void]$uv_args.Add("--with-requirements=requirements-deepseekocr.txt")
-    }else{
-      uv pip install torch==2.8.0
-      uv pip install -r requirements-deepseekocr.txt
-    }
+    Add-UvExtra "deepseek-ocr"
   }
   elseif ($ocr_model -eq "olmocr") {
-    if ($env:OS -eq "Windows_NT") {
-      [void]$uv_args.Add("--with-requirements=requirements-olmocr.txt")
-    }else{
-      uv pip install -r requirements-olmocr.txt
-    }
+    Add-UvExtra "olmocr"
   }
   elseif ($ocr_model -eq "hunyuan_ocr") {
-    if ($env:OS -eq "Windows_NT") {
-      [void]$uv_args.Add("--with-requirements=requirements-hunyuanocr.txt")
-    }else{
-      uv pip install -r requirements-hunyuanocr.txt
-    }
+    Add-UvExtra "hunyuan-ocr"
   }
   elseif ($ocr_model -eq "moondream") {
-    if ($env:OS -eq "Windows_NT") {
-      [void]$uv_args.Add("--with-requirements=requirements-moondream.txt")
-    }else{
-      uv pip install -r requirements-moondream.txt
-    }
+    Add-UvExtra "moondream"
   }
   elseif ($ocr_model -eq "glm_ocr") {
-    if ($env:OS -eq "Windows_NT") {
-      [void]$uv_args.Add("--with-requirements=requirements-glmocr.txt")
-    }else{
-      uv pip install -r requirements-glmocr.txt
-    }
+    Add-UvExtra "glm-ocr"
   }
   elseif ($ocr_model -eq "nanonets_ocr") {
-    if ($env:OS -eq "Windows_NT") {
-      [void]$uv_args.Add("--with-requirements=requirements-nanonetsocr.txt")
-    }else{
-      uv pip install -r requirements-nanonetsocr.txt
-    }
+    Add-UvExtra "nanonets-ocr"
   }
   elseif ($ocr_model -eq "firered_ocr") {
-    if ($env:OS -eq "Windows_NT") {
-      [void]$uv_args.Add("--with-requirements=requirements-fireredocr.txt")
-    }else{
-      uv pip install -r requirements-fireredocr.txt
-    }
+    Add-UvExtra "firered-ocr"
   }
 }
 
@@ -332,20 +313,15 @@ if ($ocr_model) {
 if ($vlm_image_model) {
   [void]$ext_args.Add("--vlm_image_model=$vlm_image_model")
   
-  # Model-specific requirements
+  # Model-specific extras
   if ($vlm_image_model -eq "moondream") {
-    if ($env:OS -eq "Windows_NT") {
-      [void]$uv_args.Add("--with-requirements=requirements-moondream.txt")
-    }else{
-      uv pip install -r requirements-moondream.txt
-    }
+    Add-UvExtra "moondream"
   }
   elseif ($vlm_image_model -eq "qwen_vl_local") {
-    if ($env:OS -eq "Windows_NT") {
-      [void]$uv_args.Add("--with-requirements=requirements-qwen-vl-local.txt")
-    }else{
-      uv pip install -r requirements-qwen-vl-local.txt
-    }
+    Add-UvExtra "qwen-vl-local"
+  }
+  elseif ($vlm_image_model -eq "step_vl_local") {
+    Add-UvExtra "step-vl-local"
   }
 }
 

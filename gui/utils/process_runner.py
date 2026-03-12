@@ -1,8 +1,7 @@
 """进程运行工具 - 管理外部 Python 脚本的调用和日志输出
 
 执行方式与 PowerShell 启动脚本一致:
-  1. (可选) uv pip install -r requirements-xxx.txt  安装依赖
-  2. uv run ./script.py <args>                       运行脚本
+  uv run --extra <name> ./script.py <args>
 
 关键：使用 asyncio.create_subprocess_exec 进行非阻塞 I/O，
 避免阻塞 NiceGUI 事件循环导致 WebSocket 断开。
@@ -36,7 +35,7 @@ class ProcessResult:
     message: str = ""
 
 
-# 脚本路径映射: module_key -> (script_path, requirements_file | None)
+# 脚本路径映射: module_key -> (script_path, uv_extra | None)
 # script_path 相对于项目根目录
 SCRIPT_REGISTRY = {
     # step 1 - 数据集导入
@@ -44,7 +43,7 @@ SCRIPT_REGISTRY = {
     # step 2 - 视频分割
     "module.videospilter": ("./module/videospilter.py", None),
     # step 3 - 打标
-    "utils.wdtagger": ("./utils/wdtagger.py", "requirements-wdtagger.txt"),
+    "utils.wdtagger": ("./utils/wdtagger.py", "wdtagger"),
     # step 4 - 字幕生成
     "module.captioner": ("./module/captioner.py", None),
     # step 5 - 导出
@@ -53,7 +52,7 @@ SCRIPT_REGISTRY = {
     "module.waterdetect": ("./module/waterdetect.py", None),
     "utils.preprocess_datasets": ("./utils/preprocess_datasets.py", None),
     "module.rewardmodel": ("./module/rewardmodel.py", None),
-    "module.texttranslate": ("./module/texttranslate.py", "requirements-translate.txt"),
+    "module.texttranslate": ("./module/texttranslate.py", "translate"),
 }
 
 # console_wrapper.py 的绝对路径
@@ -182,64 +181,6 @@ class ProcessRunner:
             pass
 
     # ------------------------------------------------------------------
-    #  pip install (可选)
-    # ------------------------------------------------------------------
-    async def _install_requirements(self, requirements_file: str, work_dir: Path, env: dict) -> bool:
-        """安装依赖 (uv pip install -r requirements-xxx.txt)"""
-        req_path = work_dir / requirements_file
-        if not req_path.exists():
-            self._notify_log(f"依赖文件不存在，跳过: {req_path}")
-            return True
-
-        uv = self._find_uv()
-        if uv:
-            cmd = [uv, "pip", "install", "-r", str(req_path)]
-        else:
-            cmd = [sys.executable, "-m", "pip", "install", "-r", str(req_path)]
-
-        self._notify_log(f"安装依赖: {' '.join(cmd)}")
-
-        try:
-            install_env = {**env, "PYTHONIOENCODING": "utf-8"}
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                cwd=str(work_dir),
-                env=install_env,
-            )
-            await self._stream_output(proc)
-            rc = await proc.wait()
-            if rc != 0:
-                self._notify_log(f"依赖安装返回错误码 {rc}，继续尝试运行脚本...")
-            return True
-        except Exception as e:
-            self._notify_log(f"依赖安装出错: {e}，继续尝试运行脚本...")
-            return True
-
-    def _build_requirements_command(self, requirements_file: str, work_dir: Path) -> Optional[List[str]]:
-        """构建依赖安装命令；若依赖文件不存在则返回 None"""
-        req_path = work_dir / requirements_file
-        if not req_path.exists():
-            self._notify_log(f"依赖文件不存在，跳过: {req_path}")
-            return None
-
-        uv = self._find_uv()
-        if uv:
-            return [uv, "pip", "install", "-r", str(req_path)]
-        return [sys.executable, "-m", "pip", "install", "-r", str(req_path)]
-
-    def _build_native_sequence_command(self, commands: List[List[str]]) -> List[str]:
-        """将多条命令串成一个 PowerShell 序列，在原生控制台中依次执行"""
-        steps = []
-        for parts in commands:
-            steps.append(_powershell_call(parts))
-            steps.append("if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }")
-        sequence = "& {\n" + "\n".join(steps) + "\nexit $LASTEXITCODE\n}"
-        ps_exe = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
-        return [ps_exe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", sequence]
-
-    # ------------------------------------------------------------------
     #  主要运行方法
     # ------------------------------------------------------------------
     async def run_python_script(
@@ -248,7 +189,7 @@ class ProcessRunner:
         args: List[str],
         cwd: Optional[str] = None,
         env_vars: Optional[dict] = None,
-        requirements: Optional[str] = None,
+        uv_extra: Optional[str] = None,
         uv_extra_args: Optional[List[str]] = None,
         native_console: bool = True,
     ) -> ProcessResult:
@@ -259,7 +200,7 @@ class ProcessRunner:
             args: 传递给脚本的参数列表。
             cwd: 工作目录 (默认项目根目录)。
             env_vars: 额外环境变量。
-            requirements: 强制指定依赖文件。
+            uv_extra: 强制指定 pyproject optional dependency extra。
             uv_extra_args: uv run 额外参数。
             native_console: Windows 下使用原生控制台窗口（支持 rich 颜色/图片）。
         """
@@ -287,31 +228,25 @@ class ProcessRunner:
             # 从 registry 查找脚本路径和默认依赖
             registry_entry = SCRIPT_REGISTRY.get(script_key)
             if registry_entry:
-                script_path, default_req = registry_entry
+                script_path, default_extra = registry_entry
             else:
                 script_path = "./" + script_key.replace(".", "/") + ".py"
-                default_req = None
+                default_extra = None
 
-            req_file = requirements or default_req
+            extra_name = uv_extra or default_extra
 
-            install_cmd = None
-            if req_file:
-                install_cmd = self._build_requirements_command(req_file, work_dir)
-
-            # Step 1: 安装依赖（非原生模式下保持旧行为）
-            if req_file and install_cmd and not use_native:
-                self._notify_log(f"正在安装依赖: {req_file}")
-                await self._install_requirements(req_file, work_dir, env)
-                self._notify_log("=" * 60)
-
-            # Step 2: 构建运行命令
+            # Step 1: 构建运行命令
             uv = self._find_uv()
             if uv:
                 cmd = [uv, "run"]
+                if extra_name:
+                    cmd.extend(["--extra", extra_name])
                 if uv_extra_args:
                     cmd.extend(uv_extra_args)
                 cmd.append(script_path)
             else:
+                if extra_name:
+                    self._notify_log(f"未找到 uv，无法自动启用 extra: {extra_name}")
                 cmd = [sys.executable, script_path]
 
             cmd.extend(args)
@@ -320,13 +255,9 @@ class ProcessRunner:
             self._notify_log(f"工作目录: {work_dir.absolute()}")
             self._notify_log("=" * 60)
 
-            # Step 3: 启动进程
+            # Step 2: 启动进程
             if use_native:
-                native_cmd = cmd
-                if install_cmd:
-                    self._notify_log(f"依赖安装将在原生控制台中执行: {req_file}")
-                    native_cmd = self._build_native_sequence_command([install_cmd, cmd])
-                return_code = await self._run_native(native_cmd, work_dir, env)
+                return_code = await self._run_native(cmd, work_dir, env)
             else:
                 # 管道模式：输出回传到 GUI 日志
                 self.process = await asyncio.create_subprocess_exec(

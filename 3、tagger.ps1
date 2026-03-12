@@ -78,6 +78,7 @@ $Env:UV_LINK_MODE = "symlink"
 #region Build Arguments
 $ExtArgs = [System.Collections.ArrayList]::new()
 $uv_args = [System.Collections.ArrayList]::new()
+[void]$uv_args.Add("--extra=wdtagger")
 
 # Add configuration arguments
 if ($Config.repo_id) { [void]$ExtArgs.Add("--repo_id=$($Config.repo_id)") }
@@ -109,15 +110,6 @@ if ($TagConfig.tag_replacement) { [void]$ExtArgs.Add("--tag_replacement=$($TagCo
 
 #region Execute Tagger
 Write-Output "Starting tagger..."
-
-# Get-ChildItem -Path $env:AGENT_TOOLSDIRECTORY -File -Include msvcp*.dll,concrt*.dll,vccorlib*.dll,vcruntime*.dll -Recurse | Remove-Item -Force -Verbose
-
-if ($env:OS -eq "Windows_NT") {
-    [void]$uv_args.Add("--with-requirements=requirements-wdtagger.txt")
-}
-else {
-    uv pip install -r requirements-wdtagger.txt
-}
 
 # Run tagger
 uv run $uv_args "./utils/wdtagger.py" `
