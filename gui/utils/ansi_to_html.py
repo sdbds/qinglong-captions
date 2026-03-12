@@ -131,14 +131,17 @@ class AnsiToHtmlConverter:
             i += 1
 
     def _build_style(self) -> str:
-        """根据当前状态生成 CSS style 字符串"""
+        """根据当前状态生成 CSS style 字符串
+
+        所有属性使用 !important 以覆盖 Quasar/主题的全局 CSS 规则。
+        """
         parts = []
         if self.fg:
-            parts.append(f"color:{self.fg}")
+            parts.append(f"color:{self.fg} !important")
         if self.bg:
-            parts.append(f"background-color:{self.bg}")
+            parts.append(f"background-color:{self.bg} !important")
         if self.bold:
-            parts.append("font-weight:bold")
+            parts.append("font-weight:bold !important")
         if self.dim:
             parts.append("opacity:0.6")
         if self.italic:

@@ -36,6 +36,25 @@ class ToolsStep:
     # 变换类型
     TRANSFORM_TYPES = ["auto", "none"]
 
+    # 翻译模型
+    TRANSLATE_MODELS = [
+        "tencent/HY-MT1.5-7B",
+    ]
+
+    # 翻译支持的语言
+    TRANSLATE_LANGUAGES = {
+        "auto": "Auto Detect",
+        "en": "English",
+        "zh_cn": "Chinese (Simplified)",
+        "zh_tw": "Chinese (Traditional)",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "fr": "French",
+        "de": "German",
+        "es": "Spanish",
+        "ru": "Russian",
+    }
+
     def __init__(self):
         self.config: Dict[str, Any] = {
             "watermark_batch_size": 12,
@@ -45,6 +64,14 @@ class ToolsStep:
             "crop_transparent": True,
             "preprocess_recursive": True,
             "reward_batch_size": 1,
+            "translate_max_chars": 2200,
+            "translate_context_chars": 300,
+            "translate_max_new_tokens": 2048,
+            "translate_temperature": 0.0,
+            "translate_skip_normalize": False,
+            "translate_normalize_only": False,
+            "translate_no_export": False,
+            "translate_force_reimport": False,
         }
         self.log_viewer = None
         self.is_running = False
@@ -65,6 +92,7 @@ class ToolsStep:
                 watermark_tab = ui.tab(t("watermark_detection"), icon="water_drop")
                 preprocess_tab = ui.tab(t("preprocess"), icon="image")
                 reward_tab = ui.tab(t("reward_model"), icon="stars")
+                translate_tab = ui.tab(t("translate"), icon="translate")
 
             with ui.tab_panels(tabs, value=watermark_tab).classes("w-full"):
                 # 水印检测
@@ -78,6 +106,10 @@ class ToolsStep:
                 # 图像评分
                 with ui.tab_panel(reward_tab):
                     self._render_reward_tool()
+
+                # 文本翻译
+                with ui.tab_panel(translate_tab):
+                    self._render_translate_tool()
 
             # 日志查看器（共享）
             with ui.card().classes(get_classes("card") + " w-full q-pa-md q-mt-md"):
@@ -272,6 +304,189 @@ class ToolsStep:
                 start_btn = ui.button(t("start_scoring"), on_click=self._start_reward, icon="play_arrow")
                 start_btn.classes("modern-btn-success").props('type="button"')
 
+    def _render_translate_tool(self):
+        """渲染文本/文档翻译工具"""
+        with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
+            with ui.row().classes("w-full items-center gap-2 q-mb-md"):
+                ui.icon("translate", size="22px").style(f"color: {COLORS['primary']};")
+                ui.label(t("translate")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
+
+            ui.label(t("translate_desc")).classes("text-body2 q-mb-md").style("color: var(--color-text-secondary);")
+
+            # 输入路径（目录或 .lance 文件）
+            self.translate_input = create_path_selector(
+                label=t("translate_input_path"), selection_type="dir", placeholder=t("translate_input_placeholder")
+            )
+
+            # 输出数据集名称
+            self.translate_output_name = ui.input(label=t("output_name"), value="dataset")
+            self.translate_output_name.classes("modern-input w-full")
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                # 翻译模型
+                self.translate_model = styled_select(
+                    options=dict(zip(self.TRANSLATE_MODELS, self.TRANSLATE_MODELS)),
+                    value=self.TRANSLATE_MODELS[0],
+                    label=t("translate_model"),
+                    icon="smart_toy",
+                    icon_color=COLORS["primary"],
+                    flex=1,
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                # 源语言
+                self.translate_source_lang = styled_select(
+                    options=self.TRANSLATE_LANGUAGES,
+                    value="auto",
+                    label=t("translate_source_lang"),
+                    icon="language",
+                    icon_color=COLORS["info"],
+                    flex=1,
+                )
+
+                # 目标语言
+                self.translate_target_lang = styled_select(
+                    options={k: v for k, v in self.TRANSLATE_LANGUAGES.items() if k != "auto"},
+                    value="zh_cn",
+                    label=t("translate_target_lang"),
+                    icon="language",
+                    icon_color=COLORS["secondary"],
+                    flex=1,
+                )
+
+            # 高级参数
+            with ui.expansion(t("translate_advanced"), icon="tune").classes("w-full q-mt-md"):
+                with ui.row().classes("w-full gap-4 q-mt-sm"):
+                    editable_slider(
+                        label_key="translate_max_chars",
+                        value_ref=self.config,
+                        value_key="translate_max_chars",
+                        min_val=500,
+                        max_val=8000,
+                        step=100,
+                        decimals=0,
+                    )
+
+                    editable_slider(
+                        label_key="translate_context_chars",
+                        value_ref=self.config,
+                        value_key="translate_context_chars",
+                        min_val=0,
+                        max_val=1000,
+                        step=50,
+                        decimals=0,
+                    )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    editable_slider(
+                        label_key="translate_max_new_tokens",
+                        value_ref=self.config,
+                        value_key="translate_max_new_tokens",
+                        min_val=256,
+                        max_val=8192,
+                        step=256,
+                        decimals=0,
+                    )
+
+                    editable_slider(
+                        label_key="translate_temperature",
+                        value_ref=self.config,
+                        value_key="translate_temperature",
+                        min_val=0.0,
+                        max_val=1.0,
+                        step=0.05,
+                        decimals=2,
+                    )
+
+                # 术语表文件
+                self.translate_glossary = create_path_selector(
+                    label=t("translate_glossary_file"),
+                    selection_type="file",
+                    placeholder=t("translate_glossary_placeholder"),
+                )
+
+                # 开关选项
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    toggle_switch("translate_skip_normalize", self.config, "translate_skip_normalize")
+                    toggle_switch("translate_normalize_only", self.config, "translate_normalize_only")
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    toggle_switch("translate_no_export", self.config, "translate_no_export")
+                    toggle_switch("translate_force_reimport", self.config, "translate_force_reimport")
+
+            # 开始按钮
+            with ui.row().classes("w-full justify-end q-mt-md"):
+                start_btn = ui.button(t("start_translate"), on_click=self._start_translate, icon="play_arrow")
+                start_btn.classes("modern-btn-success").props('type="button"')
+
+    async def _start_translate(self):
+        """开始文本翻译"""
+        input_path = self.translate_input.value
+        if not input_path or not Path(input_path).exists():
+            ui.notify(t("select_valid_input"), type="warning")
+            return
+
+        self.current_tool = "translate"
+        self.is_running = True
+        self.stop_btn.set_enabled(True)
+        self.log_viewer.clear()
+
+        self.log_viewer.info(t("log_start_translate"))
+        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
+        self.log_viewer.info(f"{t('log_model')}: {self.translate_model.value}")
+
+        # 将日志回调连接到 log_viewer
+        process_runner.set_callbacks(log_callback=self.log_viewer.info)
+
+        # 构建参数
+        args = [input_path]
+        args.append(f"--output_name={self.translate_output_name.value}")
+        args.append(f"--model_id={self.translate_model.value}")
+        args.append(f"--source_lang={self.translate_source_lang.value}")
+        args.append(f"--target_lang={self.translate_target_lang.value}")
+        args.append(f"--max_chars={int(self.config['translate_max_chars'])}")
+        args.append(f"--context_chars={int(self.config['translate_context_chars'])}")
+        args.append(f"--max_new_tokens={int(self.config['translate_max_new_tokens'])}")
+        args.append(f"--temperature={self.config['translate_temperature']}")
+
+        if self.translate_glossary.value:
+            args.append(f"--glossary_file={self.translate_glossary.value}")
+
+        if self.config["translate_skip_normalize"]:
+            args.append("--skip_normalize")
+
+        if self.config["translate_normalize_only"]:
+            args.append("--normalize_only")
+
+        if self.config["translate_no_export"]:
+            args.append("--no_export")
+
+        if self.config["translate_force_reimport"]:
+            args.append("--force_reimport")
+
+        self.log_viewer.info(f"{t('log_params')}: {args}")
+
+        # 运行翻译
+        result = await process_runner.run_python_script(
+            "module.texttranslate",
+            args,
+            requirements="requirements-translate.txt",
+        )
+
+        try:
+            if result.status == ProcessStatus.SUCCESS:
+                self.log_viewer.success(t("translate_success"))
+                ui.notify(t("translate_success"), type="positive")
+            else:
+                self.log_viewer.error(t("translate_failed"))
+                ui.notify(t("translate_failed"), type="negative")
+
+            process_runner.set_callbacks(log_callback=None)
+            self.is_running = False
+            self.stop_btn.set_enabled(False)
+        except RuntimeError:
+            process_runner.set_callbacks(log_callback=None)
+
     async def _start_watermark(self):
         """开始水印检测"""
         input_path = self.watermark_input.value
@@ -304,16 +519,19 @@ class ToolsStep:
         # 运行水印检测
         result = await process_runner.run_python_script("module.waterdetect", args)
 
-        if result.status == ProcessStatus.SUCCESS:
-            self.log_viewer.success(t("watermark_success"))
-            ui.notify(t("watermark_success"), type="positive")
-        else:
-            self.log_viewer.error(t("watermark_failed"))
-            ui.notify(t("watermark_failed"), type="negative")
+        try:
+            if result.status == ProcessStatus.SUCCESS:
+                self.log_viewer.success(t("watermark_success"))
+                ui.notify(t("watermark_success"), type="positive")
+            else:
+                self.log_viewer.error(t("watermark_failed"))
+                ui.notify(t("watermark_failed"), type="negative")
 
-        process_runner.set_callbacks(log_callback=None)
-        self.is_running = False
-        self.stop_btn.set_enabled(False)
+            process_runner.set_callbacks(log_callback=None)
+            self.is_running = False
+            self.stop_btn.set_enabled(False)
+        except RuntimeError:
+            process_runner.set_callbacks(log_callback=None)
 
     async def _start_preprocess(self):
         """开始图像预处理"""
@@ -364,16 +582,19 @@ class ToolsStep:
         # 运行预处理
         result = await process_runner.run_python_script("utils.preprocess_datasets", args)
 
-        if result.status == ProcessStatus.SUCCESS:
-            self.log_viewer.success(t("preprocess_success"))
-            ui.notify(t("preprocess_success"), type="positive")
-        else:
-            self.log_viewer.error(t("preprocess_failed"))
-            ui.notify(t("preprocess_failed"), type="negative")
+        try:
+            if result.status == ProcessStatus.SUCCESS:
+                self.log_viewer.success(t("preprocess_success"))
+                ui.notify(t("preprocess_success"), type="positive")
+            else:
+                self.log_viewer.error(t("preprocess_failed"))
+                ui.notify(t("preprocess_failed"), type="negative")
 
-        process_runner.set_callbacks(log_callback=None)
-        self.is_running = False
-        self.stop_btn.set_enabled(False)
+            process_runner.set_callbacks(log_callback=None)
+            self.is_running = False
+            self.stop_btn.set_enabled(False)
+        except RuntimeError:
+            process_runner.set_callbacks(log_callback=None)
 
     async def _start_reward(self):
         """开始图像评分"""
@@ -405,16 +626,19 @@ class ToolsStep:
         # 运行评分
         result = await process_runner.run_python_script("module.rewardmodel", args)
 
-        if result.status == ProcessStatus.SUCCESS:
-            self.log_viewer.success(t("scoring_success"))
-            ui.notify(t("scoring_success"), type="positive")
-        else:
-            self.log_viewer.error(t("scoring_failed"))
-            ui.notify(t("scoring_failed"), type="negative")
+        try:
+            if result.status == ProcessStatus.SUCCESS:
+                self.log_viewer.success(t("scoring_success"))
+                ui.notify(t("scoring_success"), type="positive")
+            else:
+                self.log_viewer.error(t("scoring_failed"))
+                ui.notify(t("scoring_failed"), type="negative")
 
-        process_runner.set_callbacks(log_callback=None)
-        self.is_running = False
-        self.stop_btn.set_enabled(False)
+            process_runner.set_callbacks(log_callback=None)
+            self.is_running = False
+            self.stop_btn.set_enabled(False)
+        except RuntimeError:
+            process_runner.set_callbacks(log_callback=None)
 
     def _stop_tool(self):
         """停止当前工具"""

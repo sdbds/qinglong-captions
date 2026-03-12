@@ -269,14 +269,22 @@ class TaggerStep:
                 self.log_viewer.error(f"{t('tagging_failed')}: {result.message}")
                 ui.notify(t("tagging_failed"), type="negative")
 
+        except RuntimeError:
+            pass  # 用户已离开页面，元素已销毁
         except Exception as e:
-            self.log_viewer.error(f"{t('tagging_error')}: {e}")
-            ui.notify(f"{t('tagging_error')}: {e}", type="negative")
+            try:
+                self.log_viewer.error(f"{t('tagging_error')}: {e}")
+                ui.notify(f"{t('tagging_error')}: {e}", type="negative")
+            except RuntimeError:
+                pass
         finally:
             process_runner.set_callbacks(log_callback=None)
-            self.is_running = False
-            self.start_btn.set_enabled(True)
-            self.stop_btn.set_enabled(False)
+            try:
+                self.is_running = False
+                self.start_btn.set_enabled(True)
+                self.stop_btn.set_enabled(False)
+            except RuntimeError:
+                pass
 
     def _stop_tagging(self):
         """停止打标"""

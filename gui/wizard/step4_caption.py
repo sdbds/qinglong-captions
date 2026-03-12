@@ -9,6 +9,7 @@ from components.log_viewer import create_log_viewer
 from components.advanced_inputs import editable_slider, toggle_switch, styled_select, styled_input
 from gui.utils.process_runner import process_runner, ProcessStatus
 from gui.utils.i18n import t
+from module.providers.catalog import route_choices
 
 
 class CaptionStep:
@@ -30,8 +31,8 @@ class CaptionStep:
             "supports_video": True,
             "supports_task": True,
         },
-        "Pixtral": {
-            "key_name": "pixtral_api_key",
+        "Mistral OCR": {
+            "key_name": "mistral_api_key",
             "models": [
                 "pixtral-large-latest",
                 "pixtral-12b-latest",
@@ -39,7 +40,7 @@ class CaptionStep:
                 "mistral-medium-latest",
                 "mistral-small-latest",
             ],
-            "default_model": "pixtral-large-latest",
+            "default_model": "mistral-large-latest",
             "supports_video": False,
             "supports_task": False,
         },
@@ -160,24 +161,9 @@ class CaptionStep:
         "ThresholdDetector",
     ]
 
-    OCR_MODELS = [
-        "",
-        "pixtral_ocr",
-        "deepseek_ocr",
-        "hunyuan_ocr",
-        "olmocr",
-        "paddle_ocr",
-        "moondream",
-        "nanonets_ocr",
-    ]
+    OCR_MODELS = list(route_choices("ocr_model"))
 
-    VLM_MODELS = [
-        "",
-        "moondream",
-        "qwen_vl_local",
-        "step_vl_local",
-        "penguin_vl_local",
-    ]
+    VLM_MODELS = list(route_choices("vlm_image_model"))
 
     def __init__(self):
         self.config: Dict[str, Any] = {
@@ -577,17 +563,20 @@ class CaptionStep:
         # 运行字幕生成
         result = await process_runner.run_python_script("module.captioner", args)
 
-        if result.status == ProcessStatus.SUCCESS:
-            self.log_viewer.success(t("caption_success"))
-            ui.notify(t("caption_success"), type="positive")
-        else:
-            self.log_viewer.error(t("caption_failed"))
-            ui.notify(t("caption_failed"), type="negative")
+        try:
+            if result.status == ProcessStatus.SUCCESS:
+                self.log_viewer.success(t("caption_success"))
+                ui.notify(t("caption_success"), type="positive")
+            else:
+                self.log_viewer.error(t("caption_failed"))
+                ui.notify(t("caption_failed"), type="negative")
 
-        process_runner.set_callbacks(log_callback=None)
-        self.is_running = False
-        self.start_btn.set_enabled(True)
-        self.stop_btn.set_enabled(False)
+            process_runner.set_callbacks(log_callback=None)
+            self.is_running = False
+            self.start_btn.set_enabled(True)
+            self.stop_btn.set_enabled(False)
+        except RuntimeError:
+            process_runner.set_callbacks(log_callback=None)
 
     def _stop_caption(self):
         """停止字幕生成"""

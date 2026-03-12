@@ -95,7 +95,7 @@ def render_console_page():
         for _seq, line in history:
             html_parts.append(converter.convert_line(line))
         with log_container:
-            ui.html("<br>".join(html_parts) + "<br>")
+            ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
         scroll_area.scroll_to(percent=1.0)
 
     # -- 定时批量刷新 --
@@ -110,7 +110,7 @@ def render_console_page():
             html_parts.append(converter.convert_line(line))
 
         with log_container:
-            ui.html("<br>".join(html_parts) + "<br>")
+            ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
 
         if auto_scroll["value"]:
             scroll_area.scroll_to(percent=1.0)

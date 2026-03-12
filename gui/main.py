@@ -237,7 +237,7 @@ def home_page():
                 model_list = t("model_list")
                 models = [
                     ("Gemini", model_list["gemini"], "primary"),
-                    ("Pixtral", model_list["pixtral"], "secondary"),
+                    ("Mistral OCR", model_list["pixtral"], "secondary"),
                     ("Step-VL", model_list["step"], "accent"),
                     ("Qwen-VL", model_list["qwen"], "primary"),
                     ("Kimi", model_list["kimi"], "secondary"),

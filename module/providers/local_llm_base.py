@@ -8,6 +8,7 @@ LocalLLMProvider - 本地文本生成 Provider 基类
 from __future__ import annotations
 
 import gc
+import inspect
 import threading
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Dict, Optional, Tuple
@@ -78,11 +79,48 @@ class LocalLLMProvider(ABC):
             _global_model_cache[self._model_key] = components
             return components
 
+    @staticmethod
+    def _get_signature_keys(callable_obj: Any) -> tuple[set[str], bool]:
+        """返回可调用对象的显式参数名，以及是否接受 **kwargs。"""
+        try:
+            signature = inspect.signature(callable_obj)
+        except (TypeError, ValueError):
+            return set(), False
+
+        keys: set[str] = set()
+        accepts_kwargs = False
+        for param in signature.parameters.values():
+            if param.name == "self":
+                continue
+            if param.kind is inspect.Parameter.VAR_KEYWORD:
+                accepts_kwargs = True
+                continue
+            keys.add(param.name)
+        return keys, accepts_kwargs
+
+    def _filter_generation_inputs(self, model: Any, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """过滤 generate 不接受的 tokenizer 输出，避免模型因多余字段报错。"""
+        prepare_keys, prepare_accepts_kwargs = self._get_signature_keys(model.prepare_inputs_for_generation)
+        allowed_keys = set(prepare_keys)
+        if prepare_accepts_kwargs:
+            forward_keys, _ = self._get_signature_keys(model.forward)
+            allowed_keys.update(forward_keys)
+
+        if not allowed_keys:
+            return inputs
+
+        filtered = {key: value for key, value in inputs.items() if key in allowed_keys}
+        dropped = sorted(set(inputs) - set(filtered))
+        if dropped and self.console:
+            self.console.print(f"[yellow]Ignoring unsupported model inputs:[/yellow] {', '.join(dropped)}")
+        return filtered
+
     def generate_text(self, prompt: str) -> str:
         tokenizer, model = self._get_or_load_components()
         inputs = tokenizer(prompt, return_tensors="pt")
         model_device = next(model.parameters()).device
         inputs = {key: value.to(model_device) for key, value in inputs.items()}
+        inputs = self._filter_generation_inputs(model, inputs)
         generation_kwargs: dict[str, Any] = {
             "max_new_tokens": self.max_new_tokens,
             "pad_token_id": tokenizer.pad_token_id,
@@ -124,4 +162,3 @@ class LocalLLMProvider(ABC):
         glossary: str = "",
     ) -> str:
         """把一段文本翻译成目标语言。"""
-

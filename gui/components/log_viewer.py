@@ -107,28 +107,22 @@ class LogViewer:
 
         html_block = "<br>".join(html_parts) + "<br>"
 
-        # 追加到容器
+        # 追加到容器（sanitize=False 关闭 DOMPurify，保留 <span style> 颜色）
         with self.log_container:
-            ui.html(html_block).style("display: inline;")
+            ui.html(html_block, sanitize=False).style("display: inline;")
 
         # DOM 超过 max_lines 时清理最早的子元素
         if self._line_count > self.max_lines:
             overflow = self._line_count - self.max_lines
-            # 删除前 overflow 对应的行（粗略：每个 ui.html 块是一批）
-            # 使用 JS 精确移除最早的子元素
             ui.run_javascript(f'''
                 (() => {{
-                    const container = document.querySelector('[id="{self.log_container.id}"]');
-                    if (!container) return;
-                    let toRemove = Math.min({overflow}, container.children.length - 1);
-                    while (toRemove > 0 && container.firstChild) {{
-                        container.removeChild(container.firstChild);
-                        toRemove--;
-                    }}
+                    const c = document.getElementById("c" + {self.log_container.id});
+                    if (!c) return;
+                    let n = Math.min({overflow}, c.children.length - 1);
+                    while (n-- > 0 && c.firstChild) c.removeChild(c.firstChild);
                 }})();
             ''')
             self._line_count = self.max_lines
-            # 裁剪 lines 列表
             if len(self.lines) > self.max_lines:
                 self.lines = self.lines[-self.max_lines:]
 
@@ -139,7 +133,15 @@ class LogViewer:
     def append(self, message: str, level: str = "info"):
         """添加日志行（写入缓冲区，由定时器批量推送）"""
         timestamp = datetime.now().strftime("%H:%M:%S")
-        formatted = f"[{timestamp}] {message}"
+        # 根据级别添加 ANSI 颜色
+        level_colors = {
+            "success": "\x1b[32m",   # 绿色
+            "warning": "\x1b[33m",   # 黄色
+            "error":   "\x1b[1;31m", # 粗体红色
+        }
+        color = level_colors.get(level, "")
+        reset = "\x1b[0m" if color else ""
+        formatted = f"{color}[{timestamp}] {message}{reset}"
         self._buffer.append(formatted)
 
     def info(self, message: str):

@@ -9,7 +9,6 @@
 """
 
 import asyncio
-import re
 import shutil
 import subprocess
 import sys
@@ -20,12 +19,7 @@ from typing import Callable, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-from gui.utils.ansi_to_html import strip_ansi
 from gui.utils.log_buffer import log_buffer
-
-
-# 用于剥离 ANSI 转义码（日志文件 → GUI 纯文本）
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\r")
 
 
 class ProcessStatus(Enum):
@@ -59,6 +53,7 @@ SCRIPT_REGISTRY = {
     "module.waterdetect": ("./module/waterdetect.py", None),
     "utils.preprocess_datasets": ("./utils/preprocess_datasets.py", None),
     "module.rewardmodel": ("./module/rewardmodel.py", None),
+    "module.texttranslate": ("./module/texttranslate.py", "requirements-translate.txt"),
 }
 
 # console_wrapper.py 的绝对路径
@@ -68,6 +63,11 @@ _WRAPPER_PATH = str(Path(__file__).parent / "console_wrapper.py")
 def _ps_escape(s: str) -> str:
     """对字符串做 PowerShell 单引号转义（' → ''）"""
     return str(s).replace("'", "''")
+
+
+def _powershell_call(parts: List[str]) -> str:
+    """将命令参数列表转为 PowerShell 的调用表达式"""
+    return "& " + " ".join(f"'{_ps_escape(part)}'" for part in parts)
 
 
 class ProcessRunner:
@@ -172,10 +172,9 @@ class ProcessRunner:
                                         continue
                                     # 推送原始 ANSI 到 log_buffer
                                     log_buffer.push(raw)
-                                    # 回调仍传纯文本（兼容旧逻辑）
-                                    clean = strip_ansi(raw)
-                                    if clean and self.log_callback:
-                                        self.log_callback(clean)
+                                    # 回调传原始 ANSI 文本，LogViewer 支持 ANSI→HTML 渲染
+                                    if raw and self.log_callback:
+                                        self.log_callback(raw)
                 except Exception:
                     pass
                 await asyncio.sleep(0.5)
@@ -217,6 +216,28 @@ class ProcessRunner:
         except Exception as e:
             self._notify_log(f"依赖安装出错: {e}，继续尝试运行脚本...")
             return True
+
+    def _build_requirements_command(self, requirements_file: str, work_dir: Path) -> Optional[List[str]]:
+        """构建依赖安装命令；若依赖文件不存在则返回 None"""
+        req_path = work_dir / requirements_file
+        if not req_path.exists():
+            self._notify_log(f"依赖文件不存在，跳过: {req_path}")
+            return None
+
+        uv = self._find_uv()
+        if uv:
+            return [uv, "pip", "install", "-r", str(req_path)]
+        return [sys.executable, "-m", "pip", "install", "-r", str(req_path)]
+
+    def _build_native_sequence_command(self, commands: List[List[str]]) -> List[str]:
+        """将多条命令串成一个 PowerShell 序列，在原生控制台中依次执行"""
+        steps = []
+        for parts in commands:
+            steps.append(_powershell_call(parts))
+            steps.append("if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }")
+        sequence = "& {\n" + "\n".join(steps) + "\nexit $LASTEXITCODE\n}"
+        ps_exe = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
+        return [ps_exe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", sequence]
 
     # ------------------------------------------------------------------
     #  主要运行方法
@@ -271,8 +292,12 @@ class ProcessRunner:
 
             req_file = requirements or default_req
 
-            # Step 1: 安装依赖（始终使用管道模式，不弹窗）
+            install_cmd = None
             if req_file:
+                install_cmd = self._build_requirements_command(req_file, work_dir)
+
+            # Step 1: 安装依赖（非原生模式下保持旧行为）
+            if req_file and install_cmd and not use_native:
                 self._notify_log(f"正在安装依赖: {req_file}")
                 await self._install_requirements(req_file, work_dir, env)
                 self._notify_log("=" * 60)
@@ -295,7 +320,11 @@ class ProcessRunner:
 
             # Step 3: 启动进程
             if use_native:
-                return_code = await self._run_native(cmd, work_dir, env)
+                native_cmd = cmd
+                if install_cmd:
+                    self._notify_log(f"依赖安装将在原生控制台中执行: {req_file}")
+                    native_cmd = self._build_native_sequence_command([install_cmd, cmd])
+                return_code = await self._run_native(native_cmd, work_dir, env)
             else:
                 # 管道模式：输出回传到 GUI 日志
                 self.process = await asyncio.create_subprocess_exec(
@@ -354,9 +383,9 @@ class ProcessRunner:
 
         # 包装命令: 通过 PowerShell 启动 console_wrapper.py
         # 优先使用 pwsh.exe (PowerShell 7)，回退到 powershell.exe (5.1)
-        ps_exe = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
         parts = [sys.executable, _WRAPPER_PATH, exit_file, log_file] + cmd
-        ps_cmd = "& " + " ".join(f"'{_ps_escape(p)}'" for p in parts)
+        ps_exe = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
+        ps_cmd = _powershell_call(parts)
         wrapper_cmd = [ps_exe, "-NoProfile", "-NoLogo", "-Command", ps_cmd]
 
         self.process = await asyncio.create_subprocess_exec(

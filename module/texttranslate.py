@@ -1,20 +1,3 @@
-# /// script
-# dependencies = [
-#   "setuptools",
-#   "pylance>=2.0.1",
-#   "rich>=13.5.0",
-#   "pyarrow",
-#   "pysrt",
-#   "toml",
-#   "torch>=2.8.0",
-#   "transformers==4.56.0",
-#   "sentencepiece",
-#   "accelerate",
-#   "huggingface_hub[hf_xet]>=0.35.2",
-#   "imageio>=2.31.1",
-#   "imageio-ffmpeg>=0.4.8",
-# ]
-# ///
 from __future__ import annotations
 
 import argparse
@@ -26,10 +9,11 @@ import lance
 import pyarrow as pa
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
+from rich.text import Text
 
 from config.config import get_supported_extensions
 from module.lanceImport import transform2lance
-from module.lanceexport import extract_from_lance
+from module.lanceexport import save_caption
 from module.providers.local_llm.hy_mt import HYMTProvider
 from utils.lance_blob import take_blob_files
 from utils.doc_normalize import NormalizationError, normalize_asset
@@ -153,6 +137,122 @@ def sanitize_model_tag(model_id: str) -> str:
     return sanitize_tag_component(model_name).replace("-", "_").replace(".", "_").lower()
 
 
+def try_open_dataset(dataset_path: Path, version: str | int) -> Optional[lance.LanceDataset]:
+    try:
+        return lance.dataset(str(dataset_path), version=version)
+    except Exception:
+        return None
+
+
+def resolve_export_base_path(uri: Path, export_root: Optional[Path]) -> Path:
+    if uri.exists():
+        return uri
+    if export_root is None:
+        return uri
+    return export_root / uri.name
+
+
+def resolve_translated_markdown_path(uri: Path, export_root: Optional[Path], target_lang: str) -> Path:
+    base_path = resolve_export_base_path(uri, export_root)
+    suffix = sanitize_lang_suffix(target_lang)
+    return base_path.with_name(f"{base_path.stem}_{suffix}.md")
+
+
+def load_saved_translation(uri: Path, export_root: Optional[Path], target_lang: str) -> str:
+    translated_path = resolve_translated_markdown_path(uri, export_root, target_lang)
+    if not translated_path.exists():
+        return ""
+    try:
+        return translated_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        console.print(f"[yellow]Failed to read existing translation {translated_path}: {exc}[/yellow]")
+        return ""
+
+
+def save_translated_markdown(uri: Path, translated_markdown: str, export_root: Optional[Path], target_lang: str) -> bool:
+    if not translated_markdown.strip():
+        return False
+    base_path = resolve_export_base_path(uri, export_root)
+    return save_caption(
+        str(base_path),
+        [translated_markdown],
+        "application",
+        caption_suffix=f"_{sanitize_lang_suffix(target_lang)}",
+        caption_extension=".md",
+    )
+
+
+def merge_translations(
+    dataset_path: Path,
+    base_version: str,
+    translation_tag: str,
+    merge_candidates: list[str],
+    current_run_translations: dict[str, str],
+    export_root: Optional[Path],
+    target_lang: str,
+    max_chars: int,
+    merge_batch_size: int,
+) -> int:
+    target_ds = lance.dataset(str(dataset_path), version=base_version)
+    target_schema = target_ds.schema
+    include_chunk_offsets = "chunk_offsets" in target_schema.names
+
+    merge_batch_size = max(1, merge_batch_size)
+    console.print(
+        f"[cyan]Merging translated documents into Lance...[/cyan] candidates={len(merge_candidates)} batch_size={merge_batch_size}"
+    )
+
+    def flush_batch(batch_rows: list[tuple[str, str, list[int]]]) -> None:
+        data = {
+            "uris": pa.array([row[0] for row in batch_rows], type=pa.string()),
+            "captions": pa.array([[row[1]] for row in batch_rows], type=pa.list_(pa.string())),
+        }
+        if include_chunk_offsets:
+            data["chunk_offsets"] = pa.array([row[2] for row in batch_rows], type=pa.list_(pa.int32()))
+        table = pa.table(data)
+        target_ds.merge_insert(on="uris").when_matched_update_all().execute(table)
+
+    merged_count = 0
+    batch_rows: list[tuple[str, str, list[int]]] = []
+    batch_index = 0
+
+    for uri_value in merge_candidates:
+        translated_markdown = current_run_translations.get(uri_value, "")
+        if not translated_markdown and export_root is not None:
+            translated_markdown = load_saved_translation(Path(uri_value), export_root, target_lang)
+        if not translated_markdown.strip():
+            continue
+
+        translated_offsets = compute_chunk_offsets(translated_markdown, max_chars=max_chars) if include_chunk_offsets else []
+        batch_rows.append((uri_value, translated_markdown, translated_offsets))
+
+        if len(batch_rows) < merge_batch_size:
+            continue
+
+        flush_batch(batch_rows)
+        merged_count += len(batch_rows)
+        batch_index += 1
+        if len(merge_candidates) > merge_batch_size:
+            console.print(f"[cyan]Merged batch {batch_index}[/cyan]")
+        batch_rows = []
+
+    if batch_rows:
+        flush_batch(batch_rows)
+        merged_count += len(batch_rows)
+        batch_index += 1
+        if len(merge_candidates) > merge_batch_size:
+            console.print(f"[cyan]Merged batch {batch_index}[/cyan]")
+
+    if merged_count == 0:
+        console.print("[yellow]No translated documents available for final merge.[/yellow]")
+        return 0
+
+    latest_ds = lance.dataset(str(dataset_path))
+    update_or_create_tag(latest_ds, translation_tag)
+    console.print(f"[green]Successfully updated dataset with translated captions.[/green] tag={translation_tag}")
+    return merged_count
+
+
 def load_or_create_dataset(
     input_path: str,
     output_name: str,
@@ -254,76 +354,117 @@ def translate_dataset(
     max_chars: int,
     context_chars: int,
     glossary: str,
+    export_root: Optional[Path] = None,
+    merge_batch_size: int = 100,
 ) -> None:
     source_ds = lance.dataset(str(dataset_path), version=source_version)
-    target_schema = ensure_chunk_offsets_schema(source_ds.schema)
+    translated_count = 0
+    skipped_count = 0
+    merge_candidates: list[str] = []
+    current_run_translations: dict[str, str] = {}
 
-    def batches() -> Iterable[pa.RecordBatch]:
-        with Progress(
-            "[progress.description]{task.description}",
-            SpinnerColumn(spinner_name="dots"),
-            TextColumn('{task.completed}/{task.total}'),
-            BarColumn(bar_width=32, complete_style='green', finished_style='bold green'),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            console=console,
-            transient=False,
-        ) as progress:
-            task = progress.add_task('[green]Translating documents...', total=source_ds.count_rows())
-            row_offset = 0
-            for batch in source_ds.to_batches():
-                batch_field_names = set(batch.schema.names)
-                uri_values = batch.column("uris").to_pylist()
-                captions = batch.column("captions").to_pylist() if "captions" in batch_field_names else [[] for _ in range(len(batch))]
-                chunk_values = batch.column("chunk_offsets").to_pylist() if "chunk_offsets" in batch_field_names else [[] for _ in range(len(batch))]
-                blob_values = load_batch_blobs(source_ds, batch, row_offset)
+    if export_root is None:
+        console.print("[yellow]File export disabled; incremental resume is unavailable in this mode.[/yellow]")
+    else:
+        console.print(
+            f"[yellow]File-based incremental mode enabled.[/yellow] existing '*_{sanitize_lang_suffix(target_lang)}.md' files will be skipped"
+        )
 
-                for index, uri_value in enumerate(uri_values):
-                    uri = Path(uri_value)
-                    asset_type = classify_translation_asset(uri)
-                    if asset_type is None:
-                        progress.advance(task)
-                        continue
+    with Progress(
+        "[progress.description]{task.description}",
+        SpinnerColumn(spinner_name="dots"),
+        TextColumn('{task.completed}/{task.total}'),
+        BarColumn(bar_width=32, complete_style='green', finished_style='bold green'),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False,
+    ) as progress:
+        task = progress.add_task('[green]Translating documents...', total=source_ds.count_rows())
 
-                    source_markdown = captions_to_text(captions[index])
-                    if not source_markdown.strip():
-                        progress.advance(task)
-                        continue
+        for source_batch in source_ds.to_batches():
+            source_fields = set(source_batch.schema.names)
+            uri_values = source_batch.column("uris").to_pylist()
+            source_captions = source_batch.column("captions").to_pylist() if "captions" in source_fields else [[] for _ in range(len(source_batch))]
+            source_chunk_values = source_batch.column("chunk_offsets").to_pylist() if "chunk_offsets" in source_fields else [[] for _ in range(len(source_batch))]
 
-                    offsets = chunk_values[index] or compute_chunk_offsets(source_markdown, max_chars=max_chars)
-                    chunks = slice_by_offsets(source_markdown, offsets)
-                    translated_chunks: list[str] = []
-                    console.print(f"[cyan]Translating {uri} ({len(chunks)} chunks)...[/cyan]")
-                    for chunk_index, chunk in enumerate(chunks):
-                        masked_chunk, replacements = protect_markdown(chunk)
-                        context = ''
-                        if context_chars > 0 and chunk_index > 0:
-                            context = chunks[chunk_index - 1][-context_chars:]
-                        translated = translator.translate(
-                            masked_chunk,
-                            source_lang=source_lang,
-                            target_lang=target_lang,
-                            context=context,
-                            glossary=glossary,
-                        )
-                        translated = restore_placeholders(translated, replacements)
-                        if not translated.strip():
-                            translated = chunk
-                        translated_chunks.append(preserve_chunk_whitespace(chunk, translated))
-
-                    translated_markdown = ''.join(translated_chunks).strip()
-                    if translated_markdown:
-                        translated_markdown += "\n"
-                    captions[index] = [translated_markdown] if translated_markdown else []
-                    chunk_values[index] = compute_chunk_offsets(translated_markdown, max_chars=max_chars) if translated_markdown else []
+            for index, uri_value in enumerate(uri_values):
+                uri = Path(uri_value)
+                asset_type = classify_translation_asset(uri)
+                if asset_type is None:
                     progress.advance(task)
+                    continue
 
-                yield build_record_batch(batch, target_schema, captions, chunk_values, blob_values)
-                row_offset += len(batch)
+                source_markdown = captions_to_text(source_captions[index])
+                if not source_markdown.strip():
+                    progress.advance(task)
+                    continue
 
-    reader = pa.RecordBatchReader.from_batches(target_schema, batches())
-    dataset = lance.write_dataset(reader, str(dataset_path), target_schema, mode="overwrite")
-    update_or_create_tag(dataset, translation_tag)
+                merge_candidates.append(uri_value)
+                existing_translation = load_saved_translation(uri, export_root, target_lang) if export_root is not None else ""
+                if existing_translation.strip():
+                    skipped_count += 1
+                    translated_path = resolve_translated_markdown_path(uri, export_root, target_lang)
+                    console.print(f"[yellow]Skipping existing translation:[/yellow] {translated_path}")
+                    progress.advance(task)
+                    continue
+
+                offsets = source_chunk_values[index] or compute_chunk_offsets(source_markdown, max_chars=max_chars)
+                chunks = slice_by_offsets(source_markdown, offsets)
+                translated_chunks: list[str] = []
+                console.print(f"[cyan]Translating {uri} ({len(chunks)} chunks)...[/cyan]")
+                for chunk_index, chunk in enumerate(chunks):
+                    masked_chunk, replacements = protect_markdown(chunk)
+                    context = ''
+                    if context_chars > 0 and chunk_index > 0:
+                        context = chunks[chunk_index - 1][-context_chars:]
+                    translated = translator.translate(
+                        masked_chunk,
+                        source_lang=source_lang,
+                        target_lang=target_lang,
+                        context=context,
+                        glossary=glossary,
+                    )
+                    translated = restore_placeholders(translated, replacements)
+                    if not translated.strip():
+                        translated = chunk
+                    translated = preserve_chunk_whitespace(chunk, translated)
+                    translated_chunks.append(translated)
+                    console.print(f"[blue]Chunk {chunk_index + 1}/{len(chunks)} result:[/blue]")
+                    console.print(Text(translated))
+
+                translated_markdown = ''.join(translated_chunks)
+                if translated_markdown.strip() and not translated_markdown.endswith("\n"):
+                    translated_markdown += "\n"
+
+                console.print(f"[green]Translation complete for {uri}[/green]")
+                console.print(f"[blue]Translated content length:[/blue] {len(translated_markdown)}")
+                console.print(Text(translated_markdown))
+
+                translated_count += 1
+                saved_to_disk = False
+
+                if export_root is not None:
+                    saved_to_disk = save_translated_markdown(uri, translated_markdown, export_root, target_lang)
+                if export_root is None or not saved_to_disk:
+                    current_run_translations[uri_value] = translated_markdown
+
+                progress.advance(task)
+
+    merged_count = merge_translations(
+        dataset_path=dataset_path,
+        base_version=source_version,
+        translation_tag=translation_tag,
+        merge_candidates=merge_candidates,
+        current_run_translations=current_run_translations,
+        export_root=export_root,
+        target_lang=target_lang,
+        max_chars=max_chars,
+        merge_batch_size=merge_batch_size,
+    )
+    console.print(
+        f"[green]Translation update complete.[/green] translated={translated_count} skipped={skipped_count} merged={merged_count} tag={translation_tag}"
+    )
 
 
 def load_glossary(glossary_path: Optional[str]) -> str:
@@ -356,6 +497,12 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument("--normalize_only", action="store_true", help="Stop after writing the normalized markdown version")
     parser.add_argument("--no_export", action="store_true", help="Skip exporting translated markdown files to disk")
     parser.add_argument("--force_reimport", action="store_true", help="Rebuild the Lance dataset from the input directory even if one already exists")
+    parser.add_argument(
+        "--merge_batch_size",
+        type=int,
+        default=100,
+        help="Batch size for merge_insert to avoid memory overflow on large datasets (default: 100)",
+    )
     return parser
 
 
@@ -379,9 +526,15 @@ def main() -> None:
         source_version = raw_tag
     else:
         source_version = get_latest_version_number(lance.dataset(str(dataset_path)))
+
     if not args.skip_normalize:
-        normalize_dataset(dataset_path, source_version=source_version, norm_tag=norm_tag, max_chars=args.max_chars)
-        source_version = norm_tag
+        existing_norm = try_open_dataset(dataset_path, norm_tag)
+        if existing_norm is not None:
+            console.print(f"[yellow]Using existing normalized version:[/yellow] {norm_tag}")
+            source_version = norm_tag
+        else:
+            normalize_dataset(dataset_path, source_version=source_version, norm_tag=norm_tag, max_chars=args.max_chars)
+            source_version = norm_tag
 
     if args.normalize_only:
         console.print(f"[green]Normalization complete. Version tag:[/green] {norm_tag}")
@@ -394,6 +547,9 @@ def main() -> None:
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
     )
+    export_root = None if args.no_export else (
+        Path(args.input_path).parent if Path(args.input_path).suffix.lower() == '.lance' else Path(args.input_path)
+    )
     translate_dataset(
         dataset_path=dataset_path,
         source_version=source_version,
@@ -404,19 +560,9 @@ def main() -> None:
         max_chars=args.max_chars,
         context_chars=args.context_chars,
         glossary=glossary,
+        export_root=export_root,
+        merge_batch_size=args.merge_batch_size,
     )
-
-    if not args.no_export:
-        export_root = Path(args.input_path).parent if Path(args.input_path).suffix.lower() == '.lance' else Path(args.input_path)
-        extract_from_lance(
-            str(dataset_path),
-            str(export_root),
-            version=translation_tag,
-            clip_with_caption=False,
-            caption_suffix=f'_{sanitize_lang_suffix(args.target_lang)}',
-            caption_extension='.md',
-            allowed_caption_types=['text', 'application'],
-        )
 
     console.print(f"[green]Translation pipeline completed.[/green] norm={norm_tag} tr={translation_tag}")
 
