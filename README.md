@@ -7,6 +7,19 @@
 
 ## 更新日志
 
+### 4.1 - 文档 / 纯文本翻译工具
+
+1. 新增独立的 `texttranslate.py` 工具链，支持使用本地 Hugging Face 翻译模型处理文本和文档。
+2. Lance 数据集新增 `chunk_offsets` 列，用于记录规范化 Markdown 的分块边界，便于复现与重跑。
+3. 文本导入新增 standalone 文本资产判定：
+   - `.txt/.md` 可作为主资产导入
+   - `.txt/.md/.srt` 仍可作为同 stem 媒体 / 文档的 sidecar
+4. 新增文档规范化与翻译导出流程：
+   - 原始版本 tag：`raw.import.*`
+   - 规范化版本 tag：`norm.docling.*`
+   - 翻译版本 tag：`tr.<model>.<lang>.*`
+5. 新增 `5、translate.ps1`，翻译结果导出为语言后缀 Markdown，例如 `foo_zh_cn.md`，不会覆盖原文件。
+
 ### 4.0 - Provider V2 架构重构
 
 1. **全新 Provider V2 架构** - 完全重构的模块化 Provider 系统
@@ -95,6 +108,7 @@
 - 保持原始目录结构
 - 通过 TOML 文件配置
 - 集成 Lance 数据库实现高效数据管理
+- 新增独立文本 / 文档翻译链路，支持 txt、md、json、pdf、doc/docx、xls/xlsx、ppt/pptx、rtf、epub
 ## 模块说明
 
 ### 数据集导入 (`lanceImport.py`)
@@ -115,6 +129,13 @@
 - 生成带时间戳的 SRT 格式字幕
 - 健壮的错误处理和重试机制
 - 批处理进度跟踪
+
+### 文本 / 文档翻译 (`texttranslate.py`)
+- 使用 Lance 版本控制保存原始导入、规范化 Markdown、翻译结果
+- standalone `.txt/.md` 可直接导入为主资产
+- 文档先规范化为 Markdown，再按 `chunk_offsets` 分块喂给本地翻译模型
+- 默认本地模型：`tencent/HY-MT1.5-7B`
+- 导出结果统一为 `*_lang.md`，避免覆盖原文件
 
 ### 配置模块 (`config.py` & `config.toml`)
 - API 配置管理
@@ -159,6 +180,20 @@ pwsh ./1、install-uv-qinglong.ps1
 ./4、run.ps1
 ```
 注意：使用自动字幕生成功能前，需要在 `run.ps1` 中配置 [Gemini API 密钥](https://aistudio.google.com/apikey)。
+
+### 文本 / 文档翻译
+使用 PowerShell 脚本执行文档规范化和翻译：
+```powershell
+./5、translate.ps1
+```
+
+当前翻译链路：
+1. 将目录或现有 `.lance` 数据集加载到 Lance
+2. 写入 `raw.import.*` / `norm.docling.*` / `tr.*` 三类 tag
+3. 对 `.txt/.md/.pdf/.doc/.docx/.xls/.xlsx/.ppt/.pptx/.rtf/.epub` 做规范化与翻译
+4. 导出结果为 `*_zh_cn.md` 这类语言后缀文件
+
+如果只想重跑翻译模型而不重新做文档转换，可以把 `source_version` 指向已有的 `norm.*` tag，并在 `5、translate.ps1` 中打开 `skip_normalize`。
 [Pixtral API 秘钥](https://console.mistral.ai/api-keys/) 可选为图片打标。
 现在我们支持使用[阶跃星辰](https://platform.stepfun.com/)的视频模型进行视频标注。
 现在我们支持使用[通义千问VL](https://bailian.console.aliyun.com/#/model-market)的视频模型进行视频标注。
@@ -232,6 +267,13 @@ $tags_highlightrate = 0.3
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changelog
+
+### 4.1 - Text / Document Translation Tool
+
+1. Added a standalone `texttranslate.py` pipeline for text and document translation with local Hugging Face models.
+2. Lance datasets now carry a `chunk_offsets` column for reproducible markdown chunk boundaries.
+3. Standalone `.txt/.md` assets can be imported as primary assets, while `.txt/.md/.srt` still work as same-stem sidecars.
+4. Added `5、translate.ps1` and suffix-based markdown export such as `foo_zh_cn.md`.
 
 ### 4.0 - Provider V2 Architecture Refactoring
 

@@ -46,7 +46,7 @@ def api_process_batch(
     4. 实例化并执行
     5. 返回 CaptionResult
     """
-    console = progress.console if progress else Console(color_system="truecolor")
+    console = progress.console if progress else Console(color_system="truecolor", force_terminal=True)
     normalize_runtime_args(args)
 
     # 创建上下文

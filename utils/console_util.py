@@ -23,7 +23,7 @@ class BaseLayout:
             console: Rich控制台实例
         """
         self.panel_height = panel_height
-        self.console = console or globals().get("console", Console())
+        self.console = console or globals().get("console", Console(color_system="truecolor", force_terminal=True))
         self.layout = Layout()
 
     def create_layout(self):

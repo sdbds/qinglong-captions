@@ -36,7 +36,7 @@ from utils.stream_util import calculate_dimensions
 
 # Global console for general script-level logging if needed outside the class
 # However, the class will have its own console instance for its operations.
-global_console = Console()
+global_console = Console(color_system="truecolor", force_terminal=True)
 
 
 class ImageProcessor:
@@ -66,7 +66,7 @@ class ImageProcessor:
         """
         self.recursive = recursive
         self.max_workers = max_workers if max_workers is not None else 16  # Default to 16 if None
-        self.console = console if console else Console()  # Use provided console or create a new one
+        self.console = console if console else Console(color_system="truecolor", force_terminal=True)
         self.image_extensions = get_supported_extensions("image")
         self.transform_type = transform_type
         self.bg_color = bg_color

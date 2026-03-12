@@ -51,7 +51,7 @@ from config.config import (
 )
 from utils.lance_utils import update_or_create_tag
 
-console = Console()
+console = Console(color_system="truecolor", force_terminal=True)
 image_extensions = get_supported_extensions("image")
 animation_extensions = get_supported_extensions("animation")
 video_extensions = get_supported_extensions("video")

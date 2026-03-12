@@ -51,7 +51,7 @@ from transformers import AutoImageProcessor
 
 from module.lanceImport import transform2lance
 
-console = Console()
+console = Console(color_system="truecolor", force_terminal=True)
 
 FILES = ["model.onnx"]
 

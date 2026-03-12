@@ -106,7 +106,7 @@ class SceneDetector:
         self.scene_list = []
         self._detection_complete = False
         self.__init_async_attrs()
-        self.console = console or Console()
+        self.console = console or Console(color_system="truecolor", force_terminal=True)
         self.console.print(f"[green]Initializing scene detector with {detector}...[/green]")
 
     async def detect_scenes_async(self, video_path):
@@ -376,7 +376,7 @@ class SceneDetector:
         """
         # 如果没有提供console对象，则导入Rich的Console
         if console is None:
-            console = Console()
+            console = Console(color_system="truecolor", force_terminal=True)
 
         if not scene_list:
             console.print("[yellow]No scene changes detected, unable to align subtitles[/yellow]")
@@ -726,7 +726,7 @@ def setup_parser() -> argparse.ArgumentParser:
 
 if __name__ == "__main__":
     # 创建Rich控制台对象
-    console = Console()
+    console = Console(color_system="truecolor", force_terminal=True)
 
     parser = setup_parser()
     args = parser.parse_args()

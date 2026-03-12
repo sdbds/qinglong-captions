@@ -10,6 +10,12 @@
 import subprocess
 import sys
 import os
+from pathlib import Path
+
+# _color_inject/ 目录包含 sitecustomize.py，通过 PYTHONPATH 注入到子进程，
+# 在子进程启动时自动替换 sys.stdout 为 _FakeTTY（isatty=True）并
+# monkey-patch rich.console.Console 禁用 legacy_windows，让 rich 输出 ANSI 码。
+_COLOR_INJECT_DIR = str(Path(__file__).parent / "_color_inject")
 
 
 def _setup_windows_console():
@@ -42,13 +48,20 @@ def main():
     if sys.platform == "win32":
         _setup_windows_console()
 
-    # FORCE_COLOR 让 rich 即使在管道模式也输出 ANSI 颜色码
+    # 构建子进程环境变量
     env = os.environ.copy()
     env["FORCE_COLOR"] = "1"
+    env["COLORTERM"] = "truecolor"
+    env["TERM"] = "xterm-256color"
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUNBUFFERED"] = "1"
+    # 告知 sitecustomize.py 日志文件路径（用于 _FakeTTY 镜像写入）
+    env["_QINGLONG_LOG_FILE"] = log_file
+    # 注入 _color_inject/ 到 PYTHONPATH 最前面，使 sitecustomize.py 被自动执行
+    existing_pp = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = _COLOR_INJECT_DIR + os.pathsep + existing_pp if existing_pp else _COLOR_INJECT_DIR
 
-    # 通过管道捕获子进程输出，同时写到本控制台和日志文件
+    # 通过管道捕获子进程输出（ANSI 码由 sitecustomize 的 _FakeTTY 同步写到日志文件）
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -57,29 +70,21 @@ def main():
         bufsize=0,
     )
 
-    log_fh = None
-    try:
-        log_fh = open(log_file, "ab")
-    except Exception:
-        pass
-
+    # 日志文件由子进程内 sitecustomize 的 _FakeTTY 直接写入（含 ANSI 码）
+    # 这里只负责把 PIPE 输出转发到本控制台窗口（用于实时显示）
     try:
         while True:
             chunk = proc.stdout.read(4096)
             if not chunk:
                 break
-            # 写到控制台（本窗口的 stdout 是真实终端，能渲染 ANSI）
-            sys.stdout.buffer.write(chunk)
-            sys.stdout.buffer.flush()
-            # 同步写到日志文件
-            if log_fh:
-                log_fh.write(chunk)
-                log_fh.flush()
+            # 写到控制台（本窗口的 stdout 是真实终端，能渲染 ANSI 颜色）
+            try:
+                sys.stdout.buffer.write(chunk)
+                sys.stdout.buffer.flush()
+            except Exception:
+                pass
     except KeyboardInterrupt:
         proc.terminate()
-    finally:
-        if log_fh:
-            log_fh.close()
 
     proc.wait()
 

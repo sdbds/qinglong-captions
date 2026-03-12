@@ -280,6 +280,8 @@ class ProcessRunner:
             if not use_native:
                 env["PYTHONIOENCODING"] = "utf-8"
                 env["FORCE_COLOR"] = "1"
+                env["COLORTERM"] = "truecolor"
+                env["TERM"] = "xterm-256color"
                 env["PYTHONUNBUFFERED"] = "1"
 
             # 从 registry 查找脚本路径和默认依赖

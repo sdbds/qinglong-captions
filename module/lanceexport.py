@@ -38,7 +38,7 @@ from config.config import CONSOLE_COLORS, DATASET_SCHEMA, get_supported_extensio
 from utils.lance_blob import take_blob_files
 from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
 
-console = Console()
+console = Console(color_system="truecolor", force_terminal=True)
 image_extensions = get_supported_extensions("image")
 animation_extensions = get_supported_extensions("animation")
 video_extensions = get_supported_extensions("video")

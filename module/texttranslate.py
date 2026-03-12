@@ -20,7 +20,7 @@ from utils.doc_normalize import NormalizationError, normalize_asset
 from utils.lance_utils import build_version_tag, get_latest_version_number, sanitize_tag_component, update_or_create_tag
 from utils.text_chunker import compute_chunk_offsets, slice_by_offsets
 
-console = Console()
+console = Console(color_system="truecolor", force_terminal=True)
 TEXT_EXTENSIONS = frozenset(get_supported_extensions("text"))
 DOCUMENT_EXTENSIONS = frozenset(ext for ext in get_supported_extensions("application") if ext != ".psd")
 _PROTECTED_RE = re.compile(

@@ -33,7 +33,7 @@ from rich.progress import (
 
 from module.lanceImport import transform2lance
 
-console = Console()
+console = Console(color_system="truecolor", force_terminal=True)
 
 # --- Config Loading ---
 # Load configuration from split TOML files (general.toml contains wdtagger section).

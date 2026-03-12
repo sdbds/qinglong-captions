@@ -8,7 +8,7 @@ import toml
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TimeRemainingColumn
 
-console = Console()
+console = Console(color_system="truecolor", force_terminal=True)
 
 
 def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kwargs):
