@@ -18,6 +18,7 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+import toml
 from nicegui import ui, app
 from wizard.step0_setup import render_setup_step
 from wizard.step1_import import render_import_step
@@ -32,10 +33,19 @@ from theme import apply_theme, get_classes, COLORS
 from gui.utils.i18n import t, set_language, get_i18n
 
 
+def _load_app_version() -> str:
+    """Read GUI version from the project metadata instead of duplicating constants."""
+    try:
+        pyproject = toml.load(project_root / "pyproject.toml")
+        return str(pyproject.get("project", {}).get("version", "")).strip() or "0.0.0"
+    except Exception:
+        return "0.0.0"
+
+
 # 页面标题和样式
 APP_TITLE = "青龙字幕工具"
 APP_TITLE_EN = "Qinglong Captions"
-APP_VERSION = "4.0.0"
+APP_VERSION = _load_app_version()
 
 # 全局主题脚本
 THEME_SCRIPT = """

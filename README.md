@@ -3,7 +3,7 @@
 <details>
 <summary>中文说明（点击展开）</summary>
 
-# 青龙字幕工具 (4.0)
+# 青龙字幕工具 (4.1.0)
 
 ## 更新日志
 
@@ -19,6 +19,10 @@
    - 规范化版本 tag：`norm.docling.*`
    - 翻译版本 tag：`tr.<model>.<lang>.*`
 5. 新增 `5、translate.ps1`，翻译结果导出为语言后缀 Markdown，例如 `foo_zh_cn.md`，不会覆盖原文件。
+6. 新增本地 VLM `reka_edge_local`：
+   - 默认模型：`RekaAI/reka-edge-2603`
+   - 支持图像和视频输入
+   - 支持直接 Transformers 推理，或复用 OpenAI-compatible 本地服务路径
 
 ### 4.0 - Provider V2 架构重构
 
@@ -122,7 +126,7 @@
 - 在源视频所在目录导出 SRT 格式字幕
 
 ### 自动字幕生成 (`captioner.py` & `api_handler.py`)
-- **Provider V2 架构**，支持 21+ 种 Provider（Cloud VLM、Local VLM、OCR、Vision API）
+- **Provider V2 架构**，支持 20+ 种 Provider（Cloud VLM、Local VLM、OCR、Vision API）
 - **OpenAI 兼容 Provider**，支持本地推理（vLLM、SGLang、Ollama、LM Studio）
 - 使用 Gemini API 进行视频场景描述
 - 支持批量处理
@@ -239,6 +243,10 @@ $openai_model_name = ""        # 模型名称，如 Qwen2-VL-7B-Instruct
 $openai_temperature = 0.7      # 生成温度
 $openai_max_tokens = 2048      # 最大 token 数
 $openai_json_mode = $true      # 是否使用 JSON 模式
+$local_runtime_backend = ""    # "", "direct", "openai"
+$local_runtime_model_id = ""   # 本地 provider 走 OpenAI-compatible server 时可单独覆盖模型名
+$local_runtime_temperature = $null
+$local_runtime_max_tokens = $null
 
 $dir_name = $false
 $mode = "long"
@@ -250,7 +258,7 @@ $segment_time = 600
 $ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "firered_ocr", ""
 $document_image = $true
 
-# VLM model configuration for image tasks
+# VLM model configuration for image/video tasks
 $vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
@@ -260,9 +268,32 @@ $scene_luma_only = $false
 $tags_highlightrate = 0.3
 ```
 
+#### 本地 Reka Edge VLM
+
+`reka_edge_local` 对接的是 [`RekaAI/reka-edge-2603`](https://huggingface.co/RekaAI/reka-edge-2603)，支持 `image/*` 和 `video/*` 输入。
+
+1. 安装依赖：
+```powershell
+uv sync --extra reka-edge-local
+```
+2. 直接本地推理：
+```powershell
+$vlm_image_model = "reka_edge_local"
+$local_runtime_backend = "direct"
+```
+3. 走 OpenAI-compatible 本地服务（例如 `vllm-reka`）：
+```powershell
+$vlm_image_model = "reka_edge_local"
+$local_runtime_backend = "openai"
+$openai_base_url = "http://localhost:8000/v1"
+$local_runtime_model_id = "RekaAI/reka-edge-2603"
+```
+
+如果你走第 3 种方式，调用链会复用现有本地 OpenAI-compatible 多模态入口，配置方法和 Gemini / 其他 VLM provider 保持一致，只是后端换成你自己的本地服务。
+
 </details>
 
-# qinglong-captioner (4.0)
+# qinglong-captioner (4.1.0)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
@@ -274,6 +305,10 @@ A Python toolkit for generating video captions using the Lance database format a
 2. Lance datasets now carry a `chunk_offsets` column for reproducible markdown chunk boundaries.
 3. Standalone `.txt/.md` assets can be imported as primary assets, while `.txt/.md/.srt` still work as same-stem sidecars.
 4. Added `5、translate.ps1` and suffix-based markdown export such as `foo_zh_cn.md`.
+5. Added local VLM `reka_edge_local`:
+   - Default model: `RekaAI/reka-edge-2603`
+   - Accepts both image and video inputs
+   - Works with direct Transformers inference or an OpenAI-compatible local server
 
 ### 4.0 - Provider V2 Architecture Refactoring
 
@@ -582,7 +617,7 @@ At the same time, the millisecond-level alignment function has been updated. Aft
 - Auto Clip with SRT timestamps
 
 ### Auto Captioning (`captioner.py` & `api_handler.py`)
-- **Provider V2 Architecture** with 21+ providers (Cloud VLM, Local VLM, OCR, Vision API)
+- **Provider V2 Architecture** with 20+ providers (Cloud VLM, Local VLM, OCR, Vision API)
 - **OpenAI Compatible Provider** for local inference (vLLM, SGLang, Ollama, LM Studio)
 - Automatic video scene description using Gemini API or Pixtral API
 - Batch processing support
@@ -694,6 +729,18 @@ $minimax_code_api_key = ""         # MiniMax Code API key
 $minimax_code_model_path = "MiniMax-M2"  # Default M2 model optimized for coding and Agent workflows
 $minimax_code_base_url = "https://api.minimax.io/v1"
 
+# OpenAI Compatible API Configuration (supports vLLM, SGLang, Ollama, LM Studio)
+$openai_api_key = ""           # API key (local services may use any placeholder)
+$openai_base_url = ""          # Server URL, e.g. http://localhost:8000/v1
+$openai_model_name = ""        # Shared model name for generic OpenAI-compatible provider
+$openai_temperature = 0.7
+$openai_max_tokens = 2048
+$openai_json_mode = $true
+$local_runtime_backend = ""    # "", "direct", "openai"
+$local_runtime_model_id = ""   # Optional override when a local provider uses server backend
+$local_runtime_temperature = $null
+$local_runtime_max_tokens = $null
+
 $dir_name = $false
 $mode = "long"
 $not_clip_with_caption = $true              # Not clip with caption | 不根据caption裁剪
@@ -704,8 +751,8 @@ $segment_time = 600
 $ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", ""
 $document_image = $true
 
-# VLM model configuration for image tasks
-$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "" 
+# VLM model configuration for image/video tasks
+$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
@@ -713,3 +760,26 @@ $scene_min_len = 1
 $scene_luma_only = $false
 $tags_highlightrate = 0.3
 ```
+
+#### Local Reka Edge VLM
+
+`reka_edge_local` targets [`RekaAI/reka-edge-2603`](https://huggingface.co/RekaAI/reka-edge-2603) and accepts both `image/*` and `video/*` inputs.
+
+1. Install the extra:
+```powershell
+uv sync --extra reka-edge-local
+```
+2. Run with direct local Transformers inference:
+```powershell
+$vlm_image_model = "reka_edge_local"
+$local_runtime_backend = "direct"
+```
+3. Or reuse an OpenAI-compatible local server such as `vllm-reka`:
+```powershell
+$vlm_image_model = "reka_edge_local"
+$local_runtime_backend = "openai"
+$openai_base_url = "http://localhost:8000/v1"
+$local_runtime_model_id = "RekaAI/reka-edge-2603"
+```
+
+Server mode reuses the existing local OpenAI-compatible multimodal path, so the configuration pattern stays the same as other VLM backends.
