@@ -20,6 +20,7 @@ Provider V2 单元测试
 """
 
 import inspect
+import importlib
 import io
 import json
 import os
@@ -1405,6 +1406,39 @@ class TestVisionAPIProviders:
         mock_upload.assert_called_once()
         assert mock_upload.call_args.kwargs["sha256hash"] == "sha-123"
         assert mock_attempt.call_args.kwargs["files"] == fake_files
+
+
+class TestImportCompatibility:
+
+    def test_cloud_vlm_package_lazy_loads_submodules(self):
+        import module.providers.cloud_vlm as cloud_vlm
+
+        kimi_vl = cloud_vlm.kimi_vl
+        assert kimi_vl is importlib.import_module("module.providers.cloud_vlm.kimi_vl")
+
+    def test_kimi_vl_import_survives_missing_tag_highlighting(self):
+        stale_modules = {
+            name: sys.modules.get(name)
+            for name in (
+                "module.providers.cloud_vlm.kimi_vl",
+                "utils.parse_display",
+                "utils.console_util",
+            )
+        }
+
+        for name in stale_modules:
+            sys.modules.pop(name, None)
+
+        try:
+            with patch.dict(sys.modules, {"utils.tag_highlighting": None}):
+                kimi_vl = importlib.import_module("module.providers.cloud_vlm.kimi_vl")
+                assert hasattr(kimi_vl, "attempt_kimi_vl")
+        finally:
+            for name in stale_modules:
+                sys.modules.pop(name, None)
+            for name, module in stale_modules.items():
+                if module is not None:
+                    sys.modules[name] = module
 
 
 # ──────────────────────────────────────────────

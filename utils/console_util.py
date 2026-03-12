@@ -7,7 +7,7 @@ from rich.style import Style
 from rich.text import Text
 from rich_pixels import Pixels
 
-from utils.tag_highlighting import get_tag_classifier
+from utils.tag_classifier_compat import get_tag_classifier
 
 # 全局控制台实例
 console = Console(color_system="truecolor", force_terminal=True)

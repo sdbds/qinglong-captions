@@ -8,7 +8,7 @@ import toml
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TimeRemainingColumn
 
-from utils.tag_highlighting import get_tag_classifier
+from utils.tag_classifier_compat import get_tag_classifier
 
 console = Console(color_system="truecolor", force_terminal=True)
 
