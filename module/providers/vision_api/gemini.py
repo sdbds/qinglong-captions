@@ -271,9 +271,12 @@ class GeminiProvider(VisionAPIProvider):
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         from google import genai
-        from google.genai import types
+        from providers.gemini_utils import upload_or_get
 
         client = genai.Client(api_key=self.ctx.args.gemini_api_key)
+        model_path = self.ctx.args.gemini_model_path
+        if getattr(self.ctx.args, "gemini_task", "") and media.mime.startswith("image"):
+            model_path = "gemini-3-pro-image-preview"
 
         # 获取 generation config
         generation_config = self._get_generation_config()
@@ -284,15 +287,25 @@ class GeminiProvider(VisionAPIProvider):
         # 构建 GenAI Config
         genai_config = self._build_genai_config(prompts, generation_config, struct_config)
 
-        # 准备内容
-        contents = self._build_contents(media, prompts)
-
         # 准备 pair extras
         pair_blob_list = media.pair_extras if media.pair_extras else None
+        files = media.video_file_refs if media.video_file_refs else None
+        if media.mime.startswith("video") or (media.mime.startswith("audio") and media.is_large_file):
+            upload_success, files = upload_or_get(
+                client=client,
+                uri=media.uri,
+                mime=media.mime,
+                sha256hash=media.sha256hash,
+                max_retries=getattr(self.ctx.args, "max_retries", 10),
+                wait_time=getattr(self.ctx.args, "wait_time", 1.0),
+                output_console=self.ctx.console,
+            )
+            if not upload_success:
+                return CaptionResult(raw="", metadata={"provider": self.name, "structured": struct_config.enabled})
 
         result = attempt_gemini(
             client=client,
-            model_path=self.ctx.args.gemini_model_path,
+            model_path=model_path,
             mime=media.mime,
             prompt=prompts.user,
             console=self.ctx.console,
@@ -300,7 +313,7 @@ class GeminiProvider(VisionAPIProvider):
             task_id=self.ctx.task_id,
             uri=media.uri,
             genai_config=genai_config,
-            files=media.video_file_refs if media.video_file_refs else None,
+            files=files,
             audio_bytes=media.audio_blob,
             image_blob=media.blob,
             pixels=media.pixels,
@@ -360,9 +373,26 @@ class GeminiProvider(VisionAPIProvider):
             config_dict["response_schema"] = struct.schema
 
         if not getattr(self.ctx.args, "gemini_task", ""):
-            config_dict["thinking_config"] = types.ThinkingConfig(thinking_budget=gen_cfg.get("thinking_budget", -1))
+            thinking_config = self._build_thinking_config(types, gen_cfg.get("thinking_budget", -1))
+            if thinking_config is not None:
+                config_dict["thinking_config"] = thinking_config
 
         return types.GenerateContentConfig(**config_dict)
+
+    @staticmethod
+    def _build_thinking_config(types_module, thinking_budget: int):
+        """兼容不同版本 google-genai SDK 的 ThinkingConfig 参数。"""
+        for kwargs in (
+            {"thinking_budget": thinking_budget},
+            {"thinkingBudget": thinking_budget},
+            {"include_thoughts": thinking_budget != 0},
+            {"includeThoughts": thinking_budget != 0},
+        ):
+            try:
+                return types_module.ThinkingConfig(**kwargs)
+            except Exception:
+                continue
+        return None
 
     def _build_contents(self, media: MediaContext, prompts: PromptContext):
         """构建内容"""

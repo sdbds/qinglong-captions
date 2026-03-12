@@ -10,7 +10,7 @@ Provider 抽象基类
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -197,6 +197,19 @@ class Provider(ABC):
             base_wait=getattr(args, "wait_time", 1.0),
         )
 
+    def resolve_prompts(self, uri: str, mime: str) -> PromptContext:
+        """解析 provider 执行所需的 prompt。"""
+        from .resolver import PromptResolver
+
+        resolver = PromptResolver(self.ctx.config, self.name)
+        char_name, char_prompt = self._get_character_prompt(uri)
+        return resolver.resolve(
+            mime,
+            self.ctx.args,
+            character_prompt=char_prompt,
+            character_name=char_name,
+        )
+
     def execute(self, uri: str, mime: str, sha256hash: str) -> CaptionResult:
         """
         完整的执行流程
@@ -207,15 +220,16 @@ class Provider(ABC):
         4. 后验证
         """
         from .utils import with_retry_impl
-        from .resolver import PromptResolver
 
         # 准备媒体
         media = self.prepare_media(uri, mime, self.ctx.args)
+        if media is None:
+            raise RuntimeError(f"{self.name or self.__class__.__name__}.prepare_media() returned None")
+        if media.sha256hash != sha256hash:
+            media = replace(media, sha256hash=sha256hash)
 
         # 获取 prompts
-        resolver = PromptResolver(self.ctx.config, self.name)
-        char_name, char_prompt = self._get_character_prompt(uri)
-        prompts = resolver.resolve(mime, self.ctx.args, char_prompt)
+        prompts = self.resolve_prompts(uri, mime)
 
         # 执行（带重试）
         retry_cfg = self.get_retry_config()

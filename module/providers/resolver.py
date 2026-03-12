@@ -41,7 +41,13 @@ class PromptResolver:
         self.provider_name = canonicalize_provider_name(provider_name)
         self.prompts = config.get("prompts", {})
 
-    def resolve(self, mime: str, args: Any, character_prompt: str = "") -> PromptContext:
+    def resolve(
+        self,
+        mime: str,
+        args: Any,
+        character_prompt: str = "",
+        character_name: str = "",
+    ) -> PromptContext:
         """解析最终使用的 prompt"""
         # 基础选择
         system, user = self._base_prompts(mime)
@@ -63,7 +69,12 @@ class PromptResolver:
         if character_prompt:
             user = character_prompt + user
 
-        return PromptContext(system=system, user=user, character_prompt=character_prompt)
+        return PromptContext(
+            system=system,
+            user=user,
+            character_name=character_name,
+            character_prompt=character_prompt,
+        )
 
     def _base_prompts(self, mime: str) -> Tuple[str, str]:
         """基于 mime 的基础选择"""

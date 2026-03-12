@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Optional
 
 from .backends import OpenAIChatRuntime, find_model_config_section, resolve_runtime_backend
-from .base import MediaContext, MediaModality, Provider, ProviderType
+from .base import MediaContext, MediaModality, PromptContext, Provider, ProviderType
 from .capabilities import ProviderCapabilities
 from .utils import build_vision_messages, encode_image_to_blob
 
@@ -99,6 +99,17 @@ class OCRProvider(Provider):
         prompt = prompts.get(prompt_key, self.default_prompt)
 
         return "", prompt  # OCR 通常不需要 system prompt
+
+    def resolve_prompts(self, uri: str, mime: str) -> PromptContext:
+        """OCR provider 直接使用自己的 prompt 配置，而不是通用 PromptResolver。"""
+        system, user = self.get_prompts(mime)
+        char_name, char_prompt = self._get_character_prompt(uri)
+        return PromptContext(
+            system=system,
+            user=user,
+            character_name=char_name,
+            character_prompt=char_prompt,
+        )
 
     def get_runtime_backend(self):
         """Resolve OCR runtime backend."""

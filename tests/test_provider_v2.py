@@ -19,6 +19,7 @@ Provider V2 单元测试
 - kimi_code User-Agent header
 """
 
+import inspect
 import io
 import json
 import os
@@ -240,6 +241,14 @@ class TestProviderRegistry:
         ]
         for name in expected:
             assert name in providers, f"Missing provider: {name}"
+
+    def test_registered_providers_are_concrete(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        reg.discover()
+        abstract = [name for name, cls in reg._providers.items() if inspect.isabstract(cls)]
+        assert not abstract, f"Abstract providers leaked into registry: {abstract}"
 
     def test_get_provider_by_name(self):
         from providers.registry import get_registry
@@ -554,9 +563,10 @@ class TestPromptResolver:
         })
         resolver = PromptResolver(config, "test")
         args = SimpleNamespace(pair_dir="")
-        p = resolver.resolve("image/jpeg", args, character_prompt="Character is Alice. ")
+        p = resolver.resolve("image/jpeg", args, character_prompt="Character is Alice. ", character_name="Alice")
         assert p.user.startswith("Character is Alice. ")
         assert p.character_prompt == "Character is Alice. "
+        assert p.character_name == "Alice"
 
     def test_gemini_task_template(self):
         from providers.resolver import PromptResolver
@@ -1029,6 +1039,30 @@ class TestApiHandlerV2:
         assert isinstance(result, CaptionResult)
         assert result.raw == "mocked caption"
 
+    def test_gemini_provider_instantiates_through_api_handler(self):
+        from providers.base import CaptionResult
+        from module.api_handler_v2 import api_process_batch
+
+        args = SimpleNamespace(
+            step_api_key="",
+            ark_api_key="", qwenVL_api_key="", glm_api_key="",
+            kimi_code_api_key="", kimi_api_key="",
+            mistral_api_key="", pixtral_api_key="", gemini_api_key="gm-xxx",
+            ocr_model="", document_image=False,
+            vlm_image_model="", pair_dir="",
+            max_retries=1, wait_time=0.01, dir_name=False,
+            gemini_model_path="gemini-2.0-flash",
+            gemini_task="",
+        )
+
+        fake_result = CaptionResult(raw="mocked gemini")
+        with patch("providers.base.Provider.execute", return_value=fake_result):
+            result = api_process_batch(
+                uri="/fake.jpg", mime="image/jpeg",
+                config={"prompts": {}, "generation_config": {"default": {}}}, args=args, sha256hash="abc",
+            )
+        assert result.raw == "mocked gemini"
+
     def test_is_v2_enabled(self):
         from module.api_handler_v2 import is_v2_enabled, use_v2
         old_val = os.environ.get("QINGLONG_API_V2", "0")
@@ -1161,6 +1195,34 @@ class TestProviderBase:
         m = MediaContext(uri="/a", mime="image/jpeg", sha256hash="", modality=MediaModality.IMAGE)
         assert d.post_validate(r, m, ctx.args) is r
 
+    def test_execute_propagates_sha256hash(self):
+        from providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality
+        from rich.console import Console
+
+        captured = {}
+
+        class Dummy(Provider):
+            name = "dummy"
+
+            @classmethod
+            def can_handle(cls, args, mime):
+                return True
+
+            def prepare_media(self, uri, mime, args):
+                return MediaContext(uri=uri, mime=mime, sha256hash="", modality=MediaModality.IMAGE)
+
+            def attempt(self, media, prompts):
+                captured["sha256hash"] = media.sha256hash
+                return CaptionResult(raw="ok")
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO()),
+            config={"prompts": {}},
+            args=SimpleNamespace(max_retries=1, wait_time=0.01, dir_name=False, pair_dir="", gemini_task=""),
+        )
+        Dummy(ctx).execute("/a.jpg", "image/jpeg", "hash-123")
+        assert captured["sha256hash"] == "hash-123"
+
 
 # ──────────────────────────────────────────────
 #  OCRProvider 基类方法
@@ -1248,6 +1310,101 @@ class TestOCRProviderBase:
         assert p._get_model_config("model_id") == "custom-model"
         assert p._get_model_config("batch_size") == 4
         assert p._get_model_config("missing_key", "default") == "default"
+
+    def test_execute_uses_provider_specific_prompt(self, tmp_path):
+        from providers.base import CaptionResult, ProviderContext
+        from providers.ocr_base import OCRProvider
+        from rich.console import Console
+
+        doc_path = tmp_path / "sample.pdf"
+        doc_path.write_bytes(b"%PDF-1.4")
+
+        class FakeOCR(OCRProvider):
+            name = "fake_ocr"
+            default_prompt = "default"
+
+            def attempt(self, media, prompts):
+                return CaptionResult(raw=prompts.user)
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO()),
+            config={"prompts": {"fake_ocr_prompt": "config prompt", "prompt": "generic prompt"}},
+            args=SimpleNamespace(max_retries=1, wait_time=0.01, dir_name=False),
+        )
+        result = FakeOCR(ctx).execute(str(doc_path), "application/pdf", "pdf-hash")
+        assert result.raw == "config prompt"
+
+
+class TestVisionAPIProviders:
+
+    def test_mistral_prepare_media_uses_vision_api_base_for_images(self, tmp_path):
+        from providers.base import MediaModality, ProviderContext
+        from module.providers.vision_api.pixtral import MistralOCRProvider
+        from rich.console import Console
+
+        image_path = tmp_path / "sample.png"
+        image_path.write_bytes(b"image")
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO()),
+            config={},
+            args=SimpleNamespace(
+                mistral_api_key="mk-xxx",
+                pixtral_api_key="",
+                max_retries=1,
+                wait_time=0.01,
+                pair_dir="",
+                document_image=False,
+            ),
+        )
+
+        with patch("providers.vision_api_base.encode_image_to_blob", return_value=("blob", "pixels")):
+            media = MistralOCRProvider(ctx).prepare_media(str(image_path), "image/png", ctx.args)
+
+        assert media is not None
+        assert media.modality is MediaModality.IMAGE
+        assert media.blob == "blob"
+        assert media.pixels == "pixels"
+
+    def test_gemini_attempt_uploads_large_media(self):
+        from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+        from module.providers.vision_api.gemini import GeminiProvider
+        from rich.console import Console
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO()),
+            config={"generation_config": {"default": {}}},
+            args=SimpleNamespace(
+                gemini_api_key="gm-xxx",
+                gemini_model_path="gemini-2.0-flash",
+                gemini_task="",
+                pair_dir="",
+                max_retries=1,
+                wait_time=0.01,
+            ),
+        )
+        provider = GeminiProvider(ctx)
+        media = MediaContext(
+            uri="/fake.mp4",
+            mime="video/mp4",
+            sha256hash="sha-123",
+            modality=MediaModality.VIDEO,
+            file_size=21 * 1024 * 1024,
+        )
+        prompts = PromptContext(system="sys", user="describe")
+
+        fake_client = MagicMock()
+        fake_files = [SimpleNamespace(uri="gs://uploaded-file")]
+        with (
+            patch("google.genai.Client", return_value=fake_client),
+            patch("providers.gemini_utils.upload_or_get", return_value=(True, fake_files)) as mock_upload,
+            patch("module.providers.vision_api.gemini.attempt_gemini", return_value="{}") as mock_attempt,
+        ):
+            provider.attempt(media, prompts)
+
+        mock_upload.assert_called_once()
+        assert mock_upload.call_args.kwargs["sha256hash"] == "sha-123"
+        assert mock_attempt.call_args.kwargs["files"] == fake_files
 
 
 # ──────────────────────────────────────────────

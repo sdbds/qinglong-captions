@@ -326,18 +326,28 @@ class MistralOCRProvider(VisionAPIProvider):
             )
         else:
             # 标准图像模式
-            character_name = ""
-            if prompts.character_name:
-                character_name = f"{prompts.character_name}, "
+            if media.pair_blob:
+                character_name = ""
+                prompt_text = prompts.user
+                messages = build_vision_messages(
+                    prompts.system,
+                    prompt_text,
+                    media.blob,
+                    pair_blob=media.pair_blob,
+                    text_first=False,
+                )
+            else:
+                character_name = ""
+                if prompts.character_name:
+                    character_name = f"{prompts.character_name}, "
 
-            # 读取 captions[0] 或 config prompt
-            prompts_config = self.ctx.config.get("prompts", {})
-            config_prompt = prompts_config.get("mistral_ocr_image_prompt", prompts_config.get("pixtral_image_prompt", ""))
-            prompt_text = Text(
-                f"<s>[INST]{prompts.character_prompt}{character_name}{captions[0] if captions else config_prompt}\n[IMG][/INST]"
-            ).plain
-
-            messages = build_vision_messages(prompts.system, prompt_text, media.blob, text_first=True)
+                # 非 pair 图像模式保留旧的 Pixtral 指令包装
+                prompts_config = self.ctx.config.get("prompts", {})
+                config_prompt = prompts_config.get("mistral_ocr_image_prompt", prompts_config.get("pixtral_image_prompt", ""))
+                prompt_text = Text(
+                    f"<s>[INST]{prompts.character_prompt}{character_name}{captions[0] if captions else config_prompt}\n[IMG][/INST]"
+                ).plain
+                messages = build_vision_messages(prompts.system, prompt_text, media.blob, text_first=True)
 
             result = attempt_pixtral(
                 client=client,
