@@ -71,6 +71,7 @@ $Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
 $Env:UV_NO_BUILD_ISOLATION = "1"
 $Env:UV_NO_CACHE = "0"
 $Env:UV_LINK_MODE = "symlink"
+$Env:UV_INDEX_STRATEGY = "unsafe-best-match"
 #$Env:CUDA_VISIBLE_DEVICES = "1"  # 设置GPU id，0表示使用第一个GPU，-1表示不使用GPU
 
 #endregion
@@ -115,6 +116,20 @@ function Get-ProjectPython {
     return $null
 }
 
+function Ensure-UvLockFile {
+    $LockFile = Join-Path $PSScriptRoot "uv.lock"
+    if (Test-Path $LockFile) {
+        return
+    }
+
+    $IndexStrategy = if ([string]::IsNullOrWhiteSpace($Env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $Env:UV_INDEX_STRATEGY }
+    Write-Output "未找到 uv.lock，先生成锁文件 (index-strategy=$IndexStrategy)"
+    uv lock --index-strategy $IndexStrategy
+    if (!($?)) {
+        throw "uv lock failed"
+    }
+}
+
 function Install-UvExtraPatch {
     param (
         [string[]]$Extras
@@ -128,6 +143,7 @@ function Install-UvExtraPatch {
     $UvEnvName = Get-UvEnvName
     $Profile = ($Extras | Select-Object -Unique | ForEach-Object { "extra:$_" }) -join ", "
     $ReqFile = Join-Path $env:TEMP "qinglong_uv_patch_$PID.txt"
+    Ensure-UvLockFile
     uv export --frozen --no-emit-project --format requirements-txt --output-file $ReqFile --extra ($Extras | Select-Object -Unique)
     if (!($?)) {
         throw "uv export failed"

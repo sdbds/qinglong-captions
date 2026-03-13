@@ -9,6 +9,8 @@
 """
 
 import asyncio
+import json
+import re
 import shutil
 import subprocess
 import sys
@@ -206,22 +208,8 @@ class ProcessRunner:
         return parts
 
     @staticmethod
-    def _prepare_uv_project_dir(work_dir: Path) -> tuple[Path, Optional[tempfile.TemporaryDirectory], bool]:
-        lockfile = work_dir / "uv.lock"
-        if lockfile.exists():
-            return work_dir, None, True
-
-        pyproject = work_dir / "pyproject.toml"
-        if not pyproject.exists():
-            return work_dir, None, False
-
-        temp_project = tempfile.TemporaryDirectory(prefix="qinglong_uv_project_")
-        temp_dir = Path(temp_project.name)
-        for name in ("pyproject.toml", "uv.toml", ".python-version"):
-            source = work_dir / name
-            if source.exists():
-                shutil.copy2(source, temp_dir / name)
-        return temp_dir, temp_project, False
+    def _uv_index_strategy(env: dict) -> str:
+        return str(env.get("UV_INDEX_STRATEGY", "")).strip() or "unsafe-best-match"
 
     @staticmethod
     def _resolve_project_python(work_dir: Path, env: dict) -> Optional[str]:
@@ -250,9 +238,113 @@ class ProcessRunner:
                 return str(candidate)
         return None
 
+    async def _ensure_uv_lock(self, uv: str, work_dir: Path, env: dict) -> Optional[ProcessResult]:
+        pyproject = work_dir / "pyproject.toml"
+        lockfile = work_dir / "uv.lock"
+        if lockfile.exists() or not pyproject.exists():
+            return None
+
+        index_strategy = self._uv_index_strategy(env)
+        cmd = [uv, "lock", "--index-strategy", index_strategy]
+        self._notify_log(f"未找到 uv.lock，先生成锁文件 (index-strategy={index_strategy})")
+        return_code = await self._run_logged_subprocess(cmd, work_dir, env)
+        self.process = None
+        if return_code != 0:
+            message = f"uv lock 失败，返回码: {return_code}"
+            self._notify_log(message)
+            return ProcessResult(ProcessStatus.ERROR, return_code, message)
+        return None
+
     @staticmethod
     def _needs_sync_patch(extras: list[str]) -> bool:
         return "paddleocr" in extras
+
+    @staticmethod
+    def _requirements_include_torch(requirements_path: str) -> tuple[bool, bool]:
+        try:
+            content = Path(requirements_path).read_text(encoding="utf-8")
+        except OSError:
+            return False, False
+
+        has_torch = False
+        has_torchvision = False
+        for raw_line in content.splitlines():
+            line = raw_line.strip().lower()
+            if not line or line.startswith("#") or line.startswith("--"):
+                continue
+            requirement = line.split(";", 1)[0].strip()
+            if requirement.startswith("torch==") or requirement.startswith("torch @") or requirement == "torch":
+                has_torch = True
+            elif (
+                requirement.startswith("torchvision==")
+                or requirement.startswith("torchvision @")
+                or requirement == "torchvision"
+            ):
+                has_torchvision = True
+        return has_torch, has_torchvision
+
+    @staticmethod
+    def _infer_uv_torch_backend(env: dict) -> Optional[str]:
+        backend = str(env.get("UV_TORCH_BACKEND", "")).strip()
+        if backend:
+            return backend
+
+        for key in ("UV_EXTRA_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
+            value = str(env.get(key, "")).strip()
+            if not value:
+                continue
+            match = re.search(r"/(cu\d+)(?:/|$)", value)
+            if match:
+                return match.group(1)
+        return None
+
+    @staticmethod
+    def _inspect_installed_torch_backend(python_path: Optional[str], env: dict) -> Optional[str]:
+        if not python_path:
+            return None
+
+        probe = (
+            "import json\n"
+            "try:\n"
+            " import torch\n"
+            " print(json.dumps({'version': getattr(torch, '__version__', ''), 'cuda': getattr(torch.version, 'cuda', None)}))\n"
+            "except Exception as exc:\n"
+            " print(json.dumps({'error': f'{type(exc).__name__}: {exc}'}))\n"
+        )
+
+        try:
+            result = subprocess.run(
+                [python_path, "-c", probe],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                check=False,
+            )
+        except OSError:
+            return None
+
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not lines:
+            return None
+
+        try:
+            payload = json.loads(lines[-1])
+        except json.JSONDecodeError:
+            return None
+
+        version = str(payload.get("version", "")).strip()
+        suffix_match = re.search(r"\+(cpu|cu\d+)$", version)
+        if suffix_match:
+            return suffix_match.group(1)
+
+        cuda_version = str(payload.get("cuda", "") or "").strip()
+        if cuda_version:
+            digits = re.sub(r"\D", "", cuda_version)
+            if digits:
+                return f"cu{digits}"
+        return None
 
     def _reset_tail_state(self):
         """重置原生控制台日志解析状态。"""
@@ -410,11 +502,15 @@ class ProcessRunner:
 
         target_python = self._resolve_project_python(work_dir, env)
         profile_parts = self._profile_parts(extras, groups)
-        project_dir, temp_project, use_frozen = self._prepare_uv_project_dir(work_dir)
         req_file: Optional[tempfile.NamedTemporaryFile] = None
+        has_torch = False
+        has_torchvision = False
 
-        if temp_project is not None:
-            self._notify_log("未找到 uv.lock，将在临时项目目录中解析依赖，避免污染仓库")
+        ensure_lock_result = await self._ensure_uv_lock(uv, work_dir, env)
+        if ensure_lock_result:
+            return ensure_lock_result
+
+        use_frozen = (work_dir / "uv.lock").exists()
 
         try:
             if self._needs_sync_patch(extras):
@@ -424,8 +520,6 @@ class ProcessRunner:
                     cmd.insert(2, "--frozen")
                 if target_python:
                     cmd.extend(["--python", target_python])
-                if project_dir != work_dir:
-                    cmd.extend(["--project", str(project_dir)])
                 for extra in extras:
                     cmd.extend(["--extra", extra])
                 for group in groups:
@@ -440,8 +534,6 @@ class ProcessRunner:
                 ]
                 if use_frozen:
                     export_cmd.append("--frozen")
-                if project_dir != work_dir:
-                    export_cmd.extend(["--project", str(project_dir)])
                 if target_python:
                     export_cmd.extend(["--python", target_python])
                 export_cmd.extend(
@@ -469,8 +561,23 @@ class ProcessRunner:
 
                 cmd = [uv, "pip", "install", "--no-build-isolation"]
                 action = "uv pip install"
+                cmd.extend(["--index-strategy", self._uv_index_strategy(env)])
                 if target_python:
                     cmd.extend(["--python", target_python])
+                has_torch, has_torchvision = self._requirements_include_torch(req_file.name)
+                torch_backend = self._infer_uv_torch_backend(env) if has_torch else None
+                if torch_backend:
+                    cmd.extend(["--torch-backend", torch_backend])
+                    installed_torch_backend = self._inspect_installed_torch_backend(target_python, env)
+                    if installed_torch_backend and installed_torch_backend != torch_backend:
+                        cmd.extend(["--reinstall-package", "torch"])
+                        if has_torchvision:
+                            cmd.extend(["--reinstall-package", "torchvision"])
+                        self._notify_log(
+                            f"检测到当前环境 torch backend 为 {installed_torch_backend}，将重装为 {torch_backend}"
+                        )
+                    else:
+                        self._notify_log(f"检测到 torch 依赖，使用 uv torch backend={torch_backend}")
                 cmd.extend(["-r", req_file.name])
                 self._notify_log("使用共享 .venv 增量安装依赖补丁")
 
@@ -493,8 +600,6 @@ class ProcessRunner:
                     os.unlink(req_file.name)
                 except OSError:
                     pass
-            if temp_project is not None:
-                temp_project.cleanup()
 
     # ------------------------------------------------------------------
     #  日志文件尾随（原生控制台模式）

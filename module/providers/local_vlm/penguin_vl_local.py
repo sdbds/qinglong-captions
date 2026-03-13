@@ -4,6 +4,7 @@ Tencent Penguin-VL-8B: A compact VLM with LLM-based vision encoder.
 Uses AutoModelForCausalLM + AutoProcessor with trust_remote_code=True.
 """
 
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -13,12 +14,148 @@ from providers.local_vlm_base import LocalVLMProvider
 from providers.registry import register_provider
 
 
+def _penguin_vision_attention_forward(
+    self,
+    hidden_states,
+    position_embeddings,
+    attention_mask=None,
+    past_key_value=None,
+    cache_position=None,
+    cu_seqlens=None,
+    **kwargs,
+):
+    import torch
+    import torch.nn.functional as F
+    from transformers.models.qwen3.modeling_qwen3 import repeat_kv
+
+    module = sys.modules[self.__class__.__module__]
+    apply_multimodal_rotary_pos_emb = getattr(module, "apply_multimodal_rotary_pos_emb")
+
+    input_shape = hidden_states.shape[:-1]
+    hidden_shape = (*input_shape, -1, self.head_dim)
+
+    query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+    key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+    value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+
+    cos, sin = position_embeddings
+    query_states, key_states = apply_multimodal_rotary_pos_emb(query_states, key_states, cos, sin)
+
+    if past_key_value is not None:
+        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+        key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+
+    if query_states.dtype == torch.float32:
+        if torch.is_autocast_enabled():
+            target_dtype = torch.get_autocast_gpu_dtype()
+        elif hasattr(self.config, "_pre_quantization_dtype"):
+            target_dtype = self.config._pre_quantization_dtype
+        else:
+            target_dtype = next(layer for layer in self.modules() if isinstance(layer, torch.nn.Linear)).weight.dtype
+        query_states = query_states.to(target_dtype)
+        key_states = key_states.to(target_dtype)
+        value_states = value_states.to(target_dtype)
+
+    key_states = repeat_kv(key_states, self.num_key_value_groups)
+    value_states = repeat_kv(value_states, self.num_key_value_groups)
+
+    dropout_p = 0.0 if not self.training else self.attention_dropout
+    if cu_seqlens is None:
+        attn_output = F.scaled_dot_product_attention(
+            query_states,
+            key_states,
+            value_states,
+            attn_mask=attention_mask,
+            dropout_p=dropout_p,
+            is_causal=self.is_causal,
+        )
+    else:
+        outputs = []
+        cu_seqlens = cu_seqlens.tolist()
+        for start, end in zip(cu_seqlens[:-1], cu_seqlens[1:]):
+            outputs.append(
+                F.scaled_dot_product_attention(
+                    query_states[:, :, start:end, :],
+                    key_states[:, :, start:end, :],
+                    value_states[:, :, start:end, :],
+                    attn_mask=None,
+                    dropout_p=dropout_p,
+                    is_causal=self.is_causal,
+                )
+            )
+        attn_output = torch.cat(outputs, dim=2)
+
+    attn_output = attn_output.transpose(1, 2).contiguous().view(*input_shape, -1)
+    attn_output = self.o_proj(attn_output)
+    return attn_output, None
+
+
+def _patch_penguin_vision_attention(model) -> bool:
+    try:
+        vision_encoder = model.get_model().get_vision_encoder()
+    except Exception:
+        return False
+    layers = getattr(getattr(vision_encoder, "encoder", None), "layers", None)
+    if not layers:
+        return False
+
+    attn_cls = type(layers[0].self_attn)
+    module = sys.modules.get(attn_cls.__module__)
+    has_flash_kernel = bool(module and hasattr(module, "flash_attn_varlen_func"))
+    attn_impl = getattr(getattr(model, "config", None), "_attn_implementation", None)
+
+    if has_flash_kernel and attn_impl != "eager":
+        return False
+    if getattr(attn_cls, "_qinglong_sdpa_patched", False):
+        return False
+
+    attn_cls.forward = _penguin_vision_attention_forward
+    attn_cls._qinglong_sdpa_patched = True
+    return True
+
+
+def _resolve_model_device(model):
+    device = getattr(model, "device", None)
+    if device is not None:
+        return device
+    try:
+        return next(model.parameters()).device
+    except Exception:
+        return None
+
+
+def _resolve_model_dtype(model):
+    dtype = getattr(model, "dtype", None)
+    if dtype is not None:
+        return dtype
+    try:
+        return next(model.parameters()).dtype
+    except Exception:
+        return None
+
+
+def _move_processor_inputs_to_model(inputs, model):
+    device = _resolve_model_device(model)
+    dtype = _resolve_model_dtype(model)
+    moved = {}
+    for key, value in inputs.items():
+        if not hasattr(value, "to"):
+            moved[key] = value
+            continue
+
+        tensor = value if device is None else value.to(device)
+        if dtype is not None and getattr(tensor, "is_floating_point", lambda: False)():
+            tensor = tensor.to(dtype=dtype)
+        moved[key] = tensor
+    return moved
+
+
 @register_provider("penguin_vl_local")
 class PenguinVLLocalProvider(LocalVLMProvider):
     """Tencent Penguin-VL Local Provider"""
 
     default_model_id = "tencent/Penguin-VL-8B"
-    _attn_implementation = "eager"
+    _attn_implementation = ""
 
     @classmethod
     def can_handle(cls, args: Any, mime: str) -> bool:
@@ -30,7 +167,8 @@ class PenguinVLLocalProvider(LocalVLMProvider):
         from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
         device, dtype, attn_impl = resolve_device_dtype()
-        attn_impl = self._attn_implementation
+        if self._attn_implementation:
+            attn_impl = self._attn_implementation
         model_id = self.model_id
 
         self.log(f"Loading Penguin-VL model: {model_id} (device={device}, dtype={dtype}, attn={attn_impl})", "blue")
@@ -53,6 +191,9 @@ class PenguinVLLocalProvider(LocalVLMProvider):
             device_map="auto",
             console=self.ctx.console,
         )
+
+        if _patch_penguin_vision_attention(model):
+            self.log("Patched Penguin vision encoder to use PyTorch SDPA fallback", "yellow")
 
         return {"model": model, "processor": processor, "device": device}
 
@@ -100,7 +241,7 @@ class PenguinVLLocalProvider(LocalVLMProvider):
 
         # Use processor to prepare inputs
         inputs = processor(conversation=conversation, return_tensors="pt")
-        inputs = {k: v.to(model.device) for k, v in inputs.items() if isinstance(v, torch.Tensor)}
+        inputs = _move_processor_inputs_to_model(inputs, model)
 
         # Generate
         output_ids = model.generate(**inputs, **gen_kwargs)
@@ -108,7 +249,7 @@ class PenguinVLLocalProvider(LocalVLMProvider):
         # Decode - trim input tokens
         try:
             input_len = inputs["input_ids"].shape[1]
-            generated_ids = output_ids[:, input_len:]
+            generated_ids = output_ids[:, input_len:] if output_ids.shape[1] > input_len else output_ids
         except Exception:
             generated_ids = output_ids
 

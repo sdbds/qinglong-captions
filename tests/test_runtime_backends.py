@@ -405,3 +405,40 @@ def test_reka_edge_local_prefers_fp16_on_cuda():
     assert cached["dtype"] == torch.float16
     assert captured["model_kwargs"]["torch_dtype"] == torch.float16
     assert captured["model_kwargs"]["device_map"] == "auto"
+
+
+def test_transformer_loader_passes_torch_dtype_instead_of_dtype():
+    import json
+
+    import torch
+
+    from utils.transformer_loader import transformerLoader
+
+    captured = {}
+
+    class FakeModelLoader:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+
+            class _FakeModel:
+                def eval(self):
+                    return self
+
+            return _FakeModel()
+
+    loader = transformerLoader(attn_kw="attn_implementation", device_map="auto")
+    loader.load_model(
+        "dummy/model",
+        FakeModelLoader,
+        dtype=torch.float32,
+        attn_impl="eager",
+        trust_remote_code=False,
+        low_cpu_mem_usage=False,
+        device_map="cpu",
+    )
+
+    assert captured["kwargs"]["torch_dtype"] == "float32"
+    assert "dtype" not in captured["kwargs"]
+    json.dumps({"torch_dtype": captured["kwargs"]["torch_dtype"]})

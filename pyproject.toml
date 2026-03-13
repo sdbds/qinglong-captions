@@ -46,7 +46,7 @@ translate = [
     "torch==2.8.0",
     "torchvision",
     "accelerate",
-    "transformers==4.56.0",
+    "transformers[serving]==4.56.0",
     "huggingface_hub[hf_xet]>=0.35.2",
     "matplotlib",
     "einops",
@@ -62,7 +62,7 @@ translate = [
 wdtagger = [
     "pillow>=11.3",
     "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.12.0.88/opencv_contrib_python-4.12.0.88-cp37-abi3-win_amd64.whl ; sys_platform == 'win32'",
-    "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.12.0.88/opencv_contrib_python-4.12.0.88-cp37-abi3-linux_x86_64.whl ; sys_platform == 'linux'",
+    "opencv-contrib-python; sys_platform == 'linux'",
     "onnxruntime-gpu==1.20.2; sys_platform == 'win32'",
     "onnxruntime-gpu>=1.20.2; sys_platform == 'linux'",
     "torch>=2.8.0",
@@ -76,7 +76,7 @@ wdtagger-tensorrt = [
 ]
 moondream = [
     "torch==2.8.0",
-    "transformers>=4.44.0",
+    "transformers[serving]>=4.44.0",
     "accelerate>=0.34.0",
     "Pillow>=9.5.0",
     "safetensors>=0.4.2",
@@ -84,7 +84,7 @@ moondream = [
 olmocr = [
     "torch==2.8.0",
     "torchvision",
-    "transformers>=4.44.0",
+    "transformers[serving]>=4.44.0",
     "huggingface_hub[hf_xet]",
     "accelerate>=0.34.0",
     "Pillow>=9.5.0",
@@ -119,7 +119,7 @@ deepseek-ocr = [
     "torch==2.8.0",
     "torchvision",
     "accelerate",
-    "transformers==4.46.3",
+    "transformers[serving]==4.46.3",
     "tokenizers==0.20.3",
     "huggingface_hub[hf_xet]>=0.35.2",
     "matplotlib",
@@ -137,7 +137,7 @@ hunyuan-ocr = [
     "torch==2.8.0",
     "torchvision",
     "accelerate",
-    "transformers @ git+https://github.com/huggingface/transformers",
+    "transformers[serving] @ git+https://github.com/huggingface/transformers",
     "huggingface_hub[hf_xet]>=0.35.2",
     "flash-attn==2.8.3; sys_platform == 'linux'",
     "triton-windows; sys_platform == 'win32'",
@@ -150,7 +150,7 @@ glm-ocr = [
     "torch==2.8.0",
     "torchvision",
     "accelerate",
-    "transformers @ git+https://github.com/huggingface/transformers.git",
+    "transformers[serving] @ git+https://github.com/huggingface/transformers.git",
     "huggingface_hub[hf_xet]>=0.35.2",
     "matplotlib",
     "einops",
@@ -164,7 +164,7 @@ glm-ocr = [
     "img2pdf",
 ]
 nanonets-ocr = [
-    "transformers>=4.45.0",
+    "transformers[serving]>=4.45.0",
     "torch>=2.0.0",
     "pillow",
     "accelerate",
@@ -175,7 +175,7 @@ firered-ocr = [
     "torch==2.8.0",
     "torchvision",
     "accelerate",
-    "transformers",
+    "transformers[serving]",
     "huggingface_hub[hf_xet]>=0.35.2",
     "matplotlib",
     "einops",
@@ -193,7 +193,7 @@ chandra-ocr = [
     "torch==2.8.0",
     "torchvision",
     "accelerate",
-    "transformers",
+    "transformers[serving]",
     "huggingface_hub[hf_xet]>=0.35.2",
     "matplotlib",
     "einops",
@@ -211,7 +211,7 @@ qwen-vl-local = [
     "torch==2.8.0",
     "torchvision",
     "accelerate",
-    "transformers @ git+https://github.com/huggingface/transformers.git",
+    "transformers[serving] @ git+https://github.com/huggingface/transformers.git",
     "huggingface_hub[hf_xet]>=0.35.2",
     "matplotlib",
     "einops",
@@ -227,15 +227,26 @@ step-vl-local = [
     "torch==2.8.0",
     "torchvision",
     "accelerate",
-    "transformers>=4.56.0",
+    "transformers[serving]",
     "huggingface_hub[hf_xet]>=0.35.2",
     "safetensors",
+]
+penguin-vl-local = [
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers[serving]==4.51.3",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "einops",
+    "safetensors",
+    "decord==0.6.0",
+    "ffmpeg-python==0.2.0",
 ]
 reka-edge-local = [
     "torch==2.8.0",
     "torchvision",
     "accelerate",
-    "transformers==4.57.3",
+    "transformers[serving]",
     "huggingface_hub[hf_xet]>=0.35.2",
     "tiktoken",
     "einops",
@@ -270,6 +281,10 @@ conflicts = [
     ],
     [
         { extra = "deepseek-ocr" },
+        { extra = "penguin-vl-local" },
+    ],
+    [
+        { extra = "deepseek-ocr" },
         { extra = "hunyuan-ocr" },
     ],
     [
@@ -297,6 +312,10 @@ conflicts = [
         { extra = "wdtagger" },
     ],
     [
+        { extra = "penguin-vl-local" },
+        { extra = "wdtagger" },
+    ],
+    [
         { extra = "translate" },
         { extra = "hunyuan-ocr" },
     ],
@@ -319,6 +338,10 @@ conflicts = [
     [
         { extra = "translate" },
         { extra = "qwen-vl-local" },
+    ],
+    [
+        { extra = "translate" },
+        { extra = "penguin-vl-local" },
     ],
     [
         { extra = "olmocr" },
@@ -359,6 +382,10 @@ conflicts = [
     [
         { extra = "olmocr" },
         { extra = "step-vl-local" },
+    ],
+    [
+        { extra = "olmocr" },
+        { extra = "penguin-vl-local" },
     ],
     [
         { extra = "olmocr" },
@@ -406,6 +433,10 @@ conflicts = [
     ],
     [
         { extra = "paddleocr" },
+        { extra = "penguin-vl-local" },
+    ],
+    [
+        { extra = "paddleocr" },
         { extra = "reka-edge-local" },
     ],
     [
@@ -422,6 +453,10 @@ conflicts = [
     ],
     [
         { group = "test" },
+        { extra = "penguin-vl-local" },
+    ],
+    [
+        { group = "test" },
         { extra = "paddleocr" },
     ],
     [
@@ -430,10 +465,18 @@ conflicts = [
     ],
     [
         { extra = "hunyuan-ocr" },
+        { extra = "penguin-vl-local" },
+    ],
+    [
+        { extra = "hunyuan-ocr" },
         { extra = "firered-ocr" },
     ],
     [
         { extra = "hunyuan-ocr" },
+        { extra = "chandra-ocr" },
+    ],
+    [
+        { extra = "penguin-vl-local" },
         { extra = "chandra-ocr" },
     ],
     [
@@ -449,8 +492,16 @@ conflicts = [
         { extra = "reka-edge-local" },
     ],
     [
+        { extra = "glm-ocr" },
+        { extra = "penguin-vl-local" },
+    ],
+    [
         { extra = "qwen-vl-local" },
         { extra = "reka-edge-local" },
+    ],
+    [
+        { extra = "qwen-vl-local" },
+        { extra = "penguin-vl-local" },
     ],
 ]
 

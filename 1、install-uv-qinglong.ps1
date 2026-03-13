@@ -11,6 +11,7 @@ $Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
 $Env:UV_NO_BUILD_ISOLATION = "1"
 $Env:UV_NO_CACHE = "0"
 $Env:UV_LINK_MODE = "symlink"
+$Env:UV_INDEX_STRATEGY = "unsafe-best-match"
 $Env:GIT_LFS_SKIP_SMUDGE = 1
 $Env:CUDA_HOME = "${env:CUDA_PATH}"
 
@@ -63,6 +64,18 @@ function Get-ProjectPython {
     }
 
     return $null
+}
+
+function Ensure-UvLockFile {
+    $LockFile = Join-Path $PSScriptRoot "uv.lock"
+    if (Test-Path $LockFile) {
+        return
+    }
+
+    $IndexStrategy = if ([string]::IsNullOrWhiteSpace($Env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $Env:UV_INDEX_STRATEGY }
+    Write-Output "未找到 uv.lock，先生成锁文件 (index-strategy=$IndexStrategy)"
+    ~/.local/bin/uv lock --index-strategy $IndexStrategy
+    Check "uv lock failed"
 }
 
 try {
