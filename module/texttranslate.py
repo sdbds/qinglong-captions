@@ -276,7 +276,11 @@ def load_or_create_dataset(
             preferred = source_path / f"{output_name}.lance"
             if preferred in existing:
                 return preferred, False
-            return existing[0], False
+            if len(existing) == 1:
+                return existing[0], False
+            raise TranslationRuntimeError(
+                "Multiple Lance datasets found. Specify --output_name to match one exactly or remove the extras."
+            )
 
     console.print("[yellow]Importing source assets into Lance...[/yellow]")
     dataset = transform2lance(

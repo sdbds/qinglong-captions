@@ -56,7 +56,7 @@ class PromptResolver:
         system, user = self._provider_override(system, user, mime)
 
         # Pair 模式覆盖
-        if getattr(args, "pair_dir", ""):
+        if mime.startswith("image") and getattr(args, "pair_dir", ""):
             system, user = self._pair_override(system, user, mime)
 
         # Gemini Task 模板系统

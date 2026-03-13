@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import lance
 import pyarrow as pa
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -13,6 +14,7 @@ sys.path.insert(0, str(ROOT / 'module'))
 from module.lanceImport import load_data, transform2lance
 from module.lanceexport import save_caption
 from module.texttranslate import (
+    TranslationRuntimeError,
     load_or_create_dataset,
     merge_translations,
     normalize_dataset,
@@ -135,6 +137,14 @@ def test_load_or_create_dataset_prefers_matching_output_name(tmp_path):
 
     assert dataset_path == matching
     assert created is False
+
+
+def test_load_or_create_dataset_raises_on_ambiguous_existing_lance_dirs(tmp_path):
+    (tmp_path / 'aaa.lance').mkdir()
+    (tmp_path / 'bbb.lance').mkdir()
+
+    with pytest.raises(TranslationRuntimeError):
+        load_or_create_dataset(str(tmp_path), output_name='sample', raw_tag='raw.test')
 
 
 def test_load_or_create_dataset_force_reimport_calls_transform(tmp_path):

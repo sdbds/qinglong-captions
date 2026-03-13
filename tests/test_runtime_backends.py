@@ -74,6 +74,34 @@ def test_openai_compatible_does_not_steal_explicit_local_route():
     assert provider.name == "qwen_vl_local"
 
 
+def test_openai_compatible_still_handles_video_when_image_routes_are_configured():
+    from providers.registry import get_registry
+
+    args = SimpleNamespace(
+        openai_base_url="http://127.0.0.1:8000/v1",
+        openai_api_key="sk-no-key",
+        openai_model_name="shared-model",
+        vlm_image_model="qwen_vl_local",
+        ocr_model="olmocr",
+        document_image=True,
+        pair_dir="",
+        step_api_key="",
+        ark_api_key="",
+        qwenVL_api_key="",
+        glm_api_key="",
+        kimi_code_api_key="",
+        kimi_api_key="",
+        mistral_api_key="",
+        pixtral_api_key="",
+        gemini_api_key="",
+        local_runtime_backend="openai",
+    )
+
+    provider = get_registry().find_provider(args, "video/mp4")
+    assert provider is not None
+    assert provider.name == "openai_compatible"
+
+
 def test_local_vlm_prepare_media_populates_pair_image(tmp_path):
     from providers.base import CaptionResult, ProviderContext
     from providers.local_vlm_base import LocalVLMProvider

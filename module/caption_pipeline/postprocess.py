@@ -96,9 +96,9 @@ def _normalize_subtitle_timestamps(output: str) -> str:
         if groups[3] is not None:
             return f"00:{groups[3]}:{groups[4]},{groups[5]}"
         if groups[6] is not None:
-            return f"00:{groups[7]}:{groups[8]},{groups[9]}"
+            return f"{groups[6]}:{groups[7]}:{groups[8]},{groups[9]}"
         if groups[10] is not None:
-            return f"00:{groups[11]}:{groups[12]},{groups[13]}"
+            return f"{groups[10]}:{groups[11]}:{groups[12]},{groups[13]}"
         if groups[14] is not None:
             return f"00:{groups[15]}:{groups[16]},{groups[17]}"
         return match.group(0)

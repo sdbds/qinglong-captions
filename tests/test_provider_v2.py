@@ -298,6 +298,17 @@ class TestPromptResolver:
         assert p.system == "pair_sys"
         assert p.user == "pair_prompt"
 
+    def test_pair_mode_does_not_override_video_prompt(self):
+        from providers.resolver import PromptResolver
+        config = self._config({
+            "video_prompt": "video prompt",
+            "pair_image_prompt": "pair prompt",
+        })
+        resolver = PromptResolver(config, "test")
+        args = SimpleNamespace(pair_dir="/some/dir", gemini_task="")
+        p = resolver.resolve("video/mp4", args)
+        assert p.user == "video prompt"
+
     def test_character_prompt_injection(self):
         from providers.resolver import PromptResolver
         config = self._config({

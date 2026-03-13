@@ -134,3 +134,21 @@ def test_process_segmented_media_only_merges_sidecar_once(tmp_path):
     assert merged.count("sidecar") == 1
     assert "chunk0" in merged
     assert "chunk1" in merged
+
+
+def test_normalize_subtitle_timestamps_preserves_existing_hours():
+    from module.caption_pipeline.postprocess import _normalize_subtitle_timestamps
+
+    content = (
+        "1\n"
+        "01:02:03,456 --> 123:03:04,567\n"
+        "hello\n"
+        "2\n"
+        "02:03,111 --> 04:05,222\n"
+        "world\n"
+    )
+
+    normalized = _normalize_subtitle_timestamps(content)
+
+    assert "01:02:03,456 --> 123:03:04,567" in normalized
+    assert "00:02:03,111 --> 00:04:05,222" in normalized

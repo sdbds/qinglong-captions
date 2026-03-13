@@ -43,7 +43,7 @@ class OpenAICompatibleProvider(CloudVLMProvider):
         has_explicit_local_route = bool(
             getattr(args, "vlm_image_model", "") or getattr(args, "ocr_model", "")
         )
-        if has_explicit_local_route:
+        if mime.startswith("image") and has_explicit_local_route:
             return False
         return has_base_url and supports_mime
 
