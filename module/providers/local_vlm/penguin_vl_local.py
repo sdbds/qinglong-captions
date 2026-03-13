@@ -14,6 +14,21 @@ from providers.local_vlm_base import LocalVLMProvider
 from providers.registry import register_provider
 
 
+def _repeat_kv(hidden_states, num_key_value_groups):
+    if num_key_value_groups == 1:
+        return hidden_states
+
+    batch_size, num_key_value_heads, sequence_length, head_dim = hidden_states.shape
+    expanded = hidden_states[:, :, None, :, :].expand(
+        batch_size,
+        num_key_value_heads,
+        num_key_value_groups,
+        sequence_length,
+        head_dim,
+    )
+    return expanded.reshape(batch_size, num_key_value_heads * num_key_value_groups, sequence_length, head_dim)
+
+
 def _penguin_vision_attention_forward(
     self,
     hidden_states,
@@ -26,7 +41,6 @@ def _penguin_vision_attention_forward(
 ):
     import torch
     import torch.nn.functional as F
-    from transformers.models.qwen3.modeling_qwen3 import repeat_kv
 
     module = sys.modules[self.__class__.__module__]
     apply_multimodal_rotary_pos_emb = getattr(module, "apply_multimodal_rotary_pos_emb")
@@ -56,8 +70,8 @@ def _penguin_vision_attention_forward(
         key_states = key_states.to(target_dtype)
         value_states = value_states.to(target_dtype)
 
-    key_states = repeat_kv(key_states, self.num_key_value_groups)
-    value_states = repeat_kv(value_states, self.num_key_value_groups)
+    key_states = _repeat_kv(key_states, self.num_key_value_groups)
+    value_states = _repeat_kv(value_states, self.num_key_value_groups)
 
     dropout_p = 0.0 if not self.training else self.attention_dropout
     if cu_seqlens is None:

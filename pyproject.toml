@@ -252,6 +252,14 @@ reka-edge-local = [
     "einops",
     "safetensors",
 ]
+lfm-vl-local = [
+    "onnxruntime-gpu==1.20.2; sys_platform == 'win32'",
+    "onnxruntime-gpu>=1.20.2; sys_platform == 'linux'",
+    "torch==2.8.0",
+    "transformers[serving]>=4.56.0",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "pillow",
+]
 
 [dependency-groups]
 test = [

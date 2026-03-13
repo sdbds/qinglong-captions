@@ -183,6 +183,7 @@ class CaptionStep:
         "step_vl_local": "step-vl-local",
         "penguin_vl_local": "penguin-vl-local",
         "reka_edge_local": "reka-edge-local",
+        "lfm_vl_local": "lfm-vl-local",
     }
 
     def __init__(self):

@@ -160,6 +160,7 @@ $PythonExe = Get-ProjectPython
 $ReqFile = Join-Path $env:TEMP "qinglong_uv_install_$PID.txt"
 
 try {
+    Ensure-UvLockFile
     ~/.local/bin/uv export --frozen --no-emit-project --format requirements-txt --output-file $ReqFile
     Check "Export main requirements failed"
 

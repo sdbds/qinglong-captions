@@ -208,6 +208,87 @@ def test_patch_penguin_vision_attention_uses_sdpa_fallback():
     assert weights is None
 
 
+def test_penguin_sdpa_fallback_does_not_import_qwen3_modeling(monkeypatch):
+    import builtins
+    import types
+
+    import torch
+
+    from providers.local_vlm.penguin_vl_local import _patch_penguin_vision_attention
+
+    fake_module = types.ModuleType("test_penguin_encoder_module_no_qwen3")
+    fake_module.apply_multimodal_rotary_pos_emb = lambda q, k, cos, sin: (q, k)
+    sys.modules[fake_module.__name__] = fake_module
+
+    class FakePenguinAttention(torch.nn.Module):
+        __module__ = "test_penguin_encoder_module_no_qwen3"
+
+        def __init__(self):
+            super().__init__()
+            self.head_dim = 2
+            self.num_key_value_groups = 2
+            self.layer_idx = 0
+            self.q_proj = torch.nn.Linear(4, 4, bias=False)
+            self.k_proj = torch.nn.Linear(4, 2, bias=False)
+            self.v_proj = torch.nn.Linear(4, 2, bias=False)
+            self.o_proj = torch.nn.Linear(4, 4, bias=False)
+            self.q_norm = torch.nn.Identity()
+            self.k_norm = torch.nn.Identity()
+            self.attention_dropout = 0.0
+            self.is_causal = False
+            self.config = SimpleNamespace()
+
+    class FakeLayer:
+        def __init__(self):
+            self.self_attn = FakePenguinAttention()
+
+    class FakeEncoder:
+        def __init__(self):
+            self.layers = [FakeLayer()]
+
+    class FakeVisionEncoder:
+        def __init__(self):
+            self.encoder = FakeEncoder()
+
+    class FakeInnerModel:
+        def __init__(self):
+            self._vision_encoder = FakeVisionEncoder()
+
+        def get_vision_encoder(self):
+            return self._vision_encoder
+
+    class FakeModel:
+        def __init__(self):
+            self.config = SimpleNamespace(_attn_implementation="eager")
+            self._model = FakeInnerModel()
+
+        def get_model(self):
+            return self._model
+
+    original_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "transformers.models.qwen3.modeling_qwen3":
+            raise AssertionError("unexpected qwen3 modeling import")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    model = FakeModel()
+    assert _patch_penguin_vision_attention(model) is True
+
+    attention = model.get_model().get_vision_encoder().encoder.layers[0].self_attn
+    hidden_states = torch.randn(1, 4, 4)
+    output, weights = attention(
+        hidden_states=hidden_states,
+        position_embeddings=(torch.empty(0), torch.empty(0)),
+        cu_seqlens=torch.tensor([0, 2, 4], dtype=torch.int32),
+    )
+
+    assert output.shape == hidden_states.shape
+    assert weights is None
+
+
 def test_penguin_attempt_preserves_non_tensor_outputs_and_casts_float_inputs(monkeypatch, tmp_path):
     import io
 
