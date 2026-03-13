@@ -44,9 +44,6 @@ $openai_model_name = ""        # 模型名称，如：
                                # - Qwen2-VL-7B-Instruct
                                # - llava-v1.5-7b
                                # - gemma-3-4b-it
-$openai_temperature = 0.7      # 生成温度 (0.0 - 2.0)
-$openai_max_tokens = 2048      # 最大生成 token 数
-$openai_json_mode = $true      # 是否尝试使用 JSON 模式（如果服务器支持）
 $local_runtime_backend = ""    # "", "direct", "openai"
 
 $dir_name = $false
@@ -169,6 +166,20 @@ function Get-ProjectPython {
   return $null
 }
 
+function Ensure-UvLockFile {
+  $LockFile = Join-Path $PSScriptRoot "uv.lock"
+  if (Test-Path $LockFile) {
+    return
+  }
+
+  $IndexStrategy = if ([string]::IsNullOrWhiteSpace($Env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $Env:UV_INDEX_STRATEGY }
+  Write-Output "未找到 uv.lock，先生成锁文件 (index-strategy=$IndexStrategy)"
+  uv lock --index-strategy $IndexStrategy
+  if (!($?)) {
+    throw "uv lock failed"
+  }
+}
+
 function Install-UvDependencyPatch {
   param (
     [System.Collections.ArrayList]$ArgsList
@@ -192,6 +203,8 @@ function Install-UvDependencyPatch {
       $Groups += $Text.Substring(8)
     }
   }
+
+  Ensure-UvLockFile
 
   if ($Extras -contains "paddleocr") {
     Write-Output "检测到 paddleocr，使用 uv sync --inexact 处理冲突依赖"
@@ -372,16 +385,8 @@ if ($openai_model_name) {
   [void]$ext_args.Add("--openai_model_name=$openai_model_name")
 }
 
-if ($openai_temperature -ine 0.7) {
-  [void]$ext_args.Add("--openai_temperature=$openai_temperature")
-}
-
-if ($openai_max_tokens -ine 2048) {
-  [void]$ext_args.Add("--openai_max_tokens=$openai_max_tokens")
-}
-
-if (-not $openai_json_mode) {
-  [void]$ext_args.Add("--openai_json_mode=false")
+if ($local_runtime_backend) {
+  [void]$ext_args.Add("--local_runtime_backend=$local_runtime_backend")
 }
 
 if ($dir_name) {
@@ -459,6 +464,9 @@ if ($vlm_image_model) {
   }
   elseif ($vlm_image_model -eq "step_vl_local") {
     Add-UvExtra "step-vl-local"
+  }
+  elseif ($vlm_image_model -eq "reka_edge_local") {
+    Add-UvExtra "reka-edge-local"
   }
 }
 
