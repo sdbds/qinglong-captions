@@ -87,7 +87,13 @@ class BufferedTextStreamer:
 
 @lru_cache(maxsize=1)
 def _has_flash_attn() -> bool:
-    return importlib.util.find_spec("flash_attn") is not None
+    if importlib.util.find_spec("flash_attn") is None:
+        return False
+    try:
+        importlib.import_module("flash_attn")
+    except Exception:
+        return False
+    return True
 
 
 def _is_missing_flash_attn_error(exc: BaseException) -> bool:

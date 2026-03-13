@@ -24,8 +24,10 @@ project_root = Path(__file__).parent.parent.resolve()
 # 设置 Python 路径 - 必须在导入其他模块之前
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
-if str(project_root / "gui") not in sys.path:
-    sys.path.insert(0, str(project_root / "gui"))
+
+from gui.path_setup import configure_sys_path
+
+configure_sys_path(project_root)
 
 os.chdir(project_root)
 

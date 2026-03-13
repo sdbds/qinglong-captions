@@ -43,6 +43,7 @@ class RekaEdgeLocalProvider(LocalVLMProvider):
 
         model_id = self.model_id
         device, dtype, _ = resolve_device_dtype()
+        dtype = self._select_dtype(device=device, dtype=dtype, torch_module=torch)
 
         self.log(f"Loading Reka Edge model: {model_id} (device={device}, dtype={dtype})", "blue")
 
@@ -66,6 +67,26 @@ class RekaEdgeLocalProvider(LocalVLMProvider):
             "dtype": dtype,
             "torch": torch,
         }
+
+    def _select_dtype(self, *, device: str, dtype: Any, torch_module: Any):
+        requested_dtype = getattr(self.ctx.args, "dtype", None) or self.model_config.get("dtype")
+        if isinstance(requested_dtype, str):
+            normalized = requested_dtype.strip().lower()
+            dtype_aliases = {
+                "float16": torch_module.float16,
+                "fp16": torch_module.float16,
+                "half": torch_module.float16,
+                "bfloat16": torch_module.bfloat16,
+                "bf16": torch_module.bfloat16,
+                "float32": torch_module.float32,
+                "fp32": torch_module.float32,
+            }
+            if normalized in dtype_aliases:
+                return dtype_aliases[normalized]
+
+        if device == "cuda":
+            return torch_module.float16
+        return dtype
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         start_time = time.time()

@@ -81,6 +81,8 @@ class ProcessRunner:
     使用 asyncio.create_subprocess_exec 保证不阻塞 NiceGUI 事件循环。
     """
 
+    TASK_DIVIDER = "================ New Task ================"
+
     # 项目根目录 (gui/utils/../../ = 项目根)
     PROJECT_ROOT = str(Path(__file__).parent.parent.parent.resolve())
 
@@ -93,6 +95,7 @@ class ProcessRunner:
         self._tail_line = ""
         self._tail_pending_cr = False
         self._tail_line_overwritten = False
+        self._task_divider_emitted = False
 
     def set_callbacks(
         self,
@@ -113,6 +116,18 @@ class ProcessRunner:
         """通知状态回调"""
         if self.status_callback:
             self.status_callback(status)
+
+    def begin_task_log(self):
+        """在保留历史的前提下，为新任务插入分隔线。"""
+        if self._task_divider_emitted:
+            return
+        if log_buffer.get_all_lines():
+            self._notify_log(self.TASK_DIVIDER)
+        self._task_divider_emitted = True
+
+    def log(self, message: str):
+        """推送一条日志到共享缓冲区和当前回调。"""
+        self._notify_log(message)
 
     def _build_env(self, env_vars: Optional[dict] = None) -> dict:
         """构建子进程环境变量（与 PowerShell 脚本保持一致）
@@ -189,6 +204,24 @@ class ProcessRunner:
         parts.extend(f"extra:{name}" for name in extras)
         parts.extend(f"group:{name}" for name in groups)
         return parts
+
+    @staticmethod
+    def _prepare_uv_project_dir(work_dir: Path) -> tuple[Path, Optional[tempfile.TemporaryDirectory], bool]:
+        lockfile = work_dir / "uv.lock"
+        if lockfile.exists():
+            return work_dir, None, True
+
+        pyproject = work_dir / "pyproject.toml"
+        if not pyproject.exists():
+            return work_dir, None, False
+
+        temp_project = tempfile.TemporaryDirectory(prefix="qinglong_uv_project_")
+        temp_dir = Path(temp_project.name)
+        for name in ("pyproject.toml", "uv.toml", ".python-version"):
+            source = work_dir / name
+            if source.exists():
+                shutil.copy2(source, temp_dir / name)
+        return temp_dir, temp_project, False
 
     @staticmethod
     def _resolve_project_python(work_dir: Path, env: dict) -> Optional[str]:
@@ -377,74 +410,91 @@ class ProcessRunner:
 
         target_python = self._resolve_project_python(work_dir, env)
         profile_parts = self._profile_parts(extras, groups)
+        project_dir, temp_project, use_frozen = self._prepare_uv_project_dir(work_dir)
+        req_file: Optional[tempfile.NamedTemporaryFile] = None
 
-        if self._needs_sync_patch(extras):
-            cmd = [uv, "sync", "--frozen", "--inexact"]
-            action = "uv sync"
-            if target_python:
-                cmd.extend(["--python", target_python])
-            for extra in extras:
-                cmd.extend(["--extra", extra])
-            for group in groups:
-                cmd.extend(["--group", group])
-            self._notify_log("检测到 paddleocr，使用 uv sync --inexact 处理冲突依赖")
-        else:
-            req_file = tempfile.NamedTemporaryFile(prefix="qinglong_uv_patch_", suffix=".txt", delete=False)
-            req_file.close()
-            export_cmd = [
-                uv,
-                "export",
-                "--frozen",
-                "--no-emit-project",
-                "--format",
-                "requirements-txt",
-                "--output-file",
-                req_file.name,
-            ]
-            for extra in extras:
-                export_cmd.extend(["--extra", extra])
-            for group in groups:
-                export_cmd.extend(["--group", group])
+        if temp_project is not None:
+            self._notify_log("未找到 uv.lock，将在临时项目目录中解析依赖，避免污染仓库")
 
-            self._notify_log("导出当前功能所需依赖清单，避免构建本地项目包")
-            self._notify_log(f"开始导出依赖: {' '.join(export_cmd[:15])}{'...' if len(export_cmd) > 15 else ''}")
-            export_code = await self._run_logged_subprocess(export_cmd, work_dir, env)
+        try:
+            if self._needs_sync_patch(extras):
+                cmd = [uv, "sync", "--inexact"]
+                action = "uv sync"
+                if use_frozen:
+                    cmd.insert(2, "--frozen")
+                if target_python:
+                    cmd.extend(["--python", target_python])
+                if project_dir != work_dir:
+                    cmd.extend(["--project", str(project_dir)])
+                for extra in extras:
+                    cmd.extend(["--extra", extra])
+                for group in groups:
+                    cmd.extend(["--group", group])
+                self._notify_log("检测到 paddleocr，使用 uv sync --inexact 处理冲突依赖")
+            else:
+                req_file = tempfile.NamedTemporaryFile(prefix="qinglong_uv_patch_", suffix=".txt", delete=False)
+                req_file.close()
+                export_cmd = [
+                    uv,
+                    "export",
+                ]
+                if use_frozen:
+                    export_cmd.append("--frozen")
+                if project_dir != work_dir:
+                    export_cmd.extend(["--project", str(project_dir)])
+                if target_python:
+                    export_cmd.extend(["--python", target_python])
+                export_cmd.extend(
+                    [
+                        "--no-emit-project",
+                        "--format",
+                        "requirements-txt",
+                        "--output-file",
+                        req_file.name,
+                    ]
+                )
+                for extra in extras:
+                    export_cmd.extend(["--extra", extra])
+                for group in groups:
+                    export_cmd.extend(["--group", group])
+
+                self._notify_log("导出当前功能所需依赖清单，避免构建本地项目包")
+                self._notify_log(f"开始导出依赖: {' '.join(export_cmd[:15])}{'...' if len(export_cmd) > 15 else ''}")
+                export_code = await self._run_logged_subprocess(export_cmd, work_dir, env)
+                self.process = None
+                if export_code != 0:
+                    message = f"uv export 失败，返回码: {export_code}"
+                    self._notify_log(message)
+                    return ProcessResult(ProcessStatus.ERROR, export_code, message)
+
+                cmd = [uv, "pip", "install", "--no-build-isolation"]
+                action = "uv pip install"
+                if target_python:
+                    cmd.extend(["--python", target_python])
+                cmd.extend(["-r", req_file.name])
+                self._notify_log("使用共享 .venv 增量安装依赖补丁")
+
+            self._notify_log(f"{action} target environment: {env_name}")
+            self._notify_log(f"{action} dependency profile: {', '.join(profile_parts)}")
+            self._notify_log(f"开始同步依赖: {' '.join(cmd[:15])}{'...' if len(cmd) > 15 else ''}")
+
+            return_code = await self._run_logged_subprocess(cmd, work_dir, env)
             self.process = None
-            if export_code != 0:
+
+            if return_code != 0:
+                message = f"{action} 失败，返回码: {return_code}"
+                self._notify_log(message)
+                return ProcessResult(ProcessStatus.ERROR, return_code, message)
+
+            return None
+        finally:
+            if req_file is not None:
                 try:
                     os.unlink(req_file.name)
                 except OSError:
                     pass
-                message = f"uv export 失败，返回码: {export_code}"
-                self._notify_log(message)
-                return ProcessResult(ProcessStatus.ERROR, export_code, message)
-
-            cmd = [uv, "pip", "install", "--no-build-isolation"]
-            action = "uv pip install"
-            if target_python:
-                cmd.extend(["--python", target_python])
-            cmd.extend(["-r", req_file.name])
-            self._notify_log("使用共享 .venv 增量安装依赖补丁")
-
-        self._notify_log(f"{action} target environment: {env_name}")
-        self._notify_log(f"{action} dependency profile: {', '.join(profile_parts)}")
-        self._notify_log(f"开始同步依赖: {' '.join(cmd[:15])}{'...' if len(cmd) > 15 else ''}")
-
-        return_code = await self._run_logged_subprocess(cmd, work_dir, env)
-        self.process = None
-
-        if not self._needs_sync_patch(extras):
-            try:
-                os.unlink(req_file.name)
-            except OSError:
-                pass
-
-        if return_code != 0:
-            message = f"{action} 失败，返回码: {return_code}"
-            self._notify_log(message)
-            return ProcessResult(ProcessStatus.ERROR, return_code, message)
-
-        return None
+            if temp_project is not None:
+                temp_project.cleanup()
 
     # ------------------------------------------------------------------
     #  日志文件尾随（原生控制台模式）
@@ -513,7 +563,7 @@ class ProcessRunner:
 
         self._running = True
         self._notify_status(ProcessStatus.RUNNING)
-        log_buffer.clear()
+        self.begin_task_log()
 
         use_native = native_console and sys.platform == "win32"
         exit_file = ""
@@ -593,6 +643,7 @@ class ProcessRunner:
             self._notify_log(traceback.format_exc(limit=6))
             return ProcessResult(ProcessStatus.ERROR, -1, error_msg)
         finally:
+            self._task_divider_emitted = False
             self.process = None
             if self._tail_task and not self._tail_task.done():
                 self._tail_task.cancel()

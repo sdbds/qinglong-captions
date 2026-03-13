@@ -7,6 +7,7 @@ from gui.theme import get_classes, COLORS
 from gui.utils.i18n import t
 from gui.components.advanced_inputs import toggle_switch_simple
 from gui.utils.ansi_to_html import AnsiToHtmlConverter, strip_ansi
+from gui.utils.log_buffer import log_buffer
 
 
 class LogViewer:
@@ -17,6 +18,11 @@ class LogViewer:
     """
 
     _styles_injected = False
+
+    @staticmethod
+    def _history_lines(history: list[tuple[int, str]], max_lines: int) -> list[str]:
+        """提取需要在初始渲染时回放的历史日志。"""
+        return [line for _seq, line in history][-max_lines:]
 
     def __init__(self, max_lines: int = 1000, height: str = "50vh"):
         self._ensure_scroll_styles()
@@ -91,6 +97,15 @@ class LogViewer:
                         "white-space: pre-wrap; word-break: break-all; "
                         "color: #e5e5e5;"
                     )
+
+        history_lines = self._history_lines(log_buffer.get_all_lines(), self.max_lines)
+        if history_lines:
+            self.lines = history_lines.copy()
+            self._line_count = len(history_lines)
+            html_parts = [self._converter.convert_line(line) for line in history_lines]
+            with self.log_container:
+                ui.html("<br>".join(html_parts) + "<br>", sanitize=False).style("display: inline;")
+            self.scroll_area.scroll_to(percent=1.0)
 
         # 定时刷新缓冲区（150ms 间隔）
         ui.timer(0.15, self._flush_buffer)

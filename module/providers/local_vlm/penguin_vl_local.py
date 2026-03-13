@@ -27,13 +27,13 @@ class PenguinVLLocalProvider(LocalVLMProvider):
     def _load_model(self):
         """Load Penguin-VL model and processor."""
         from transformers import AutoModelForCausalLM, AutoProcessor
-
         from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
         device, dtype, attn_impl = resolve_device_dtype()
+        attn_impl = self._attn_implementation
         model_id = self.model_id
 
-        self.log(f"Loading Penguin-VL model: {model_id} (device={device}, dtype={dtype})", "blue")
+        self.log(f"Loading Penguin-VL model: {model_id} (device={device}, dtype={dtype}, attn={attn_impl})", "blue")
 
         loader = transformerLoader(attn_kw="attn_implementation", device_map="auto")
 

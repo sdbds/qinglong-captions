@@ -292,6 +292,25 @@ $local_runtime_model_id = "RekaAI/reka-edge-2603"
 
 如果你走第 3 种方式，调用链会复用现有本地 OpenAI-compatible 多模态入口，配置方法和 Gemini / 其他 VLM provider 保持一致，只是后端换成你自己的本地服务。
 
+#### 本地 Penguin-VL
+
+`penguin_vl_local` 对接的是 [`tencent/Penguin-VL-8B`](https://huggingface.co/tencent/Penguin-VL-8B)，当前项目里只走 `image/*` 路由。
+
+1. 安装依赖：
+```powershell
+uv sync --extra penguin-vl-local
+```
+2. 直接本地推理：
+```powershell
+$vlm_image_model = "penguin_vl_local"
+$local_runtime_backend = "direct"
+```
+
+说明：
+- Hugging Face 远程 processor 会导入 `decord`，所以这个 extra 会补上 `decord`。
+- 为了兼容 Penguin 官方 processor 的导入链，这个 extra 也会安装 `ffmpeg-python`。
+- `transformers` 会固定在 `4.51.3`，与 Penguin 模型卡保持一致。
+
 </details>
 
 # qinglong-captioner (4.1.0)
@@ -785,3 +804,22 @@ $local_runtime_model_id = "RekaAI/reka-edge-2603"
 ```
 
 Server mode reuses the existing local OpenAI-compatible multimodal path, so the configuration pattern stays the same as other VLM backends.
+
+#### Local Penguin-VL
+
+`penguin_vl_local` targets [`tencent/Penguin-VL-8B`](https://huggingface.co/tencent/Penguin-VL-8B) and is currently wired for `image/*` inputs in this project.
+
+1. Install the extra:
+```powershell
+uv sync --extra penguin-vl-local
+```
+2. Run with direct local Transformers inference:
+```powershell
+$vlm_image_model = "penguin_vl_local"
+$local_runtime_backend = "direct"
+```
+
+Notes:
+- The Hugging Face remote processor imports `decord`, so this extra includes `decord`.
+- This extra also installs `ffmpeg-python` to match Penguin's remote processor import chain.
+- `transformers` is pinned to `4.51.3` for Penguin compatibility.

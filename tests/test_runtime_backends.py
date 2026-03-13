@@ -1,5 +1,6 @@
 import io
 import sys
+import types
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -219,6 +220,77 @@ def test_local_vlm_openai_backend_supports_video_messages(tmp_path):
     assert result.raw == "video answer"
 
 
+def test_attempt_qwenvl_local_normalizes_file_image_uris(tmp_path):
+    from module.providers.cloud_vlm import qwenvl as qwenvl_module
+
+    image_path = tmp_path / "sample.jpg"
+    image_path.write_bytes(b"fake-image")
+    file_uri = f"file://{image_path.resolve().as_posix()}"
+
+    captured = {}
+
+    class FakeLoader:
+        def get_or_load_processor(self, *args, **kwargs):
+            return fake_processor
+
+        def get_or_load_model(self, *args, **kwargs):
+            captured["model_cls"] = args[1]
+            return fake_model
+
+        def prepare_image_inputs(self, processor, messages, **kwargs):
+            captured["messages"] = messages
+            return {"input_ids": [[101]], "pixel_values": "pixels"}
+
+    class FakeModel:
+        device = "cpu"
+
+        def generate(self, **kwargs):
+            captured["generate_kwargs"] = kwargs
+            return [[101, 202]]
+
+    fake_loader = FakeLoader()
+    fake_model = FakeModel()
+    fake_processor = SimpleNamespace(batch_decode=MagicMock(return_value=["caption"]))
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoProcessor = object
+    fake_transformers.AutoModel = object
+    fake_transformers.AutoModelForImageTextToText = type("FakeAutoModelForImageTextToText", (), {})
+
+    loader_attr = "_TRANS_LOADER"
+    original_loader = getattr(qwenvl_module.attempt_qwenvl, loader_attr, None)
+    had_original_loader = hasattr(qwenvl_module.attempt_qwenvl, loader_attr)
+    if had_original_loader:
+        delattr(qwenvl_module.attempt_qwenvl, loader_attr)
+
+    try:
+        with (
+            patch.dict(sys.modules, {"transformers": fake_transformers}),
+            patch("utils.transformer_loader.resolve_device_dtype", return_value=("cpu", "float32", "eager")),
+            patch("utils.transformer_loader.transformerLoader", return_value=fake_loader),
+        ):
+            result = qwenvl_module.attempt_qwenvl(
+                model_path="Qwen/Qwen3.5-2B",
+                api_key="",
+                messages=[
+                    {"role": "system", "content": [{"text": "system"}]},
+                    {"role": "user", "content": [{"image": file_uri}, {"text": "describe"}]},
+                ],
+                console=Console(file=io.StringIO(), force_terminal=False),
+                progress=None,
+                task_id=None,
+                local_config={"model_id": "Qwen/Qwen3.5-2B"},
+            )
+    finally:
+        if had_original_loader:
+            setattr(qwenvl_module.attempt_qwenvl, loader_attr, original_loader)
+        elif hasattr(qwenvl_module.attempt_qwenvl, loader_attr):
+            delattr(qwenvl_module.attempt_qwenvl, loader_attr)
+
+    assert result == "caption"
+    assert captured["model_cls"] is fake_transformers.AutoModelForImageTextToText
+    assert captured["messages"][1]["content"][0]["image"] == str(image_path.resolve())
+
+
 def test_local_vlm_runtime_uses_model_config_for_shared_openai_model():
     from providers.base import ProviderContext
     from providers.local_vlm_base import LocalVLMProvider
@@ -284,3 +356,52 @@ def test_hy_mt_openai_backend_uses_chat_runtime():
     assert request["max_tokens"] == 777
     assert request["temperature"] == 0.3
     assert request["messages"][0]["role"] == "user"
+
+
+def test_reka_edge_local_prefers_fp16_on_cuda():
+    import torch
+
+    from providers.base import ProviderContext
+    from providers.local_vlm.reka_edge_local import RekaEdgeLocalProvider
+
+    captured = {}
+
+    class FakeProcessor:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            captured["processor_args"] = args
+            captured["processor_kwargs"] = kwargs
+            return "processor"
+
+    class FakeModelLoader:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            captured["model_args"] = args
+            captured["model_kwargs"] = kwargs
+
+            class _FakeModel:
+                def eval(self):
+                    return self
+
+            return _FakeModel()
+
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoProcessor = FakeProcessor
+    fake_transformers.AutoModelForImageTextToText = FakeModelLoader
+
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO(), force_terminal=False),
+        config={"reka_edge_local": {"model_id": "RekaAI/reka-edge-2603"}},
+        args=SimpleNamespace(vlm_image_model="reka_edge_local"),
+    )
+
+    with (
+        patch.dict(sys.modules, {"transformers": fake_transformers}),
+        patch("utils.transformer_loader.resolve_device_dtype", return_value=("cuda", torch.bfloat16, "eager")),
+    ):
+        cached = RekaEdgeLocalProvider(ctx)._load_model()
+
+    assert cached["device"] == "cuda"
+    assert cached["dtype"] == torch.float16
+    assert captured["model_kwargs"]["torch_dtype"] == torch.float16
+    assert captured["model_kwargs"]["device_map"] == "auto"

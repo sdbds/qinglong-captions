@@ -176,7 +176,7 @@ reasoning = false
 tasks = "caption"
 
 [qwen_vl_local]
-model_id = "Qwen/Qwen3-VL-8B-Instruct"
+model_id = "Qwen/Qwen3.5-9B"
 prompt = ""
 greedy = false
 top_p = 0.8

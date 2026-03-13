@@ -181,6 +181,7 @@ class CaptionStep:
         "moondream": "moondream",
         "qwen_vl_local": "qwen-vl-local",
         "step_vl_local": "step-vl-local",
+        "penguin_vl_local": "penguin-vl-local",
         "reka_edge_local": "reka-edge-local",
     }
 
@@ -526,12 +527,12 @@ class CaptionStep:
         self.start_btn.set_enabled(False)
         self.stop_btn.set_enabled(True)
 
-        self.log_viewer.info(t("log_start_caption"))
-        self.log_viewer.info(f"{t('log_dataset_path')}: {dataset_path}")
-        self.log_viewer.info(f"{t('log_mode')}: {self.mode.value}")
-
         # 将日志回调连接到 log_viewer
         process_runner.set_callbacks(log_callback=self.log_viewer.info)
+        process_runner.begin_task_log()
+        process_runner.log(t("log_start_caption"))
+        process_runner.log(f"{t('log_dataset_path')}: {dataset_path}")
+        process_runner.log(f"{t('log_mode')}: {self.mode.value}")
 
         # 构建参数
         args = [dataset_path]
@@ -612,9 +613,9 @@ class CaptionStep:
 
         uv_extra_args = self._build_local_extra_args()
 
-        self.log_viewer.info(f"{t('log_params')}: {args[:5]}...")
+        process_runner.log(f"{t('log_params')}: {args[:5]}...")
         if uv_extra_args:
-            self.log_viewer.info(f"uv extras: {uv_extra_args}")
+            process_runner.log(f"uv extras: {uv_extra_args}")
 
         # 运行字幕生成
         result = await process_runner.run_python_script("module.captioner", args, uv_extra_args=uv_extra_args or None)

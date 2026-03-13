@@ -17,6 +17,32 @@ from providers.registry import register_provider
 from utils.parse_display import extract_code_block_content
 
 
+def _normalize_local_media_ref(value: Any) -> Any:
+    """Convert file:// media references into filesystem paths for local transformers."""
+    if not isinstance(value, str) or not value.startswith("file://"):
+        return value
+
+    path = value[len("file://") :]
+    if path.startswith("/") and len(path) >= 3 and path[1].isalpha() and path[2] == ":":
+        path = path[1:]
+    elif path and not path.startswith(("/", "\\")) and not (len(path) >= 2 and path[1] == ":"):
+        path = f"//{path}"
+
+    return str(Path(path))
+
+
+def _normalize_local_message_item(item: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(item)
+    item_type = normalized.get("type")
+
+    if item_type == "image" or "image" in normalized:
+        normalized["image"] = _normalize_local_media_ref(normalized.get("image"))
+    if item_type == "video" or "video" in normalized:
+        normalized["video"] = _normalize_local_media_ref(normalized.get("video"))
+
+    return normalized
+
+
 def _collect_stream_qwen(responses: Iterable[Any], console: Console) -> str:
     """Collect streamed text from QwenVL responses.
 
@@ -59,7 +85,7 @@ def attempt_qwenvl(
     Returns SRT content, raises on retryable conditions.
     """
     if not api_key or not str(api_key).strip():
-        from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+        from transformers import AutoProcessor, AutoModelForImageTextToText
 
         from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
@@ -101,7 +127,7 @@ def attempt_qwenvl(
         processor = loader.get_or_load_processor(cfg_model_id, AutoProcessor, console=console)
         model = loader.get_or_load_model(
             cfg_model_id,
-            Qwen3VLForConditionalGeneration,
+            AutoModelForImageTextToText,
             dtype=dtype,
             attn_impl=attn_impl,
             trust_remote_code=True,
@@ -115,11 +141,11 @@ def attempt_qwenvl(
             for item in m.get("content", []):
                 if isinstance(item, dict):
                     if "type" in item:
-                        content.append(item)
+                        content.append(_normalize_local_message_item(item))
                     elif "video" in item:
-                        content.append({"type": "video", "video": item.get("video")})
+                        content.append(_normalize_local_message_item({"type": "video", "video": item.get("video")}))
                     elif "image" in item:
-                        content.append({"type": "image", "image": item.get("image")})
+                        content.append(_normalize_local_message_item({"type": "image", "image": item.get("image")}))
                     elif "text" in item:
                         content.append({"type": "text", "text": item.get("text", "")})
             norm_messages.append({"role": m.get("role", "user"), "content": content})

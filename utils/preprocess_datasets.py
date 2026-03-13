@@ -7,7 +7,7 @@
 #   "imageio>=2.31.1",
 #   "imageio-ffmpeg>=0.4.8",
 #   "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.12.0.88/opencv_contrib_python-4.12.0.88-cp37-abi3-win_amd64.whl; sys_platform == 'win32'",
-#   "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.12.0.88/opencv_contrib_python-4.12.0.88-cp37-abi3-linux_x86_64.whl; sys_platform == 'linux'",
+#   "opencv-contrib-python; sys_platform == 'linux'",
 #   "torch==2.8.0",
 #   "toml",
 # ]
