@@ -15,6 +15,7 @@ from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.ocr_base import OCRProvider
 from providers.registry import register_provider
 from utils.parse_display import display_markdown
+from utils.output_writer import write_markdown_output
 from utils.stream_util import pdf_to_images_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
@@ -179,7 +180,7 @@ def attempt_olmocr(
                 page_content = ""
 
             try:
-                (page_dir / "result.md").write_text(page_content, encoding="utf-8")
+                write_markdown_output(page_dir, page_content)
             except Exception:
                 pass
 
@@ -187,7 +188,7 @@ def attempt_olmocr(
 
         content = "\n<--- Page Split --->\n".join(all_contents)
         try:
-            (Path(output_dir) / "result.md").write_text(content, encoding="utf-8")
+            write_markdown_output(Path(output_dir), content)
         except Exception:
             pass
 
@@ -221,7 +222,7 @@ def attempt_olmocr(
         )
 
         try:
-            (Path(output_dir) / "result.md").write_text(content, encoding="utf-8")
+            write_markdown_output(Path(output_dir), content)
         except Exception:
             pass
 

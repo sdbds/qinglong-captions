@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # /// script
 # dependencies = [
 #   "setuptools",
@@ -17,7 +19,7 @@ import argparse
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Protocol, Union
 
 import lance
 import pysrt
@@ -54,6 +56,11 @@ _text_ext_set = frozenset(text_extensions)
 _application_ext_set = frozenset(application_extensions)
 
 
+class _ReadableBlob(Protocol):
+    def read(self, size: int = -1) -> bytes:
+        ...
+
+
 def format_duration(duration_ms: int) -> str:
     """将毫秒转换为分:秒格式."""
     total_seconds = duration_ms // 1000
@@ -64,7 +71,7 @@ def format_duration(duration_ms: int) -> str:
 
 def save_blob(
     uri: Path,
-    blob: Union[bytes, lance.BlobFile],
+    blob: Union[bytes, _ReadableBlob],
     metadata: Dict[str, Any],
     media_type: str,
 ) -> bool:
@@ -82,8 +89,8 @@ def save_blob(
     try:
         uri.parent.mkdir(parents=True, exist_ok=True)
 
-        # Handle both bytes and BlobFile
-        if isinstance(blob, lance.BlobFile):
+        # Handle both bytes and blob-like readers without depending on Lance runtime types.
+        if hasattr(blob, "read") and callable(getattr(blob, "read")):
             with open(uri, "wb") as f:
                 while True:
                     chunk = blob.read(8192)  # Read in chunks

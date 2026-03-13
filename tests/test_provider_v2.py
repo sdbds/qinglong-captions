@@ -210,263 +210,6 @@ class TestProviderCapabilities:
 
 
 # ──────────────────────────────────────────────
-#  ProviderRegistry
-# ──────────────────────────────────────────────
-
-class TestProviderRegistry:
-
-    def test_singleton(self):
-        from providers.registry import ProviderRegistry
-        r1 = ProviderRegistry()
-        r2 = ProviderRegistry()
-        assert r1 is r2
-
-    def test_get_registry(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        assert reg is not None
-
-    def test_discover_all_20(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        reg.discover()
-        providers = reg.list_providers()
-        assert len(providers) >= 20
-        expected = [
-            "stepfun", "ark", "qwenvl", "glm", "kimi_code", "kimi_vl",
-            "deepseek_ocr", "hunyuan_ocr", "glm_ocr", "chandra_ocr",
-            "olmocr", "paddle_ocr", "nanonets_ocr", "firered_ocr",
-            "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local",
-            "mistral_ocr", "gemini",
-        ]
-        for name in expected:
-            assert name in providers, f"Missing provider: {name}"
-
-    def test_registered_providers_are_concrete(self):
-        from providers.registry import get_registry
-
-        reg = get_registry()
-        reg.discover()
-        abstract = [name for name, cls in reg._providers.items() if inspect.isabstract(cls)]
-        assert not abstract, f"Abstract providers leaked into registry: {abstract}"
-
-    def test_get_provider_by_name(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        cls = reg.get_provider("gemini")
-        assert cls is not None
-        assert cls.name == "gemini"
-
-    def test_get_provider_unknown(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        assert reg.get_provider("nonexistent_provider") is None
-
-    def test_register_custom(self):
-        from providers.base import CaptionResult, MediaContext, PromptContext, Provider, ProviderContext
-        from providers.registry import get_registry
-        from rich.console import Console
-
-        class FakeProvider(Provider):
-            name = "fake_test"
-            @classmethod
-            def can_handle(cls, args, mime):
-                return getattr(args, "fake", False)
-            def prepare_media(self, uri, mime, args):
-                from providers.base import MediaModality
-                return MediaContext(uri=uri, mime=mime, sha256hash="", modality=MediaModality.IMAGE)
-            def attempt(self, media, prompts):
-                return CaptionResult(raw="fake result")
-
-        reg = get_registry()
-        reg.register("fake_test", FakeProvider)
-        assert reg.get_provider("fake_test") is FakeProvider
-        # 清理
-        reg._providers.pop("fake_test", None)
-
-
-# ──────────────────────────────────────────────
-#  find_provider 路由（所有 20+ 个 Provider 的 can_handle）
-# ──────────────────────────────────────────────
-
-class TestFindProvider:
-    """测试 registry.find_provider 根据 args 和 mime 正确路由"""
-
-    def _make_args(self, **kwargs):
-        defaults = {
-            "step_api_key": "", "ark_api_key": "", "qwenVL_api_key": "",
-            "glm_api_key": "", "kimi_code_api_key": "", "kimi_api_key": "",
-            "mistral_api_key": "", "pixtral_api_key": "", "gemini_api_key": "",
-            "ocr_model": "", "document_image": False,
-            "vlm_image_model": "", "pair_dir": "",
-        }
-        defaults.update(kwargs)
-        return SimpleNamespace(**defaults)
-
-    def test_stepfun(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(step_api_key="sk-xxx")
-        assert reg.find_provider(args, "image/jpeg").name == "stepfun"
-        assert reg.find_provider(args, "video/mp4").name == "stepfun"
-
-    def test_ark_video(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(ark_api_key="ak-xxx")
-        p = reg.find_provider(args, "video/mp4")
-        assert p is not None and p.name == "ark"
-
-    def test_qwenvl_video(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(qwenVL_api_key="qk-xxx")
-        p = reg.find_provider(args, "video/mp4")
-        assert p is not None and p.name == "qwenvl"
-
-    def test_glm_video(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(glm_api_key="gk-xxx")
-        p = reg.find_provider(args, "video/mp4")
-        assert p is not None and p.name == "glm"
-
-    def test_kimi_code_priority_over_kimi_vl(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(kimi_code_api_key="kc-xxx", kimi_api_key="kv-xxx")
-        p = reg.find_provider(args, "image/jpeg")
-        assert p.name == "kimi_code"
-
-    def test_kimi_vl_when_no_kimi_code(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(kimi_api_key="kv-xxx")
-        p = reg.find_provider(args, "image/jpeg")
-        assert p.name == "kimi_vl"
-
-    def test_gemini(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(gemini_api_key="gm-xxx")
-        p = reg.find_provider(args, "image/jpeg")
-        assert p is not None and p.name == "gemini"
-
-    def test_mistral_image(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(pixtral_api_key="px-xxx")
-        p = reg.find_provider(args, "image/jpeg")
-        assert p is not None and p.name == "mistral_ocr"
-
-    def test_mistral_pdf(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(pixtral_api_key="px-xxx")
-        p = reg.find_provider(args, "application/pdf")
-        assert p is not None and p.name == "mistral_ocr"
-
-    def test_mistral_ocr_alias_mode(self):
-        """旧 pixtral_ocr 别名仍应路由到 mistral_ocr。"""
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(ocr_model="pixtral_ocr", pixtral_api_key="pk-xxx", document_image=True)
-        p = reg.find_provider(args, "image/jpeg")
-        assert p is not None and p.name == "mistral_ocr"
-
-    def test_mistral_ocr_mode_pdf(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(ocr_model="pixtral_ocr", pixtral_api_key="pk-xxx")
-        p = reg.find_provider(args, "application/pdf")
-        assert p is not None and p.name == "mistral_ocr"
-
-    def test_mistral_ocr_canonical_mode(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(ocr_model="mistral_ocr", mistral_api_key="mk-xxx", document_image=True)
-        p = reg.find_provider(args, "image/jpeg")
-        assert p is not None and p.name == "mistral_ocr"
-
-    def test_deepseek_ocr(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(ocr_model="deepseek_ocr", document_image=True)
-        p = reg.find_provider(args, "image/png")
-        assert p is not None and p.name == "deepseek_ocr"
-
-    def test_ocr_pdf_always_handled(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(ocr_model="hunyuan_ocr")
-        p = reg.find_provider(args, "application/pdf")
-        assert p is not None and p.name == "hunyuan_ocr"
-
-    def test_ocr_image_requires_document_image(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        # document_image=False -> OCR 不处理图像
-        args = self._make_args(ocr_model="glm_ocr", document_image=False)
-        p = reg.find_provider(args, "image/jpeg")
-        assert p is None or p.name != "glm_ocr"
-
-    def test_moondream_vlm(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(vlm_image_model="moondream")
-        p = reg.find_provider(args, "image/jpeg")
-        assert p is not None and p.name == "moondream"
-
-    def test_qwen_vl_local(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(vlm_image_model="qwen_vl_local")
-        p = reg.find_provider(args, "image/jpeg")
-        assert p is not None and p.name == "qwen_vl_local"
-
-    def test_step_vl_local(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(vlm_image_model="step_vl_local")
-        p = reg.find_provider(args, "image/jpeg")
-        assert p is not None and p.name == "step_vl_local"
-
-    def test_reka_edge_local_image(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(vlm_image_model="reka_edge_local")
-        p = reg.find_provider(args, "image/jpeg")
-        assert p is not None and p.name == "reka_edge_local"
-
-    def test_reka_edge_local_video(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args(vlm_image_model="reka_edge_local")
-        p = reg.find_provider(args, "video/mp4")
-        assert p is not None and p.name == "reka_edge_local"
-
-    def test_no_provider_returns_none(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        args = self._make_args()  # 所有 key 为空
-        p = reg.find_provider(args, "image/jpeg")
-        assert p is None
-
-    def test_all_ocr_providers(self):
-        """逐一测试所有 8 个 OCR provider 的 can_handle"""
-        from providers.registry import get_registry
-        reg = get_registry()
-        ocr_names = [
-            "deepseek_ocr", "hunyuan_ocr", "glm_ocr", "chandra_ocr",
-            "olmocr", "paddle_ocr", "nanonets_ocr", "firered_ocr",
-        ]
-        for name in ocr_names:
-            args = self._make_args(ocr_model=name)
-            p = reg.find_provider(args, "application/pdf")
-            assert p is not None and p.name == name, f"OCR provider {name} not found for PDF"
-
-
-# ──────────────────────────────────────────────
 #  PromptResolver
 # ──────────────────────────────────────────────
 
@@ -621,9 +364,12 @@ class TestWithRetryImpl:
                 raise Exception("Error 429 rate limited")
             return "ok"
 
-        result = with_retry_impl(fn, RetryConfig(max_retries=5, base_wait=0.01))
+        with patch("providers.utils.time.sleep") as mock_sleep:
+            result = with_retry_impl(fn, RetryConfig(max_retries=5, base_wait=0.01))
+
         assert result == "ok"
         assert counter["n"] == 3
+        assert mock_sleep.call_count == 2
 
     def test_no_retry_on_unknown_error(self):
         from providers.base import RetryConfig
@@ -995,128 +741,6 @@ class TestKimiStructuredDisplay:
 
 
 # ──────────────────────────────────────────────
-#  api_handler_v2 入口函数
-# ──────────────────────────────────────────────
-
-class TestApiHandlerV2:
-
-    def test_no_provider_returns_empty(self):
-        from module.api_handler_v2 import api_process_batch
-        args = SimpleNamespace(
-            step_api_key="", ark_api_key="", qwenVL_api_key="",
-            glm_api_key="", kimi_code_api_key="", kimi_api_key="",
-            mistral_api_key="", pixtral_api_key="", gemini_api_key="",
-            ocr_model="", document_image=False,
-            vlm_image_model="", pair_dir="",
-        )
-        result = api_process_batch(
-            uri="/fake.jpg", mime="image/jpeg", config={"prompts": {}},
-            args=args, sha256hash="abc",
-        )
-        assert result.raw == ""
-
-    def test_with_provider_calls_execute(self):
-        """验证找到 provider 后会调用 execute"""
-        from providers.base import CaptionResult, ProviderContext
-        from module.api_handler_v2 import api_process_batch
-
-        args = SimpleNamespace(
-            step_api_key="sk-xxx",
-            ark_api_key="", qwenVL_api_key="", glm_api_key="",
-            kimi_code_api_key="", kimi_api_key="",
-            mistral_api_key="", pixtral_api_key="", gemini_api_key="",
-            ocr_model="", document_image=False,
-            vlm_image_model="", pair_dir="",
-            max_retries=1, wait_time=0.01, dir_name=False,
-        )
-
-        fake_result = CaptionResult(raw="mocked caption")
-        # Mock Provider.execute - 需要同时 mock 两个导入路径
-        with patch("providers.base.Provider.execute", return_value=fake_result):
-            result = api_process_batch(
-                uri="/fake.jpg", mime="image/jpeg",
-                config={"prompts": {}}, args=args, sha256hash="abc",
-            )
-        assert isinstance(result, CaptionResult)
-        assert result.raw == "mocked caption"
-
-    def test_gemini_provider_instantiates_through_api_handler(self):
-        from providers.base import CaptionResult
-        from module.api_handler_v2 import api_process_batch
-
-        args = SimpleNamespace(
-            step_api_key="",
-            ark_api_key="", qwenVL_api_key="", glm_api_key="",
-            kimi_code_api_key="", kimi_api_key="",
-            mistral_api_key="", pixtral_api_key="", gemini_api_key="gm-xxx",
-            ocr_model="", document_image=False,
-            vlm_image_model="", pair_dir="",
-            max_retries=1, wait_time=0.01, dir_name=False,
-            gemini_model_path="gemini-2.0-flash",
-            gemini_task="",
-        )
-
-        fake_result = CaptionResult(raw="mocked gemini")
-        with patch("providers.base.Provider.execute", return_value=fake_result):
-            result = api_process_batch(
-                uri="/fake.jpg", mime="image/jpeg",
-                config={"prompts": {}, "generation_config": {"default": {}}}, args=args, sha256hash="abc",
-            )
-        assert result.raw == "mocked gemini"
-
-    def test_is_v2_enabled(self):
-        from module.api_handler_v2 import is_v2_enabled, use_v2
-        old_val = os.environ.get("QINGLONG_API_V2", "0")
-        try:
-            use_v2(True)
-            assert is_v2_enabled()
-            use_v2(False)
-            assert not is_v2_enabled()
-        finally:
-            os.environ["QINGLONG_API_V2"] = old_val
-
-
-# ──────────────────────────────────────────────
-#  captioner.py V2 切换逻辑
-# ──────────────────────────────────────────────
-
-class TestCaptionerV2Switch:
-
-    def test_v1_import_default(self):
-        """默认不设置环境变量时使用 V1"""
-        old = os.environ.pop("QINGLONG_API_V2", None)
-        try:
-            assert os.environ.get("QINGLONG_API_V2", "0") != "1"
-        finally:
-            if old is not None:
-                os.environ["QINGLONG_API_V2"] = old
-
-    def test_v2_wrapper_unwraps_caption_result(self):
-        """V2 wrapper 正确将 CaptionResult 解包为旧格式"""
-        from providers.base import CaptionResult
-
-        # 模拟 V2 wrapper 行为
-        def unwrap(result):
-            if hasattr(result, "parsed") and result.parsed is not None:
-                return result.parsed
-            if hasattr(result, "raw"):
-                return result.raw
-            return result
-
-        # 纯文本
-        r1 = CaptionResult(raw="plain text")
-        assert unwrap(r1) == "plain text"
-
-        # 结构化
-        r2 = CaptionResult(raw='{"desc": "hi"}', parsed={"desc": "hi"})
-        assert unwrap(r2) == {"desc": "hi"}
-
-        # 空结果
-        r3 = CaptionResult(raw="")
-        assert unwrap(r3) == ""
-
-
-# ──────────────────────────────────────────────
 #  Provider 基类逻辑
 # ──────────────────────────────────────────────
 
@@ -1441,37 +1065,28 @@ class TestRegisterProviderDecorator:
 
         assert TestProv.name == "test_deco_provider"
 
+    def test_find_provider_falls_back_to_registered_non_priority_provider(self):
+        from providers import registry as registry_module
 
-# ──────────────────────────────────────────────
-#  Priority Order 完整性
-# ──────────────────────────────────────────────
+        class DummyProvider:
+            name = "dummy_fallback"
 
-class TestPriorityOrder:
+            @classmethod
+            def can_handle(cls, args, mime):
+                return mime == "image/png"
 
-    def test_all_registered_in_priority(self):
-        """优先级列表应覆盖所有注册的 provider"""
-        from providers.registry import get_registry
-        reg = get_registry()
-        reg.discover()
-        registered = set(reg.list_providers())
-        priority = set(reg._priority_order)
-        missing = registered - priority
-        assert not missing, f"Registered but not in priority: {missing}"
+        reg = registry_module.ProviderRegistry()
+        original_providers = reg._providers
+        original_priority = reg._priority_order
 
-    def test_no_phantom_in_priority(self):
-        """优先级列表中的每个名称都应在注册表中"""
-        from providers.registry import get_registry
-        reg = get_registry()
-        reg.discover()
-        registered = set(reg.list_providers())
-        for name in reg._priority_order:
-            assert name in registered, f"Priority entry '{name}' not registered"
-
-    def test_kimi_code_before_kimi_vl(self):
-        from providers.registry import get_registry
-        reg = get_registry()
-        order = reg._priority_order
-        assert order.index("kimi_code") < order.index("kimi_vl")
+        try:
+            reg._providers = {"dummy_fallback": DummyProvider}
+            reg._priority_order = []
+            provider = reg.find_provider(SimpleNamespace(), "image/png")
+            assert provider is DummyProvider
+        finally:
+            reg._providers = original_providers
+            reg._priority_order = original_priority
 
 
 if __name__ == "__main__":

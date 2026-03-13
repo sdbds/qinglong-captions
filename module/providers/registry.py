@@ -151,6 +151,16 @@ class ProviderRegistry:
                 # 继续尝试下一个
                 pass
 
+        for name, provider_class in self._providers.items():
+            if name in self._priority_order:
+                continue
+
+            try:
+                if provider_class.can_handle(args, mime):
+                    return provider_class
+            except Exception:
+                pass
+
         return None
 
     def get_provider(self, name: str) -> Optional[Type["Provider"]]:

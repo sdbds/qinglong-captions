@@ -2,14 +2,15 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "module"))
 
 
-from module.captioner import _assign_ocr_image_names, _rewrite_ocr_image_paths
-from utils.path_safety import safe_child_path, safe_leaf_name
+from module.caption_pipeline.postprocess import _assign_ocr_image_names, _rewrite_ocr_image_paths
+from utils.path_safety import safe_child_path, safe_leaf_name, safe_sibling_path
 
 
 def test_safe_leaf_name_strips_parent_paths_and_defaults():
@@ -22,6 +23,16 @@ def test_safe_child_path_stays_under_base_dir(tmp_path):
     target = safe_child_path(tmp_path, r"..\nested/evil.png")
     assert target == tmp_path.resolve() / "evil.png"
     assert target.parent == tmp_path.resolve()
+
+
+def test_safe_sibling_path_stays_next_to_source_file(tmp_path):
+    source = tmp_path / "video.mp4"
+    source.write_bytes(b"video")
+
+    target = safe_sibling_path(source, ".srt")
+
+    assert target == source.with_suffix(".srt").resolve()
+    assert target.parent == source.parent.resolve()
 
 
 def test_assign_ocr_image_names_deduplicates_and_builds_rewrite_maps():

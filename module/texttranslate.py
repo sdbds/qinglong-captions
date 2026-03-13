@@ -149,7 +149,12 @@ def resolve_export_base_path(uri: Path, export_root: Optional[Path]) -> Path:
         return uri
     if export_root is None:
         return uri
-    return export_root / uri.name
+    if uri.is_absolute():
+        relative_parts = [part for part in uri.parts if part not in {uri.anchor, uri.drive, "\\"}]
+        relative_uri = Path(*relative_parts) if relative_parts else Path(uri.name)
+    else:
+        relative_uri = uri
+    return export_root / relative_uri
 
 
 def resolve_translated_markdown_path(uri: Path, export_root: Optional[Path], target_lang: str) -> Path:
@@ -268,6 +273,9 @@ def load_or_create_dataset(
     if not force_reimport:
         existing = sorted(source_path.glob('*.lance'))
         if existing:
+            preferred = source_path / f"{output_name}.lance"
+            if preferred in existing:
+                return preferred, False
             return existing[0], False
 
     console.print("[yellow]Importing source assets into Lance...[/yellow]")

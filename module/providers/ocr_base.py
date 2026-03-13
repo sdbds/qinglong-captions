@@ -17,6 +17,7 @@ from .backends import OpenAIChatRuntime, find_model_config_section, resolve_runt
 from .base import MediaContext, MediaModality, PromptContext, Provider, ProviderType
 from .capabilities import ProviderCapabilities
 from .utils import build_vision_messages, encode_image_to_blob
+from utils.output_writer import write_markdown_output
 
 
 class OCRProvider(Provider):
@@ -192,7 +193,7 @@ class OCRProvider(Provider):
                     continue
                 page_content = infer_from_blob(page_blob)
                 try:
-                    (page_dir / "result.md").write_text(page_content, encoding="utf-8")
+                    write_markdown_output(page_dir, page_content)
                 except Exception:
                     pass
                 all_contents.append(page_content.strip())
@@ -206,7 +207,7 @@ class OCRProvider(Provider):
 
         try:
             if output_dir:
-                (Path(output_dir) / "result.md").write_text(content, encoding="utf-8")
+                write_markdown_output(Path(output_dir), content)
         except Exception:
             pass
 

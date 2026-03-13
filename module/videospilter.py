@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 import pysrt
@@ -36,20 +36,23 @@ from config.config import BASE_VIDEO_EXTENSIONS
 
 # 辅助函数：在线程中运行异步任务
 def run_async_in_thread(coroutine):
-    """在单独的线程中运行异步协程"""
+    """在单独线程中运行异步协程，并返回可等待的 Future。"""
+
+    future: Future = Future()
 
     def run_in_thread():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(coroutine)
+            future.set_result(loop.run_until_complete(coroutine))
+        except Exception as exc:
+            future.set_exception(exc)
         finally:
             loop.close()
 
-    thread = threading.Thread(target=run_in_thread)
-    thread.daemon = True  # 使线程在主程序退出时自动结束
+    thread = threading.Thread(target=run_in_thread, daemon=True)
     thread.start()
-    return thread
+    return future
 
 
 class SceneDetector:
@@ -146,17 +149,19 @@ class SceneDetector:
 
     def start_async_detection(self, video_path):
         """
-        开始异步场景检测，返回协程对象
+        开始异步场景检测，返回 Future 结果句柄。
 
         Args:
             video_path (str): 视频文件路径
 
         Returns:
-            coroutine: 异步场景检测的协程对象
+            Future: 可等待的场景检测结果
         """
-        # 不使用create_task，直接返回协程对象
-        coroutine = self.detect_scenes_async(video_path)
-        self._init_task = coroutine
+        video_path_str = str(video_path)
+        with self._lock:
+            if self._init_task is None:
+                self._detection_complete = False
+                self._init_task = run_async_in_thread(self.detect_scenes_async(video_path_str))
         return self._init_task
 
     async def ensure_detection_complete(self, video_path=None):
@@ -169,22 +174,37 @@ class SceneDetector:
         Returns:
             list: 场景列表
         """
-        # 将Path对象转换为字符串
-        video_path_str = str(video_path) if video_path else None
+        future = self._init_task
+        if future is None and video_path is not None:
+            future = self.start_async_detection(video_path)
 
-        # 如果没有任务或已完成，则创建新任务
-        if self._init_task is None and video_path_str:
-            # 直接调用异步方法，不使用create_task
-            self._init_task = self.detect_scenes_async(video_path_str)
-
-        # 等待任务完成
         try:
-            if self._init_task:
-                self.scene_list = await self._init_task
+            if future:
+                self.scene_list = await asyncio.wrap_future(future)
                 self._detection_complete = True
                 return self.scene_list
             return []
         except Exception as e:
+            self._detection_complete = True
+            self.scene_list = []
+            self.console.print(f"[red]scene detection failed: {str(e)}[/red]")
+            return []
+
+    def wait_for_detection(self, video_path=None, timeout=None):
+        """同步等待场景检测结果，适合同步调用链使用。"""
+        future = self._init_task
+        if future is None and video_path is not None:
+            future = self.start_async_detection(video_path)
+
+        try:
+            if future:
+                self.scene_list = future.result(timeout=timeout)
+                self._detection_complete = True
+                return self.scene_list
+            return []
+        except Exception as e:
+            self._detection_complete = True
+            self.scene_list = []
             self.console.print(f"[red]scene detection failed: {str(e)}[/red]")
             return []
 
@@ -663,7 +683,7 @@ class SceneDetector:
         return subs
 
     def is_detection_complete(self):
-        return self._detection_complete
+        return self._detection_complete or bool(self._init_task and self._init_task.done())
 
     def get_scene_list(self):
         return self.scene_list

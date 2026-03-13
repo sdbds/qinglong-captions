@@ -16,6 +16,7 @@ from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.ocr_base import OCRProvider
 from providers.registry import register_provider
 from utils.parse_display import display_markdown
+from utils.output_writer import write_markdown_output
 from utils.stream_util import pdf_to_images_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
@@ -171,8 +172,7 @@ def attempt_firered_ocr(
 
             # Save individual page result
             try:
-                result_md_path = page_dir / "result.md"
-                result_md_path.write_text(page_content, encoding="utf-8")
+                write_markdown_output(page_dir, page_content)
             except Exception:
                 pass
 
@@ -182,7 +182,7 @@ def attempt_firered_ocr(
 
         # Save combined result
         try:
-            (Path(output_dir) / "result.md").write_text(content, encoding="utf-8")
+            write_markdown_output(Path(output_dir), content)
         except Exception:
             pass
 
@@ -203,8 +203,7 @@ def attempt_firered_ocr(
 
         # Save result
         try:
-            result_md_path = Path(output_dir) / "result.md"
-            result_md_path.write_text(content, encoding="utf-8")
+            write_markdown_output(Path(output_dir), content)
         except Exception:
             pass
 

@@ -18,6 +18,7 @@ from module.texttranslate import (
     normalize_dataset,
     protect_markdown,
     preserve_chunk_whitespace,
+    resolve_translated_markdown_path,
     restore_placeholders,
     translate_dataset,
 )
@@ -125,6 +126,17 @@ def test_load_or_create_dataset_reuses_existing_lance(tmp_path):
     assert created is False
 
 
+def test_load_or_create_dataset_prefers_matching_output_name(tmp_path):
+    (tmp_path / 'aaa.lance').mkdir()
+    matching = tmp_path / 'sample.lance'
+    matching.mkdir()
+
+    dataset_path, created = load_or_create_dataset(str(tmp_path), output_name='sample', raw_tag='raw.test')
+
+    assert dataset_path == matching
+    assert created is False
+
+
 def test_load_or_create_dataset_force_reimport_calls_transform(tmp_path):
     with patch('module.texttranslate.transform2lance', return_value=object()) as mock_transform:
         dataset_path, created = load_or_create_dataset(
@@ -210,3 +222,13 @@ def test_translation_helpers_preserve_protected_tokens_and_whitespace():
     restored = restore_placeholders(masked, replacements)
     assert restored == original
     assert preserve_chunk_whitespace('  hello \n', 'world') == '  world \n'
+
+
+def test_resolve_translated_markdown_path_preserves_relative_directories(tmp_path):
+    export_root = tmp_path / 'exports'
+
+    first = resolve_translated_markdown_path(Path('a/readme.txt'), export_root, 'zh_cn')
+    second = resolve_translated_markdown_path(Path('b/readme.txt'), export_root, 'zh_cn')
+
+    assert first == export_root / 'a' / 'readme_zh_cn.md'
+    assert second == export_root / 'b' / 'readme_zh_cn.md'

@@ -1,6 +1,7 @@
 """Configuration constants for the dataset processing."""
 
 import os
+from types import MappingProxyType
 from typing import Any, Dict, FrozenSet, List, Tuple
 
 import pyarrow as pa
@@ -238,34 +239,30 @@ DEFAULT_CONSOLE_COLORS = {
 }
 
 # Current active configurations - defaults to built-in values
-DATASET_SCHEMA = DEFAULT_DATASET_SCHEMA.copy()
-CONSOLE_COLORS = DEFAULT_CONSOLE_COLORS.copy()
+DATASET_SCHEMA = tuple(DEFAULT_DATASET_SCHEMA)
+CONSOLE_COLORS = MappingProxyType(DEFAULT_CONSOLE_COLORS.copy())
 SYSTEM_PROMPT = ""  # Will be loaded from config
 
 
-def load_config(config_path: str) -> None:
-    """Load all configurations from a TOML file.
+def _apply_runtime_snapshot(runtime_config) -> None:
+    global DATASET_SCHEMA, CONSOLE_COLORS, SYSTEM_PROMPT
+
+    DATASET_SCHEMA = tuple(runtime_config.schema)
+    CONSOLE_COLORS = MappingProxyType(dict(runtime_config.colors))
+    SYSTEM_PROMPT = runtime_config.prompts.get("system_prompt", "")
+
+
+def load_config(config_path: str):
+    """Compatibility wrapper returning an immutable runtime configuration snapshot.
 
     Args:
         config_path: Path to the TOML file containing configurations
+
+    Returns:
+        RuntimeConfig: Immutable runtime configuration snapshot
     """
-    global DATASET_SCHEMA, CONSOLE_COLORS, SYSTEM_PROMPT
+    from config.runtime_config import load_runtime_config
 
-    try:
-        DATASET_SCHEMA = load_schema_from_toml(config_path)
-    except Exception as e:
-        print(f"Warning: Failed to load schema configuration: {e}")
-
-    try:
-        colors = load_colors_from_toml(config_path)
-        if colors:
-            CONSOLE_COLORS.update(colors)
-    except Exception as e:
-        print(f"Warning: Failed to load colors configuration: {e}")
-
-    try:
-        prompts = load_prompts_from_toml(config_path)
-        if prompts and "system_prompt" in prompts:
-            SYSTEM_PROMPT = prompts["system_prompt"]
-    except Exception as e:
-        print(f"Warning: Failed to load prompts configuration: {e}")
+    runtime_config = load_runtime_config(config_path)
+    _apply_runtime_snapshot(runtime_config)
+    return runtime_config

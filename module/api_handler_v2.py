@@ -5,8 +5,9 @@ Provider V2 统一入口
 
 用法:
     # 默认使用 V2 新架构
-    # 通过环境变量显式回退到旧代码
-    export QINGLONG_API_V2=0  # 回退到旧代码
+    # 通过环境变量显式回退到旧代码（临时兼容，不建议长期使用）
+    # 计划在 2026-06-30 之后、V2 默认路径连续两个小版本稳定后移除
+    export QINGLONG_API_V2=0  # 显式回退到旧代码
 
     from module.api_handler_v2 import api_process_batch
     result = api_process_batch(uri, mime, config, args, hash)
@@ -14,7 +15,7 @@ Provider V2 统一入口
 向后兼容:
     - 函数签名与原 api_process_batch 完全一致
     - 返回值 CaptionResult 可以通过 .raw 获取字符串
-    - 失败时自动回退到旧实现（如果配置了）
+    - 不会在失败时自动回退到旧实现；是否启用旧实现只由 QINGLONG_API_V2 控制
 """
 
 import os
@@ -23,6 +24,7 @@ from typing import Any, Optional
 from rich.console import Console
 from rich.progress import Progress
 
+from config.runtime_config import coerce_runtime_config
 from module.providers import CaptionResult, ProviderContext, get_registry
 from module.providers.catalog import normalize_runtime_args
 
@@ -50,11 +52,13 @@ def api_process_batch(
     normalize_runtime_args(args)
 
     # 创建上下文
+    runtime_config = coerce_runtime_config(config)
+
     ctx = ProviderContext(
         console=console,
         progress=progress,
         task_id=task_id,
-        config=config,
+        config=runtime_config,
         args=args,
     )
 

@@ -1,4 +1,4 @@
-name: Provider V2 Tests
+name: Tests
 
 on:
   push:
@@ -6,19 +6,31 @@ on:
     paths:
       - "module/providers/**"
       - "module/api_handler_v2.py"
+      - "module/captioner.py"
+      - "module/videospilter.py"
+      - "module/lance*.py"
+      - "utils/**"
+      - "config/**"
       - "tests/**"
+      - "pyproject.toml"
       - ".github/workflows/test.yml"
   pull_request:
     branches: [main]
     paths:
       - "module/providers/**"
       - "module/api_handler_v2.py"
+      - "module/captioner.py"
+      - "module/videospilter.py"
+      - "module/lance*.py"
+      - "utils/**"
+      - "config/**"
       - "tests/**"
+      - "pyproject.toml"
       - ".github/workflows/test.yml"
   workflow_dispatch:
 
 jobs:
-  test:
+  fast-unit:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -39,9 +51,38 @@ jobs:
           python -m pip install --upgrade pip uv
           uv sync --group test
 
-      - name: Run tests
+      - name: Run fast unit suite
         env:
           PYTHONIOENCODING: utf-8
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          uv run --group test python -m pytest tests/test_provider_v2.py -v --tb=short
+          uv run --group test python -m pytest tests/test_provider_catalog.py tests/test_scene_detection.py tests/test_runtime_backends.py tests/test_tag_highlighting.py tests/test_process_runner_tail_parser.py tests/test_log_viewer_scroll_state.py tests/test_lance_blob.py tests/test_lance_utils.py tests/test_text_translation_pipeline.py tests/test_path_safety.py tests/test_output_writer.py tests/test_caption_pipeline.py tests/test_runtime_config.py tests/test_ocr_output_writer_adoption.py -q
+
+  provider-v2:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip uv
+          uv sync --group test
+
+      - name: Run Provider V2 suite
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          uv run --group test python -m pytest tests/test_provider_v2.py tests/test_provider_registry.py tests/test_provider_routes.py tests/test_api_handler_v2.py -q --durations=20

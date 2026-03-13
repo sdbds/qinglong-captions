@@ -31,7 +31,8 @@
    - 自动发现机制，通过装饰器自动注册 Provider
    - 统一的 `CaptionResult` 返回类型，解决返回值多态问题
    - 基于优先级的 Provider 路由，自动选择最佳 Provider
-   - 向后兼容：设置 `$env:QINGLONG_API_V2="0"` 可回退到旧架构
+   - 临时兼容：设置 `$env:QINGLONG_API_V2="0"` 可显式回退到旧架构，仅建议用于回滚和排障
+   - 退场计划：该回退开关计划在 2026-03-30 之后移除，前提是 CLI 与 GUI 的默认 V2 路径连续两个小版本保持稳定
 
 2. **新增 OpenAI Compatible Provider** - 通用 OpenAI API 兼容接口
    - 支持对接任何 OpenAI 兼容服务：vLLM、SGLang、Ollama、LM Studio
@@ -317,7 +318,8 @@ A Python toolkit for generating video captions using the Lance database format a
    - Auto-discovery mechanism with decorator-based Provider registration
    - Unified `CaptionResult` return type resolving polymorphic return value issues
    - Priority-based Provider routing with automatic best Provider selection
-   - Backward compatible: Set `$env:QINGLONG_API_V2="0"` to fallback to legacy architecture
+   - Temporary compatibility: Set `$env:QINGLONG_API_V2="0"` to explicitly fallback to the legacy architecture, only for rollback and debugging
+   - Removal plan: This rollback switch is targeted for removal after 2026-06-30, once the default V2 path stays stable across two consecutive minor releases in both CLI and GUI flows
 
 2. **New OpenAI Compatible Provider** - Universal OpenAI API compatible interface
    - Support any OpenAI-compatible service: vLLM, SGLang, Ollama, LM Studio
