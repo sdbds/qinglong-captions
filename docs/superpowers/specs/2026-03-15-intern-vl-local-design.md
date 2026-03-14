@@ -1,11 +1,11 @@
-# InternVLU Local Provider Design
+# Intern VL Local Provider Design
 
 Date: 2026-03-15
 Status: Approved for implementation
 
 ## Goal
 
-Add a new local VLM provider, `internvlu_local`, for image understanding only.
+Add a new local VLM provider, `intern_vl_local`, for image understanding only.
 
 This integration must:
 
@@ -22,13 +22,14 @@ This integration must not:
 
 ## Chosen Approach
 
-Use the official InternVL-U codebase in a VLM-only direct-loading path.
+Use a pinned, vendored snapshot of the official InternVL-U VLM code in a VLM-only direct-loading path.
 
 Why this approach:
 
 - it preserves direct local inference
 - it avoids loading the unused `generation_decoder` and `vae` weights
 - it matches the user request to ignore generation and editing
+- it avoids hidden runtime network fetches and self-mutating dependency logic
 
 Rejected alternatives:
 
@@ -51,19 +52,24 @@ Rejected alternatives:
 ### Upstream code
 
 - GitHub repo: `https://github.com/OpenGVLab/InternVL-U.git`
-- default pinned ref for this integration:
+- vendored source ref for this integration:
   - `e814cb053a6025df152abf7628074acef3bbebd2`
 
-The upstream repo is not packaged as an installable Python distribution, so direct `pip install git+...` is not the default strategy.
+The upstream repo is not packaged as an installable Python distribution, so the design uses a pinned source snapshot in this repository instead of runtime fetching.
+
+### Model revision
+
+- Hugging Face model revision:
+  - `5141a7aed9208605a69d57034280a30cd12eeb0d`
 
 ## Architecture
 
 ### Provider name and routing
 
-- provider name: `internvlu_local`
+- provider name: `intern_vl_local`
 - route key: `vlm_image_model`
 - match rule:
-  - `args.vlm_image_model == "internvlu_local"`
+  - `args.vlm_image_model == "intern_vl_local"`
   - `mime.startswith("image")`
 
 ### Runtime modes
@@ -79,7 +85,7 @@ The provider keeps the existing `LocalVLMProvider` behavior:
 
 Direct mode loads only the understanding stack:
 
-- upstream Python code from cached `OpenGVLab/InternVL-U`
+- vendored Python code snapshot from `third_party/internvl_u`
 - `InternVLUProcessor` from the HF `processor/` subdirectory
 - `InternVLUChatModel` from the HF `vlm/` subdirectory
 
@@ -89,15 +95,15 @@ Direct mode must not load:
 - `vae/`
 - diffusion pipeline classes
 
-### Upstream code cache
+### Vendored source snapshot
 
-On first use, the provider ensures a local cache of the upstream GitHub repo and temporarily prepends that cache path to `sys.path`.
+The provider imports from a pinned local snapshot under `third_party/internvl_u` instead of cloning code at runtime.
 
 Design requirements:
 
-- cache location must live outside tracked source files
-- default pinned ref must be configurable
-- failure to fetch upstream code must raise an actionable error
+- the vendored files must be copied from the pinned upstream commit
+- the import path must not depend on runtime network access
+- upstream sync must be an explicit maintenance action, not provider side effect
 
 ## Inference Flow
 
@@ -131,12 +137,11 @@ Equivalent behavior target:
 Add a new section in `config/model.toml`:
 
 ```toml
-[internvlu_local]
+[intern_vl_local]
 model_id = "InternVL-U/InternVL-U"
+model_revision = "5141a7aed9208605a69d57034280a30cd12eeb0d"
 model_subdir = "vlm"
 processor_subdir = "processor"
-code_repo_url = "https://github.com/OpenGVLab/InternVL-U.git"
-code_ref = "e814cb053a6025df152abf7628074acef3bbebd2"
 max_new_tokens = 1024
 do_sample = false
 temperature = 0.2
@@ -148,13 +153,14 @@ repetition_penalty = 1.0
 Notes:
 
 - `dtype` should remain overrideable via existing runtime args / config patterns
+- model and processor loads must pass the pinned `model_revision`
 - Windows should default to non-flash-attn-friendly execution behavior
 
 ## Dependency Profile
 
 Add a new optional dependency extra:
 
-- extra name: `internvlu-local`
+- extra name: `intern-vl-local`
 
 This extra should include only what the VLM-only path needs, such as:
 
@@ -172,7 +178,7 @@ This extra should not include:
 
 ## Files Expected To Change
 
-- `module/providers/local_vlm/internvlu_local.py`
+- `module/providers/local_vlm/intern_vl_local.py`
 - `module/providers/catalog.py`
 - `module/providers/registry.py`
 - `config/model.toml`
@@ -180,13 +186,14 @@ This extra should not include:
 - `gui/wizard/step4_caption.py`
 - `4、run.ps1`
 - `README.md`
+- `third_party/internvl_u/`
 - tests covering route, registry, extras, and provider behavior
 
 ## Error Handling
 
 The provider must fail clearly in these cases:
 
-- upstream InternVL-U code cache cannot be fetched
+- vendored InternVL-U source snapshot is missing or incomplete
 - configured HF repo is missing `processor/`
 - configured HF repo is missing `vlm/`
 - CUDA OOM in direct mode
@@ -204,18 +211,19 @@ Follow test-first implementation.
 Required coverage:
 
 1. Catalog / route tests
-   - `internvlu_local` appears in `vlm_image_model`
+   - `intern_vl_local` appears in `vlm_image_model`
 
 2. Registry tests
-   - image routes to `internvlu_local`
-   - video does not route to `internvlu_local`
+   - image routes to `intern_vl_local`
+   - video does not route to `intern_vl_local`
 
 3. GUI / script dependency tests
-   - GUI extra map returns `internvlu-local`
+   - GUI extra map returns `intern-vl-local`
    - `4、run.ps1` mentions the provider and adds the extra
 
 4. Provider unit tests
-   - loads upstream code through the repo cache helper
+   - imports vendored source from `third_party/internvl_u`
+   - passes `model_revision` to both processor and model loaders
    - loads processor from `processor/`
    - loads model from `vlm/`
    - handles single-image prompt assembly
@@ -227,16 +235,15 @@ Required coverage:
 - image generation
 - image editing
 - video support
-- upstream code vendoring into this repository
 - broader prompt redesign for InternVL-U specific reasoning behavior
 
 ## Risks
 
 1. Official upstream code is repo-only, not a packaged wheel.
-   - mitigation: cache the repo locally and pin a known commit
+   - mitigation: vendor the minimal source snapshot at a pinned commit
 
 2. Transformers compatibility may be narrower than other local VLM providers.
-   - mitigation: keep `internvlu-local` isolated in its own extra
+   - mitigation: keep `intern-vl-local` isolated in its own extra and pin the HF model revision
 
 3. Upstream code may assume flash-attn in some environments.
    - mitigation: keep Windows on a conservative execution path and test with mocked direct loading
