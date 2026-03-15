@@ -21,3 +21,17 @@ def test_transformers_declares_setuptools_and_wheel_extra_build_dependencies():
     extra_build_deps = pyproject["tool"]["uv"].get("extra-build-dependencies", {})
 
     assert extra_build_deps["transformers"] == ["setuptools", "wheel"]
+
+
+def test_pysrt_declares_setuptools_and_wheel_extra_build_dependencies():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    extra_build_deps = pyproject["tool"]["uv"].get("extra-build-dependencies", {})
+
+    assert extra_build_deps["pysrt"] == ["setuptools", "wheel"]
+
+
+def test_bitmath_declares_setuptools_and_wheel_extra_build_dependencies():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    extra_build_deps = pyproject["tool"]["uv"].get("extra-build-dependencies", {})
+
+    assert extra_build_deps["bitmath"] == ["setuptools", "wheel"]

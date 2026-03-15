@@ -528,6 +528,8 @@ conflicts = [
 [tool.uv.extra-build-dependencies]
 tensorrt-cu12-libs = ["wheel_stub"]
 transformers = ["setuptools", "wheel"]
+pysrt = ["setuptools", "wheel"]
+bitmath = ["setuptools", "wheel"]
 
 [tool.ruff]
 line-length = 132
