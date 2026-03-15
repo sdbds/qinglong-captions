@@ -106,6 +106,14 @@ class TestFindProvider:
         provider = reg.find_provider(args, "image/png")
         assert provider is not None and provider.name == "deepseek_ocr"
 
+    def test_lighton_ocr(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(ocr_model="lighton_ocr", document_image=True)
+        provider = reg.find_provider(args, "image/png")
+        assert provider is not None and provider.name == "lighton_ocr"
+
     def test_ocr_pdf_always_handled(self):
         from providers.registry import get_registry
 
@@ -176,6 +184,7 @@ class TestFindProvider:
         reg = get_registry()
         for name in (
             "deepseek_ocr",
+            "lighton_ocr",
             "hunyuan_ocr",
             "glm_ocr",
             "chandra_ocr",

@@ -53,7 +53,7 @@ $wait_time = 1
 $max_retries = 100
 $segment_time = 600
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image/video tasks
@@ -174,7 +174,7 @@ function Ensure-UvLockFile {
 
   $IndexStrategy = if ([string]::IsNullOrWhiteSpace($Env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $Env:UV_INDEX_STRATEGY }
   Write-Output "未找到 uv.lock，先生成锁文件 (index-strategy=$IndexStrategy)"
-  uv lock --index-strategy $IndexStrategy
+  uv lock --python 3.11 --index-strategy $IndexStrategy
   if (!($?)) {
     throw "uv lock failed"
   }

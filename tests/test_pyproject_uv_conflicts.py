@@ -48,3 +48,27 @@ def test_paddleocr_conflicts_with_lfm_vl_local():
         {"extra": "lfm-vl-local"},
         {"extra": "paddleocr"},
     ] in conflicts
+
+
+def test_lighton_ocr_conflicts_with_translate():
+    conflicts = _load_conflicts()
+
+    assert [
+        {"extra": "lighton-ocr"},
+        {"extra": "translate"},
+    ] in conflicts or [
+        {"extra": "translate"},
+        {"extra": "lighton-ocr"},
+    ] in conflicts
+
+
+def test_lighton_ocr_conflicts_with_paddleocr():
+    conflicts = _load_conflicts()
+
+    assert [
+        {"extra": "lighton-ocr"},
+        {"extra": "paddleocr"},
+    ] in conflicts or [
+        {"extra": "paddleocr"},
+        {"extra": "lighton-ocr"},
+    ] in conflicts

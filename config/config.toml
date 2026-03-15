@@ -41,6 +41,10 @@ hunyuan_ocr_prompt = """
 # Leave empty to use provider's default prompt
 glm_ocr_prompt = """Text Recognition:"""
 
+# LightOn OCR prompt (empty uses the model's default OCR behavior)
+lighton_ocr_prompt = """
+"""
+
 # Chandra OCR prompt type (ocr_layout by default)
 # Available types: ocr_layout, ocr_with_region, ocr_text
 chandra_ocr_prompt_type = "ocr_layout"
@@ -615,6 +619,13 @@ model_id = "deepseek-ai/DeepSeek-OCR-2"
 base_size = 1024
 image_size = 768
 crop_mode = true
+
+# LightOnOCR-2 configuration
+# Model: https://huggingface.co/lightonai/LightOnOCR-2-1B
+# Requires: transformers[serving]>=5.0.0
+[lighton_ocr]
+model_id = "lightonai/LightOnOCR-2-1B"
+max_new_tokens = 4096
 
 # HunyuanOCR configuration
 # Requires: pip install git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4

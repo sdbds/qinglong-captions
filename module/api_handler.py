@@ -1333,6 +1333,57 @@ def api_process_batch(
         )
         return content
 
+    elif provider == "lighton_ocr":
+        pixels = None
+        if mime.startswith("image"):
+            _, pixels, _, _, _ = prepare_media(uri, mime, args, console, to_rgb=True)
+
+        prompts_section = config.get("prompts", {})
+        lighton_prompt = prompts_section.get("lighton_ocr_prompt", "")
+
+        output_dir = str(Path(uri).with_suffix(""))
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        lighton_section = {}
+        try:
+            if isinstance(config, dict):
+                lighton_section = config.get("lighton_ocr", {}) or {}
+        except Exception:
+            lighton_section = {}
+        cfg_model_id = lighton_section.get("model_id", "lightonai/LightOnOCR-2-1B")
+        cfg_max_new_tokens = lighton_section.get("max_new_tokens")
+
+        def _attempt_lighton() -> str:
+            try:
+                from module.providers.ocr.lighton import (
+                    attempt_lighton_ocr as lighton_attempt,
+                )
+            except Exception as e:
+                console.print(Text(f"LightOn OCR provider not available: {e}", style="red"))
+                raise
+
+            return lighton_attempt(
+                uri=uri,
+                console=console,
+                progress=progress,
+                task_id=task_id,
+                model_id=cfg_model_id,
+                prompt_text=lighton_prompt if lighton_prompt else None,
+                pixels=pixels,
+                output_dir=output_dir,
+                max_new_tokens=(int(cfg_max_new_tokens) if cfg_max_new_tokens is not None else 4096),
+            )
+
+        content = with_retry(
+            _attempt_lighton,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: args.wait_time,
+            on_exhausted=lambda e: (console.print(Text(f"LightOn OCR retries exhausted: {e}", style="yellow")) or ""),
+        )
+        return content
+
     elif provider == "chandra_ocr":
         # Prepare media preview only for images
         pixels = None

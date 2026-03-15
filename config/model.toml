@@ -96,6 +96,13 @@ base_size = 1024
 image_size = 768
 crop_mode = true
 
+# LightOnOCR-2 configuration
+# Model: https://huggingface.co/lightonai/LightOnOCR-2-1B
+# Requires: transformers[serving]>=5.0.0
+[lighton_ocr]
+model_id = "lightonai/LightOnOCR-2-1B"
+max_new_tokens = 4096
+
 # HunyuanOCR configuration
 # Requires: pip install git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4
 [hunyuan_ocr]

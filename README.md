@@ -23,6 +23,11 @@
    - 默认模型：`RekaAI/reka-edge-2603`
    - 支持图像和视频输入
    - 支持直接 Transformers 推理，或复用 OpenAI-compatible 本地服务路径
+7. 新增本地 OCR `lighton_ocr`：
+   - 默认模型：`lightonai/LightOnOCR-2-1B`
+   - 支持图片与 PDF OCR
+   - 依赖 `transformers>=5`
+8. `uv.lock` 缺失时默认使用 `uv lock --python 3.11` 生成锁文件，避免全 Python 版本矩阵解析过慢。
 
 ### 4.0 - Provider V2 架构重构
 
@@ -198,6 +203,10 @@ pwsh ./1、install-uv-qinglong.ps1
 3. 对 `.txt/.md/.pdf/.doc/.docx/.xls/.xlsx/.ppt/.pptx/.rtf/.epub` 做规范化与翻译
 4. 导出结果为 `*_zh_cn.md` 这类语言后缀文件
 
+补充说明：
+- 如果仓库根目录缺少 `uv.lock`，`4、run.ps1` 和 CI 会默认执行 `uv lock --python 3.11 --index-strategy unsafe-best-match` 生成锁文件。
+- 这样做是为了避免可选依赖过多时，对 3.10/3.11/3.12 全矩阵同时求解导致锁文件生成过慢。
+
 如果只想重跑翻译模型而不重新做文档转换，可以把 `source_version` 指向已有的 `norm.*` tag，并在 `5、translate.ps1` 中打开 `skip_normalize`。
 [Pixtral API 秘钥](https://console.mistral.ai/api-keys/) 可选为图片打标。
 现在我们支持使用[阶跃星辰](https://platform.stepfun.com/)的视频模型进行视频标注。
@@ -256,11 +265,11 @@ $wait_time = 1
 $max_retries = 10
 $segment_time = 600
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "firered_ocr", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image/video tasks
-$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", ""
+$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
@@ -311,6 +320,24 @@ $local_runtime_backend = "direct"
 - 为了兼容 Penguin 官方 processor 的导入链，这个 extra 也会安装 `ffmpeg-python`。
 - `transformers` 会固定在 `4.51.3`，与 Penguin 模型卡保持一致。
 
+#### 本地 LightOn OCR
+
+`lighton_ocr` 对接的是 [`lightonai/LightOnOCR-2-1B`](https://huggingface.co/lightonai/LightOnOCR-2-1B)，支持 `image/*` 与 PDF OCR。
+
+1. 安装依赖：
+```powershell
+uv sync --extra lighton-ocr
+```
+2. 运行本地 OCR：
+```powershell
+$ocr_model = "lighton_ocr"
+$document_image = $true
+```
+
+说明：
+- 这个 extra 依赖 `transformers>=5`。
+- 默认 prompt 留空，直接使用模型默认 OCR 行为。
+
 </details>
 
 # qinglong-captioner (4.1.0)
@@ -329,6 +356,11 @@ A Python toolkit for generating video captions using the Lance database format a
    - Default model: `RekaAI/reka-edge-2603`
    - Accepts both image and video inputs
    - Works with direct Transformers inference or an OpenAI-compatible local server
+6. Added local OCR `lighton_ocr`:
+   - Default model: `lightonai/LightOnOCR-2-1B`
+   - Supports image and PDF OCR
+   - Requires `transformers>=5`
+7. When `uv.lock` is missing, the scripts now default to `uv lock --python 3.11` to avoid very slow full-matrix resolution.
 
 ### 4.0 - Provider V2 Architecture Refactoring
 
@@ -718,7 +750,11 @@ Now we support [qwen-VL](https://bailian.console.aliyun.com/#/model-market) seri
 
 Now we support [Mistral OCR](https://console.mistral.ai/api-keys/) optional for PDF and image OCR.
 
+Now we support local [LightOnOCR-2-1B](https://huggingface.co/lightonai/LightOnOCR-2-1B) optional for image and PDF OCR.
+
 Now we support [GLM](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) series optional for video captioner.
+
+If `uv.lock` is missing, `4、run.ps1` and CI now generate it with `uv lock --python 3.11 --index-strategy unsafe-best-match` to keep lock generation practical with the project's optional dependency matrix.
 
 ```
 $dataset_path = "./datasets"
@@ -769,11 +805,11 @@ $wait_time = 1
 $max_retries = 10
 $segment_time = 600
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image/video tasks
-$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", ""
+$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
@@ -823,3 +859,21 @@ Notes:
 - The Hugging Face remote processor imports `decord`, so this extra includes `decord`.
 - This extra also installs `ffmpeg-python` to match Penguin's remote processor import chain.
 - `transformers` is pinned to `4.51.3` for Penguin compatibility.
+
+#### Local LightOn OCR
+
+`lighton_ocr` targets [`lightonai/LightOnOCR-2-1B`](https://huggingface.co/lightonai/LightOnOCR-2-1B) and supports `image/*` plus PDF OCR.
+
+1. Install the extra:
+```powershell
+uv sync --extra lighton-ocr
+```
+2. Run local OCR:
+```powershell
+$ocr_model = "lighton_ocr"
+$document_image = $true
+```
+
+Notes:
+- This extra requires `transformers>=5`.
+- The default prompt is intentionally empty, so the model runs with its default OCR behavior.

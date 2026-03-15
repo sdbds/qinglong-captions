@@ -41,6 +41,10 @@ hunyuan_ocr_prompt = """
 # Leave empty to use provider's default prompt
 glm_ocr_prompt = """Text Recognition:"""
 
+# LightOn OCR prompt (empty uses the model's default OCR behavior)
+lighton_ocr_prompt = """
+"""
+
 # Chandra OCR prompt type (ocr_layout by default)
 # Available types: ocr_layout, ocr_with_region, ocr_text
 chandra_ocr_prompt_type = "ocr_layout"

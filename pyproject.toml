@@ -189,6 +189,17 @@ firered-ocr = [
     "PyMuPDF",
     "img2pdf",
 ]
+lighton-ocr = [
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers[serving]>=5.0.0",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "safetensors",
+    "Pillow>=9.5.0",
+    "PyMuPDF",
+    "img2pdf",
+]
 chandra-ocr = [
     "torch==2.8.0",
     "torchvision",
@@ -320,6 +331,10 @@ conflicts = [
         { extra = "lfm-vl-local" },
     ],
     [
+        { extra = "deepseek-ocr" },
+        { extra = "lighton-ocr" },
+    ],
+    [
         { extra = "translate" },
         { extra = "wdtagger" },
     ],
@@ -356,8 +371,16 @@ conflicts = [
         { extra = "penguin-vl-local" },
     ],
     [
+        { extra = "translate" },
+        { extra = "lighton-ocr" },
+    ],
+    [
         { extra = "penguin-vl-local" },
         { extra = "lfm-vl-local" },
+    ],
+    [
+        { extra = "penguin-vl-local" },
+        { extra = "lighton-ocr" },
     ],
     [
         { extra = "olmocr" },
@@ -462,6 +485,10 @@ conflicts = [
     [
         { extra = "paddleocr" },
         { extra = "nanonets-ocr" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "lighton-ocr" },
     ],
     [
         { group = "test" },

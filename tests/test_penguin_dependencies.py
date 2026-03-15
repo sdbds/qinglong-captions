@@ -37,6 +37,17 @@ def test_pyproject_declares_lfm_vl_local_extra():
     assert any(dep.startswith("huggingface_hub") for dep in lfm_deps)
 
 
+def test_pyproject_declares_lighton_ocr_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "lighton-ocr" in optional_deps
+    lighton_deps = optional_deps["lighton-ocr"]
+    assert any(dep.startswith("torch==2.8.0") for dep in lighton_deps)
+    assert any(dep.startswith("transformers[serving]>=5.0.0") for dep in lighton_deps)
+    assert any(dep.startswith("huggingface_hub") for dep in lighton_deps)
+
+
 def test_caption_step_includes_penguin_extra():
     module_path = ROOT / "gui" / "wizard" / "step4_caption.py"
     spec = importlib.util.spec_from_file_location("test_step4_caption", module_path)
@@ -67,11 +78,39 @@ def test_caption_step_includes_lfm_extra():
     assert step._build_local_extra_args() == ["--extra", "lfm-vl-local"]
 
 
+def test_caption_step_includes_lighton_extra():
+    module_path = ROOT / "gui" / "wizard" / "step4_caption.py"
+    spec = importlib.util.spec_from_file_location("test_step4_caption_lighton", module_path)
+    step4_caption = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(step4_caption)
+    CaptionStep = step4_caption.CaptionStep
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="lighton_ocr")
+    step.vlm_image_model = SimpleNamespace(value="")
+
+    assert step._build_local_extra_args() == ["--extra", "lighton-ocr"]
+
+
 def test_run_ps1_mentions_lfm_vl_local_extra():
     content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
 
     assert '"lfm_vl_local"' in content
     assert 'Add-UvExtra "lfm-vl-local"' in content
+
+
+def test_run_ps1_mentions_lighton_ocr_extra():
+    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+
+    assert '"lighton_ocr"' in content
+    assert 'Add-UvExtra "lighton-ocr"' in content
+
+
+def test_run_ps1_locks_with_python_3_11_only():
+    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+
+    assert 'uv lock --python 3.11 --index-strategy $IndexStrategy' in content
 
 
 def test_has_flash_attn_returns_false_when_module_import_fails(monkeypatch):

@@ -58,6 +58,7 @@ class ProviderRegistry:
                 "minimax_api",
                 # OCR models
                 "deepseek_ocr",
+                "lighton_ocr",
                 "hunyuan_ocr",
                 "glm_ocr",
                 "chandra_ocr",
