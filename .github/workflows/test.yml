@@ -65,7 +65,7 @@ jobs:
           Set-Location $env:GITHUB_WORKSPACE
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          python -m pip install --upgrade pip uv
+          python -m pip install --upgrade pip uv wheel_stub setuptools wheel
           if ($LASTEXITCODE -ne 0) { throw "install uv failed" }
           $IndexStrategy = if ([string]::IsNullOrWhiteSpace($env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $env:UV_INDEX_STRATEGY }
           if (-not (Test-Path "uv.lock")) {
@@ -103,7 +103,7 @@ jobs:
           Set-Location $env:GITHUB_WORKSPACE
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          python -m pip install --upgrade pip uv
+          python -m pip install --upgrade pip uv wheel_stub setuptools wheel
           if ($LASTEXITCODE -ne 0) { throw "install uv failed" }
           $IndexStrategy = if ([string]::IsNullOrWhiteSpace($env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $env:UV_INDEX_STRATEGY }
           if (-not (Test-Path "uv.lock")) {

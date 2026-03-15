@@ -40,3 +40,12 @@ def test_test_workflow_fails_fast_when_uv_lock_generation_fails():
 
     assert 'throw "uv lock failed"' in content
     assert 'throw "uv lock did not produce uv.lock"' in content
+
+
+def test_test_workflow_preinstalls_build_bootstrap_packages_before_uv_lock():
+    content = WORKFLOW.read_text(encoding="utf-8")
+
+    install_index = content.index("python -m pip install --upgrade pip uv wheel_stub setuptools wheel")
+    lock_index = content.index("uv lock --index-strategy")
+
+    assert install_index < lock_index
