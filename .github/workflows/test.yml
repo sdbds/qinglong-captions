@@ -63,12 +63,18 @@ jobs:
         shell: pwsh
         run: |
           Set-Location $env:GITHUB_WORKSPACE
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
           python -m pip install --upgrade pip uv
+          if ($LASTEXITCODE -ne 0) { throw "install uv failed" }
           $IndexStrategy = if ([string]::IsNullOrWhiteSpace($env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $env:UV_INDEX_STRATEGY }
           if (-not (Test-Path "uv.lock")) {
             uv lock --index-strategy $IndexStrategy
+            if ($LASTEXITCODE -ne 0) { throw "uv lock failed" }
+            if (-not (Test-Path "uv.lock")) { throw "uv lock did not produce uv.lock" }
           }
           uv sync --frozen --group test
+          if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }
 
       - name: Run fast unit suite
         run: |
@@ -95,12 +101,18 @@ jobs:
         shell: pwsh
         run: |
           Set-Location $env:GITHUB_WORKSPACE
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
           python -m pip install --upgrade pip uv
+          if ($LASTEXITCODE -ne 0) { throw "install uv failed" }
           $IndexStrategy = if ([string]::IsNullOrWhiteSpace($env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $env:UV_INDEX_STRATEGY }
           if (-not (Test-Path "uv.lock")) {
             uv lock --index-strategy $IndexStrategy
+            if ($LASTEXITCODE -ne 0) { throw "uv lock failed" }
+            if (-not (Test-Path "uv.lock")) { throw "uv lock did not produce uv.lock" }
           }
           uv sync --frozen --group test
+          if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }
 
       - name: Run Provider V2 suite
         run: |

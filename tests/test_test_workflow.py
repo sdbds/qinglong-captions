@@ -33,3 +33,10 @@ def test_test_workflow_uses_script_aligned_env_vars():
 
     for expected in expected_lines:
         assert expected in content
+
+
+def test_test_workflow_fails_fast_when_uv_lock_generation_fails():
+    content = WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'throw "uv lock failed"' in content
+    assert 'throw "uv lock did not produce uv.lock"' in content

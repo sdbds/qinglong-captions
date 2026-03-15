@@ -316,6 +316,10 @@ conflicts = [
         { extra = "reka-edge-local" },
     ],
     [
+        { extra = "deepseek-ocr" },
+        { extra = "lfm-vl-local" },
+    ],
+    [
         { extra = "translate" },
         { extra = "wdtagger" },
     ],
@@ -350,6 +354,10 @@ conflicts = [
     [
         { extra = "translate" },
         { extra = "penguin-vl-local" },
+    ],
+    [
+        { extra = "penguin-vl-local" },
+        { extra = "lfm-vl-local" },
     ],
     [
         { extra = "olmocr" },
@@ -442,6 +450,10 @@ conflicts = [
     [
         { extra = "paddleocr" },
         { extra = "penguin-vl-local" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "lfm-vl-local" },
     ],
     [
         { extra = "paddleocr" },
