@@ -525,6 +525,9 @@ conflicts = [
     ],
 ]
 
+[tool.uv.extra-build-dependencies]
+tensorrt-cu12-libs = ["wheel_stub"]
+
 [tool.ruff]
 line-length = 132
 indent-width = 4
