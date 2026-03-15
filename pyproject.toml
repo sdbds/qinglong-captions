@@ -527,6 +527,7 @@ conflicts = [
 
 [tool.uv.extra-build-dependencies]
 tensorrt-cu12-libs = ["wheel_stub"]
+transformers = ["setuptools"]
 
 [tool.ruff]
 line-length = 132

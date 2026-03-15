@@ -14,3 +14,10 @@ def test_tensorrt_cu12_libs_declares_wheel_stub_extra_build_dependency():
     extra_build_deps = pyproject["tool"]["uv"].get("extra-build-dependencies", {})
 
     assert extra_build_deps["tensorrt-cu12-libs"] == ["wheel_stub"]
+
+
+def test_transformers_declares_setuptools_extra_build_dependency():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    extra_build_deps = pyproject["tool"]["uv"].get("extra-build-dependencies", {})
+
+    assert extra_build_deps["transformers"] == ["setuptools"]
