@@ -49,3 +49,16 @@ def test_test_workflow_preinstalls_build_bootstrap_packages_before_uv_lock():
     lock_index = content.index("uv lock --python 3.11 --index-strategy")
 
     assert install_index < lock_index
+
+
+def test_test_workflow_bootstraps_project_virtualenv_before_frozen_sync():
+    content = WORKFLOW.read_text(encoding="utf-8")
+
+    venv_index = content.index("uv venv")
+    project_python_index = content.index("$PythonExe = if ($IsWindows)")
+    bootstrap_index = content.index("uv pip install --python $PythonExe setuptools wheel wheel_stub")
+    sync_index = content.index("uv sync --frozen --group test")
+
+    assert venv_index < project_python_index < bootstrap_index < sync_index
+    assert "./.venv/Scripts/python.exe" in content
+    assert "./.venv/bin/python" in content

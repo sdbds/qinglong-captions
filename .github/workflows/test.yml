@@ -67,6 +67,16 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           python -m pip install --upgrade pip uv wheel_stub setuptools wheel
           if ($LASTEXITCODE -ne 0) { throw "install uv failed" }
+          $RunnerPython = (Get-Command python).Source
+          uv venv --python $RunnerPython
+          if ($LASTEXITCODE -ne 0) { throw "uv venv failed" }
+          $PythonExe = if ($IsWindows) {
+            (Resolve-Path "./.venv/Scripts/python.exe").Path
+          } else {
+            (Resolve-Path "./.venv/bin/python").Path
+          }
+          uv pip install --python $PythonExe setuptools wheel wheel_stub
+          if ($LASTEXITCODE -ne 0) { throw "uv pip bootstrap failed" }
           $IndexStrategy = if ([string]::IsNullOrWhiteSpace($env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $env:UV_INDEX_STRATEGY }
           if (-not (Test-Path "uv.lock")) {
             uv lock --python 3.11 --index-strategy $IndexStrategy
@@ -105,6 +115,16 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           python -m pip install --upgrade pip uv wheel_stub setuptools wheel
           if ($LASTEXITCODE -ne 0) { throw "install uv failed" }
+          $RunnerPython = (Get-Command python).Source
+          uv venv --python $RunnerPython
+          if ($LASTEXITCODE -ne 0) { throw "uv venv failed" }
+          $PythonExe = if ($IsWindows) {
+            (Resolve-Path "./.venv/Scripts/python.exe").Path
+          } else {
+            (Resolve-Path "./.venv/bin/python").Path
+          }
+          uv pip install --python $PythonExe setuptools wheel wheel_stub
+          if ($LASTEXITCODE -ne 0) { throw "uv pip bootstrap failed" }
           $IndexStrategy = if ([string]::IsNullOrWhiteSpace($env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $env:UV_INDEX_STRATEGY }
           if (-not (Test-Path "uv.lock")) {
             uv lock --python 3.11 --index-strategy $IndexStrategy
