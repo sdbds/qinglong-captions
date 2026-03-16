@@ -1,6 +1,6 @@
 """日志查看器组件 - 支持 ANSI 彩色渲染"""
 
-from nicegui import ui
+from nicegui import ui, context
 from typing import Optional
 from datetime import datetime
 from gui.theme import get_classes, COLORS
@@ -33,6 +33,8 @@ class LogViewer:
         self._line_count = 0  # 已渲染到 DOM 的行数
         self._converter = AnsiToHtmlConverter()
         self._stick_to_bottom = True
+        self._sub_id: Optional[int] = None
+        self._last_replayed_seq: int = 0
 
         with ui.card().classes(get_classes("card")).style("width: 66vw; max-width: 100%; box-sizing: border-box;"):
             # 工具栏
@@ -98,8 +100,13 @@ class LogViewer:
                         "color: #e5e5e5;"
                     )
 
-        history_lines = self._history_lines(log_buffer.get_all_lines(), self.max_lines)
-        if history_lines:
+        # 先订阅，再取历史快照，保证两者之间推入的行不丢失
+        self._sub_id = log_buffer.subscribe(self._on_log_buffer_line)
+
+        history = log_buffer.get_all_lines()
+        if history:
+            self._last_replayed_seq = history[-1][0]
+            history_lines = self._history_lines(history, self.max_lines)
             self.lines = history_lines.copy()
             self._line_count = len(history_lines)
             html_parts = [self._converter.convert_line(line) for line in history_lines]
@@ -107,8 +114,12 @@ class LogViewer:
                 ui.html("<br>".join(html_parts) + "<br>", sanitize=False).style("display: inline;")
             self.scroll_area.scroll_to(percent=1.0)
 
+        # 当前客户端断连时取消订阅，避免回调打到已销毁的组件
+        # 必须用 client.on_disconnect（per-client），不能用 app.on_disconnect（全局）
+        context.client.on_disconnect(self._unsubscribe)
+
         # 定时刷新缓冲区（150ms 间隔）
-        ui.timer(0.15, self._flush_buffer)
+        self._flush_timer = ui.timer(0.15, self._flush_buffer)
 
     @classmethod
     def _ensure_scroll_styles(cls):
@@ -156,45 +167,56 @@ class LogViewer:
         if not self._buffer:
             return
 
-        batch = self._buffer
-        self._buffer = []
+        try:
+            batch = self._buffer
+            self._buffer = []
 
-        self.lines.extend(batch)
-        self._line_count += len(batch)
+            self.lines.extend(batch)
+            self._line_count += len(batch)
 
-        # 将批量行转为 HTML
-        html_parts = []
-        for line in batch:
-            html_line = self._converter.convert_line(line)
-            html_parts.append(html_line)
+            # 将批量行转为 HTML
+            html_parts = []
+            for line in batch:
+                html_line = self._converter.convert_line(line)
+                html_parts.append(html_line)
 
-        html_block = "<br>".join(html_parts) + "<br>"
+            html_block = "<br>".join(html_parts) + "<br>"
 
-        # 追加到容器（sanitize=False 关闭 DOMPurify，保留 <span style> 颜色）
-        with self.log_container:
-            ui.html(html_block, sanitize=False).style("display: inline;")
+            # 追加到容器（sanitize=False 关闭 DOMPurify，保留 <span style> 颜色）
+            with self.log_container:
+                ui.html(html_block, sanitize=False).style("display: inline;")
 
-        # DOM 超过 max_lines 时清理最早的子元素
-        if self._line_count > self.max_lines:
-            overflow = self._line_count - self.max_lines
-            ui.run_javascript(f'''
-                (() => {{
-                    const c = document.getElementById("c" + {self.log_container.id});
-                    if (!c) return;
-                    let n = Math.min({overflow}, c.children.length - 1);
-                    while (n-- > 0 && c.firstChild) c.removeChild(c.firstChild);
-                }})();
-            ''')
-            self._line_count = self.max_lines
-            if len(self.lines) > self.max_lines:
+            # 超过 1.5x max_lines 时，Python 侧清空并重新渲染最新的 max_lines 行
+            if self._line_count > int(self.max_lines * 1.5):
                 self.lines = self.lines[-self.max_lines:]
+                self._line_count = len(self.lines)
+                self._converter.reset()
+                self.log_container.clear()
+                html_parts = [self._converter.convert_line(line) for line in self.lines]
+                with self.log_container:
+                    ui.html("<br>".join(html_parts) + "<br>", sanitize=False).style("display: inline;")
 
-        # 自动滚动
-        if self.auto_scroll and self._stick_to_bottom:
-            self.scroll_area.scroll_to(percent=1.0)
+            # 自动滚动
+            if self.auto_scroll and self._stick_to_bottom:
+                self.scroll_area.scroll_to(percent=1.0)
+        except RuntimeError:
+            return  # parent slot deleted (page navigated away)
+
+    def _on_log_buffer_line(self, seq: int, line: str):
+        """log_buffer 订阅回调：跳过历史快照中已回放的行。"""
+        if seq <= self._last_replayed_seq:
+            return
+        self._buffer.append(line)
+
+    def _unsubscribe(self):
+        """页面断连时取消 log_buffer 订阅。"""
+        if self._sub_id is not None:
+            log_buffer.unsubscribe(self._sub_id)
+            self._sub_id = None
+        self._flush_timer.active = False
 
     def append(self, message: str, level: str = "info"):
-        """添加日志行（写入缓冲区，由定时器批量推送）"""
+        """添加日志行（经 log_buffer 持久化后由订阅回调写入缓冲区）"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         # 根据级别添加 ANSI 颜色
         level_colors = {
@@ -205,11 +227,11 @@ class LogViewer:
         color = level_colors.get(level, "")
         reset = "\x1b[0m" if color else ""
         formatted = f"{color}[{timestamp}] {message}{reset}"
-        self._buffer.append(formatted)
+        log_buffer.push(formatted)
 
     def info(self, message: str):
-        """添加信息日志（直接缓冲原始文本，可能含 ANSI）"""
-        self._buffer.append(message)
+        """添加信息日志（经 log_buffer 持久化，可能含 ANSI）"""
+        log_buffer.push(message)
 
     def success(self, message: str):
         """添加成功日志"""
@@ -228,9 +250,11 @@ class LogViewer:
         self.lines.clear()
         self._buffer.clear()
         self._line_count = 0
+        self._last_replayed_seq = 0
         self._converter.reset()
         self.log_container.clear()
-        self.info("日志已清空")
+        log_buffer.clear()
+        log_buffer.push("日志已清空")
 
     def _save_log(self):
         """保存日志到文件（纯文本，无 ANSI）"""

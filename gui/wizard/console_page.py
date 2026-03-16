@@ -3,7 +3,7 @@
 GitHub 暗色终端风格，实时 ANSI → HTML 渲染。
 """
 
-from nicegui import ui, app
+from nicegui import ui, context
 from gui.utils.ansi_to_html import AnsiToHtmlConverter
 from gui.utils.log_buffer import log_buffer
 from gui.utils.i18n import t
@@ -130,4 +130,4 @@ def render_console_page():
             log_buffer.unsubscribe(sid)
             sub_id["value"] = None
 
-    app.on_disconnect(cleanup)
+    context.client.on_disconnect(cleanup)

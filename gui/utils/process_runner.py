@@ -90,7 +90,6 @@ class ProcessRunner:
 
     def __init__(self):
         self.process = None
-        self.log_callback: Optional[Callable[[str], None]] = None
         self.status_callback: Optional[Callable[[ProcessStatus], None]] = None
         self._running = False
         self._tail_task: Optional[asyncio.Task] = None
@@ -104,15 +103,12 @@ class ProcessRunner:
         log_callback: Optional[Callable[[str], None]] = None,
         status_callback: Optional[Callable[[ProcessStatus], None]] = None,
     ):
-        """设置回调函数"""
-        self.log_callback = log_callback
+        """设置回调函数（log_callback 已废弃，保留参数以兼容旧调用方）"""
         self.status_callback = status_callback
 
     def _notify_log(self, message: str):
-        """通知日志回调，同时推送到全局 log_buffer"""
+        """推送日志到全局 log_buffer（订阅者自动收到）"""
         log_buffer.push(message)
-        if self.log_callback:
-            self.log_callback(message)
 
     def _notify_status(self, status: ProcessStatus):
         """通知状态回调"""
@@ -374,12 +370,10 @@ class ProcessRunner:
         lines.append(raw)
 
     def _publish_tailed_line(self, raw: str):
-        """将稳定日志推送给主窗口和同步窗口。"""
+        """将稳定日志推送到 log_buffer（订阅者自动收到）。"""
         if not raw:
             return
         log_buffer.push(raw)
-        if self.log_callback:
-            self.log_callback(raw)
 
     def _consume_native_log_chunk(self, text: str, *, final_flush: bool = False) -> list[str]:
         """按终端语义解析原生控制台输出。

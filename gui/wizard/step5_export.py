@@ -137,9 +137,6 @@ class ExportStep:
         self.log_viewer.info(f"{t('log_output_dir')}: {output_dir}")
         self.log_viewer.info(f"{t('log_version')}: {version}")
 
-        # 将日志回调连接到 log_viewer
-        process_runner.set_callbacks(log_callback=self.log_viewer.info)
-
         # 构建参数
         args = [lance_file]
         args.append(f"--output_dir={output_dir}")
@@ -160,7 +157,6 @@ class ExportStep:
             self.log_viewer.error(t("export_failed"))
             ui.notify(t("export_failed"), type="negative")
 
-        process_runner.set_callbacks(log_callback=None)
         self.is_running = False
         self.start_btn.set_enabled(True)
         self.stop_btn.set_enabled(False)

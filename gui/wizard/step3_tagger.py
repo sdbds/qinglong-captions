@@ -167,22 +167,6 @@ class TaggerStep:
                         prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
                         prev_btn.classes("modern-btn-ghost").props('type="button"')
 
-                        next_btn = ui.button(t("next_step"), on_click=stepper.next, icon="arrow_forward")
-                        next_btn.classes("modern-btn-primary").props('type="button"')
-
-                # 步骤 3.3: 开始打标
-                with ui.step(t("start_tagging"), icon="play_circle"):
-                    with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
-                        with ui.row().classes("w-full items-center gap-2 q-mb-md"):
-                            ui.icon("play_circle", size="22px").style(f"color: {COLORS['success']};")
-                            ui.label(t("start_tagging")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
-
-                    # 控制按钮
-                    with ui.row().classes("w-full items-center justify-between q-mt-md"):
-                        with ui.row().classes("gap-2"):
-                            prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
-                            prev_btn.classes("modern-btn-ghost").props('type="button"')
-
                         with ui.row().classes("gap-2"):
                             self.stop_btn = ui.button(t("stop"), on_click=self._stop_tagging, icon="stop")
                             self.stop_btn.classes("modern-btn-danger").props('type="button"')
@@ -217,9 +201,6 @@ class TaggerStep:
             self.log_viewer.info(f"{t('log_data_dir')}: {train_data_dir}")
             self.log_viewer.info(f"{t('log_model')}: {repo_id}")
             self.log_viewer.info(f"{t('log_batch_size')}: {batch_size}")
-
-            # 将日志回调连接到 log_viewer
-            process_runner.set_callbacks(log_callback=self.log_viewer.info)
 
             # 构建参数
             args = [train_data_dir]
@@ -278,7 +259,6 @@ class TaggerStep:
             except RuntimeError:
                 pass
         finally:
-            process_runner.set_callbacks(log_callback=None)
             try:
                 self.is_running = False
                 self.start_btn.set_enabled(True)

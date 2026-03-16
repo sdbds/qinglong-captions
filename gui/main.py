@@ -373,6 +373,7 @@ def main():
         port=8080,
         show=True,
         native=False,
+        reconnect_timeout=30.0,
     )
 
 

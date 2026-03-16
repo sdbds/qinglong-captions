@@ -529,8 +529,6 @@ class CaptionStep:
         self.start_btn.set_enabled(False)
         self.stop_btn.set_enabled(True)
 
-        # 将日志回调连接到 log_viewer
-        process_runner.set_callbacks(log_callback=self.log_viewer.info)
         process_runner.begin_task_log()
         process_runner.log(t("log_start_caption"))
         process_runner.log(f"{t('log_dataset_path')}: {dataset_path}")
@@ -630,12 +628,11 @@ class CaptionStep:
                 self.log_viewer.error(t("caption_failed"))
                 ui.notify(t("caption_failed"), type="negative")
 
-            process_runner.set_callbacks(log_callback=None)
             self.is_running = False
             self.start_btn.set_enabled(True)
             self.stop_btn.set_enabled(False)
         except RuntimeError:
-            process_runner.set_callbacks(log_callback=None)
+            pass
 
     def _stop_caption(self):
         """停止字幕生成"""

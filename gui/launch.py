@@ -157,6 +157,7 @@ if __name__ == "__main__":
         "port": actual_port,
         "show": not args.no_browser,
         "native": bool(args.native),  # 强制转换为布尔值
+        "reconnect_timeout": 30.0,
     }
 
     # 只有在原生窗口模式下才添加 window_size

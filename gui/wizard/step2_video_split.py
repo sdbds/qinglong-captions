@@ -192,9 +192,6 @@ class VideoSplitStep:
         self.log_viewer.info(f"{t('log_threshold')}: {threshold}")
         self.log_viewer.info(f"{t('log_min_scene_len')}: {min_scene_len}")
 
-        # 将日志回调连接到 log_viewer
-        process_runner.set_callbacks(log_callback=self.log_viewer.info)
-
         # 构建参数
         args = [input_dir]
 
@@ -235,7 +232,6 @@ class VideoSplitStep:
             self.log_viewer.error(t("split_failed"))
             ui.notify(t("split_failed"), type="negative")
 
-        process_runner.set_callbacks(log_callback=None)
         self.is_running = False
         self.start_btn.set_enabled(True)
         self.stop_btn.set_enabled(False)

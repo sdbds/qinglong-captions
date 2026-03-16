@@ -150,9 +150,6 @@ class ImportStep:
         self.log_viewer.info(f"{t('log_import_mode')}: {self.import_mode.value}")
         self.log_viewer.info(f"{t('log_tag')}: {tag}")
 
-        # 将日志回调连接到 log_viewer
-        process_runner.set_callbacks(log_callback=self.log_viewer.info)
-
         # 构建参数
         args = [input_path]
         args.append(f"--output_name={output_name}")
@@ -176,7 +173,6 @@ class ImportStep:
             self.log_viewer.error(t("import_failed"))
             ui.notify(t("import_failed"), type="negative")
 
-        process_runner.set_callbacks(log_callback=None)
         self.is_running = False
         self.start_btn.set_enabled(True)
         self.stop_btn.set_enabled(False)

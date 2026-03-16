@@ -436,9 +436,6 @@ class ToolsStep:
         self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
         self.log_viewer.info(f"{t('log_model')}: {self.translate_model.value}")
 
-        # 将日志回调连接到 log_viewer
-        process_runner.set_callbacks(log_callback=self.log_viewer.info)
-
         # 构建参数
         args = [input_path]
         args.append(f"--output_name={self.translate_output_name.value}")
@@ -482,11 +479,10 @@ class ToolsStep:
                 self.log_viewer.error(t("translate_failed"))
                 ui.notify(t("translate_failed"), type="negative")
 
-            process_runner.set_callbacks(log_callback=None)
             self.is_running = False
             self.stop_btn.set_enabled(False)
         except RuntimeError:
-            process_runner.set_callbacks(log_callback=None)
+            pass
 
     async def _start_watermark(self):
         """开始水印检测"""
@@ -502,9 +498,6 @@ class ToolsStep:
 
         self.log_viewer.info(t("log_start_watermark"))
         self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
-
-        # 将日志回调连接到 log_viewer
-        process_runner.set_callbacks(log_callback=self.log_viewer.info)
 
         # 构建参数
         args = [input_path]
@@ -528,11 +521,10 @@ class ToolsStep:
                 self.log_viewer.error(t("watermark_failed"))
                 ui.notify(t("watermark_failed"), type="negative")
 
-            process_runner.set_callbacks(log_callback=None)
             self.is_running = False
             self.stop_btn.set_enabled(False)
         except RuntimeError:
-            process_runner.set_callbacks(log_callback=None)
+            pass
 
     async def _start_preprocess(self):
         """开始图像预处理"""
@@ -548,9 +540,6 @@ class ToolsStep:
 
         self.log_viewer.info(t("log_start_preprocess"))
         self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
-
-        # 将日志回调连接到 log_viewer
-        process_runner.set_callbacks(log_callback=self.log_viewer.info)
 
         # 构建参数
         args = [f"--input={input_path}"]
@@ -591,11 +580,10 @@ class ToolsStep:
                 self.log_viewer.error(t("preprocess_failed"))
                 ui.notify(t("preprocess_failed"), type="negative")
 
-            process_runner.set_callbacks(log_callback=None)
             self.is_running = False
             self.stop_btn.set_enabled(False)
         except RuntimeError:
-            process_runner.set_callbacks(log_callback=None)
+            pass
 
     async def _start_reward(self):
         """开始图像评分"""
@@ -611,9 +599,6 @@ class ToolsStep:
 
         self.log_viewer.info(t("log_start_scoring"))
         self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
-
-        # 将日志回调连接到 log_viewer
-        process_runner.set_callbacks(log_callback=self.log_viewer.info)
 
         # 构建参数
         args = [input_path]
@@ -635,11 +620,10 @@ class ToolsStep:
                 self.log_viewer.error(t("scoring_failed"))
                 ui.notify(t("scoring_failed"), type="negative")
 
-            process_runner.set_callbacks(log_callback=None)
             self.is_running = False
             self.stop_btn.set_enabled(False)
         except RuntimeError:
-            process_runner.set_callbacks(log_callback=None)
+            pass
 
     def _stop_tool(self):
         """停止当前工具"""
