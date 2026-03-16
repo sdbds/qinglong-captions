@@ -34,7 +34,7 @@ dependencies = [
     "opencv-python",
     "scenedetect>=0.6.6",
     "psd-tools",
-    "nicegui",
+    "nicegui[native]",
     "tomlkit",
 ]
 

@@ -79,7 +79,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "uv pip bootstrap failed" }
           $IndexStrategy = if ([string]::IsNullOrWhiteSpace($env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $env:UV_INDEX_STRATEGY }
           if (-not (Test-Path "uv.lock")) {
-            uv lock --python 3.11 --index-strategy $IndexStrategy
+            uv lock --python $RunnerPython --index-strategy $IndexStrategy
             if ($LASTEXITCODE -ne 0) { throw "uv lock failed" }
             if (-not (Test-Path "uv.lock")) { throw "uv lock did not produce uv.lock" }
           }
@@ -127,7 +127,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "uv pip bootstrap failed" }
           $IndexStrategy = if ([string]::IsNullOrWhiteSpace($env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $env:UV_INDEX_STRATEGY }
           if (-not (Test-Path "uv.lock")) {
-            uv lock --python 3.11 --index-strategy $IndexStrategy
+            uv lock --python $RunnerPython --index-strategy $IndexStrategy
             if ($LASTEXITCODE -ne 0) { throw "uv lock failed" }
             if (-not (Test-Path "uv.lock")) { throw "uv lock did not produce uv.lock" }
           }

@@ -8,7 +8,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "test.yml"
 def test_test_workflow_bootstraps_uv_lock_before_frozen_sync():
     content = WORKFLOW.read_text(encoding="utf-8")
 
-    lock_index = content.index("uv lock --python 3.11 --index-strategy")
+    lock_index = content.index("uv lock --python $RunnerPython --index-strategy")
     sync_index = content.index("uv sync --frozen --group test")
 
     assert lock_index < sync_index
@@ -46,9 +46,16 @@ def test_test_workflow_preinstalls_build_bootstrap_packages_before_uv_lock():
     content = WORKFLOW.read_text(encoding="utf-8")
 
     install_index = content.index("python -m pip install --upgrade pip uv wheel_stub setuptools wheel")
-    lock_index = content.index("uv lock --python 3.11 --index-strategy")
+    lock_index = content.index("uv lock --python $RunnerPython --index-strategy")
 
     assert install_index < lock_index
+
+
+def test_test_workflow_locks_with_the_matrix_python_not_a_hardcoded_version():
+    content = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "uv lock --python $RunnerPython --index-strategy $IndexStrategy" in content
+    assert "uv lock --python 3.11 --index-strategy" not in content
 
 
 def test_test_workflow_bootstraps_project_virtualenv_before_frozen_sync():
