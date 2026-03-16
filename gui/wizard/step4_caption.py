@@ -165,6 +165,8 @@ class CaptionStep:
 
     VLM_MODELS = list(route_choices("vlm_image_model"))
 
+    ALM_MODELS = list(route_choices("alm_model"))
+
     OCR_EXTRA_MAP = {
         "paddle_ocr": "paddleocr",
         "deepseek_ocr": "deepseek-ocr",
@@ -187,12 +189,17 @@ class CaptionStep:
         "lfm_vl_local": "lfm-vl-local",
     }
 
+    ALM_EXTRA_MAP = {
+        "music_flamingo_local": "music-flamingo-local",
+    }
+
     def __init__(self):
         self.config: Dict[str, Any] = {
             "mode": "long",
             "wait_time": 1,
             "max_retries": 100,
             "segment_time": 600,
+            "segment_time_explicit": False,
             "scene_detector": "AdaptiveDetector",
             "scene_threshold": 0.0,
             "scene_min_len": 15,
@@ -205,10 +212,40 @@ class CaptionStep:
         self.log_viewer = None
         self.is_running = False
         self.api_keys = {}
+        self._syncing_segment_time = False
 
     @staticmethod
     def _has_text(value: Any) -> bool:
         return value is not None and str(value).strip() != ""
+
+    def _current_alm_model(self) -> str:
+        alm_model = getattr(self, "alm_model", None)
+        return getattr(alm_model, "value", "") or ""
+
+    def _default_segment_time(self) -> int:
+        if self._current_alm_model() == "music_flamingo_local":
+            return 1200
+        return 600
+
+    def _handle_segment_time_change(self, value: Any) -> None:
+        self.config["segment_time"] = int(value)
+        if not self._syncing_segment_time:
+            self.config["segment_time_explicit"] = True
+
+    def _sync_segment_time_default(self) -> None:
+        if self.config.get("segment_time_explicit"):
+            return
+
+        default_value = self._default_segment_time()
+        self.config["segment_time"] = default_value
+
+        slider = getattr(self, "segment_time_slider", None)
+        if slider is not None and getattr(slider, "value", None) != default_value:
+            self._syncing_segment_time = True
+            try:
+                slider.set_value(default_value)
+            finally:
+                self._syncing_segment_time = False
 
     def _has_remote_provider_config(self) -> bool:
         has_api = any(self._has_text(getattr(key_input, "value", "")) for key_input in self.api_keys.values())
@@ -219,6 +256,8 @@ class CaptionStep:
         if self._has_text(self.ocr_model.value) and not route_requires_remote_config("ocr_model", self.ocr_model.value):
             return True
         if self._has_text(self.vlm_image_model.value) and not route_requires_remote_config("vlm_image_model", self.vlm_image_model.value):
+            return True
+        if self._has_text(self._current_alm_model()) and not route_requires_remote_config("alm_model", self._current_alm_model()):
             return True
         return False
 
@@ -238,8 +277,82 @@ class CaptionStep:
 
         self._append_extra(extra_args, seen, self.OCR_EXTRA_MAP.get(self.ocr_model.value or ""))
         self._append_extra(extra_args, seen, self.VLM_EXTRA_MAP.get(self.vlm_image_model.value or ""))
+        self._append_extra(extra_args, seen, self.ALM_EXTRA_MAP.get(self._current_alm_model()))
 
         return extra_args
+
+    def _build_caption_args(self, dataset_path: str) -> list[str]:
+        args = [dataset_path]
+
+        for api_name, config in self.API_CONFIGS.items():
+            if config.get("is_openai_compatible"):
+                continue
+
+            key_input = self.api_keys.get(config["key_name"])
+            if key_input and key_input.value:
+                args.append(f"--{config['key_name']}={key_input.value}")
+
+                model_select = getattr(self, f"{config['key_name']}_model", None)
+                if model_select and model_select.value:
+                    args.append(f"--{config['key_name'].replace('api_key', 'model_path')}={model_select.value}")
+
+                if config["supports_task"]:
+                    task_input = getattr(self, f"{config['key_name']}_task", None)
+                    if task_input and task_input.value:
+                        args.append(f"--gemini_task={task_input.value}")
+
+        if hasattr(self, "openai_base_url") and self.openai_base_url.value:
+            args.append(f"--openai_base_url={self.openai_base_url.value}")
+            openai_key = self.api_keys.get("openai_api_key")
+            if openai_key and openai_key.value:
+                args.append(f"--openai_api_key={openai_key.value}")
+            if hasattr(self, "openai_model_name") and self.openai_model_name.value:
+                args.append(f"--openai_model_name={self.openai_model_name.value}")
+
+        if self.pair_dir.value:
+            args.append(f"--pair_dir={self.pair_dir.value}")
+
+        if self.config["dir_name"]:
+            args.append("--dir_name")
+
+        if self.config["not_clip_with_caption"]:
+            args.append("--not_clip_with_caption")
+
+        if self.mode.value != "all":
+            args.append(f"--mode={self.mode.value}")
+
+        args.append(f"--wait_time={self.config['wait_time']}")
+        args.append(f"--max_retries={self.config['max_retries']}")
+        if self.config.get("segment_time_explicit"):
+            args.append(f"--segment_time={self.config['segment_time']}")
+
+        if self.scene_detector.value != "AdaptiveDetector":
+            args.append(f"--scene_detector={self.scene_detector.value}")
+
+        if self.config["scene_threshold"] != 0.0:
+            args.append(f"--scene_threshold={self.config['scene_threshold']}")
+
+        if self.config["scene_min_len"] != 15:
+            args.append(f"--scene_min_len={self.config['scene_min_len']}")
+
+        if self.config["scene_luma_only"]:
+            args.append("--scene_luma_only")
+
+        if self.config["tags_highlightrate"] != 0.4:
+            args.append(f"--tags_highlightrate={self.config['tags_highlightrate']}")
+
+        if self.ocr_model.value:
+            args.append(f"--ocr_model={self.ocr_model.value}")
+            if self.config["document_image"]:
+                args.append("--document_image")
+
+        if self.vlm_image_model.value:
+            args.append(f"--vlm_image_model={self.vlm_image_model.value}")
+
+        if self._current_alm_model():
+            args.append(f"--alm_model={self._current_alm_model()}")
+
+        return args
 
     def render(self):
         """渲染页面"""
@@ -256,7 +369,7 @@ class CaptionStep:
                 basic_tab = ui.tab(t("basic_settings"), icon="tune")
                 api_tab = ui.tab(t("api_configuration"), icon="key")
                 scene_tab = ui.tab(t("scene_detector"), icon="radar")
-                ocr_tab = ui.tab("OCR/VLM", icon="text_fields")
+                ocr_tab = ui.tab(t("local_model_routes"), icon="text_fields")
 
             with ui.tab_panels(tabs, value=basic_tab).classes("w-full"):
                 # 基础设置
@@ -338,7 +451,7 @@ class CaptionStep:
                     decimals=0,
                 )
 
-                editable_slider(
+                self.segment_time_slider = editable_slider(
                     label_key="segment_time",
                     value_ref=self.config,
                     value_key="segment_time",
@@ -346,6 +459,7 @@ class CaptionStep:
                     max_val=3600,
                     step=10,
                     decimals=0,
+                    on_change=self._handle_segment_time_change,
                 )
 
     def _render_api_settings(self):
@@ -481,7 +595,7 @@ class CaptionStep:
                 toggle_switch("scene_luma_only", self.config, "scene_luma_only")
 
     def _render_ocr_settings(self):
-        """渲染 OCR/VLM 设置"""
+        """渲染 OCR/VLM/ALM 设置"""
         with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
             with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                 ui.icon("text_fields", size="22px").style(f"color: {COLORS['info']};")
@@ -513,6 +627,21 @@ class CaptionStep:
                 icon_color=COLORS["secondary"],
             )
 
+            with ui.row().classes("w-full items-center gap-2 q-mb-md q-mt-md"):
+                ui.icon("graphic_eq", size="22px").style(f"color: {COLORS['primary']};")
+                ui.label("ALM " + t("settings")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
+
+            self.alm_model = styled_select(
+                options=dict(zip(self.ALM_MODELS, self.ALM_MODELS)),
+                value="",
+                label=t("alm_model"),
+                icon="graphic_eq",
+                icon_color=COLORS["primary"],
+                on_change=lambda _value: self._sync_segment_time_default(),
+            )
+
+            self._sync_segment_time_default()
+
     async def _start_caption(self):
         """开始字幕生成"""
         dataset_path = self.dataset_path.value
@@ -534,82 +663,7 @@ class CaptionStep:
         process_runner.log(f"{t('log_dataset_path')}: {dataset_path}")
         process_runner.log(f"{t('log_mode')}: {self.mode.value}")
 
-        # 构建参数
-        args = [dataset_path]
-
-        # API 配置
-        for api_name, config in self.API_CONFIGS.items():
-            # OpenAI-Compatible 走独立逻辑
-            if config.get("is_openai_compatible"):
-                continue
-
-            key_input = self.api_keys.get(config["key_name"])
-            if key_input and key_input.value:
-                args.append(f"--{config['key_name']}={key_input.value}")
-
-                # 模型路径
-                model_select = getattr(self, f"{config['key_name']}_model", None)
-                if model_select and model_select.value:
-                    args.append(f"--{config['key_name'].replace('api_key', 'model_path')}={model_select.value}")
-
-                # 任务名称（Gemini 特有）
-                if config["supports_task"]:
-                    task_input = getattr(self, f"{config['key_name']}_task", None)
-                    if task_input and task_input.value:
-                        args.append(f"--gemini_task={task_input.value}")
-
-        # OpenAI Compatible API 参数
-        if hasattr(self, "openai_base_url") and self.openai_base_url.value:
-            args.append(f"--openai_base_url={self.openai_base_url.value}")
-            openai_key = self.api_keys.get("openai_api_key")
-            if openai_key and openai_key.value:
-                args.append(f"--openai_api_key={openai_key.value}")
-            if hasattr(self, "openai_model_name") and self.openai_model_name.value:
-                args.append(f"--openai_model_name={self.openai_model_name.value}")
-
-        # 配对目录
-        if self.pair_dir.value:
-            args.append(f"--pair_dir={self.pair_dir.value}")
-
-        # 基础设置
-        if self.config["dir_name"]:
-            args.append("--dir_name")
-
-        if self.config["not_clip_with_caption"]:
-            args.append("--not_clip_with_caption")
-
-        if self.mode.value != "all":
-            args.append(f"--mode={self.mode.value}")
-
-        args.append(f"--wait_time={self.config['wait_time']}")
-        args.append(f"--max_retries={self.config['max_retries']}")
-        args.append(f"--segment_time={self.config['segment_time']}")
-
-        # 场景检测设置
-        if self.scene_detector.value != "AdaptiveDetector":
-            args.append(f"--scene_detector={self.scene_detector.value}")
-
-        if self.config["scene_threshold"] != 0.0:
-            args.append(f"--scene_threshold={self.config['scene_threshold']}")
-
-        if self.config["scene_min_len"] != 15:
-            args.append(f"--scene_min_len={self.config['scene_min_len']}")
-
-        if self.config["scene_luma_only"]:
-            args.append("--scene_luma_only")
-
-        if self.config["tags_highlightrate"] != 0.4:
-            args.append(f"--tags_highlightrate={self.config['tags_highlightrate']}")
-
-        # OCR 设置
-        if self.ocr_model.value:
-            args.append(f"--ocr_model={self.ocr_model.value}")
-            if self.config["document_image"]:
-                args.append("--document_image")
-
-        # VLM 设置
-        if self.vlm_image_model.value:
-            args.append(f"--vlm_image_model={self.vlm_image_model.value}")
+        args = self._build_caption_args(dataset_path)
 
         uv_extra_args = self._build_local_extra_args()
 

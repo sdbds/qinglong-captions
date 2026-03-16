@@ -67,6 +67,11 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
         canonical_name="lfm_vl_local",
         config_sections=("lfm_vl_local", "lfm_vl"),
     ),
+    "music_flamingo_local": ProviderSpec(
+        canonical_name="music_flamingo_local",
+        config_sections=("music_flamingo_local", "music_flamingo"),
+        prompt_prefixes=("music_flamingo",),
+    ),
 }
 
 ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
@@ -90,6 +95,9 @@ ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
         RouteSpec("penguin_vl_local", "penguin_vl_local"),
         RouteSpec("reka_edge_local", "reka_edge_local"),
         RouteSpec("lfm_vl_local", "lfm_vl_local"),
+    ),
+    "alm_model": (
+        RouteSpec("music_flamingo_local", "music_flamingo_local"),
     ),
 }
 
@@ -188,6 +196,24 @@ def get_first_attr(obj: Any, *names: str, default: Any = "") -> Any:
     return default
 
 
+def _resolve_effective_segment_time(args: Any) -> int:
+    raw_segment_time = getattr(args, "segment_time", None)
+    explicit = raw_segment_time not in (None, "")
+    setattr(args, "segment_time_explicit", explicit)
+
+    if explicit:
+        effective = int(raw_segment_time)
+    elif getattr(args, "alm_model", "") == "music_flamingo_local":
+        effective = 1200
+    else:
+        effective = 600
+
+    setattr(args, "effective_segment_time", effective)
+    if hasattr(args, "segment_time"):
+        args.segment_time = effective
+    return effective
+
+
 def normalize_runtime_args(args: Any) -> Any:
     """Normalize runtime args in-place while preserving old aliases."""
     mistral_api_key = get_first_attr(args, "mistral_api_key", "pixtral_api_key", default="")
@@ -202,5 +228,9 @@ def normalize_runtime_args(args: Any) -> Any:
         args.ocr_model = canonicalize_route_value("ocr_model", getattr(args, "ocr_model", ""))
     if hasattr(args, "vlm_image_model"):
         args.vlm_image_model = canonicalize_route_value("vlm_image_model", getattr(args, "vlm_image_model", ""))
+    if hasattr(args, "alm_model"):
+        args.alm_model = canonicalize_route_value("alm_model", getattr(args, "alm_model", ""))
+    if hasattr(args, "segment_time"):
+        _resolve_effective_segment_time(args)
 
     return args

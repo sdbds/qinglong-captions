@@ -73,6 +73,8 @@ class ProviderRegistry:
                 "penguin_vl_local",
                 "reka_edge_local",
                 "lfm_vl_local",
+                # Local ALM
+                "music_flamingo_local",
                 # Vision API
                 "mistral_ocr",
                 "gemini",
@@ -93,13 +95,14 @@ class ProviderRegistry:
                 return
 
             try:
-                from . import cloud_vlm, local_vlm, ocr, vision_api
+                from . import cloud_vlm, local_alm, local_vlm, ocr, vision_api
             except ImportError:
                 # 子包可能不存在，跳过
                 return
 
             packages = [
                 ("cloud_vlm", cloud_vlm),
+                ("local_alm", local_alm),
                 ("local_vlm", local_vlm),
                 ("ocr", ocr),
                 ("vision_api", vision_api),
@@ -118,7 +121,14 @@ class ProviderRegistry:
                             if (
                                 isinstance(attr, type)
                                 and attr_name
-                                not in ("Provider", "CloudVLMProvider", "LocalVLMProvider", "OCRProvider", "VisionAPIProvider")
+                                not in (
+                                    "Provider",
+                                    "CloudVLMProvider",
+                                    "LocalALMProvider",
+                                    "LocalVLMProvider",
+                                    "OCRProvider",
+                                    "VisionAPIProvider",
+                                )
                                 and hasattr(attr, "can_handle")
                                 and callable(getattr(attr, "can_handle", None))
                             ):

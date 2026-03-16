@@ -22,6 +22,7 @@ def make_provider_args(**kwargs):
         "ocr_model": "",
         "document_image": False,
         "vlm_image_model": "",
+        "alm_model": "",
         "pair_dir": "",
     }
     defaults.update(kwargs)

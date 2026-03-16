@@ -5,12 +5,14 @@ import json
 import re
 from pathlib import Path
 
+import pysrt
+
 from config.config import (
     APPLICATION_EXTENSIONS_SET,
     AUDIO_EXTENSIONS_SET,
     VIDEO_EXTENSIONS_SET,
 )
-from utils.parse_display import process_llm_response
+from utils.parse_display import extract_code_block_content, process_llm_response
 from utils.path_safety import safe_child_path, safe_leaf_name
 
 
@@ -106,6 +108,40 @@ def _normalize_subtitle_timestamps(output: str) -> str:
     return timestamp_pattern.sub(normalize_timestamp, output)
 
 
+def strip_reasoning_sections(output: str) -> str:
+    if not output:
+        return ""
+    return re.sub(r"<think\b[^>]*>.*?</think>", "", output, flags=re.IGNORECASE | re.DOTALL).strip()
+
+
+def extract_subtitle_text(output: str, console=None) -> str:
+    cleaned = strip_reasoning_sections(output)
+    if not cleaned:
+        return ""
+
+    extracted = extract_code_block_content(cleaned, "srt", console)
+    return (extracted or cleaned).strip()
+
+
+def normalize_and_validate_subtitle_text(output: str, console=None) -> str:
+    subtitle_text = extract_subtitle_text(output, console)
+    normalized = _normalize_subtitle_timestamps(subtitle_text).strip()
+    if not normalized:
+        raise ValueError("EMPTY_SUBTITLE_OUTPUT")
+
+    subtitles = pysrt.from_string(normalized)
+    if len(subtitles) == 0:
+        raise ValueError("EMPTY_SUBTITLE_ITEMS")
+
+    for subtitle in subtitles:
+        if subtitle.end.ordinal <= subtitle.start.ordinal:
+            raise ValueError("INVALID_SUBTITLE_RANGE")
+        if not str(subtitle.text or "").strip():
+            raise ValueError("EMPTY_SUBTITLE_TEXT")
+
+    return normalized
+
+
 def postprocess_caption_content(output, filepath, args, console):
     if not output:
         console.print(f"[red]No caption content generated for {filepath}[/red]")
@@ -167,7 +203,7 @@ def postprocess_caption_content(output, filepath, args, console):
 
     suffix = Path(filepath).suffix.lower()
     if suffix in VIDEO_EXTENSIONS_SET or suffix in AUDIO_EXTENSIONS_SET:
-        return _normalize_subtitle_timestamps(output)
+        return normalize_and_validate_subtitle_text(output, console)
 
     if suffix in APPLICATION_EXTENSIONS_SET and getattr(args, "ocr_model", "") != "":
         return output

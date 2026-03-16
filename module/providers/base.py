@@ -272,5 +272,6 @@ class ProviderType(Enum):
 
     CLOUD_VLM = auto()
     LOCAL_VLM = auto()
+    LOCAL_ALM = auto()
     OCR = auto()
     VISION_API = auto()

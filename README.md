@@ -263,13 +263,16 @@ $mode = "long"
 $not_clip_with_caption = $true              # Not clip with caption | 不根据caption裁剪
 $wait_time = 1
 $max_retries = 10
-$segment_time = 600
+$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds
 # OCR model configuration
 $ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image/video tasks
 $vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
+
+# ALM model configuration for audio tasks
+$alm_model = ""  # Options: "music_flamingo_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
@@ -298,6 +301,21 @@ $local_runtime_backend = "openai"
 $openai_base_url = "http://localhost:8000/v1"
 $local_runtime_model_id = "RekaAI/reka-edge-2603"
 ```
+
+#### 本地 Music Flamingo ALM
+
+`music_flamingo_local` 对接的是 [`nvidia/music-flamingo-think-2601-hf`](https://huggingface.co/nvidia/music-flamingo-think-2601-hf)，用于 `audio/*` 输入的描述型字幕生成。
+
+1. 安装依赖：
+```powershell
+uv sync --extra music-flamingo-local
+```
+2. 启用本地音频模型：
+```powershell
+$alm_model = "music_flamingo_local"
+```
+3. `segment_time` 留空时会使用模型卡默认上限 `1200` 秒；只有手动设置 `$segment_time = 90` 这类值时，才会显式覆盖。
+4. 这个模型默认做描述型音频 SRT，不是逐字 ASR；如果你要做歌词/语音转录，建议后续接独立 ASR 模型。
 
 如果你走第 3 种方式，调用链会复用现有本地 OpenAI-compatible 多模态入口，配置方法和 Gemini / 其他 VLM provider 保持一致，只是后端换成你自己的本地服务。
 
@@ -803,13 +821,16 @@ $mode = "long"
 $not_clip_with_caption = $true              # Not clip with caption | 不根据caption裁剪
 $wait_time = 1
 $max_retries = 10
-$segment_time = 600
+$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds
 # OCR model configuration
 $ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image/video tasks
 $vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
+
+# ALM model configuration for audio tasks
+$alm_model = ""  # Options: "music_flamingo_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
@@ -838,6 +859,21 @@ $local_runtime_backend = "openai"
 $openai_base_url = "http://localhost:8000/v1"
 $local_runtime_model_id = "RekaAI/reka-edge-2603"
 ```
+
+#### Local Music Flamingo ALM
+
+`music_flamingo_local` targets [`nvidia/music-flamingo-think-2601-hf`](https://huggingface.co/nvidia/music-flamingo-think-2601-hf) for descriptive `audio/*` captioning.
+
+1. Install the extra:
+```powershell
+uv sync --extra music-flamingo-local
+```
+2. Enable the local audio model:
+```powershell
+$alm_model = "music_flamingo_local"
+```
+3. Leave `segment_time` as `$null` to use the model-card default limit of `1200` seconds. Set a numeric value only when you want to override it explicitly.
+4. This provider is aimed at descriptive audio SRT output, not word-for-word ASR. For transcription, keep a dedicated ASR model in a later stage.
 
 Server mode reuses the existing local OpenAI-compatible multimodal path, so the configuration pattern stays the same as other VLM backends.
 

@@ -321,8 +321,8 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--segment_time",
         type=int,
-        default=600,
-        help="Segment time",
+        default=None,
+        help="Segment time (provider-specific default when unset)",
     )
 
     parser.add_argument(
@@ -331,6 +331,14 @@ def setup_parser() -> argparse.ArgumentParser:
         choices=route_choices("ocr_model", include_aliases=True),
         default="",
         help="OCR model to use for text extraction (default: empty)",
+    )
+
+    parser.add_argument(
+        "--alm_model",
+        type=str,
+        choices=route_choices("alm_model", include_aliases=True),
+        default="",
+        help="Audio language model to use for local audio captioning (default: empty)",
     )
 
     parser.add_argument(

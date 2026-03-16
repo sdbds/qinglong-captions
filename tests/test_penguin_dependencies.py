@@ -14,6 +14,15 @@ sys.path.insert(0, str(ROOT / "module"))
 sys.path.insert(0, str(ROOT / "gui"))
 
 
+def _load_caption_step(module_name: str):
+    module_path = ROOT / "gui" / "wizard" / "step4_caption.py"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    step4_caption = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(step4_caption)
+    return step4_caption.CaptionStep
+
+
 def test_pyproject_declares_penguin_vl_local_extra():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     optional_deps = pyproject["project"]["optional-dependencies"]
@@ -48,13 +57,20 @@ def test_pyproject_declares_lighton_ocr_extra():
     assert any(dep.startswith("huggingface_hub") for dep in lighton_deps)
 
 
+def test_pyproject_declares_music_flamingo_local_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "music-flamingo-local" in optional_deps
+    music_flamingo_deps = optional_deps["music-flamingo-local"]
+    assert any(dep.startswith("torch==2.8.0") for dep in music_flamingo_deps)
+    assert any(dep.startswith("accelerate") for dep in music_flamingo_deps)
+    assert any(dep.startswith("transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf") for dep in music_flamingo_deps)
+    assert any(dep.startswith("huggingface_hub") for dep in music_flamingo_deps)
+
+
 def test_caption_step_includes_penguin_extra():
-    module_path = ROOT / "gui" / "wizard" / "step4_caption.py"
-    spec = importlib.util.spec_from_file_location("test_step4_caption", module_path)
-    step4_caption = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(step4_caption)
-    CaptionStep = step4_caption.CaptionStep
+    CaptionStep = _load_caption_step("test_step4_caption")
 
     step = CaptionStep()
     step.ocr_model = SimpleNamespace(value="")
@@ -64,12 +80,7 @@ def test_caption_step_includes_penguin_extra():
 
 
 def test_caption_step_includes_lfm_extra():
-    module_path = ROOT / "gui" / "wizard" / "step4_caption.py"
-    spec = importlib.util.spec_from_file_location("test_step4_caption_lfm", module_path)
-    step4_caption = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(step4_caption)
-    CaptionStep = step4_caption.CaptionStep
+    CaptionStep = _load_caption_step("test_step4_caption_lfm")
 
     step = CaptionStep()
     step.ocr_model = SimpleNamespace(value="")
@@ -79,18 +90,72 @@ def test_caption_step_includes_lfm_extra():
 
 
 def test_caption_step_includes_lighton_extra():
-    module_path = ROOT / "gui" / "wizard" / "step4_caption.py"
-    spec = importlib.util.spec_from_file_location("test_step4_caption_lighton", module_path)
-    step4_caption = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(step4_caption)
-    CaptionStep = step4_caption.CaptionStep
+    CaptionStep = _load_caption_step("test_step4_caption_lighton")
 
     step = CaptionStep()
     step.ocr_model = SimpleNamespace(value="lighton_ocr")
     step.vlm_image_model = SimpleNamespace(value="")
 
     assert step._build_local_extra_args() == ["--extra", "lighton-ocr"]
+
+
+def test_caption_step_includes_music_flamingo_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_music_flamingo")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="music_flamingo_local")
+
+    assert step._build_local_extra_args() == ["--extra", "music-flamingo-local"]
+
+
+def test_caption_step_treats_music_flamingo_as_local_route():
+    CaptionStep = _load_caption_step("test_step4_caption_local_route")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="music_flamingo_local")
+
+    assert step._has_local_route_config() is True
+
+
+def test_caption_step_builds_alm_args_without_default_segment_override():
+    CaptionStep = _load_caption_step("test_step4_caption_build_args")
+
+    step = CaptionStep()
+    step.api_keys = {}
+    step.mode = SimpleNamespace(value="all")
+    step.pair_dir = SimpleNamespace(value="")
+    step.scene_detector = SimpleNamespace(value="AdaptiveDetector")
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="music_flamingo_local")
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--alm_model=music_flamingo_local" in args
+    assert not any(arg.startswith("--segment_time=") for arg in args)
+
+
+def test_caption_step_builds_explicit_segment_time_override():
+    CaptionStep = _load_caption_step("test_step4_caption_segment_override")
+
+    step = CaptionStep()
+    step.api_keys = {}
+    step.mode = SimpleNamespace(value="all")
+    step.pair_dir = SimpleNamespace(value="")
+    step.scene_detector = SimpleNamespace(value="AdaptiveDetector")
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="music_flamingo_local")
+    step.config["segment_time"] = 90
+    step.config["segment_time_explicit"] = True
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--segment_time=90" in args
 
 
 def test_run_ps1_mentions_lfm_vl_local_extra():
@@ -105,6 +170,15 @@ def test_run_ps1_mentions_lighton_ocr_extra():
 
     assert '"lighton_ocr"' in content
     assert 'Add-UvExtra "lighton-ocr"' in content
+
+
+def test_run_ps1_mentions_music_flamingo_local_extra():
+    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+
+    assert '"music_flamingo_local"' in content
+    assert 'Add-UvExtra "music-flamingo-local"' in content
+    assert "--alm_model=$alm_model" in content
+    assert "if ($null -ne $segment_time)" in content
 
 
 def test_run_ps1_locks_with_python_3_11_only():

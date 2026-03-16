@@ -271,6 +271,14 @@ lfm-vl-local = [
     "huggingface_hub[hf_xet]>=0.35.2",
     "pillow",
 ]
+music-flamingo-local = [
+    "torch==2.8.0",
+    "torchaudio",
+    "accelerate",
+    "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "safetensors",
+]
 
 [dependency-groups]
 test = [

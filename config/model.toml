@@ -225,5 +225,16 @@ min_image_tokens = 64
 max_image_tokens = 256
 do_image_splitting = true
 
+# Music Flamingo ALM configuration
+# Model: https://huggingface.co/nvidia/music-flamingo-think-2601-hf
+# Requires: uv sync --extra music-flamingo-local
+# Uses a custom Transformers branch from lashahub/transformers@modular-mf
+[music_flamingo_local]
+model_id = "nvidia/music-flamingo-think-2601-hf"
+max_new_tokens = 2048
+do_sample = true
+temperature = 0.7
+top_p = 0.9
+
 [kimi_vl]
 thinking = "enabled"  # enabled | disabled
