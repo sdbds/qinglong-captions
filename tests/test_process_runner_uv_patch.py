@@ -7,21 +7,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gui.utils.process_runner import ProcessRunner
 
 
-def _write_project(tmp_path: Path, with_lock: bool = False) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
+def _write_project(
+    tmp_path: Path,
+    with_lock: bool = False,
+    optional_deps: dict[str, list[str]] | None = None,
+    lock_text: str | None = None,
+) -> None:
+    pyproject = """
 [project]
 name = "demo-project"
 version = "0.1.0"
 dependencies = []
 
+[project.optional-dependencies]
+
 [tool.uv]
 package = false
-""".strip(),
-        encoding="utf-8",
-    )
+""".strip()
+    if optional_deps:
+        dep_lines = []
+        for extra_name, requirements in optional_deps.items():
+            quoted = ", ".join(f'"{requirement}"' for requirement in requirements)
+            dep_lines.append(f'{extra_name} = [{quoted}]')
+        pyproject = pyproject.replace("[tool.uv]", "\n".join(dep_lines) + "\n\n[tool.uv]")
+
+    (tmp_path / "pyproject.toml").write_text(pyproject, encoding="utf-8")
     if with_lock:
-        (tmp_path / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+        (tmp_path / "uv.lock").write_text(lock_text or "version = 1\n", encoding="utf-8")
 
 
 def test_patch_shared_environment_generates_lock_before_export_without_lockfile(tmp_path, monkeypatch):
@@ -147,3 +159,42 @@ def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_pat
     assert install_cmd[install_cmd.index("--reinstall-package") + 1] == "torch"
     second = install_cmd.index("--reinstall-package", install_cmd.index("--reinstall-package") + 1)
     assert install_cmd[second + 1] == "torchvision"
+
+
+def test_patch_shared_environment_falls_back_to_pyproject_extra_when_lock_is_missing_extra(tmp_path, monkeypatch):
+    _write_project(
+        tmp_path,
+        with_lock=True,
+        optional_deps={
+            "music-flamingo-local": [
+                "torch==2.8.0",
+                "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf",
+            ]
+        },
+        lock_text='version = 1\n[[package]]\nname = "demo-project"\nprovides-extras = ["qwen-vl-local"]\n',
+    )
+    runner = ProcessRunner()
+    commands: list[list[str]] = []
+    captured_requirements = ""
+
+    async def fake_run(cmd, work_dir, env):
+        nonlocal captured_requirements
+        commands.append(list(cmd))
+        if cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]:
+            req_path = Path(cmd[cmd.index("-r") + 1])
+            captured_requirements = req_path.read_text(encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+
+    result = asyncio.run(
+        runner._patch_shared_environment("uv", tmp_path, {}, "test-env", ["music-flamingo-local"], []),
+    )
+
+    assert result is None
+    assert len(commands) == 1
+
+    install_cmd = commands[0]
+    assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
+    assert "torch==2.8.0" in captured_requirements
+    assert "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf" in captured_requirements

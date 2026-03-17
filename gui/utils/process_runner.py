@@ -22,11 +22,27 @@ from typing import Callable, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-from gui.utils.log_buffer import log_buffer
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
+    import tomli as tomllib
+
+from gui.utils.log_buffer import log_buffer as _global_log_buffer, LogBuffer
 from gui.utils.ansi_to_html import strip_ansi
 
 
 _TRANSIENT_SPINNER_FRAMES = frozenset("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+
+# 序列化 _patch_shared_environment，防止两个并发 Job 同时修改共享 .venv
+_uv_patch_lock: Optional[asyncio.Lock] = None
+
+
+def _get_uv_patch_lock() -> asyncio.Lock:
+    """延迟初始化 uv patch 锁（需在事件循环中调用）"""
+    global _uv_patch_lock
+    if _uv_patch_lock is None:
+        _uv_patch_lock = asyncio.Lock()
+    return _uv_patch_lock
 
 
 class ProcessStatus(Enum):
@@ -88,7 +104,13 @@ class ProcessRunner:
     # 项目根目录 (gui/utils/../../ = 项目根)
     PROJECT_ROOT = str(Path(__file__).parent.parent.parent.resolve())
 
-    def __init__(self):
+    def __init__(self, log_buffer: Optional[LogBuffer] = None):
+        """
+        Args:
+            log_buffer: 可选，指定此实例的日志缓冲区。
+                        若未提供，使用全局 log_buffer（向后兼容）。
+        """
+        self._log_buffer: LogBuffer = log_buffer if log_buffer is not None else _global_log_buffer
         self.process = None
         self.status_callback: Optional[Callable[[ProcessStatus], None]] = None
         self._running = False
@@ -107,8 +129,8 @@ class ProcessRunner:
         self.status_callback = status_callback
 
     def _notify_log(self, message: str):
-        """推送日志到全局 log_buffer（订阅者自动收到）"""
-        log_buffer.push(message)
+        """推送日志到此实例的 log_buffer（订阅者自动收到）"""
+        self._log_buffer.push(message)
 
     def _notify_status(self, status: ProcessStatus):
         """通知状态回调"""
@@ -119,7 +141,7 @@ class ProcessRunner:
         """在保留历史的前提下，为新任务插入分隔线。"""
         if self._task_divider_emitted:
             return
-        if log_buffer.get_all_lines():
+        if self._log_buffer.get_all_lines():
             self._notify_log(self.TASK_DIVIDER)
         self._task_divider_emitted = True
 
@@ -233,6 +255,47 @@ class ProcessRunner:
             if candidate.exists():
                 return str(candidate)
         return None
+
+    @staticmethod
+    def _lockfile_covers_extras(lockfile: Path, extras: list[str]) -> bool:
+        if not extras or not lockfile.exists():
+            return True
+
+        try:
+            content = lockfile.read_text(encoding="utf-8")
+        except OSError:
+            return False
+
+        return all(extra in content for extra in extras)
+
+    @staticmethod
+    def _read_optional_dependency_requirements(work_dir: Path, extras: list[str]) -> Optional[list[str]]:
+        pyproject = work_dir / "pyproject.toml"
+        if not pyproject.exists() or not extras:
+            return None
+
+        try:
+            data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError):
+            return None
+
+        optional_deps = data.get("project", {}).get("optional-dependencies", {})
+        requirements: list[str] = []
+        seen: set[str] = set()
+
+        for extra in extras:
+            extra_requirements = optional_deps.get(extra)
+            if not extra_requirements:
+                return None
+
+            for requirement in extra_requirements:
+                text = str(requirement).strip()
+                if not text or text in seen:
+                    continue
+                seen.add(text)
+                requirements.append(text)
+
+        return requirements
 
     async def _ensure_uv_lock(self, uv: str, work_dir: Path, env: dict) -> Optional[ProcessResult]:
         pyproject = work_dir / "pyproject.toml"
@@ -370,10 +433,10 @@ class ProcessRunner:
         lines.append(raw)
 
     def _publish_tailed_line(self, raw: str):
-        """将稳定日志推送到 log_buffer（订阅者自动收到）。"""
+        """将稳定日志推送到此实例的 log_buffer（订阅者自动收到）。"""
         if not raw:
             return
-        log_buffer.push(raw)
+        self._log_buffer.push(raw)
 
     def _consume_native_log_chunk(self, text: str, *, final_flush: bool = False) -> list[str]:
         """按终端语义解析原生控制台输出。
@@ -494,106 +557,120 @@ class ProcessRunner:
         if not extras and not groups:
             return None
 
-        target_python = self._resolve_project_python(work_dir, env)
-        profile_parts = self._profile_parts(extras, groups)
-        req_file: Optional[tempfile.NamedTemporaryFile] = None
-        has_torch = False
-        has_torchvision = False
+        # 序列化依赖补丁：防止多个并发 Job 同时修改共享 .venv
+        async with _get_uv_patch_lock():
+            target_python = self._resolve_project_python(work_dir, env)
+            profile_parts = self._profile_parts(extras, groups)
+            req_file: Optional[tempfile.NamedTemporaryFile] = None
+            has_torch = False
+            has_torchvision = False
 
-        ensure_lock_result = await self._ensure_uv_lock(uv, work_dir, env)
-        if ensure_lock_result:
-            return ensure_lock_result
+            ensure_lock_result = await self._ensure_uv_lock(uv, work_dir, env)
+            if ensure_lock_result:
+                return ensure_lock_result
 
-        use_frozen = (work_dir / "uv.lock").exists()
+            use_frozen = (work_dir / "uv.lock").exists()
 
-        try:
-            if self._needs_sync_patch(extras):
-                cmd = [uv, "sync", "--inexact"]
-                action = "uv sync"
-                if use_frozen:
-                    cmd.insert(2, "--frozen")
-                if target_python:
-                    cmd.extend(["--python", target_python])
-                for extra in extras:
-                    cmd.extend(["--extra", extra])
-                for group in groups:
-                    cmd.extend(["--group", group])
-                self._notify_log("检测到 paddleocr，使用 uv sync --inexact 处理冲突依赖")
-            else:
-                req_file = tempfile.NamedTemporaryFile(prefix="qinglong_uv_patch_", suffix=".txt", delete=False)
-                req_file.close()
-                export_cmd = [
-                    uv,
-                    "export",
-                ]
-                if use_frozen:
-                    export_cmd.append("--frozen")
-                if target_python:
-                    export_cmd.extend(["--python", target_python])
-                export_cmd.extend(
-                    [
-                        "--no-emit-project",
-                        "--format",
-                        "requirements-txt",
-                        "--output-file",
-                        req_file.name,
-                    ]
-                )
-                for extra in extras:
-                    export_cmd.extend(["--extra", extra])
-                for group in groups:
-                    export_cmd.extend(["--group", group])
+            try:
+                if self._needs_sync_patch(extras):
+                    cmd = [uv, "sync", "--inexact"]
+                    action = "uv sync"
+                    if use_frozen:
+                        cmd.insert(2, "--frozen")
+                    if target_python:
+                        cmd.extend(["--python", target_python])
+                    for extra in extras:
+                        cmd.extend(["--extra", extra])
+                    for group in groups:
+                        cmd.extend(["--group", group])
+                    self._notify_log("检测到 paddleocr，使用 uv sync --inexact 处理冲突依赖")
+                else:
+                    fallback_requirements = None
+                    lockfile = work_dir / "uv.lock"
+                    if use_frozen and extras and self._lockfile_covers_extras(lockfile, extras) is False:
+                        fallback_requirements = self._read_optional_dependency_requirements(work_dir, extras)
 
-                self._notify_log("导出当前功能所需依赖清单，避免构建本地项目包")
-                self._notify_log(f"开始导出依赖: {' '.join(export_cmd[:15])}{'...' if len(export_cmd) > 15 else ''}")
-                export_code = await self._run_logged_subprocess(export_cmd, work_dir, env)
-                self.process = None
-                if export_code != 0:
-                    message = f"uv export 失败，返回码: {export_code}"
-                    self._notify_log(message)
-                    return ProcessResult(ProcessStatus.ERROR, export_code, message)
+                    req_file = tempfile.NamedTemporaryFile(prefix="qinglong_uv_patch_", suffix=".txt", delete=False)
+                    req_file.close()
 
-                cmd = [uv, "pip", "install", "--no-build-isolation"]
-                action = "uv pip install"
-                cmd.extend(["--index-strategy", self._uv_index_strategy(env)])
-                if target_python:
-                    cmd.extend(["--python", target_python])
-                has_torch, has_torchvision = self._requirements_include_torch(req_file.name)
-                torch_backend = self._infer_uv_torch_backend(env) if has_torch else None
-                if torch_backend:
-                    cmd.extend(["--torch-backend", torch_backend])
-                    installed_torch_backend = self._inspect_installed_torch_backend(target_python, env)
-                    if installed_torch_backend and installed_torch_backend != torch_backend:
-                        cmd.extend(["--reinstall-package", "torch"])
-                        if has_torchvision:
-                            cmd.extend(["--reinstall-package", "torchvision"])
+                    if fallback_requirements:
+                        Path(req_file.name).write_text("\n".join(fallback_requirements) + "\n", encoding="utf-8")
                         self._notify_log(
-                            f"检测到当前环境 torch backend 为 {installed_torch_backend}，将重装为 {torch_backend}"
+                            "检测到 uv.lock 未包含所选 extra，回退到 pyproject optional-dependencies 直接安装"
                         )
                     else:
-                        self._notify_log(f"检测到 torch 依赖，使用 uv torch backend={torch_backend}")
-                cmd.extend(["-r", req_file.name])
-                self._notify_log("使用共享 .venv 增量安装依赖补丁")
+                        export_cmd = [
+                            uv,
+                            "export",
+                        ]
+                        if use_frozen:
+                            export_cmd.append("--frozen")
+                        if target_python:
+                            export_cmd.extend(["--python", target_python])
+                        export_cmd.extend(
+                            [
+                                "--no-emit-project",
+                                "--format",
+                                "requirements-txt",
+                                "--output-file",
+                                req_file.name,
+                            ]
+                        )
+                        for extra in extras:
+                            export_cmd.extend(["--extra", extra])
+                        for group in groups:
+                            export_cmd.extend(["--group", group])
 
-            self._notify_log(f"{action} target environment: {env_name}")
-            self._notify_log(f"{action} dependency profile: {', '.join(profile_parts)}")
-            self._notify_log(f"开始同步依赖: {' '.join(cmd[:15])}{'...' if len(cmd) > 15 else ''}")
+                        self._notify_log("导出当前功能所需依赖清单，避免构建本地项目包")
+                        self._notify_log(f"开始导出依赖: {' '.join(export_cmd[:15])}{'...' if len(export_cmd) > 15 else ''}")
+                        export_code = await self._run_logged_subprocess(export_cmd, work_dir, env)
+                        self.process = None
+                        if export_code != 0:
+                            message = f"uv export 失败，返回码: {export_code}"
+                            self._notify_log(message)
+                            return ProcessResult(ProcessStatus.ERROR, export_code, message)
 
-            return_code = await self._run_logged_subprocess(cmd, work_dir, env)
-            self.process = None
+                    cmd = [uv, "pip", "install", "--no-build-isolation"]
+                    action = "uv pip install"
+                    cmd.extend(["--index-strategy", self._uv_index_strategy(env)])
+                    if target_python:
+                        cmd.extend(["--python", target_python])
+                    has_torch, has_torchvision = self._requirements_include_torch(req_file.name)
+                    torch_backend = self._infer_uv_torch_backend(env) if has_torch else None
+                    if torch_backend:
+                        cmd.extend(["--torch-backend", torch_backend])
+                        installed_torch_backend = self._inspect_installed_torch_backend(target_python, env)
+                        if installed_torch_backend and installed_torch_backend != torch_backend:
+                            cmd.extend(["--reinstall-package", "torch"])
+                            if has_torchvision:
+                                cmd.extend(["--reinstall-package", "torchvision"])
+                            self._notify_log(
+                                f"检测到当前环境 torch backend 为 {installed_torch_backend}，将重装为 {torch_backend}"
+                            )
+                        else:
+                            self._notify_log(f"检测到 torch 依赖，使用 uv torch backend={torch_backend}")
+                    cmd.extend(["-r", req_file.name])
+                    self._notify_log("使用共享 .venv 增量安装依赖补丁")
 
-            if return_code != 0:
-                message = f"{action} 失败，返回码: {return_code}"
-                self._notify_log(message)
-                return ProcessResult(ProcessStatus.ERROR, return_code, message)
+                self._notify_log(f"{action} target environment: {env_name}")
+                self._notify_log(f"{action} dependency profile: {', '.join(profile_parts)}")
+                self._notify_log(f"开始同步依赖: {' '.join(cmd[:15])}{'...' if len(cmd) > 15 else ''}")
 
-            return None
-        finally:
-            if req_file is not None:
-                try:
-                    os.unlink(req_file.name)
-                except OSError:
-                    pass
+                return_code = await self._run_logged_subprocess(cmd, work_dir, env)
+                self.process = None
+
+                if return_code != 0:
+                    message = f"{action} 失败，返回码: {return_code}"
+                    self._notify_log(message)
+                    return ProcessResult(ProcessStatus.ERROR, return_code, message)
+
+                return None
+            finally:
+                if req_file is not None:
+                    try:
+                        os.unlink(req_file.name)
+                    except OSError:
+                        pass
 
     # ------------------------------------------------------------------
     #  日志文件尾随（原生控制台模式）
@@ -929,5 +1006,8 @@ class ProcessRunner:
         return self._running
 
 
-# 全局进程运行器
+# 全局进程运行器（保留向后兼容：未迁移的调用方仍可使用）
 process_runner = ProcessRunner()
+
+# 向后兼容别名：允许 `from gui.utils.process_runner import log_buffer`
+log_buffer = _global_log_buffer

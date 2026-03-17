@@ -7,7 +7,8 @@ from theme import get_classes, COLORS
 from components.path_selector import create_path_selector
 from components.log_viewer import create_log_viewer
 from components.advanced_inputs import editable_slider, toggle_switch, styled_select, styled_input
-from gui.utils.process_runner import process_runner, ProcessStatus
+from gui.utils.job_manager import job_manager
+from gui.utils.process_runner import ProcessStatus
 from gui.utils.i18n import t
 from module.providers.catalog import route_choices, route_requires_remote_config
 
@@ -213,6 +214,7 @@ class CaptionStep:
         self.is_running = False
         self.api_keys = {}
         self._syncing_segment_time = False
+        self.current_job = None
 
     @staticmethod
     def _has_text(value: Any) -> bool:
@@ -353,6 +355,24 @@ class CaptionStep:
             args.append(f"--alm_model={self._current_alm_model()}")
 
         return args
+
+    def _build_job_name(self) -> str:
+        """构建 Job 显示名（包含主要 provider 信息）"""
+        for api_name, config in self.API_CONFIGS.items():
+            if config.get("is_openai_compatible"):
+                continue
+            key_input = self.api_keys.get(config["key_name"])
+            if key_input and key_input.value:
+                return f"Caption ({api_name})"
+        if hasattr(self, "openai_base_url") and self.openai_base_url.value:
+            return "Caption (OpenAI-Compatible)"
+        if self.ocr_model.value:
+            return f"Caption (OCR: {self.ocr_model.value})"
+        if self.vlm_image_model.value:
+            return f"Caption (VLM: {self.vlm_image_model.value})"
+        if self._current_alm_model():
+            return f"Caption (ALM: {self._current_alm_model()})"
+        return "Caption"
 
     def render(self):
         """渲染页面"""
@@ -658,21 +678,27 @@ class CaptionStep:
         self.start_btn.set_enabled(False)
         self.stop_btn.set_enabled(True)
 
-        process_runner.begin_task_log()
-        process_runner.log(t("log_start_caption"))
-        process_runner.log(f"{t('log_dataset_path')}: {dataset_path}")
-        process_runner.log(f"{t('log_mode')}: {self.mode.value}")
-
         args = self._build_caption_args(dataset_path)
-
         uv_extra_args = self._build_local_extra_args()
+        job_name = self._build_job_name()
 
-        process_runner.log(f"{t('log_params')}: {args[:5]}...")
+        runner_kwargs = {}
         if uv_extra_args:
-            process_runner.log(f"uv extras: {uv_extra_args}")
+            runner_kwargs["uv_extra_args"] = uv_extra_args
 
-        # 运行字幕生成
-        result = await process_runner.run_python_script("module.captioner", args, uv_extra_args=uv_extra_args or None)
+        # 提交 Job
+        job = await job_manager.submit("module.captioner", args, name=job_name, **runner_kwargs)
+        self.current_job = job
+        self.log_viewer.attach_job(job)
+
+        self.log_viewer.info(t("log_start_caption"))
+        self.log_viewer.info(f"{t('log_dataset_path')}: {dataset_path}")
+        self.log_viewer.info(f"{t('log_mode')}: {self.mode.value}")
+        self.log_viewer.info(f"{t('log_params')}: {args[:5]}...")
+        if uv_extra_args:
+            self.log_viewer.info(f"uv extras: {uv_extra_args}")
+
+        result = await job.wait()
 
         try:
             if result.status == ProcessStatus.SUCCESS:
@@ -683,6 +709,7 @@ class CaptionStep:
                 ui.notify(t("caption_failed"), type="negative")
 
             self.is_running = False
+            self.current_job = None
             self.start_btn.set_enabled(True)
             self.stop_btn.set_enabled(False)
         except RuntimeError:
@@ -690,7 +717,9 @@ class CaptionStep:
 
     def _stop_caption(self):
         """停止字幕生成"""
-        process_runner.terminate()
+        if self.current_job:
+            job_manager.cancel(self.current_job.id)
+            self.current_job = None
         self.is_running = False
         self.start_btn.set_enabled(True)
         self.stop_btn.set_enabled(False)

@@ -7,7 +7,8 @@ from theme import get_classes, COLORS
 from components.path_selector import create_path_selector
 from components.log_viewer import create_log_viewer
 from components.advanced_inputs import editable_slider, toggle_switch, styled_select
-from gui.utils.process_runner import process_runner, ProcessStatus
+from gui.utils.job_manager import job_manager
+from gui.utils.process_runner import ProcessStatus
 from gui.utils.i18n import t
 
 
@@ -77,6 +78,7 @@ class ToolsStep:
         self.log_viewer = None
         self.is_running = False
         self.current_tool = None
+        self.current_job = None
 
     def render(self):
         """渲染页面"""
@@ -432,10 +434,6 @@ class ToolsStep:
         self.stop_btn.set_enabled(True)
         self.log_viewer.clear()
 
-        self.log_viewer.info(t("log_start_translate"))
-        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
-        self.log_viewer.info(f"{t('log_model')}: {self.translate_model.value}")
-
         # 构建参数
         args = [input_path]
         args.append(f"--output_name={self.translate_output_name.value}")
@@ -462,14 +460,22 @@ class ToolsStep:
         if self.config["translate_force_reimport"]:
             args.append("--force_reimport")
 
-        self.log_viewer.info(f"{t('log_params')}: {args}")
-
-        # 运行翻译
-        result = await process_runner.run_python_script(
+        # 提交 Job
+        job = await job_manager.submit(
             "module.texttranslate",
             args,
+            name="Translate",
             uv_extra="translate",
         )
+        self.current_job = job
+        self.log_viewer.attach_job(job)
+
+        self.log_viewer.info(t("log_start_translate"))
+        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
+        self.log_viewer.info(f"{t('log_model')}: {self.translate_model.value}")
+        self.log_viewer.info(f"{t('log_params')}: {args}")
+
+        result = await job.wait()
 
         try:
             if result.status == ProcessStatus.SUCCESS:
@@ -480,6 +486,7 @@ class ToolsStep:
                 ui.notify(t("translate_failed"), type="negative")
 
             self.is_running = False
+            self.current_job = None
             self.stop_btn.set_enabled(False)
         except RuntimeError:
             pass
@@ -496,9 +503,6 @@ class ToolsStep:
         self.stop_btn.set_enabled(True)
         self.log_viewer.clear()
 
-        self.log_viewer.info(t("log_start_watermark"))
-        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
-
         # 构建参数
         args = [input_path]
         args.append(f"--repo_id={self.watermark_model.value}")
@@ -508,10 +512,16 @@ class ToolsStep:
         if self.config["watermark_thresh"] != 1.0:
             args.append(f"--thresh={self.config['watermark_thresh']}")
 
+        # 提交 Job
+        job = await job_manager.submit("module.waterdetect", args, name="Watermark")
+        self.current_job = job
+        self.log_viewer.attach_job(job)
+
+        self.log_viewer.info(t("log_start_watermark"))
+        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
         self.log_viewer.info(f"{t('log_model')}: {self.watermark_model.value}")
 
-        # 运行水印检测
-        result = await process_runner.run_python_script("module.waterdetect", args)
+        result = await job.wait()
 
         try:
             if result.status == ProcessStatus.SUCCESS:
@@ -522,6 +532,7 @@ class ToolsStep:
                 ui.notify(t("watermark_failed"), type="negative")
 
             self.is_running = False
+            self.current_job = None
             self.stop_btn.set_enabled(False)
         except RuntimeError:
             pass
@@ -537,9 +548,6 @@ class ToolsStep:
         self.is_running = True
         self.stop_btn.set_enabled(True)
         self.log_viewer.clear()
-
-        self.log_viewer.info(t("log_start_preprocess"))
-        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
 
         # 构建参数
         args = [f"--input={input_path}"]
@@ -567,10 +575,16 @@ class ToolsStep:
         if self.config["crop_transparent"]:
             args.append("--crop-transparent")
 
+        # 提交 Job
+        job = await job_manager.submit("utils.preprocess_datasets", args, name="Preprocess")
+        self.current_job = job
+        self.log_viewer.attach_job(job)
+
+        self.log_viewer.info(t("log_start_preprocess"))
+        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
         self.log_viewer.info(f"{t('log_params')}: {args}")
 
-        # 运行预处理
-        result = await process_runner.run_python_script("utils.preprocess_datasets", args)
+        result = await job.wait()
 
         try:
             if result.status == ProcessStatus.SUCCESS:
@@ -581,6 +595,7 @@ class ToolsStep:
                 ui.notify(t("preprocess_failed"), type="negative")
 
             self.is_running = False
+            self.current_job = None
             self.stop_btn.set_enabled(False)
         except RuntimeError:
             pass
@@ -597,9 +612,6 @@ class ToolsStep:
         self.stop_btn.set_enabled(True)
         self.log_viewer.clear()
 
-        self.log_viewer.info(t("log_start_scoring"))
-        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
-
         # 构建参数
         args = [input_path]
         args.append(f"--repo_id={self.reward_model.value}")
@@ -607,10 +619,16 @@ class ToolsStep:
         args.append(f"--device={self.reward_device.value}")
         args.append(f"--dtype={self.reward_dtype.value}")
 
+        # 提交 Job
+        job = await job_manager.submit("module.rewardmodel", args, name="Reward")
+        self.current_job = job
+        self.log_viewer.attach_job(job)
+
+        self.log_viewer.info(t("log_start_scoring"))
+        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
         self.log_viewer.info(f"{t('log_model')}: {self.reward_model.value}")
 
-        # 运行评分
-        result = await process_runner.run_python_script("module.rewardmodel", args)
+        result = await job.wait()
 
         try:
             if result.status == ProcessStatus.SUCCESS:
@@ -621,13 +639,16 @@ class ToolsStep:
                 ui.notify(t("scoring_failed"), type="negative")
 
             self.is_running = False
+            self.current_job = None
             self.stop_btn.set_enabled(False)
         except RuntimeError:
             pass
 
     def _stop_tool(self):
         """停止当前工具"""
-        process_runner.terminate()
+        if self.current_job:
+            job_manager.cancel(self.current_job.id)
+            self.current_job = None
         self.is_running = False
         self.stop_btn.set_enabled(False)
         self.log_viewer.info(t("task_stopped"))

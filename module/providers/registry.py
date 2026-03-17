@@ -7,12 +7,19 @@ ProviderRegistry - 自动发现和路由
 
 import importlib
 import pkgutil
+import sys
 import threading
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type
 
 if TYPE_CHECKING:
     from .base import Provider
+
+
+if __name__ == "providers.registry":
+    sys.modules.setdefault("module.providers.registry", sys.modules[__name__])
+elif __name__ == "module.providers.registry":
+    sys.modules.setdefault("providers.registry", sys.modules[__name__])
 
 
 class ProviderRegistry:
@@ -43,6 +50,7 @@ class ProviderRegistry:
                 return
 
             self._providers: Dict[str, Type["Provider"]] = {}
+            self._discovered = False
 
             # 修复 #1: kimi_code 排在 kimi_vl 之前
             # minimax_code 优先级高于 minimax_api（类似 kimi_code > kimi_vl）
@@ -84,14 +92,13 @@ class ProviderRegistry:
 
     def discover(self) -> None:
         """自动发现 - 只执行一次（幂等）"""
-        if self._providers:
+        _flush_pending_registrations()
+        if self._discovered:
             return
 
-        # 首先 flush 装饰器注册的 Provider
-        _flush_pending_registrations()
-
         with self._lock:
-            if self._providers:
+            _flush_pending_registrations()
+            if self._discovered:
                 return
 
             try:
@@ -140,6 +147,8 @@ class ProviderRegistry:
                     except Exception as e:
                         # 静默处理导入错误，避免影响其他 provider
                         pass
+
+            self._discovered = True
 
     def register(self, name: str, provider_class: Type["Provider"]):
         """注册 provider"""

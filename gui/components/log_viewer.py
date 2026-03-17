@@ -7,7 +7,7 @@ from gui.theme import get_classes, COLORS
 from gui.utils.i18n import t
 from gui.components.advanced_inputs import toggle_switch_simple
 from gui.utils.ansi_to_html import AnsiToHtmlConverter, strip_ansi
-from gui.utils.log_buffer import log_buffer
+from gui.utils.log_buffer import log_buffer, LogBuffer
 
 
 class LogViewer:
@@ -15,6 +15,9 @@ class LogViewer:
 
     使用缓冲区 + 定时刷新机制，将日志批量推送到前端，
     避免高速输出时大量 WebSocket 消息导致浏览器断连。
+
+    支持 log_source 参数指定日志来源（默认全局 log_buffer），
+    也可通过 attach_job(job) 动态切换到指定 Job 的日志流。
     """
 
     _styles_injected = False
@@ -24,9 +27,10 @@ class LogViewer:
         """提取需要在初始渲染时回放的历史日志。"""
         return [line for _seq, line in history][-max_lines:]
 
-    def __init__(self, max_lines: int = 1000, height: str = "50vh"):
+    def __init__(self, max_lines: int = 1000, height: str = "50vh", log_source: Optional[LogBuffer] = None):
         self._ensure_scroll_styles()
         self.max_lines = max_lines
+        self._height = height
         self.lines: list[str] = []  # 原始文本（可能含 ANSI）
         self.auto_scroll = True
         self._buffer: list[str] = []
@@ -35,6 +39,7 @@ class LogViewer:
         self._stick_to_bottom = True
         self._sub_id: Optional[int] = None
         self._last_replayed_seq: int = 0
+        self._log_source: LogBuffer = log_source if log_source is not None else log_buffer
 
         with ui.card().classes(get_classes("card")).style("width: 66vw; max-width: 100%; box-sizing: border-box;"):
             # 工具栏
@@ -75,7 +80,13 @@ class LogViewer:
                     # 弹出控制台按钮
                     console_btn = ui.button(
                         icon="open_in_new",
-                        on_click=lambda: ui.run_javascript("window.open('/console', '_blank')")
+                        on_click=lambda: ui.run_javascript("""
+    const w = Math.round(screen.width * 2 / 3);
+    const h = Math.round(screen.height * 2 / 3);
+    const left = Math.round((screen.width - w) / 2);
+    const top = Math.round((screen.height - h) / 2);
+    window.open('/console', '_blank', `width=${w},height=${h},left=${left},top=${top}`);
+""")
                     )
                     console_btn.classes("modern-btn-secondary")
                     console_btn.props('dense type="button"').tooltip(t("open_console", "Open Console"))
@@ -101,9 +112,9 @@ class LogViewer:
                     )
 
         # 先订阅，再取历史快照，保证两者之间推入的行不丢失
-        self._sub_id = log_buffer.subscribe(self._on_log_buffer_line)
+        self._sub_id = self._log_source.subscribe(self._on_log_buffer_line)
 
-        history = log_buffer.get_all_lines()
+        history = self._log_source.get_all_lines()
         if history:
             self._last_replayed_seq = history[-1][0]
             history_lines = self._history_lines(history, self.max_lines)
@@ -209,14 +220,57 @@ class LogViewer:
         self._buffer.append(line)
 
     def _unsubscribe(self):
-        """页面断连时取消 log_buffer 订阅。"""
+        """页面断连时取消 log_source 订阅。"""
         if self._sub_id is not None:
-            log_buffer.unsubscribe(self._sub_id)
+            self._log_source.unsubscribe(self._sub_id)
             self._sub_id = None
         self._flush_timer.active = False
 
+    def _clear_display(self):
+        """清空渲染状态（DOM 和 Python 侧缓存）。"""
+        self.lines.clear()
+        self._buffer.clear()
+        self._line_count = 0
+        self._last_replayed_seq = 0
+        self._converter.reset()
+        self.log_container.clear()
+
+    def _replay_history(self, history: list[tuple[int, str]]):
+        """回放历史日志行到 DOM（不重复推送到 log_source）。"""
+        if not history:
+            return
+        self._last_replayed_seq = history[-1][0]
+        history_lines = self._history_lines(history, self.max_lines)
+        self.lines = history_lines.copy()
+        self._line_count = len(history_lines)
+        html_parts = [self._converter.convert_line(line) for line in history_lines]
+        with self.log_container:
+            ui.html("<br>".join(html_parts) + "<br>", sanitize=False).style("display: inline;")
+        self.scroll_area.scroll_to(percent=1.0)
+
+    def attach_job(self, job):
+        """切换到指定 Job 的日志流。
+
+        Args:
+            job: gui.utils.job_manager.Job 对象
+        """
+        # 取消旧订阅
+        if self._sub_id is not None:
+            self._log_source.unsubscribe(self._sub_id)
+            self._sub_id = None
+
+        # 切换源
+        self._log_source = job.log_buffer
+
+        # 清空当前显示，回放新源历史
+        self._clear_display()
+        self._replay_history(self._log_source.get_all_lines())
+
+        # 订阅新源
+        self._sub_id = self._log_source.subscribe(self._on_log_buffer_line)
+
     def append(self, message: str, level: str = "info"):
-        """添加日志行（经 log_buffer 持久化后由订阅回调写入缓冲区）"""
+        """添加日志行（经 log_source 持久化后由订阅回调写入缓冲区）"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         # 根据级别添加 ANSI 颜色
         level_colors = {
@@ -227,11 +281,11 @@ class LogViewer:
         color = level_colors.get(level, "")
         reset = "\x1b[0m" if color else ""
         formatted = f"{color}[{timestamp}] {message}{reset}"
-        log_buffer.push(formatted)
+        self._log_source.push(formatted)
 
     def info(self, message: str):
-        """添加信息日志（经 log_buffer 持久化，可能含 ANSI）"""
-        log_buffer.push(message)
+        """添加信息日志（经 log_source 持久化，可能含 ANSI）"""
+        self._log_source.push(message)
 
     def success(self, message: str):
         """添加成功日志"""
@@ -247,14 +301,9 @@ class LogViewer:
 
     def clear(self):
         """清空日志"""
-        self.lines.clear()
-        self._buffer.clear()
-        self._line_count = 0
-        self._last_replayed_seq = 0
-        self._converter.reset()
-        self.log_container.clear()
-        log_buffer.clear()
-        log_buffer.push("日志已清空")
+        self._clear_display()
+        self._log_source.clear()
+        self._log_source.push("日志已清空")
 
     def _save_log(self):
         """保存日志到文件（纯文本，无 ANSI）"""

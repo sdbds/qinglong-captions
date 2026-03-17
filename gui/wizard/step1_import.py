@@ -7,7 +7,8 @@ from theme import get_classes, COLORS
 from components.path_selector import create_path_selector
 from components.log_viewer import create_log_viewer
 from components.advanced_inputs import toggle_switch, styled_select, styled_input
-from gui.utils.process_runner import process_runner, ProcessStatus
+from gui.utils.job_manager import job_manager, JobStatus
+from gui.utils.process_runner import ProcessStatus
 from gui.utils.i18n import t
 
 
@@ -30,6 +31,7 @@ class ImportStep:
         }
         self.log_viewer = None
         self.is_running = False
+        self.current_job = None
 
     def render(self):
         """渲染页面"""
@@ -144,12 +146,6 @@ class ImportStep:
         self.start_btn.set_enabled(False)
         self.stop_btn.set_enabled(True)
 
-        self.log_viewer.info(t("log_start_import"))
-        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
-        self.log_viewer.info(f"{t('log_output_name')}: {output_name}")
-        self.log_viewer.info(f"{t('log_import_mode')}: {self.import_mode.value}")
-        self.log_viewer.info(f"{t('log_tag')}: {tag}")
-
         # 构建参数
         args = [input_path]
         args.append(f"--output_name={output_name}")
@@ -161,10 +157,19 @@ class ImportStep:
         if self.config["not_save_disk"]:
             args.append("--not_save_disk")
 
+        # 提交 Job
+        job = await job_manager.submit("module.lanceImport", args, name="Import")
+        self.current_job = job
+        self.log_viewer.attach_job(job)
+
+        self.log_viewer.info(t("log_start_import"))
+        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
+        self.log_viewer.info(f"{t('log_output_name')}: {output_name}")
+        self.log_viewer.info(f"{t('log_import_mode')}: {self.import_mode.value}")
+        self.log_viewer.info(f"{t('log_tag')}: {tag}")
         self.log_viewer.info(f"{t('log_params')}: {args}")
 
-        # 运行导入
-        result = await process_runner.run_python_script("module.lanceImport", args)
+        result = await job.wait()
 
         if result.status == ProcessStatus.SUCCESS:
             self.log_viewer.success(t("import_success"))
@@ -174,12 +179,15 @@ class ImportStep:
             ui.notify(t("import_failed"), type="negative")
 
         self.is_running = False
+        self.current_job = None
         self.start_btn.set_enabled(True)
         self.stop_btn.set_enabled(False)
 
     def _stop_import(self):
         """停止导入"""
-        process_runner.terminate()
+        if self.current_job:
+            job_manager.cancel(self.current_job.id)
+            self.current_job = None
         self.is_running = False
         self.start_btn.set_enabled(True)
         self.stop_btn.set_enabled(False)

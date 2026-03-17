@@ -7,7 +7,8 @@ from theme import get_classes, COLORS
 from components.path_selector import create_path_selector
 from components.log_viewer import create_log_viewer
 from components.advanced_inputs import editable_slider, toggle_switch, styled_select, styled_input
-from gui.utils.process_runner import process_runner, ProcessStatus
+from gui.utils.job_manager import job_manager
+from gui.utils.process_runner import ProcessStatus
 from gui.utils.i18n import t
 
 
@@ -39,6 +40,7 @@ class TaggerStep:
         }
         self.log_viewer = None
         self.is_running = False
+        self.current_job = None
 
     def render(self):
         """渲染页面"""
@@ -197,11 +199,6 @@ class TaggerStep:
             general_threshold = self.config["general_threshold"]
             character_threshold = self.config["character_threshold"]
 
-            self.log_viewer.info(t("log_start_tagging"))
-            self.log_viewer.info(f"{t('log_data_dir')}: {train_data_dir}")
-            self.log_viewer.info(f"{t('log_model')}: {repo_id}")
-            self.log_viewer.info(f"{t('log_batch_size')}: {batch_size}")
-
             # 构建参数
             args = [train_data_dir]
             args.append(f"--repo_id={repo_id}")
@@ -238,10 +235,18 @@ class TaggerStep:
             if self.tag_replacement.value:
                 args.append(f"--tag_replacement={self.tag_replacement.value}")
 
+            # 提交 Job（Tagger 使用 wdtagger extra）
+            job = await job_manager.submit("utils.wdtagger", args, name="Tagger (WD14)")
+            self.current_job = job
+            self.log_viewer.attach_job(job)
+
+            self.log_viewer.info(t("log_start_tagging"))
+            self.log_viewer.info(f"{t('log_data_dir')}: {train_data_dir}")
+            self.log_viewer.info(f"{t('log_model')}: {repo_id}")
+            self.log_viewer.info(f"{t('log_batch_size')}: {batch_size}")
             self.log_viewer.info(f"{t('log_params')}: {args}")
 
-            # 运行打标
-            result = await process_runner.run_python_script("utils.wdtagger", args)
+            result = await job.wait()
 
             if result.status == ProcessStatus.SUCCESS:
                 self.log_viewer.success(t("tagging_success"))
@@ -261,6 +266,7 @@ class TaggerStep:
         finally:
             try:
                 self.is_running = False
+                self.current_job = None
                 self.start_btn.set_enabled(True)
                 self.stop_btn.set_enabled(False)
             except RuntimeError:
@@ -268,7 +274,9 @@ class TaggerStep:
 
     def _stop_tagging(self):
         """停止打标"""
-        process_runner.terminate()
+        if self.current_job:
+            job_manager.cancel(self.current_job.id)
+            self.current_job = None
         self.is_running = False
         self.start_btn.set_enabled(True)
         self.stop_btn.set_enabled(False)

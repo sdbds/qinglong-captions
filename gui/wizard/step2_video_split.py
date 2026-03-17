@@ -7,7 +7,8 @@ from theme import get_classes, COLORS
 from components.path_selector import create_path_selector
 from components.log_viewer import create_log_viewer
 from components.advanced_inputs import editable_slider, toggle_switch, styled_select
-from gui.utils.process_runner import process_runner, ProcessStatus
+from gui.utils.job_manager import job_manager
+from gui.utils.process_runner import ProcessStatus
 from gui.utils.i18n import t
 
 
@@ -42,6 +43,7 @@ class VideoSplitStep:
         }
         self.log_viewer = None
         self.is_running = False
+        self.current_job = None
 
     def render(self):
         """渲染页面"""
@@ -186,12 +188,6 @@ class VideoSplitStep:
         threshold = self.config["threshold"]
         min_scene_len = int(self.config["min_scene_len"])
 
-        self.log_viewer.info(t("log_start_split"))
-        self.log_viewer.info(f"{t('log_input_path')}: {input_dir}")
-        self.log_viewer.info(f"{t('log_detector')}: {detector}")
-        self.log_viewer.info(f"{t('log_threshold')}: {threshold}")
-        self.log_viewer.info(f"{t('log_min_scene_len')}: {min_scene_len}")
-
         # 构建参数
         args = [input_dir]
 
@@ -220,10 +216,19 @@ class VideoSplitStep:
         if images_per_scene > 0:
             args.append(f"--video2images_min_number={images_per_scene}")
 
+        # 提交 Job
+        job = await job_manager.submit("module.videospilter", args, name="Video Split")
+        self.current_job = job
+        self.log_viewer.attach_job(job)
+
+        self.log_viewer.info(t("log_start_split"))
+        self.log_viewer.info(f"{t('log_input_path')}: {input_dir}")
+        self.log_viewer.info(f"{t('log_detector')}: {detector}")
+        self.log_viewer.info(f"{t('log_threshold')}: {threshold}")
+        self.log_viewer.info(f"{t('log_min_scene_len')}: {min_scene_len}")
         self.log_viewer.info(f"{t('log_params')}: {args}")
 
-        # 运行分割
-        result = await process_runner.run_python_script("module.videospilter", args)
+        result = await job.wait()
 
         if result.status == ProcessStatus.SUCCESS:
             self.log_viewer.success(t("split_success"))
@@ -233,12 +238,15 @@ class VideoSplitStep:
             ui.notify(t("split_failed"), type="negative")
 
         self.is_running = False
+        self.current_job = None
         self.start_btn.set_enabled(True)
         self.stop_btn.set_enabled(False)
 
     def _stop_split(self):
         """停止分割"""
-        process_runner.terminate()
+        if self.current_job:
+            job_manager.cancel(self.current_job.id)
+            self.current_job = None
         self.is_running = False
         self.start_btn.set_enabled(True)
         self.stop_btn.set_enabled(False)

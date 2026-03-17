@@ -11,7 +11,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "module"))
-sys.path.insert(0, str(ROOT / "gui"))
 
 
 def _load_caption_step(module_name: str):
@@ -19,7 +18,20 @@ def _load_caption_step(module_name: str):
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     step4_caption = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
-    spec.loader.exec_module(step4_caption)
+
+    gui_path = str(ROOT / "gui")
+    original_sys_path = list(sys.path)
+    if gui_path not in sys.path:
+        try:
+            insert_at = original_sys_path.index(str(ROOT)) + 1
+        except ValueError:
+            insert_at = len(sys.path)
+        sys.path.insert(insert_at, gui_path)
+    try:
+        spec.loader.exec_module(step4_caption)
+    finally:
+        sys.path[:] = original_sys_path
+
     return step4_caption.CaptionStep
 
 
@@ -179,6 +191,8 @@ def test_run_ps1_mentions_music_flamingo_local_extra():
     assert 'Add-UvExtra "music-flamingo-local"' in content
     assert "--alm_model=$alm_model" in content
     assert "if ($null -ne $segment_time)" in content
+    assert "uv.lock 未包含 music-flamingo-local" in content
+    assert "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf" in content
 
 
 def test_run_ps1_locks_with_python_3_11_only():

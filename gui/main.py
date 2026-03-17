@@ -31,6 +31,7 @@ from wizard.step7_settings import create_settings_dialog
 from wizard.console_page import render_console_page
 from theme import apply_theme, get_classes, COLORS
 from gui.utils.i18n import t, set_language, get_i18n
+from components.job_list import JobListDrawer, inject_job_list_css
 
 
 def _load_app_version() -> str:
@@ -95,7 +96,7 @@ THEME_SCRIPT = """
 """
 
 
-def create_header():
+def create_header(job_drawer=None):
     """创建现代化页面头部导航"""
     with ui.header().classes(get_classes("header")):
         with ui.row().classes("w-full items-center justify-between q-py-sm"):
@@ -135,8 +136,19 @@ def create_header():
                     # 移除 Quasar 默认颜色类，防止闪烁
                     btn.classes(remove="bg-primary bg-secondary text-white q-btn--active")
 
-            # 右侧：配置 + 主题切换 + 语言选择
+            # 右侧：Job 列表 + 配置 + 主题切换 + 语言选择
             with ui.row().classes("items-center gap-3"):
+                # Job 列表触发按钮（drawer 已在 page_base 顶层创建）
+                if job_drawer is not None:
+                    with ui.button(icon="assignment", on_click=job_drawer.toggle).props("flat round dense") as job_btn:
+                        job_btn.style(f"color: {COLORS['accent']};")
+                        job_btn.tooltip("任务列表")
+                        job_badge = ui.badge("0", color="red").props("floating").style("display: none;")
+                    job_drawer.set_badge(job_badge)
+
+                    # 分隔线
+                    ui.element("div").style(f"width: 1px; height: 24px; background: {COLORS['accent']}; opacity: 0.5;")
+
                 # 配置管理按钮
                 settings_dlg = create_settings_dialog()
                 settings_btn = ui.button(icon="settings", on_click=settings_dlg.open).props("flat round dense")
@@ -190,8 +202,12 @@ def page_base(content_func):
     # 添加主题脚本（只执行一次）
     ui.add_body_html(THEME_SCRIPT)
 
-    # 创建头部
-    create_header()
+    # Job 列表抽屉（top-level layout element，必须是页面直接子元素）
+    inject_job_list_css()
+    job_drawer = JobListDrawer()
+
+    # 创建头部（传入 drawer 供按钮绑定）
+    create_header(job_drawer)
 
     # 执行页面内容
     content_func()

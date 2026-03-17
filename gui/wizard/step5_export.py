@@ -7,7 +7,8 @@ from theme import get_classes, COLORS
 from components.path_selector import create_path_selector
 from components.log_viewer import create_log_viewer
 from components.advanced_inputs import toggle_switch, styled_select
-from gui.utils.process_runner import process_runner, ProcessStatus
+from gui.utils.job_manager import job_manager
+from gui.utils.process_runner import ProcessStatus
 from gui.utils.i18n import t
 
 
@@ -22,6 +23,7 @@ class ExportStep:
         }
         self.log_viewer = None
         self.is_running = False
+        self.current_job = None
 
     def render(self):
         """渲染页面"""
@@ -132,11 +134,6 @@ class ExportStep:
         output_dir = self.output_dir.value or "./datasets"
         version = self.version.value
 
-        self.log_viewer.info(t("log_start_export"))
-        self.log_viewer.info(f"{t('log_lance_file')}: {lance_file}")
-        self.log_viewer.info(f"{t('log_output_dir')}: {output_dir}")
-        self.log_viewer.info(f"{t('log_version')}: {version}")
-
         # 构建参数
         args = [lance_file]
         args.append(f"--output_dir={output_dir}")
@@ -145,10 +142,18 @@ class ExportStep:
         if self.config["not_clip_with_caption"]:
             args.append("--not_clip_with_caption")
 
+        # 提交 Job
+        job = await job_manager.submit("module.lanceexport", args, name="Export")
+        self.current_job = job
+        self.log_viewer.attach_job(job)
+
+        self.log_viewer.info(t("log_start_export"))
+        self.log_viewer.info(f"{t('log_lance_file')}: {lance_file}")
+        self.log_viewer.info(f"{t('log_output_dir')}: {output_dir}")
+        self.log_viewer.info(f"{t('log_version')}: {version}")
         self.log_viewer.info(f"{t('log_params')}: {args}")
 
-        # 运行导出
-        result = await process_runner.run_python_script("module.lanceexport", args)
+        result = await job.wait()
 
         if result.status == ProcessStatus.SUCCESS:
             self.log_viewer.success(t("export_success"))
@@ -158,12 +163,15 @@ class ExportStep:
             ui.notify(t("export_failed"), type="negative")
 
         self.is_running = False
+        self.current_job = None
         self.start_btn.set_enabled(True)
         self.stop_btn.set_enabled(False)
 
     def _stop_export(self):
         """停止导出"""
-        process_runner.terminate()
+        if self.current_job:
+            job_manager.cancel(self.current_job.id)
+            self.current_job = None
         self.is_running = False
         self.start_btn.set_enabled(True)
         self.stop_btn.set_enabled(False)
