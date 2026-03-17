@@ -83,7 +83,7 @@ def _download_model_snapshot(repo_id: str) -> str:
 
 @lru_cache(maxsize=8)
 def _resolve_model_source(model_id: str) -> str:
-    """Use a local snapshot path for dots OCR models to avoid HF dynamic-module import bugs."""
+    """Use a local snapshot path to avoid HF dynamic-module import issues on dotted repo names."""
     candidate = Path(model_id).expanduser()
     if candidate.exists():
         return str(candidate.resolve())
@@ -203,6 +203,7 @@ class DotsOCRProvider(OCRProvider):
             trust_remote_code=True,
             low_cpu_mem_usage=True,
             device_map="auto",
+            use_safetensors=True,
             console=self.ctx.console,
         )
 

@@ -170,7 +170,7 @@ def test_resolve_model_source_downloads_remote_snapshot(monkeypatch, tmp_path):
     assert resolved == str(resolved_snapshot.resolve())
 
 
-def test_run_direct_generation_uses_snapshot_path_and_does_not_force_safetensors(monkeypatch, tmp_path):
+def test_run_direct_generation_uses_snapshot_path(monkeypatch, tmp_path):
     ctx = make_ctx({"dots_ocr": {"model_id": "davanstrien/dots.ocr-1.5"}})
     provider = DotsOCRProvider(ctx)
     resolved_snapshot = tmp_path / "models" / "dots"
@@ -253,7 +253,6 @@ def test_run_direct_generation_uses_snapshot_path_and_does_not_force_safetensors
 
     assert captured["processor_load"]["model_id"] == str(resolved_snapshot.resolve())
     assert captured["model_load"]["model_id"] == str(resolved_snapshot.resolve())
-    assert "use_safetensors" not in captured["model_load"]["kwargs"]
     assert result == "decoded-text"
 
 
