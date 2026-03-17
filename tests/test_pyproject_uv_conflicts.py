@@ -72,3 +72,22 @@ def test_lighton_ocr_conflicts_with_paddleocr():
         {"extra": "paddleocr"},
         {"extra": "lighton-ocr"},
     ] in conflicts
+
+
+def test_dots_ocr_conflicts_with_known_transformers_incompatible_extras():
+    conflicts = _load_conflicts()
+    expected_pairs = [
+        [{"extra": "dots-ocr"}, {"extra": "translate"}],
+        [{"extra": "dots-ocr"}, {"extra": "wdtagger"}],
+        [{"extra": "dots-ocr"}, {"extra": "deepseek-ocr"}],
+        [{"extra": "dots-ocr"}, {"extra": "penguin-vl-local"}],
+        [{"extra": "dots-ocr"}, {"extra": "lighton-ocr"}],
+        [{"extra": "dots-ocr"}, {"extra": "hunyuan-ocr"}],
+        [{"extra": "dots-ocr"}, {"extra": "glm-ocr"}],
+        [{"extra": "dots-ocr"}, {"extra": "qwen-vl-local"}],
+        [{"extra": "dots-ocr"}, {"extra": "music-flamingo-local"}],
+    ]
+
+    for pair in expected_pairs:
+        reversed_pair = list(reversed(pair))
+        assert pair in conflicts or reversed_pair in conflicts

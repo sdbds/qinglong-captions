@@ -204,7 +204,7 @@ dots-ocr = [
     "torch==2.8.0",
     "torchvision",
     "accelerate",
-    "transformers[serving]==4.51.3",
+    "transformers[serving]==4.56.1",
     "huggingface_hub[hf_xet]>=0.35.2",
     "safetensors",
     "qwen-vl-utils",
@@ -355,6 +355,10 @@ conflicts = [
         { extra = "lighton-ocr" },
     ],
     [
+        { extra = "deepseek-ocr" },
+        { extra = "dots-ocr" },
+    ],
+    [
         { extra = "translate" },
         { extra = "wdtagger" },
     ],
@@ -395,12 +399,24 @@ conflicts = [
         { extra = "lighton-ocr" },
     ],
     [
+        { extra = "translate" },
+        { extra = "dots-ocr" },
+    ],
+    [
+        { extra = "wdtagger" },
+        { extra = "dots-ocr" },
+    ],
+    [
         { extra = "penguin-vl-local" },
         { extra = "lfm-vl-local" },
     ],
     [
         { extra = "penguin-vl-local" },
         { extra = "lighton-ocr" },
+    ],
+    [
+        { extra = "penguin-vl-local" },
+        { extra = "dots-ocr" },
     ],
     [
         { extra = "olmocr" },
@@ -555,6 +571,10 @@ conflicts = [
         { extra = "reka-edge-local" },
     ],
     [
+        { extra = "hunyuan-ocr" },
+        { extra = "dots-ocr" },
+    ],
+    [
         { extra = "glm-ocr" },
         { extra = "reka-edge-local" },
     ],
@@ -563,12 +583,28 @@ conflicts = [
         { extra = "penguin-vl-local" },
     ],
     [
+        { extra = "glm-ocr" },
+        { extra = "dots-ocr" },
+    ],
+    [
         { extra = "qwen-vl-local" },
         { extra = "reka-edge-local" },
     ],
     [
         { extra = "qwen-vl-local" },
         { extra = "penguin-vl-local" },
+    ],
+    [
+        { extra = "qwen-vl-local" },
+        { extra = "dots-ocr" },
+    ],
+    [
+        { extra = "lighton-ocr" },
+        { extra = "dots-ocr" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "dots-ocr" },
     ],
 ]
 
