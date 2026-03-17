@@ -1,5 +1,6 @@
 import io
 import sys
+import builtins
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,8 +12,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "module"))
 
+import providers.ocr.dots as dots_module
 from providers.base import ProviderContext
-from providers.ocr.dots import DotsOCRProvider
+from providers.ocr.dots import DotsOCRProvider, _load_upstream_prompt_mapping
 
 
 def make_ctx(config):
@@ -117,6 +119,39 @@ def test_invalid_prompt_mode_raises(monkeypatch):
 
     with pytest.raises(ValueError):
         provider._resolve_prompt_mode_and_prompt()
+
+
+def test_load_upstream_prompt_mapping_reads_prompts_file_without_importing_package(monkeypatch, tmp_path):
+    prompts_path = tmp_path / "dots_ocr" / "utils" / "prompts.py"
+    prompts_path.parent.mkdir(parents=True, exist_ok=True)
+    prompts_path.write_text(
+        'dict_promptmode_to_prompt = {"prompt_layout_all_en": "<doc-prompt>"}',
+        encoding="utf-8",
+    )
+
+    class FakeDistribution:
+        def locate_file(self, relative_path):
+            assert str(relative_path).replace("\\", "/") == "dots_ocr/utils/prompts.py"
+            return prompts_path
+
+    def fake_distribution(name):
+        if name == "dots_ocr":
+            return FakeDistribution()
+        raise AssertionError(f"unexpected distribution lookup: {name}")
+
+    original_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "dots_ocr" or name.startswith("dots_ocr."):
+            raise AssertionError("dots_ocr package import should be bypassed")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(dots_module, "importlib_metadata", SimpleNamespace(distribution=fake_distribution), raising=False)
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    prompt_map = _load_upstream_prompt_mapping()
+
+    assert prompt_map["prompt_layout_all_en"] == "<doc-prompt>"
 
 
 def test_text_prompt_single_image_writes_result_md(monkeypatch, tmp_path):

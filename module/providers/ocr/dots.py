@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -19,20 +21,52 @@ DEFAULT_PROMPT_MODE = "prompt_layout_all_en"
 DEFAULT_SVG_MODEL_ID = "davanstrien/dots.ocr-1.5-svg"
 _TRANS_LOADER: Optional[transformerLoader] = None
 
+try:
+    import importlib.metadata as importlib_metadata
+except ImportError:  # pragma: no cover - Python < 3.8 fallback
+    import importlib_metadata  # type: ignore[no-redef]
+
+
+def _find_upstream_prompts_file() -> Path | None:
+    """Locate the upstream prompts.py file without importing the broken package."""
+    for dist_name in ("dots_ocr", "dots-ocr"):
+        try:
+            distribution = importlib_metadata.distribution(dist_name)
+        except importlib_metadata.PackageNotFoundError:
+            continue
+        candidate = Path(distribution.locate_file("dots_ocr/utils/prompts.py"))
+        if candidate.is_file():
+            return candidate
+
+    for entry in sys.path:
+        candidate = Path(entry) / "dots_ocr" / "utils" / "prompts.py"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _load_prompt_mapping_from_file(prompts_path: Path) -> dict[str, str]:
+    """Load dict_promptmode_to_prompt from the upstream prompts.py source file."""
+    spec = importlib.util.spec_from_file_location("_dots_ocr_prompts", str(prompts_path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"unable to load prompts spec from {prompts_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    prompt_map = getattr(module, "dict_promptmode_to_prompt", None)
+    if not isinstance(prompt_map, dict) or not prompt_map:
+        raise ValueError(f"dict_promptmode_to_prompt missing from {prompts_path}")
+    return {str(key): str(value) for key, value in prompt_map.items()}
+
 
 def _load_upstream_prompt_mapping() -> dict[str, str]:
     """Load the official dots OCR prompt-mode mapping from the upstream package."""
-    try:
-        from dots_ocr.utils import dict_promptmode_to_prompt
-    except ImportError as exc:
+    prompts_path = _find_upstream_prompts_file()
+    if prompts_path is None:
         raise ImportError(
             "dots_ocr prompt mapping not available. Install the dots-ocr extra."
-        ) from exc
-
-    prompt_map = dict(dict_promptmode_to_prompt)
-    if not prompt_map:
-        raise ValueError("dots_ocr prompt mapping is empty")
-    return {str(key): str(value) for key, value in prompt_map.items()}
+        )
+    return _load_prompt_mapping_from_file(prompts_path)
 
 
 def _save_pdf_page_image(pil_image, page_path: Path) -> str:
