@@ -207,3 +207,64 @@ def test_svg_prompt_pdf_writes_page_svgs_and_root_markdown(monkeypatch, tmp_path
     assert "page_0001/result.svg" in root_md
     assert "page_0002/result.svg" in root_md
     assert result.raw == root_md
+
+
+def test_server_backend_uses_same_resolved_prompt(monkeypatch, tmp_path):
+    image_path = tmp_path / "sample.png"
+    _write_png(image_path)
+
+    ctx = make_ctx(
+        {
+            "dots_ocr": {
+                "prompt_mode": "prompt_web_parsing",
+                "runtime_model_id": "served-dots",
+            },
+            "prompts": {"dots_ocr_prompt": "<override>"},
+        }
+    )
+    ctx.args.local_runtime_backend = "openai"
+
+    provider = DotsOCRProvider(ctx)
+    captured = {}
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_prompt_mapping",
+        lambda: {"prompt_web_parsing": "<upstream>"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        provider,
+        "_complete_via_openai_runtime",
+        lambda **kwargs: captured.setdefault("prompt", kwargs["prompt_text"]) or "# served markdown",
+        raising=False,
+    )
+
+    media = provider.prepare_media(str(image_path), "image/png", ctx.args)
+    provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
+
+    assert captured["prompt"] == "<override>"
+
+
+def test_server_backend_svg_single_image_writes_svg(monkeypatch, tmp_path):
+    image_path = tmp_path / "sample.png"
+    _write_png(image_path)
+
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_image_to_svg", "svg_model_id": "served-svg"}})
+    ctx.args.local_runtime_backend = "openai"
+    provider = DotsOCRProvider(ctx)
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_prompt_mapping",
+        lambda: {"prompt_image_to_svg": "<svg>"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        provider,
+        "_complete_via_openai_runtime",
+        lambda **_: "<svg>served</svg>",
+        raising=False,
+    )
+
+    media = provider.prepare_media(str(image_path), "image/png", ctx.args)
+    result = provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
+
+    assert (tmp_path / "sample" / "result.svg").read_text(encoding="utf-8") == "<svg>served</svg>"
+    assert result.raw == "<svg>served</svg>"

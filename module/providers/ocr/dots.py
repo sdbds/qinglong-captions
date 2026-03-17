@@ -5,9 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from providers.backends import OpenAIChatRuntime, find_model_config_section, resolve_runtime_backend
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.ocr_base import OCRProvider
 from providers.registry import register_provider
+from providers.utils import build_vision_messages, encode_image_to_blob
 from utils.output_writer import write_markdown_output
 from utils.parse_display import display_markdown, extract_code_block_content
 from utils.stream_util import pdf_to_images_high_quality
@@ -195,14 +197,156 @@ class DotsOCRProvider(OCRProvider):
             return extracted or content
         return content
 
+    def _get_runtime_backend_for_prompt_mode(self, prompt_mode: str):
+        provider_section = self.ctx.config.get(self.name, {})
+        selected_model_id = self._select_model_id(prompt_mode)
+        model_section = find_model_config_section(
+            self.ctx.config,
+            selected_model_id,
+            preferred_sections=(self.name,),
+        )
+        default_temperature = float(
+            model_section.get(
+                "temperature",
+                provider_section.get("runtime_temperature", provider_section.get("temperature", 0.0)),
+            )
+        )
+        default_max_tokens = int(
+            model_section.get(
+                "runtime_max_tokens",
+                model_section.get(
+                    "max_new_tokens",
+                    provider_section.get("runtime_max_tokens", provider_section.get("max_new_tokens", 4096)),
+                ),
+            )
+        )
+        return resolve_runtime_backend(
+            self.ctx.args,
+            provider_section,
+            arg_prefix="local_runtime",
+            shared_prefix="openai",
+            default_model_id=selected_model_id,
+            default_temperature=default_temperature,
+            default_max_tokens=default_max_tokens,
+        )
+
+    def _complete_via_openai_runtime(
+        self,
+        *,
+        image_path: str,
+        prompt_mode: str,
+        prompt_text: str,
+    ) -> str:
+        runtime = self._get_runtime_backend_for_prompt_mode(prompt_mode)
+        backend = OpenAIChatRuntime(runtime)
+        blob, _ = encode_image_to_blob(image_path, to_rgb=True)
+        if not blob:
+            raise RuntimeError(f"DOTS_OCR_IMAGE_ENCODE_FAILED: {image_path}")
+
+        messages = build_vision_messages(
+            "",
+            prompt_text,
+            blob,
+            text_first=False,
+        )
+        content = backend.complete(messages)
+        if prompt_mode == "prompt_image_to_svg":
+            extracted = extract_code_block_content(content, code_type="svg", console=self.ctx.console)
+            return extracted or content
+        return content
+
     def _attempt_via_openai_backend(
         self,
         media: MediaContext,
         prompt_mode: str,
         prompt_text: str,
     ) -> CaptionResult:
-        prompts = PromptContext(system="", user=prompt_text)
-        return self.attempt_via_openai_backend(media, prompts)
+        output_dir = Path(media.extras.get("output_dir") or Path(media.uri).with_suffix(""))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        runtime = self._get_runtime_backend_for_prompt_mode(prompt_mode)
+
+        if media.mime.startswith("application/pdf"):
+            images = pdf_to_images_high_quality(media.uri)
+            if prompt_mode == "prompt_image_to_svg":
+                page_dirs: list[Path] = []
+                for index, pil_image in enumerate(images, start=1):
+                    page_dir = output_dir / f"page_{index:04d}"
+                    page_image_path = page_dir / f"page_{index:04d}.png"
+                    try:
+                        saved_image_path = _save_pdf_page_image(pil_image, page_image_path)
+                    except Exception:
+                        continue
+                    svg_content = self._complete_via_openai_runtime(
+                        image_path=str(saved_image_path),
+                        prompt_mode=prompt_mode,
+                        prompt_text=prompt_text,
+                    )
+                    self._write_svg_result(page_dir, svg_content)
+                    page_dirs.append(page_dir)
+
+                root_markdown = self._build_svg_pdf_markdown(page_dirs)
+                self._write_text_result(output_dir, root_markdown)
+                return CaptionResult(
+                    raw=root_markdown,
+                    metadata={
+                        "provider": self.name,
+                        "output_dir": str(output_dir),
+                        "runtime_backend": runtime.mode,
+                        "runtime_model_id": runtime.model_id,
+                        "prompt_mode": prompt_mode,
+                    },
+                )
+
+            page_contents: list[str] = []
+            for index, pil_image in enumerate(images, start=1):
+                page_dir = output_dir / f"page_{index:04d}"
+                page_image_path = page_dir / f"page_{index:04d}.png"
+                try:
+                    saved_image_path = _save_pdf_page_image(pil_image, page_image_path)
+                except Exception:
+                    continue
+                page_content = self._complete_via_openai_runtime(
+                    image_path=str(saved_image_path),
+                    prompt_mode=prompt_mode,
+                    prompt_text=prompt_text,
+                )
+                self._write_text_result(page_dir, page_content)
+                page_contents.append(str(page_content).strip())
+
+            content = "\n<--- Page Split --->\n".join(page_contents)
+            self._write_text_result(output_dir, content)
+            self._display_text_result(media, content)
+            return CaptionResult(
+                raw=content,
+                metadata={
+                    "provider": self.name,
+                    "output_dir": str(output_dir),
+                    "runtime_backend": runtime.mode,
+                    "runtime_model_id": runtime.model_id,
+                    "prompt_mode": prompt_mode,
+                },
+            )
+
+        content = self._complete_via_openai_runtime(
+            image_path=media.uri,
+            prompt_mode=prompt_mode,
+            prompt_text=prompt_text,
+        )
+        if prompt_mode == "prompt_image_to_svg":
+            self._write_svg_result(output_dir, content)
+        else:
+            self._write_text_result(output_dir, content)
+            self._display_text_result(media, content)
+        return CaptionResult(
+            raw=str(content),
+            metadata={
+                "provider": self.name,
+                "output_dir": str(output_dir),
+                "runtime_backend": runtime.mode,
+                "runtime_model_id": runtime.model_id,
+                "prompt_mode": prompt_mode,
+            },
+        )
 
     def _display_text_result(self, media: MediaContext, content: str) -> None:
         try:
