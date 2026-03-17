@@ -1,6 +1,7 @@
 import io
 import sys
 import builtins
+import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,7 +15,7 @@ sys.path.insert(0, str(ROOT / "module"))
 
 import providers.ocr.dots as dots_module
 from providers.base import ProviderContext
-from providers.ocr.dots import DotsOCRProvider, _load_upstream_prompt_mapping
+from providers.ocr.dots import DotsOCRProvider, _load_upstream_prompt_mapping, _resolve_model_source
 
 
 def make_ctx(config):
@@ -152,6 +153,108 @@ def test_load_upstream_prompt_mapping_reads_prompts_file_without_importing_packa
     prompt_map = _load_upstream_prompt_mapping()
 
     assert prompt_map["prompt_layout_all_en"] == "<doc-prompt>"
+
+
+def test_resolve_model_source_downloads_remote_snapshot(monkeypatch, tmp_path):
+    resolved_snapshot = tmp_path / "snapshot"
+    resolved_snapshot.mkdir()
+    dots_module._resolve_model_source.cache_clear()
+    monkeypatch.setattr(
+        "providers.ocr.dots._download_model_snapshot",
+        lambda repo_id: str(resolved_snapshot) if repo_id == "davanstrien/dots.ocr-1.5" else "",
+        raising=False,
+    )
+
+    resolved = _resolve_model_source("davanstrien/dots.ocr-1.5")
+
+    assert resolved == str(resolved_snapshot.resolve())
+
+
+def test_run_direct_generation_uses_snapshot_path_and_does_not_force_safetensors(monkeypatch, tmp_path):
+    ctx = make_ctx({"dots_ocr": {"model_id": "davanstrien/dots.ocr-1.5"}})
+    provider = DotsOCRProvider(ctx)
+    resolved_snapshot = tmp_path / "models" / "dots"
+    resolved_snapshot.mkdir(parents=True)
+    captured = {}
+
+    class FakeInputs(dict):
+        def __init__(self):
+            super().__init__(input_ids=[[101, 102]])
+            self.input_ids = [[101, 102]]
+
+        def to(self, _device):
+            return self
+
+    class FakeProcessor:
+        def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+            captured["messages"] = messages
+            assert tokenize is False
+            assert add_generation_prompt is True
+            return "templated"
+
+        def __call__(self, **kwargs):
+            captured["processor_call"] = kwargs
+            return FakeInputs()
+
+        def batch_decode(self, generated_ids_trimmed, **kwargs):
+            captured["generated_ids_trimmed"] = generated_ids_trimmed
+            captured["decode_kwargs"] = kwargs
+            return ["decoded-text"]
+
+    class FakeModel:
+        device = "cpu"
+
+        def generate(self, **kwargs):
+            captured["generate_kwargs"] = kwargs
+            return [[101, 102, 201, 202]]
+
+    class FakeLoader:
+        def get_or_load_processor(self, model_id, processor_cls, **kwargs):
+            captured["processor_load"] = {
+                "model_id": model_id,
+                "processor_cls": processor_cls,
+                "kwargs": kwargs,
+            }
+            return FakeProcessor()
+
+        def get_or_load_model(self, model_id, model_cls, **kwargs):
+            captured["model_load"] = {
+                "model_id": model_id,
+                "model_cls": model_cls,
+                "kwargs": kwargs,
+            }
+            return FakeModel()
+
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoProcessor = object
+    fake_transformers.AutoModelForCausalLM = object
+
+    fake_qwen_vl_utils = types.ModuleType("qwen_vl_utils")
+    fake_qwen_vl_utils.process_vision_info = lambda messages: (["image-input"], None)
+
+    dots_module._resolve_model_source.cache_clear()
+    monkeypatch.setattr(
+        "providers.ocr.dots._resolve_model_source",
+        lambda model_id: str(resolved_snapshot.resolve()) if model_id == "davanstrien/dots.ocr-1.5" else model_id,
+        raising=False,
+    )
+    monkeypatch.setattr("providers.ocr.dots.resolve_device_dtype", lambda: ("cpu", "float32", "eager"), raising=False)
+    monkeypatch.setattr(dots_module, "_TRANS_LOADER", FakeLoader(), raising=False)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+    monkeypatch.setitem(sys.modules, "qwen_vl_utils", fake_qwen_vl_utils)
+
+    result = provider._run_direct_generation(
+        image_path=str(tmp_path / "image.png"),
+        prompt_mode="prompt_layout_all_en",
+        prompt_text="<prompt>",
+        model_id="davanstrien/dots.ocr-1.5",
+        max_new_tokens=128,
+    )
+
+    assert captured["processor_load"]["model_id"] == str(resolved_snapshot.resolve())
+    assert captured["model_load"]["model_id"] == str(resolved_snapshot.resolve())
+    assert "use_safetensors" not in captured["model_load"]["kwargs"]
+    assert result == "decoded-text"
 
 
 def test_text_prompt_single_image_writes_result_md(monkeypatch, tmp_path):

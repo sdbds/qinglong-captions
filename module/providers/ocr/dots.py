@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -67,6 +68,26 @@ def _load_upstream_prompt_mapping() -> dict[str, str]:
             "dots_ocr prompt mapping not available. Install the dots-ocr extra."
         )
     return _load_prompt_mapping_from_file(prompts_path)
+
+
+def _download_model_snapshot(repo_id: str) -> str:
+    """Resolve an HF repo id to a local snapshot path."""
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as exc:
+        raise ImportError(
+            "dots_ocr model download support is unavailable. Install the dots-ocr extra."
+        ) from exc
+    return str(snapshot_download(repo_id=repo_id))
+
+
+@lru_cache(maxsize=8)
+def _resolve_model_source(model_id: str) -> str:
+    """Use a local snapshot path for dots OCR models to avoid HF dynamic-module import bugs."""
+    candidate = Path(model_id).expanduser()
+    if candidate.exists():
+        return str(candidate.resolve())
+    return str(Path(_download_model_snapshot(model_id)).resolve())
 
 
 def _save_pdf_page_image(pil_image, page_path: Path) -> str:
@@ -167,21 +188,21 @@ class DotsOCRProvider(OCRProvider):
         if _TRANS_LOADER is None:
             _TRANS_LOADER = transformerLoader(attn_kw="attn_implementation", device_map="auto")
 
+        load_source = _resolve_model_source(model_id)
         processor = _TRANS_LOADER.get_or_load_processor(
-            model_id,
+            load_source,
             AutoProcessor,
             console=self.ctx.console,
             trust_remote_code=True,
         )
         model = _TRANS_LOADER.get_or_load_model(
-            model_id,
+            load_source,
             AutoModelForCausalLM,
             dtype=dtype,
             attn_impl=attn_impl,
             trust_remote_code=True,
             low_cpu_mem_usage=True,
             device_map="auto",
-            use_safetensors=True,
             console=self.ctx.console,
         )
 

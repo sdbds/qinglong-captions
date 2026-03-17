@@ -78,6 +78,8 @@ def test_pyproject_declares_dots_ocr_extra():
     assert any(dep.startswith("torch==2.8.0") for dep in dots_deps)
     assert any(dep.startswith("transformers[serving]==4.56.1") for dep in dots_deps)
     assert any("qwen-vl-utils" in dep for dep in dots_deps)
+    assert any(dep.startswith("triton-windows") for dep in dots_deps)
+    assert any("flash-attn" in dep for dep in dots_deps)
     assert any("github.com/rednote-hilab/dots.ocr.git" in dep for dep in dots_deps)
 
 
