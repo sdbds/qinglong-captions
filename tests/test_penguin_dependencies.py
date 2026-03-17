@@ -69,6 +69,18 @@ def test_pyproject_declares_lighton_ocr_extra():
     assert any(dep.startswith("huggingface_hub") for dep in lighton_deps)
 
 
+def test_pyproject_declares_dots_ocr_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "dots-ocr" in optional_deps
+    dots_deps = optional_deps["dots-ocr"]
+    assert any(dep.startswith("torch==2.8.0") for dep in dots_deps)
+    assert any(dep.startswith("transformers[serving]==4.51.3") for dep in dots_deps)
+    assert any("qwen-vl-utils" in dep for dep in dots_deps)
+    assert any("github.com/rednote-hilab/dots.ocr.git" in dep for dep in dots_deps)
+
+
 def test_pyproject_declares_music_flamingo_local_extra():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     optional_deps = pyproject["project"]["optional-dependencies"]
@@ -109,6 +121,17 @@ def test_caption_step_includes_lighton_extra():
     step.vlm_image_model = SimpleNamespace(value="")
 
     assert step._build_local_extra_args() == ["--extra", "lighton-ocr"]
+
+
+def test_caption_step_includes_dots_ocr_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_dots")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="dots_ocr")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="")
+
+    assert step._build_local_extra_args() == ["--extra", "dots-ocr"]
 
 
 def test_caption_step_includes_music_flamingo_extra():
@@ -184,6 +207,13 @@ def test_run_ps1_mentions_lighton_ocr_extra():
     assert 'Add-UvExtra "lighton-ocr"' in content
 
 
+def test_run_ps1_mentions_dots_ocr_extra():
+    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+
+    assert '"dots_ocr"' in content
+    assert 'Add-UvExtra "dots-ocr"' in content
+
+
 def test_run_ps1_mentions_music_flamingo_local_extra():
     content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
 
@@ -199,6 +229,19 @@ def test_run_ps1_locks_with_python_3_11_only():
     content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
 
     assert 'uv lock --python 3.11 --index-strategy $IndexStrategy' in content
+
+
+def test_config_declares_dots_ocr_defaults():
+    model_toml = (ROOT / "config" / "model.toml").read_text(encoding="utf-8")
+    runtime_toml = (ROOT / "config" / "config.toml").read_text(encoding="utf-8")
+    prompts_toml = (ROOT / "config" / "prompts.toml").read_text(encoding="utf-8")
+
+    assert "[dots_ocr]" in model_toml
+    assert 'prompt_mode = "prompt_layout_all_en"' in model_toml
+    assert 'svg_model_id = "davanstrien/dots.ocr-1.5-svg"' in model_toml
+    assert "[dots_ocr]" in runtime_toml
+    assert 'prompt_mode = "prompt_layout_all_en"' in runtime_toml
+    assert "dots_ocr_prompt" in prompts_toml
 
 
 def test_has_flash_attn_returns_false_when_module_import_fails(monkeypatch):

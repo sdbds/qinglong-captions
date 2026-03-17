@@ -45,6 +45,10 @@ glm_ocr_prompt = """Text Recognition:"""
 lighton_ocr_prompt = """
 """
 
+# dots OCR prompt override (empty uses the official prompt_mode mapping)
+dots_ocr_prompt = """
+"""
+
 # Chandra OCR prompt type (ocr_layout by default)
 # Available types: ocr_layout, ocr_with_region, ocr_text
 chandra_ocr_prompt_type = "ocr_layout"

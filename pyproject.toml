@@ -200,6 +200,18 @@ lighton-ocr = [
     "PyMuPDF",
     "img2pdf",
 ]
+dots-ocr = [
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers[serving]==4.51.3",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "safetensors",
+    "qwen-vl-utils",
+    "PyMuPDF",
+    "img2pdf",
+    "dots_ocr @ git+https://github.com/rednote-hilab/dots.ocr.git",
+]
 chandra-ocr = [
     "torch==2.8.0",
     "torchvision",

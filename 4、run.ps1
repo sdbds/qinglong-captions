@@ -7,9 +7,9 @@ $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
-$kimi_api_key = ""
-$kimi_model_path = "kimi-k2.5" # "moonshotai/kimi-k2.5" if you want to use nvidia's endpoint
-$kimi_base_url = "https://api.moonshot.cn/v1" # "https://integrate.api.nvidia.com/v1" if you want to use nvidia's endpoint
+$kimi_api_key = "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" #
+$kimi_model_path = "moonshotai/kimi-k2.5"
+$kimi_base_url = "https://integrate.api.nvidia.com/v1"
 $kimi_code_api_key = ""
 $kimi_code_model_path = "k2p5"
 $kimi_code_base_url = "https://api.kimi.com/coding/v1"
@@ -51,13 +51,16 @@ $mode = "long" # all, short, long
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 $wait_time = 1
 $max_retries = 100
-$segment_time = 600
+$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "lighton_ocr", "dots_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image/video tasks
 $vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
+
+# ALM model configuration for audio tasks
+$alm_model = ""  # Options: "music_flamingo_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
@@ -86,9 +89,9 @@ foreach ($Path in $VenvPaths) {
 
 $Env:HF_HOME = "huggingface"
 $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
-#$Env:HF_ENDPOINT = "https://hf-mirror.com"
+$Env:HF_ENDPOINT = "https://hf-mirror.com"
 $Env:PILLOW_IGNORE_XMP_DATA_IS_TOO_LONG = "1"
-#$Env:UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple/"
+$Env:UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple/"
 $Env:UV_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 $Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
 $Env:UV_NO_BUILD_ISOLATION = "1"
@@ -180,6 +183,41 @@ function Ensure-UvLockFile {
   }
 }
 
+function Test-UvLockHasExtra {
+  param (
+    [string]$ExtraName
+  )
+
+  $LockFile = Join-Path $PSScriptRoot "uv.lock"
+  if ([string]::IsNullOrWhiteSpace($ExtraName) -or -not (Test-Path $LockFile)) {
+    return $false
+  }
+
+  $LockContent = Get-Content $LockFile -Raw
+  return $LockContent.Contains($ExtraName)
+}
+
+function Write-ExtraFallbackRequirements {
+  param (
+    [string[]]$Extras,
+    [string]$OutputPath
+  )
+
+  if ($Extras.Count -eq 1 -and $Extras[0] -eq "music-flamingo-local") {
+    @(
+      "torch==2.8.0"
+      "torchaudio"
+      "accelerate"
+      "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf"
+      "huggingface_hub[hf_xet]>=0.35.2"
+      "safetensors"
+    ) | Set-Content -Path $OutputPath -Encoding UTF8
+    return $true
+  }
+
+  return $false
+}
+
 function Install-UvDependencyPatch {
   param (
     [System.Collections.ArrayList]$ArgsList
@@ -236,10 +274,18 @@ function Install-UvDependencyPatch {
     [void]$ExportArgs.Add($Group)
   }
 
-  Write-Output "导出当前功能所需依赖清单，避免构建本地项目包"
-  uv @ExportArgs
-  if (!($?)) {
-    throw "uv export failed"
+  $UsedFallbackRequirements = $false
+  if (($Extras | Select-Object -Unique) -contains "music-flamingo-local" -and -not (Test-UvLockHasExtra "music-flamingo-local")) {
+    Write-Output "检测到 uv.lock 未包含 music-flamingo-local，回退到固定依赖清单"
+    $UsedFallbackRequirements = Write-ExtraFallbackRequirements -Extras ($Extras | Select-Object -Unique) -OutputPath $ReqFile
+  }
+
+  if (-not $UsedFallbackRequirements) {
+    Write-Output "导出当前功能所需依赖清单，避免构建本地项目包"
+    uv @ExportArgs
+    if (!($?)) {
+      throw "uv export failed"
+    }
   }
 
   $InstallArgs = [System.Collections.ArrayList]::new()
@@ -409,7 +455,7 @@ if ($max_retries -ine 20) {
   [void]$ext_args.Add("--max_retries=$max_retries")
 }
 
-if ($segment_time -ine 600) {
+if ($null -ne $segment_time) {
   [void]$ext_args.Add("--segment_time=$segment_time")
 }
 
@@ -427,6 +473,12 @@ if ($ocr_model) {
   }
   elseif ($ocr_model -eq "deepseek_ocr") {
     Add-UvExtra "deepseek-ocr"
+  }
+  elseif ($ocr_model -eq "lighton_ocr") {
+    Add-UvExtra "lighton-ocr"
+  }
+  elseif ($ocr_model -eq "dots_ocr") {
+    Add-UvExtra "dots-ocr"
   }
   elseif ($ocr_model -eq "olmocr") {
     Add-UvExtra "olmocr"
@@ -467,6 +519,18 @@ if ($vlm_image_model) {
   }
   elseif ($vlm_image_model -eq "reka_edge_local") {
     Add-UvExtra "reka-edge-local"
+  }
+  elseif ($vlm_image_model -eq "lfm_vl_local") {
+    Add-UvExtra "lfm-vl-local"
+  }
+}
+
+# ALM model selection for audio tasks
+if ($alm_model) {
+  [void]$ext_args.Add("--alm_model=$alm_model")
+
+  if ($alm_model -eq "music_flamingo_local") {
+    Add-UvExtra "music-flamingo-local"
   }
 }
 
