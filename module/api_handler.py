@@ -1384,6 +1384,24 @@ def api_process_batch(
         )
         return content
 
+    elif provider == "dots_ocr":
+        try:
+            from providers.base import ProviderContext
+            from providers.ocr.dots import DotsOCRProvider
+        except Exception as e:
+            console.print(Text(f"Dots OCR provider not available: {e}", style="red"))
+            raise
+
+        ctx = ProviderContext(
+            console=console,
+            progress=progress,
+            task_id=task_id,
+            config=config,
+            args=args,
+        )
+        result = DotsOCRProvider(ctx).execute(uri, mime, sha256hash)
+        return result.raw
+
     elif provider == "chandra_ocr":
         # Prepare media preview only for images
         pixels = None
