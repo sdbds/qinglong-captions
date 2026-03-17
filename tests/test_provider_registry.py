@@ -17,13 +17,13 @@ class TestProviderRegistry:
         reg = get_registry()
         assert reg is not None
 
-    def test_discover_all_21(self):
+    def test_discover_all_22(self):
         from providers.registry import get_registry
 
         reg = get_registry()
         reg.discover()
         providers = reg.list_providers()
-        assert len(providers) >= 21
+        assert len(providers) >= 22
         expected = [
             "stepfun",
             "ark",
@@ -32,6 +32,7 @@ class TestProviderRegistry:
             "kimi_code",
             "kimi_vl",
             "deepseek_ocr",
+            "dots_ocr",
             "lighton_ocr",
             "hunyuan_ocr",
             "glm_ocr",
