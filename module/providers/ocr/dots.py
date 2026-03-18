@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -70,12 +71,12 @@ def _load_upstream_prompt_mapping() -> dict[str, str]:
     return _load_prompt_mapping_from_file(prompts_path)
 
 
-def _load_config_task_prompt_mapping(config: dict) -> dict[str, str]:
+def _load_config_task_prompt_mapping(config) -> dict[str, str]:
     """Load optional dots_ocr prompt-mode overrides from prompts.task.dots_ocr."""
     prompts_section = config.get("prompts", {})
     task_section = prompts_section.get("task", {})
     dots_section = task_section.get("dots_ocr", {})
-    if not isinstance(dots_section, dict):
+    if not isinstance(dots_section, Mapping):
         return {}
     return {str(key): str(value) for key, value in dots_section.items()}
 

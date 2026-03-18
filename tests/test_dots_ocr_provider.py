@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "module"))
 
 import providers.ocr.dots as dots_module
+from config.runtime_config import coerce_runtime_config
 from providers.base import ProviderContext
 from providers.ocr.dots import DotsOCRProvider, _load_upstream_prompt_mapping, _resolve_model_source
 
@@ -102,6 +103,43 @@ def test_task_prompt_mapping_applies_when_no_direct_override(monkeypatch):
                 },
             },
         }
+    )
+    provider = DotsOCRProvider(ctx)
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_prompt_mapping",
+        lambda: {"prompt_web_parsing": "<upstream>"},
+        raising=False,
+    )
+
+    _, prompt_text = provider._resolve_prompt_mode_and_prompt()
+
+    assert prompt_text == "<task-override>"
+
+
+def test_task_prompt_mapping_applies_with_runtime_config_mappingproxy(monkeypatch):
+    runtime_config = coerce_runtime_config(
+        {
+            "dots_ocr": {"prompt_mode": "prompt_web_parsing", "prompt": ""},
+            "prompts": {
+                "dots_ocr_prompt": "",
+                "task": {
+                    "dots_ocr": {
+                        "prompt_web_parsing": "<task-override>",
+                    }
+                },
+            },
+        }
+    )
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO(), force_terminal=False),
+        config=runtime_config,
+        args=SimpleNamespace(
+            ocr_model="dots_ocr",
+            document_image=True,
+            dir_name=False,
+            openai_model_name="",
+            local_runtime_backend="",
+        ),
     )
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
