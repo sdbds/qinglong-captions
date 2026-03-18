@@ -241,10 +241,10 @@ def test_config_declares_dots_ocr_defaults():
     prompts_toml = (ROOT / "config" / "prompts.toml").read_text(encoding="utf-8")
 
     assert "[dots_ocr]" in model_toml
-    assert 'prompt_mode = "prompt_ocr"' in model_toml
+    assert 'prompt_mode = "prompt_layout_all_en"' in model_toml
     assert 'svg_model_id = "davanstrien/dots.ocr-1.5-svg"' in model_toml
     assert "[dots_ocr]" in runtime_toml
-    assert 'prompt_mode = "prompt_ocr"' in runtime_toml
+    assert 'prompt_mode = "prompt_layout_all_en"' in runtime_toml
     assert "dots_ocr_prompt" in prompts_toml
     assert "[prompts.task.dots_ocr]" in prompts_toml
     assert 'prompt_ocr = """Extract the text content from this image."""' in prompts_toml

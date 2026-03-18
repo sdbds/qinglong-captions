@@ -19,7 +19,7 @@ from utils.parse_display import display_markdown, extract_code_block_content
 from utils.stream_util import pdf_to_images_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
-DEFAULT_PROMPT_MODE = "prompt_ocr"
+DEFAULT_PROMPT_MODE = "prompt_layout_all_en"
 DEFAULT_SVG_MODEL_ID = "davanstrien/dots.ocr-1.5-svg"
 _TRANS_LOADER: Optional[transformerLoader] = None
 
