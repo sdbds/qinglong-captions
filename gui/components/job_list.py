@@ -40,6 +40,10 @@ class JobListDrawer:
         # 1 秒定时刷新
         self._timer = ui.timer(1.0, self._refresh)
 
+        # 页面断连时停止定时器，避免回调打到已销毁的 slot
+        from nicegui import context as _ctx
+        _ctx.client.on_disconnect(self._deactivate_timer)
+
     def _render_drawer_content(self):
         """渲染抽屉内的完整内容"""
         with ui.column().classes("w-full gap-0").style("height: 100%; overflow: hidden;"):
@@ -135,6 +139,10 @@ class JobListDrawer:
                 job_manager.remove_job(job.id)
         self._render_job_list()
         ui.notify("已清除完成任务", type="positive")
+
+    def _deactivate_timer(self):
+        """页面断连时停止定时器"""
+        self._timer.active = False
 
     def _refresh(self):
         """定时刷新：更新 Job 列表和 badge"""

@@ -66,13 +66,20 @@ def _setup_windows_console() -> int:
         if hwnd:
             import subprocess as _sp
 
-            # TODO: 硬编码测试，确认正确值后改回自动计算
-            cols = 120
+            # 获取系统 DPI 缩放倍率（96 = 100%，144 = 150%）
+            try:
+                dpi = user32.GetDpiForSystem()
+            except Exception:
+                dpi = 96
+            scale = dpi / 96.0
+            cols = max(120, int(120 * scale))
 
-            left = (screen_w - target_w) // 2
-            top = (screen_h - target_h) // 2
             _sp.run(f"mode con cols={cols}", shell=True,
                     stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+
+            # 居中窗口
+            left = (screen_w - target_w) // 2
+            top = (screen_h - target_h) // 2
             user32.MoveWindow(hwnd, left, top, target_w, target_h, True)
 
     except Exception:

@@ -129,5 +129,7 @@ def render_console_page():
         if sid is not None:
             log_buffer.unsubscribe(sid)
             sub_id["value"] = None
+        if flush_timer["ref"] is not None:
+            flush_timer["ref"].active = False
 
     context.client.on_disconnect(cleanup)
