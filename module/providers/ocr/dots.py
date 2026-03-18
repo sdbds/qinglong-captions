@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import math
+import re
 import sys
 from collections.abc import Mapping
 from functools import lru_cache
@@ -12,7 +14,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Optional
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from providers.backends import OpenAIChatRuntime, find_model_config_section, resolve_runtime_backend
 from providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
@@ -31,6 +33,13 @@ UPSTREAM_DIRECT_MAX_NEW_TOKENS = 24000
 UPSTREAM_RUNTIME_MAX_TOKENS = 16384
 UPSTREAM_DPI = 200
 UPSTREAM_FITZ_PREPROCESS = True
+UPSTREAM_RUNTIME_TEMPERATURE = 0.1
+UPSTREAM_RUNTIME_TOP_P = 1.0
+LAYOUT_PROMPT_MODES = frozenset({
+    "prompt_layout_all_en",
+    "prompt_layout_only_en",
+    "prompt_grounding_ocr",
+})
 _TRANS_LOADER: Optional[transformerLoader] = None
 
 try:
@@ -103,6 +112,26 @@ def _load_upstream_pdf_images(pdf_path: str, dpi: int = 200):
     if load_images_from_pdf is None:
         raise ValueError(f"load_images_from_pdf missing from {doc_utils_path}")
     return load_images_from_pdf(pdf_path, dpi=dpi)
+
+
+@lru_cache(maxsize=1)
+def _load_output_cleaner_class():
+    """Load the upstream OutputCleaner without importing the broken dots_ocr package."""
+    cleaner_path = _find_upstream_utils_file("dots_ocr/utils/output_cleaner.py")
+    if cleaner_path is None:
+        raise ImportError(
+            "dots_ocr output cleaner is unavailable. Install the dots-ocr extra."
+        )
+    spec = importlib.util.spec_from_file_location("_dots_ocr_output_cleaner", str(cleaner_path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"unable to load output_cleaner spec from {cleaner_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    cleaner_cls = getattr(module, "OutputCleaner", None)
+    if cleaner_cls is None:
+        raise ValueError(f"OutputCleaner missing from {cleaner_path}")
+    return cleaner_cls
 
 
 def _load_config_task_prompt_mapping(config) -> dict[str, str]:
@@ -240,6 +269,144 @@ def _fitz_preprocess_image(image: Image.Image, dpi: int = UPSTREAM_DPI):
         doc.close()
 
 
+def _pil_image_to_base64(image: Image.Image, format_name: str = "PNG") -> str:
+    buffer = io.BytesIO()
+    image.save(buffer, format=format_name)
+    encoded = buffer.getvalue()
+    import base64
+    return f"data:image/{format_name.lower()};base64,{base64.b64encode(encoded).decode('utf-8')}"
+
+
+def _clean_latex_preamble(latex_text: str) -> str:
+    patterns = [
+        r"\\documentclass\{[^}]+\}",
+        r"\\usepackage\{[^}]+\}",
+        r"\\usepackage\[[^\]]*\]\{[^}]+\}",
+        r"\\begin\{document\}",
+        r"\\end\{document\}",
+    ]
+    cleaned = latex_text
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    return cleaned
+
+
+def _has_latex_markdown(text: str) -> bool:
+    if not isinstance(text, str):
+        return False
+    patterns = [
+        r"\$\$.*?\$\$",
+        r"\$[^$\n]+?\$",
+        r"\\begin\{.*?\}.*?\\end\{.*?\}",
+        r"\\[a-zA-Z]+\{.*?\}",
+        r"\\[a-zA-Z]+",
+        r"\\\[.*?\\\]",
+        r"\\\(.*?\\\)",
+    ]
+    return any(re.search(pattern, text, re.DOTALL) for pattern in patterns)
+
+
+def _get_formula_in_markdown(text: str) -> str:
+    text = str(text or "").strip()
+    if not text:
+        return ""
+    if text.startswith("$$") and text.endswith("$$"):
+        inner = text[2:-2].strip()
+        if "$" not in inner:
+            return f"$$\n{inner}\n$$"
+        return text
+    if text.startswith("\\[") and text.endswith("\\]"):
+        inner = text[2:-2].strip()
+        return f"$$\n{inner}\n$$"
+    if re.findall(r".*\\\[.*\\\].*", text):
+        return text
+    if re.findall(r"\$([^$]+)\$", text):
+        return text
+    if not _has_latex_markdown(text):
+        return text
+    if "usepackage" in text:
+        text = _clean_latex_preamble(text)
+    if text.startswith("`") and text.endswith("`"):
+        text = text[1:-1]
+    return f"$$\n{text}\n$$"
+
+
+def _clean_text(text: str) -> str:
+    if not text:
+        return ""
+    text = str(text).strip()
+    if text[:2] == "`$" and text[-2:] == "$`":
+        text = text[1:-1]
+    return text
+
+
+def _layoutjson_to_markdown(image: Image.Image, cells: list[dict], *, no_page_hf: bool = False) -> str:
+    blocks: list[str] = []
+    for cell in cells:
+        bbox = cell.get("bbox")
+        category = str(cell.get("category", ""))
+        text = cell.get("text", "")
+        if no_page_hf and category in {"Page-header", "Page-footer"}:
+            continue
+        if category == "Picture" and isinstance(bbox, list) and len(bbox) == 4:
+            x1, y1, x2, y2 = [int(coord) for coord in bbox]
+            image_crop = image.crop((x1, y1, x2, y2))
+            blocks.append(f"![]({_pil_image_to_base64(image_crop)})")
+        elif category == "Formula":
+            blocks.append(_get_formula_in_markdown(text))
+        else:
+            blocks.append(_clean_text(text))
+    return "\n\n".join(blocks)
+
+
+def _post_process_cells(
+    origin_image: Image.Image,
+    cells: list[dict],
+    *,
+    input_width: int,
+    input_height: int,
+    min_pixels: int,
+    max_pixels: int,
+) -> list[dict]:
+    original_width, original_height = origin_image.size
+    resized_height, resized_width = _smart_resize_for_dots(
+        input_height,
+        input_width,
+        min_pixels=min_pixels,
+        max_pixels=max_pixels,
+    )
+    scale_x = resized_width / original_width
+    scale_y = resized_height / original_height
+    processed: list[dict] = []
+    for cell in cells:
+        if not isinstance(cell, dict):
+            continue
+        updated = dict(cell)
+        bbox = updated.get("bbox")
+        if isinstance(bbox, list) and len(bbox) == 4:
+            updated["bbox"] = [
+                int(float(bbox[0]) / scale_x),
+                int(float(bbox[1]) / scale_y),
+                int(float(bbox[2]) / scale_x),
+                int(float(bbox[3]) / scale_y),
+            ]
+        processed.append(updated)
+    return processed
+
+
+def _draw_layout_on_image(image: Image.Image, cells: list[dict]) -> Image.Image:
+    rendered = image.convert("RGB").copy()
+    draw = ImageDraw.Draw(rendered)
+    for index, cell in enumerate(cells):
+        bbox = cell.get("bbox")
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            continue
+        x1, y1, x2, y2 = [int(coord) for coord in bbox]
+        draw.rectangle((x1, y1, x2, y2), outline=(255, 0, 0), width=2)
+        draw.text((x1 + 4, y1 + 4), f"{index}", fill=(255, 0, 0))
+    return rendered
+
+
 @register_provider("dots_ocr")
 class DotsOCRProvider(OCRProvider):
     """OCR provider backed by davanstrien/dots.ocr-1.5."""
@@ -266,7 +433,6 @@ class DotsOCRProvider(OCRProvider):
             blob, pixels = encode_image_to_blob(uri, to_rgb=True)
 
         output_dir = Path(uri).with_suffix("")
-        output_dir.mkdir(parents=True, exist_ok=True)
 
         media = MediaContext(
             uri=uri,
@@ -343,6 +509,35 @@ class DotsOCRProvider(OCRProvider):
         )
         return fitz_preprocess, dpi
 
+    def _prepare_inference_image(
+        self,
+        origin_image: Image.Image,
+        *,
+        fitz_preprocess: bool,
+        dpi: int,
+        log: bool = True,
+    ) -> Image.Image:
+        input_image = origin_image
+        if fitz_preprocess:
+            stage_timer = self._log_stage_start("fitz_preprocess_image", f"dpi={dpi}")
+            try:
+                input_image = _fitz_preprocess_image(input_image, dpi=dpi)
+            except ImportError as exc:
+                self.ctx.console.print(f"dots_ocr fitz preprocess skipped: {exc}")
+            self._log_stage_done("fitz_preprocess_image", stage_timer)
+        min_pixels, max_pixels = self._resolve_image_pixel_limits()
+        stage_timer = self._log_stage_start("upstream_fetch_image", f"min_pixels={min_pixels}, max_pixels={max_pixels}")
+        input_image = _upstream_fetch_image_for_inference(
+            input_image,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+        )
+        self._log_stage_done("upstream_fetch_image", stage_timer)
+        if log:
+            self.ctx.console.print(f"Original Size: {origin_image.width} x {origin_image.height}")
+            self.ctx.console.print(f"Model Input Size: {input_image.width} x {input_image.height}")
+        return input_image
+
     def _write_text_result(self, output_dir: Path, content: str) -> Path:
         return write_markdown_output(Path(output_dir), str(content), filename="result.md")
 
@@ -353,11 +548,137 @@ class DotsOCRProvider(OCRProvider):
         result_path.write_text(str(content), encoding="utf-8")
         return result_path
 
+    def _write_json_result(self, output_dir: Path, payload) -> Path:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        result_path = output_dir / "result.json"
+        if isinstance(payload, str):
+            result_path.write_text(payload, encoding="utf-8")
+        else:
+            result_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        return result_path
+
+    def _write_layout_image_result(self, output_dir: Path, image: Image.Image) -> Path:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        result_path = output_dir / "result.jpg"
+        image.convert("RGB").save(result_path, format="JPEG", quality=95)
+        return result_path
+
     def _build_svg_pdf_markdown(self, page_dirs: list[Path]) -> str:
         blocks: list[str] = []
         for page_number, page_dir in enumerate(page_dirs, start=1):
             blocks.append(f"## Page {page_number}\n![]({page_dir.name}/result.svg)")
         return "\n\n".join(blocks)
+
+    def _post_process_layout_response(
+        self,
+        *,
+        raw_content: str,
+        prompt_mode: str,
+        origin_image: Image.Image,
+        input_image: Image.Image,
+    ) -> dict:
+        min_pixels, max_pixels = self._resolve_image_pixel_limits()
+        try:
+            cells = json.loads(raw_content)
+            if not isinstance(cells, list):
+                raise ValueError("layout output is not a list")
+            cells = _post_process_cells(
+                origin_image,
+                cells,
+                input_width=input_image.width,
+                input_height=input_image.height,
+                min_pixels=min_pixels,
+                max_pixels=max_pixels,
+            )
+            markdown = None
+            markdown_nohf = None
+            if prompt_mode != "prompt_layout_only_en":
+                markdown = _layoutjson_to_markdown(origin_image, cells, no_page_hf=False)
+                markdown_nohf = _layoutjson_to_markdown(origin_image, cells, no_page_hf=True)
+            return {
+                "filtered": False,
+                "cells": cells,
+                "markdown": markdown,
+                "markdown_nohf": markdown_nohf,
+                "layout_count": len(cells),
+            }
+        except Exception as exc:
+            self.ctx.console.print(f"dots_ocr layout post-process fallback: {exc}")
+            normalized_content = re.sub(r"\}\s*\{", "},{", raw_content)
+            try:
+                cleaned = json.loads(normalized_content)
+            except Exception:
+                try:
+                    cleaner_cls = _load_output_cleaner_class()
+                    cleaner = cleaner_cls()
+                    cleaned = cleaner.clean_model_output(raw_content)
+                except Exception:
+                    cleaned = raw_content
+            if isinstance(cleaned, list):
+                markdown = "\n\n".join(
+                    str(cell.get("text", "")).strip()
+                    for cell in cleaned
+                    if isinstance(cell, dict) and str(cell.get("text", "")).strip()
+                )
+                return {
+                    "filtered": True,
+                    "cells": cleaned,
+                    "markdown": markdown,
+                    "markdown_nohf": markdown,
+                    "layout_count": len(cleaned),
+                }
+            markdown = str(cleaned)
+            return {
+                "filtered": True,
+                "cells": None,
+                "markdown": markdown,
+                "markdown_nohf": markdown,
+                "layout_count": 0,
+            }
+
+    def _finalize_text_result(
+        self,
+        *,
+        output_dir: Path,
+        prompt_mode: str,
+        raw_content: str,
+        origin_image: Image.Image | None = None,
+        input_image: Image.Image | None = None,
+    ) -> tuple[str, dict]:
+        if prompt_mode not in LAYOUT_PROMPT_MODES or origin_image is None or input_image is None:
+            self._write_text_result(output_dir, raw_content)
+            return str(raw_content), {}
+
+        processed = self._post_process_layout_response(
+            raw_content=raw_content,
+            prompt_mode=prompt_mode,
+            origin_image=origin_image,
+            input_image=input_image,
+        )
+        payload = processed["cells"] if processed["cells"] is not None else raw_content
+        self._write_json_result(output_dir, payload)
+        try:
+            layout_image = _draw_layout_on_image(origin_image, processed["cells"] or [])
+        except Exception:
+            layout_image = origin_image
+        self._write_layout_image_result(output_dir, layout_image)
+        markdown = processed["markdown"]
+        if markdown is not None:
+            self._write_text_result(output_dir, markdown)
+            markdown_nohf = processed.get("markdown_nohf")
+            if markdown_nohf is not None:
+                write_markdown_output(Path(output_dir), str(markdown_nohf), filename="result_nohf.md")
+            return str(markdown), {
+                "filtered": bool(processed["filtered"]),
+                "layout_elements": int(processed["layout_count"]),
+            }
+        json_text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+        return str(json_text), {
+            "filtered": bool(processed["filtered"]),
+            "layout_elements": int(processed["layout_count"]),
+        }
 
     def _run_direct_generation(
         self,
@@ -411,21 +732,13 @@ class DotsOCRProvider(OCRProvider):
         self._log_stage_done("load_model", stage_timer)
 
         stage_timer = self._log_stage_start("load_input_image", f"image={Path(image_path).name}")
-        input_image = _load_input_image(image_path)
+        origin_image = _load_input_image(image_path)
         self._log_stage_done("load_input_image", stage_timer)
-        if fitz_preprocess:
-            stage_timer = self._log_stage_start("fitz_preprocess_image", f"dpi={dpi}")
-            input_image = _fitz_preprocess_image(input_image, dpi=dpi)
-            self._log_stage_done("fitz_preprocess_image", stage_timer)
-
-        min_pixels, max_pixels = self._resolve_image_pixel_limits()
-        stage_timer = self._log_stage_start("upstream_fetch_image", f"min_pixels={min_pixels}, max_pixels={max_pixels}")
-        input_image = _upstream_fetch_image_for_inference(
-            input_image,
-            min_pixels=min_pixels,
-            max_pixels=max_pixels,
+        input_image = self._prepare_inference_image(
+            origin_image,
+            fitz_preprocess=fitz_preprocess,
+            dpi=dpi,
         )
-        self._log_stage_done("upstream_fetch_image", stage_timer)
         messages = [{
             "role": "user",
             "content": [
@@ -470,7 +783,6 @@ class DotsOCRProvider(OCRProvider):
         generated_ids = model.generate(
             **inputs,
             max_new_tokens=int(max_new_tokens),
-            do_sample=False,
         )
         self._log_stage_done("generate", stage_timer)
         generated_ids_trimmed = [
@@ -500,7 +812,13 @@ class DotsOCRProvider(OCRProvider):
         default_temperature = float(
             model_section.get(
                 "temperature",
-                provider_section.get("runtime_temperature", provider_section.get("temperature", 0.0)),
+                provider_section.get("runtime_temperature", provider_section.get("temperature", UPSTREAM_RUNTIME_TEMPERATURE)),
+            )
+        )
+        default_top_p = float(
+            model_section.get(
+                "top_p",
+                provider_section.get("runtime_top_p", provider_section.get("top_p", UPSTREAM_RUNTIME_TOP_P)),
             )
         )
         default_max_tokens = int(
@@ -513,6 +831,7 @@ class DotsOCRProvider(OCRProvider):
             shared_prefix="openai",
             default_model_id=selected_model_id,
             default_temperature=default_temperature,
+            default_top_p=default_top_p,
             default_max_tokens=default_max_tokens,
         )
 
@@ -528,20 +847,13 @@ class DotsOCRProvider(OCRProvider):
         runtime = self._get_runtime_backend_for_prompt_mode(prompt_mode)
         backend = OpenAIChatRuntime(runtime)
         stage_timer = self._log_stage_start("load_input_image", f"image={Path(image_path).name}")
-        input_image = _load_input_image(image_path)
+        origin_image = _load_input_image(image_path)
         self._log_stage_done("load_input_image", stage_timer)
-        if fitz_preprocess:
-            stage_timer = self._log_stage_start("fitz_preprocess_image", f"dpi={dpi}")
-            input_image = _fitz_preprocess_image(input_image, dpi=dpi)
-            self._log_stage_done("fitz_preprocess_image", stage_timer)
-        min_pixels, max_pixels = self._resolve_image_pixel_limits()
-        stage_timer = self._log_stage_start("upstream_fetch_image", f"min_pixels={min_pixels}, max_pixels={max_pixels}")
-        input_image = _upstream_fetch_image_for_inference(
-            input_image,
-            min_pixels=min_pixels,
-            max_pixels=max_pixels,
+        input_image = self._prepare_inference_image(
+            origin_image,
+            fitz_preprocess=fitz_preprocess,
+            dpi=dpi,
         )
-        self._log_stage_done("upstream_fetch_image", stage_timer)
         stage_timer = self._log_stage_start("encode_image_to_blob", f"image={Path(image_path).name}")
         with io.BytesIO() as buffer:
             input_image.save(buffer, format="JPEG", quality=95)
@@ -616,6 +928,8 @@ class DotsOCRProvider(OCRProvider):
                 )
 
             page_contents: list[str] = []
+            total_layout_elements = 0
+            any_filtered = False
             for index, pil_image in enumerate(images, start=1):
                 page_dir = output_dir / f"page_{index:04d}"
                 page_image_path = page_dir / f"page_{index:04d}.png"
@@ -630,8 +944,22 @@ class DotsOCRProvider(OCRProvider):
                     fitz_preprocess=False,
                     dpi=dpi,
                 )
-                self._write_text_result(page_dir, page_content)
-                page_contents.append(str(page_content).strip())
+                input_image = self._prepare_inference_image(
+                    pil_image,
+                    fitz_preprocess=False,
+                    dpi=dpi,
+                    log=False,
+                )
+                finalized_content, extra_metadata = self._finalize_text_result(
+                    output_dir=page_dir,
+                    prompt_mode=prompt_mode,
+                    raw_content=page_content,
+                    origin_image=pil_image,
+                    input_image=input_image,
+                )
+                total_layout_elements += int(extra_metadata.get("layout_elements", 0))
+                any_filtered = any_filtered or bool(extra_metadata.get("filtered"))
+                page_contents.append(str(finalized_content).strip())
 
             content = "\n<--- Page Split --->\n".join(page_contents)
             self._write_text_result(output_dir, content)
@@ -644,6 +972,8 @@ class DotsOCRProvider(OCRProvider):
                     "runtime_backend": runtime.mode,
                     "runtime_model_id": runtime.model_id,
                     "prompt_mode": prompt_mode,
+                    "layout_elements": total_layout_elements,
+                    "filtered": any_filtered,
                 },
             )
 
@@ -656,8 +986,22 @@ class DotsOCRProvider(OCRProvider):
         )
         if prompt_mode == "prompt_image_to_svg":
             self._write_svg_result(output_dir, content)
+            metadata = {}
         else:
-            self._write_text_result(output_dir, content)
+            origin_image = _load_input_image(media.uri)
+            input_image = self._prepare_inference_image(
+                origin_image,
+                fitz_preprocess=fitz_preprocess,
+                dpi=dpi,
+                log=False,
+            )
+            content, metadata = self._finalize_text_result(
+                output_dir=output_dir,
+                prompt_mode=prompt_mode,
+                raw_content=content,
+                origin_image=origin_image,
+                input_image=input_image,
+            )
             self._display_text_result(media, content)
         return CaptionResult(
             raw=str(content),
@@ -667,6 +1011,7 @@ class DotsOCRProvider(OCRProvider):
                 "runtime_backend": runtime.mode,
                 "runtime_model_id": runtime.model_id,
                 "prompt_mode": prompt_mode,
+                **metadata,
             },
         )
 
@@ -699,7 +1044,6 @@ class DotsOCRProvider(OCRProvider):
             self._get_model_config("max_new_tokens", UPSTREAM_DIRECT_MAX_NEW_TOKENS)
             or UPSTREAM_DIRECT_MAX_NEW_TOKENS
         )
-
         if media.mime.startswith("application/pdf"):
             stage_timer = self._log_stage_start("upstream_pdf_to_images", f"file={Path(media.uri).name}")
             images = _load_upstream_pdf_images(media.uri)
@@ -738,6 +1082,8 @@ class DotsOCRProvider(OCRProvider):
                 )
 
             page_contents: list[str] = []
+            total_layout_elements = 0
+            any_filtered = False
             for index, pil_image in enumerate(images, start=1):
                 page_dir = output_dir / f"page_{index:04d}"
                 page_image_path = page_dir / f"page_{index:04d}.png"
@@ -754,8 +1100,22 @@ class DotsOCRProvider(OCRProvider):
                     fitz_preprocess=False,
                     dpi=dpi,
                 )
-                self._write_text_result(page_dir, page_content)
-                page_contents.append(str(page_content).strip())
+                input_image = self._prepare_inference_image(
+                    pil_image,
+                    fitz_preprocess=False,
+                    dpi=dpi,
+                    log=False,
+                )
+                finalized_content, extra_metadata = self._finalize_text_result(
+                    output_dir=page_dir,
+                    prompt_mode=prompt_mode,
+                    raw_content=page_content,
+                    origin_image=pil_image,
+                    input_image=input_image,
+                )
+                total_layout_elements += int(extra_metadata.get("layout_elements", 0))
+                any_filtered = any_filtered or bool(extra_metadata.get("filtered"))
+                page_contents.append(str(finalized_content).strip())
 
             content = "\n<--- Page Split --->\n".join(page_contents)
             self._write_text_result(output_dir, content)
@@ -767,6 +1127,8 @@ class DotsOCRProvider(OCRProvider):
                     "output_dir": str(output_dir),
                     "prompt_mode": prompt_mode,
                     "model_id": model_id,
+                    "layout_elements": total_layout_elements,
+                    "filtered": any_filtered,
                 },
             )
 
@@ -781,8 +1143,22 @@ class DotsOCRProvider(OCRProvider):
         )
         if prompt_mode == "prompt_image_to_svg":
             self._write_svg_result(output_dir, content)
+            metadata = {}
         else:
-            self._write_text_result(output_dir, content)
+            origin_image = _load_input_image(media.uri)
+            input_image = self._prepare_inference_image(
+                origin_image,
+                fitz_preprocess=fitz_preprocess,
+                dpi=dpi,
+                log=False,
+            )
+            content, metadata = self._finalize_text_result(
+                output_dir=output_dir,
+                prompt_mode=prompt_mode,
+                raw_content=content,
+                origin_image=origin_image,
+                input_image=input_image,
+            )
             self._display_text_result(media, content)
         return CaptionResult(
             raw=str(content),
@@ -791,5 +1167,6 @@ class DotsOCRProvider(OCRProvider):
                 "output_dir": str(output_dir),
                 "prompt_mode": prompt_mode,
                 "model_id": model_id,
+                **metadata,
             },
         )

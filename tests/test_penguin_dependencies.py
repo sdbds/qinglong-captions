@@ -244,12 +244,16 @@ def test_config_declares_dots_ocr_defaults():
     assert 'prompt_mode = "prompt_ocr"' in model_toml
     assert 'svg_model_id = "davanstrien/dots.ocr-1.5-svg"' in model_toml
     assert "max_new_tokens = 24000" in model_toml
+    assert "runtime_temperature = 0.1" in model_toml
+    assert "runtime_top_p = 1.0" in model_toml
     assert "runtime_max_tokens = 16384" in model_toml
     assert "fitz_preprocess = true" in model_toml
     assert "dpi = 200" in model_toml
     assert "[dots_ocr]" in runtime_toml
     assert 'prompt_mode = "prompt_ocr"' in runtime_toml
     assert "max_new_tokens = 24000" in runtime_toml
+    assert "runtime_temperature = 0.1" in runtime_toml
+    assert "runtime_top_p = 1.0" in runtime_toml
     assert "runtime_max_tokens = 16384" in runtime_toml
     assert "fitz_preprocess = true" in runtime_toml
     assert "dpi = 200" in runtime_toml

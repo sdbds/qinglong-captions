@@ -20,6 +20,7 @@ class RuntimeBackendConfig:
     api_key: str = ""
     model_id: str = ""
     temperature: float = 0.0
+    top_p: float = 1.0
     max_tokens: int = 2048
     json_mode: bool = False
 
@@ -35,6 +36,7 @@ def make_runtime_backend_config(
     api_key: str = "",
     model_id: str = "",
     temperature: float = 0.0,
+    top_p: float = 1.0,
     max_tokens: int = 2048,
     json_mode: bool = False,
 ) -> RuntimeBackendConfig:
@@ -47,6 +49,7 @@ def make_runtime_backend_config(
         api_key=(api_key or "").strip(),
         model_id=(model_id or "").strip(),
         temperature=float(temperature),
+        top_p=float(top_p),
         max_tokens=int(max_tokens),
         json_mode=bool(json_mode),
     )
@@ -132,6 +135,7 @@ def resolve_runtime_backend(
     shared_prefix: str = "",
     default_model_id: str = "",
     default_temperature: float = 0.0,
+    default_top_p: float = 1.0,
     default_max_tokens: int = 2048,
     default_json_mode: bool = False,
 ) -> RuntimeBackendConfig:
@@ -168,6 +172,12 @@ def resolve_runtime_backend(
         else section.get("runtime_temperature", default_temperature),
         default_temperature,
     )
+    top_p = _coerce_float(
+        _get_attr(args, f"{arg_prefix}_top_p", None)
+        if _get_attr(args, f"{arg_prefix}_top_p", None) is not None
+        else section.get("runtime_top_p", default_top_p),
+        default_top_p,
+    )
     max_tokens = _coerce_int(
         _get_attr(args, f"{arg_prefix}_max_tokens", None)
         if _get_attr(args, f"{arg_prefix}_max_tokens", None) is not None
@@ -187,6 +197,7 @@ def resolve_runtime_backend(
         api_key=str(api_key),
         model_id=str(model_id),
         temperature=temperature,
+        top_p=top_p,
         max_tokens=max_tokens,
         json_mode=json_mode,
     )
@@ -247,6 +258,7 @@ class OpenAIChatRuntime:
             "model": self.config.model_id,
             "messages": messages,
             "temperature": self.config.temperature if temperature is None else float(temperature),
+            "top_p": self.config.top_p,
             "max_tokens": self.config.max_tokens if max_tokens is None else int(max_tokens),
         }
         if response_format is not None:

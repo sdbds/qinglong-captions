@@ -87,7 +87,6 @@ def attempt_nanonets_ocr(
     p = Path(uri)
     if not output_dir:
         output_dir = str(p.with_suffix(""))
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     device, dtype, attn_impl = resolve_device_dtype()
     global _TRANS_LOADER

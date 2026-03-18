@@ -970,20 +970,17 @@ class TestOCRProviderBase:
         result = FakeOCR(ctx).execute(str(doc_path), "application/pdf", "pdf-hash")
         assert result.raw == "config prompt"
 
-    def test_post_validate_removes_markdown_sidecars_when_result_empty(self, tmp_path):
-        from providers.base import CaptionResult, MediaContext, MediaModality, ProviderContext
+    def test_execute_empty_result_does_not_create_output_dir(self, tmp_path):
+        from providers.base import CaptionResult, ProviderContext
         from providers.ocr_base import OCRProvider
         from rich.console import Console
 
-        output_dir = tmp_path / "sample"
-        output_dir.mkdir()
-        (output_dir / "result.md").write_text("# stale\n", encoding="utf-8")
-        page_dir = output_dir / "page_0001"
-        page_dir.mkdir()
-        (page_dir / "result.md").write_text("# stale page\n", encoding="utf-8")
+        doc_path = tmp_path / "sample.pdf"
+        doc_path.write_bytes(b"%PDF-1.4")
 
         class FakeOCR(OCRProvider):
             name = "fake_ocr"
+            default_prompt = "default"
 
             def attempt(self, media, prompts):
                 return CaptionResult(raw="")
@@ -991,21 +988,12 @@ class TestOCRProviderBase:
         ctx = ProviderContext(
             console=Console(file=io.StringIO()),
             config={},
-            args=SimpleNamespace(max_retries=1, wait_time=0.01),
+            args=SimpleNamespace(max_retries=1, wait_time=0.01, dir_name=False),
         )
-        provider = FakeOCR(ctx)
-        media = MediaContext(
-            uri=str(tmp_path / "sample.pdf"),
-            mime="application/pdf",
-            sha256hash="",
-            modality=MediaModality.DOCUMENT,
-            extras={"output_dir": output_dir},
-        )
+        result = FakeOCR(ctx).execute(str(doc_path), "application/pdf", "pdf-hash")
 
-        provider.post_validate(CaptionResult(raw=""), media, ctx.args)
-
-        assert not (output_dir / "result.md").exists()
-        assert not (page_dir / "result.md").exists()
+        assert result.raw == ""
+        assert not (tmp_path / "sample").exists()
 
 
 class TestVisionAPIProviders:

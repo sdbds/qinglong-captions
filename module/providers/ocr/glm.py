@@ -52,7 +52,6 @@ def attempt_glm_ocr(
     p = Path(uri)
     if not output_dir:
         output_dir = str(p.with_suffix(""))
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     from transformers import AutoModelForImageTextToText, AutoProcessor
 

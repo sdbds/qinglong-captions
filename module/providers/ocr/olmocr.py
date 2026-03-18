@@ -119,7 +119,6 @@ def attempt_olmocr(
 
     if not output_dir:
         output_dir = str(Path(uri).with_suffix(""))
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     device, dtype, attn_impl = resolve_device_dtype()
     global _TRANS_LOADER

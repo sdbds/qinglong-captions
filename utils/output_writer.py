@@ -43,24 +43,6 @@ def write_markdown_output(output_dir: Path, content: str, filename: str = "resul
     return target
 
 
-def remove_markdown_output_files(output_dir: Path) -> list[Path]:
-    output_dir = Path(output_dir)
-    if not output_dir.exists():
-        return []
-
-    removed: list[Path] = []
-    for pattern in ("*.md", "*.mmd"):
-        for path in output_dir.rglob(pattern):
-            if not path.is_file():
-                continue
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                continue
-            removed.append(path)
-    return removed
-
-
 def write_caption_output(source_path: Path, output, mime: str) -> tuple[Path, Optional[Path]]:
     source_path = Path(source_path)
     text_path = caption_output_path(source_path, mime)
