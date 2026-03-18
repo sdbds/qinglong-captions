@@ -478,5 +478,5 @@ Bounding Box:
 prompt_web_parsing = """Parsing the layout info of this webpage image with format json:
 """
 prompt_scene_spotting = """Detect and recognize the text in the image."""
-prompt_image_to_svg = """Please generate the SVG code based on the image.viewBox="0 0 {width} {height}""""
+prompt_image_to_svg = 'Please generate the SVG code based on the image.viewBox="0 0 {width} {height}"'
 prompt_general = """ """

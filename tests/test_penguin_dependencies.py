@@ -3,6 +3,8 @@ import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
+import toml
+
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
@@ -246,7 +248,13 @@ def test_config_declares_dots_ocr_defaults():
     assert "dots_ocr_prompt" in prompts_toml
     assert "[prompts.task.dots_ocr]" in prompts_toml
     assert 'prompt_ocr = """Extract the text content from this image."""' in prompts_toml
-    assert 'prompt_image_to_svg = """Please generate the SVG code based on the image.viewBox="0 0 {width} {height}""""' in prompts_toml
+    assert 'prompt_image_to_svg = \'Please generate the SVG code based on the image.viewBox="0 0 {width} {height}"\'' in prompts_toml
+
+
+def test_runtime_prompt_config_files_parse_with_toml_library():
+    for rel in ("config/prompts.toml", "config/config.toml"):
+        parsed = toml.load(ROOT / rel)
+        assert isinstance(parsed, dict)
 
 
 def test_has_flash_attn_returns_false_when_module_import_fails(monkeypatch):
