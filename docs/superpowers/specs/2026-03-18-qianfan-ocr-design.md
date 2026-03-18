@@ -42,11 +42,12 @@
 - 默认任务是 “Parse this document to Markdown.”
 - 默认开启 thinking 模式，即默认在最终 query 末尾追加 `<think>`
 - 是否开启 thinking 由配置项控制，不拆第二个 provider
+- 用户自定义 prompt 只保留一个配置入口
 - 支持两种 prompt 组合策略：
   - `append`
   - `replace`
-- 用户自定义 prompt 默认支持 `append` 和 `replace` 两种模式，由配置项决定
-- direct backend 与 OpenAI-compatible server backend 共用同一套 question 组装逻辑
+- direct backend 是首发必做路径
+- 保留 OpenAI-compatible server backend 扩展点，但不把 generic server parity 作为当前实现承诺
 - v1 不新增专门的 KIE / JSON / HTML 子路由，先通过自定义 prompt 承载扩展任务
 - 输出契约维持现有 OCR 习惯，不像 `dots_ocr` 那样引入 SVG 等特殊文件格式
 
@@ -56,10 +57,10 @@
 2. 接入 `baidu/Qianfan-OCR` 作为默认本地模型。
 3. 通过 TOML 配置支持：
    - thinking 开关
-   - 自定义 prompt
+   - 单一自定义 prompt
    - `append` / `replace` prompt 策略
 4. 保持图片 / PDF 输入、结果目录、Markdown 写盘和 GUI / 脚本集成方式与现有 OCR provider 一致。
-5. 保证 direct backend 与 OpenAI-compatible server backend 在 question 拼装上不漂移。
+5. 明确定义 thinking 输出的清洗契约，保证写入 `result.md` 的内容不包含 reasoning 段。
 
 ## 非目标
 
@@ -138,8 +139,7 @@
 ```toml
 [qianfan_ocr]
 model_id = "baidu/Qianfan-OCR"
-base_prompt = "Parse this document to Markdown."
-custom_prompt = ""
+prompt = ""
 prompt_strategy = "append"
 think_enabled = true
 max_new_tokens = 16384
@@ -148,29 +148,12 @@ max_new_tokens = 16384
 字段职责：
 
 - `model_id`: 默认模型权重
-- `base_prompt`: provider 内建基础 prompt
-- `custom_prompt`: 用户自定义 prompt
+- `prompt`: 唯一的用户自定义 prompt 配置入口
 - `prompt_strategy`: `append` 或 `replace`
 - `think_enabled`: 是否在最终 question 尾部追加 `<think>`
 - `max_new_tokens`: 推理上限
 
-### 2. 兼容性 prompt 配置
-
-在 `config/prompts.toml` 保留：
-
-- `qianfan_ocr_prompt = ""`
-
-它的作用不是主配置入口，而是兼容仓库现有 OCR provider 的 prompts 读取模式。
-
-推荐优先级：
-
-1. `[qianfan_ocr].custom_prompt`
-2. `[prompts].qianfan_ocr_prompt`
-3. 空字符串
-
-也就是说，provider 级配置优先，旧式 prompts 配置作为兜底。
-
-### 3. Question 组装规则
+### 2. Question 组装规则
 
 provider 内新增一个统一 helper，例如：
 
@@ -178,14 +161,12 @@ provider 内新增一个统一 helper，例如：
 
 规则如下：
 
-1. 先读取 `base_prompt`
-2. 再确定生效的自定义 prompt：
-   - 优先 `[qianfan_ocr].custom_prompt`
-   - 其次 `[prompts].qianfan_ocr_prompt`
+1. provider 内建基础 prompt 固定为 `Parse this document to Markdown.`
+2. 读取 `[qianfan_ocr].prompt`
 3. 根据 `prompt_strategy` 组装：
-   - `append`: `base_prompt + "\n" + custom_prompt`
-   - `replace`: 直接使用自定义 prompt
-4. 如果没有自定义 prompt，则直接使用 `base_prompt`
+   - `append`: `base_prompt + "\n" + prompt`
+   - `replace`: 直接使用 `prompt`
+4. 如果 `prompt` 为空，则直接使用内建 `base_prompt`
 5. 如果 `think_enabled = true`，且最终 question 末尾还没有 `<think>`，则追加 `<think>`
 
 这个 helper 是本次设计的核心边界。direct backend 和 server backend 必须复用同一个 helper，不能各自拼 query。
@@ -212,21 +193,48 @@ model.chat(
 )
 ```
 
-### 2. OpenAI-compatible server backend
+### 2. thinking 输出清洗
 
-`qianfan_ocr` 同时支持复用现有本地 OpenAI-compatible server backend。
+默认开启 `<think>` 的前提是必须定义清楚输出清洗责任。
 
-但它不能只“借用 OCR 基类默认 prompt”，而必须复用同一个 `_compose_question()`。
+`qianfan_ocr` 必须在 provider 内拥有一个统一的清洗 helper，例如：
 
-server backend 的职责：
+- `_clean_reasoning_output()`
+
+职责：
+
+- 去掉 `<think>...</think>`
+- 去掉明显的 reasoning 包裹段
+- 返回最终要展示、写盘和放入 `CaptionResult.raw` 的 markdown 文本
+
+关键约束：
+
+- 清洗必须发生在任何 `write_markdown_output(...)` 之前
+- 如果后续补 server backend，direct backend 和 server backend 都必须复用同一个清洗 helper
+- 如果清洗后结果为空，provider 必须抛出显式错误，而不是写出空的 `result.md`
+
+### 3. OpenAI-compatible server backend
+
+当前 spec 只把 server backend 作为扩展点，不把 generic OpenAI-compatible 协议兼容性写成正式承诺。
+
+原因：
+
+- 仓库当前 OCR server 路径默认走 generic OpenAI multimodal message shape
+- 现阶段没有已验证的证据表明 Qianfan served model 与这个协议完全等价
+
+因此当前设计要求是：
+
+- direct backend 必须可用
+- server backend 不是当前实现的阻塞项
+- 只有在验证过具体 serving target 后，才把 server backend 升级为正式支持路径
+
+如果后续要接 server backend，要求如下：
 
 - 使用与 direct backend 相同的最终 question
-- 走现有 `build_vision_messages()` / runtime completion 流程
-- 输出仍然落到 Markdown 文件，不新增特殊格式
+- 不能直接原样复用 `OCRProvider.attempt_via_openai_backend()`
+- 必须走 provider 自己的 server path，以便在写盘前完成 reasoning 清洗
 
-因此它和 `dots_ocr` 不同，不需要自定义复杂 output contract；只需要保证 prompt 一致。
-
-### 3. 图片输入
+### 4. 图片输入
 
 图片输入行为与现有 OCR provider 保持一致：
 
@@ -234,7 +242,7 @@ server backend 的职责：
 - 最终文本写入 `result.md`
 - `CaptionResult.raw` 为 OCR 返回的 markdown 字符串
 
-### 4. PDF 输入
+### 5. PDF 输入
 
 PDF 复用现有高质量分页逻辑：
 
@@ -282,6 +290,7 @@ page2-content
 - 这次目标是尽快把 `Qianfan-OCR` 接入现有 OCR 主路径
 - 当前仓库对 OCR 下游的消费默认是 markdown 文本
 - 与 `dots_ocr` 不同，本次没有额外的强约束要求引入特殊输出契约
+- 默认开启 thinking 后，最终写盘内容必须是清洗后的 markdown，而不是原始 reasoning 输出
 
 ## 错误处理
 
@@ -305,7 +314,14 @@ uv sync --extra qianfan-ocr
 
 则直接抛错，不静默回退。
 
-### 3. 页面级失败
+### 3. reasoning 清洗失败
+
+如果模型返回了带有 reasoning 的内容，但清洗后结果为空或明显无效：
+
+- 直接抛错
+- 不写出污染后的 `result.md`
+
+### 4. 页面级失败
 
 PDF 某页处理失败：
 
@@ -313,12 +329,13 @@ PDF 某页处理失败：
 - 继续后续页面
 - 最终结果只聚合成功页
 
-### 4. server backend 配置错误
+### 5. server backend 配置错误
 
 如果用户选择走 OpenAI-compatible server backend，但未配置可用服务：
 
 - 继续沿用现有 runtime backend 的报错
 - `qianfan_ocr` 本身不单独吞错或做静默降级
+- server backend 只有在协议验证完成后才进入正式支持范围
 
 ## 依赖设计
 
@@ -380,12 +397,13 @@ PDF 某页处理失败：
 
 - `think_enabled = true` 时最终 question 追加 `<think>`
 - `think_enabled = false` 时不追加 `<think>`
-- `prompt_strategy = "append"` 时正确保留基础 prompt 并追加自定义 prompt
-- `prompt_strategy = "replace"` 时仅使用自定义 prompt
-- 当 `[qianfan_ocr].custom_prompt` 为空时，`[prompts].qianfan_ocr_prompt` 作为兜底
-- direct backend 与 server backend 使用相同的最终 question
+- `prompt_strategy = "append"` 时正确保留基础 prompt 并追加 `[qianfan_ocr].prompt`
+- `prompt_strategy = "replace"` 时仅使用 `[qianfan_ocr].prompt`
+- reasoning 清洗发生在写盘前，而不是写盘后
+- `<think>...</think>` 不会出现在最终 `result.md`
 - 单图写 `result.md`
 - PDF 写 `page_xxxx/result.md` 和根目录 `result.md`
+- 如果后续开启 server backend，再补它与 direct backend 共用 question / cleanup 逻辑的测试
 
 ### 3. 依赖与脚本测试
 
@@ -403,20 +421,23 @@ PDF 某页处理失败：
 缓解方式：
 
 - `think_enabled` 做显式配置项
-- provider 内只负责 query 拼装，不把 `<think>` 行为散落到多处
+- provider 内统一负责 query 拼装和 reasoning 清洗，不把 `<think>` 行为散落到多处
 
 ### 2. direct / server prompt 漂移风险
 
-如果 direct backend 和 server backend 各自拼 question，后续很容易出现：
+如果后续补 server backend，而 direct backend 和 server backend 各自拼 question / 各自清洗输出，后续很容易出现：
 
 - 一个路径追加 `<think>`
 - 另一个路径没追加
 - 一个路径用 `append`
 - 另一个路径误用了 `replace`
+- 一个路径写盘前清洗
+- 另一个路径把 reasoning 原样写入 `result.md`
 
 缓解方式：
 
 - 所有 prompt 解析都集中到 `_compose_question()`
+- 所有 reasoning 清洗都集中到 `_clean_reasoning_output()`
 
 ### 3. 依赖版本风险
 
@@ -431,16 +452,17 @@ PDF 某页处理失败：
 
 1. 在 catalog、registry、GUI、`run.ps1` 中接入 `qianfan_ocr` 路由名
 2. 在 `pyproject.toml` 中增加 `qianfan-ocr` extra
-3. 新增 `config/model.toml`、`config/config.toml`、`config/prompts.toml` 的 `qianfan_ocr` 配置
+3. 新增 `config/model.toml`、`config/config.toml` 的 `qianfan_ocr` 配置
 4. 先写 `tests/test_qianfan_ocr_provider.py`，固定：
    - `append` / `replace`
    - `think_enabled`
-   - direct / server 共用 question 逻辑
+   - reasoning 清洗先于写盘
    - 图片 / PDF 输出约定
 5. 实现 `module/providers/ocr/qianfan.py`
 6. 补充依赖、脚本和 GUI 测试
 7. 跑 focused tests 验证路由、配置和依赖映射
+8. 如果后续需要 server backend，再单独补协议验证和 provider 专属 server path
 
 ## 结论
 
-本设计采用单 provider 方案，把 `baidu/Qianfan-OCR` 作为新的 `qianfan_ocr` OCR provider 接入现有 Provider V2 架构。与 `dots_ocr` 不同，本次不引入新的输出格式或任务路由，而是把变化收敛在 query 组装规则上：默认基础 prompt 为 `Parse this document to Markdown.`，默认开启 `<think>`，并通过 `append` / `replace` 策略支持用户自定义 prompt。direct backend 与 OpenAI-compatible server backend 统一复用同一套 `_compose_question()`，从而在保持现有 OCR 输出契约不变的前提下，引入 `Qianfan-OCR` 的核心能力。
+本设计采用单 provider 方案，把 `baidu/Qianfan-OCR` 作为新的 `qianfan_ocr` OCR provider 接入现有 Provider V2 架构。与 `dots_ocr` 不同，本次不引入新的输出格式或任务路由，而是把变化收敛在两个明确的 provider 责任上：一是统一的 `_compose_question()`，固定基础 prompt 并支持单一自定义 prompt 的 `append` / `replace` 组合；二是统一的 `_clean_reasoning_output()`，在默认开启 `<think>` 的前提下，保证写入 `result.md` 的仍然是干净的 markdown。direct backend 是当前必做路径；server backend 只保留扩展点，待具体协议验证后再升级为正式支持能力。
