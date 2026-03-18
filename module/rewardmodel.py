@@ -63,6 +63,7 @@ from rich.progress import (
 from rich.tree import Tree
 
 from module.lanceImport import transform2lance
+from utils.console_util import print_exception
 
 console = Console(color_system="truecolor", force_terminal=True)
 
@@ -84,7 +85,7 @@ def preprocess_image(image):
             raise TypeError("Input must be a PIL image, numpy array, or file path")
         return np.array(image)
     except Exception as e:
-        console.print(f"[red]preprocess_image error: {str(e)}[/red]")
+        print_exception(console, e, prefix="preprocess_image error")
         return None
 
 
@@ -99,7 +100,7 @@ def load_and_preprocess_batch(uris):
             # 直接传入路径，在preprocess_image中处理转换
             return preprocess_image(uri)
         except Exception as e:
-            console.print(f"[red]Error processing {uri}: {str(e)}[/red]")
+            print_exception(console, e, prefix=f"Error processing {uri}")
             return None
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
@@ -291,7 +292,7 @@ def process_batch(pixel_tensors, model, prompts):
 
         return np.array(out, dtype=np.float32)
     except Exception as e:
-        console.print(f"[red]Batch processing error: {str(e)}[/red]")
+        print_exception(console, e, prefix="Batch processing error")
         return None
 
 
@@ -439,7 +440,7 @@ def main(args):
             if not isinstance(colors_by_rank, list) or not all(isinstance(c, str) and c for c in colors_by_rank):
                 colors_by_rank = ["bold red", "bold yellow", "bold blue", "bold green"]
     except Exception as e:
-        console.print(f"[red]Failed to read config: {e}[/red]")
+        print_exception(console, e, prefix="Failed to read config")
         thresholds_cfg = []
         colors_by_rank = ["bold red", "bold yellow", "bold blue", "bold green"]
 
@@ -618,12 +619,12 @@ def main(args):
             try:
                 target_path.symlink_to(source_path)
             except (FileExistsError, PermissionError) as e:
-                console.print(f"[red]Unable to create symlink for {path}: {e}[/red]")
+                print_exception(console, e, prefix=f"Unable to create symlink for {path}")
                 try:
                     shutil.copy2(source_path, target_path)
                     console.print(f"[yellow]Created copy instead of symlink for {path}[/yellow]")
                 except Exception as copy_err:
-                    console.print(f"[red]Failed to copy file: {copy_err}[/red]")
+                    print_exception(console, copy_err, prefix="Failed to copy file")
 
     # 按路径层次结构组织结果
     path_tree = {}

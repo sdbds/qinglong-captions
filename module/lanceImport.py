@@ -51,6 +51,7 @@ from config.config import (
     DATASET_SCHEMA,
     get_supported_extensions,
 )
+from utils.console_util import print_exception
 from utils.lance_utils import update_or_create_tag
 
 console = Console(color_system="truecolor", force_terminal=True)
@@ -339,7 +340,12 @@ class FileProcessor:
                             channels = first_frame.shape[2] if len(first_frame.shape) > 2 else 1
                             depth = first_frame.dtype.itemsize * 8
                     except Exception as e:
-                        console.print(f"[yellow]Warning: Could not read first frame from {file_path}: {e}[/yellow]")
+                        print_exception(
+                            console,
+                            e,
+                            prefix=f"Warning: Could not read first frame from {file_path}",
+                            summary_style="yellow",
+                        )
                         channels = 3  # Assume RGB
                         depth = 8  # Assume 8-bit
 
@@ -375,7 +381,7 @@ class FileProcessor:
                         blob=bytes(binary_data) if save_binary else b"",
                     )
                 except Exception as e:
-                    console.print(f"[red]Error processing video {file_path}: {str(e)}[/red]")
+                    print_exception(console, e, prefix=f"Error processing video {file_path}")
                     return None
 
             elif _suffix in _audio_ext_set:
@@ -423,7 +429,7 @@ class FileProcessor:
                         blob=binary_data if save_binary else b"",
                     )
                 except Exception as e:
-                    console.print(f"[red]Error processing audio {file_path}: {str(e)}[/red]")
+                    print_exception(console, e, prefix=f"Error processing audio {file_path}")
                     return None
 
             elif _suffix in _text_ext_set:
@@ -453,7 +459,7 @@ class FileProcessor:
                         blob=binary_data if save_binary else b"",
                     )
                 except Exception as e:
-                    console.print(f"[red]Error processing text asset {file_path}: {str(e)}[/red]")
+                    print_exception(console, e, prefix=f"Error processing text asset {file_path}")
                     return None
             elif _suffix in _application_ext_set:
                 try:
@@ -482,11 +488,11 @@ class FileProcessor:
                         blob=binary_data if save_binary else b"",
                     )
                 except Exception as e:
-                    console.print(f"[red]Error processing application {file_path}: {str(e)}[/red]")
+                    print_exception(console, e, prefix=f"Error processing application {file_path}")
                     return None
 
         except Exception as e:
-            console.print(f"[red]Unexpected error processing {file_path}: {str(e)}[/red]")
+            print_exception(console, e, prefix=f"Unexpected error processing {file_path}")
             return None
 
 
@@ -730,7 +736,7 @@ def transform2lance(
         return lancedataset
 
     except AttributeError as e:
-        console.print(f"[red]AttributeError: {e}[/red]")
+        print_exception(console, e, prefix="AttributeError")
         return None
 
 def setup_parser() -> argparse.ArgumentParser:

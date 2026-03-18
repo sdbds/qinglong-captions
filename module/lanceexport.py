@@ -38,6 +38,7 @@ from rich.progress import (
 
 from config.config import CONSOLE_COLORS, DATASET_SCHEMA, get_supported_extensions
 from utils.lance_blob import take_blob_files
+from utils.console_util import print_exception
 from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
 
 console = Console(color_system="truecolor", force_terminal=True)
@@ -144,7 +145,7 @@ def save_blob(
         console.print(f"[{color}]{media_type}: {uri} ({meta_str}) saved successfully.[/{color}]")
         return True
     except Exception as e:
-        console.print(f"[red]Error saving {media_type} {uri}: {e}[/red]")
+        print_exception(console, e, prefix=f"Error saving {media_type} {uri}")
         return False
 
 
@@ -215,7 +216,7 @@ def save_caption(
                             if line and line.strip():
                                 f.write(line.strip() + "\n")
                         except Exception as e:
-                            console.print(f"[yellow]JSON caption parse/save failed: {e}[/yellow]")
+                            print_exception(console, e, prefix="JSON caption parse/save failed", summary_style="yellow")
                     else:
                         if line and line.strip():
                             f.write(line.strip() + "\n")
@@ -224,7 +225,7 @@ def save_caption(
             console.print(f"[{CONSOLE_COLORS['text']}]text: {caption_path} saved successfully.[/{CONSOLE_COLORS['text']}]")
         return True
     except Exception as e:
-        console.print(f"[red]Error saving caption: {e}[/red]")
+        print_exception(console, e, prefix="Error saving caption")
         return False
 
 def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
@@ -422,7 +423,7 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
 
         return True
     except Exception as e:
-        console.print(f"[red]Error saving pages: {e}[/red]")
+        print_exception(console, e, prefix="Error saving pages")
         return False
 
 
@@ -445,7 +446,7 @@ def split_md_document(uri: Path, caption_lines: List[str], save_caption_func) ->
             # 如果不是多页文档，按原样保存
             console.print("[yellow]Document does not contain multiple pages, saving as single file.[/yellow]")
     except Exception as e:
-        console.print(f"[red]Error splitting MD document: {e}[/red]")
+        print_exception(console, e, prefix="Error splitting MD document")
 
 
 def extract_from_lance(
@@ -557,7 +558,7 @@ def extract_from_lance(
                         try:
                             split_video_with_imageio_ffmpeg(uri, subs, save_caption)
                         except Exception as e:
-                            console.print(f"[red]Error splitting video: {e}[/red]")
+                            print_exception(console, e, prefix="Error splitting video")
                             split_media_stream_clips(uri, media_type, subs, save_caption)
                     elif clip_with_caption and not caption_suffix and (uri.with_suffix(".md")).exists():
                         split_md_document(uri, caption, save_caption)
