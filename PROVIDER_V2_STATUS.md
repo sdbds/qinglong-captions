@@ -2,7 +2,9 @@
 
 ## 重构概览
 
-成功将 `module/api_handler.py` (2184 行单体文件) 重构为模块化 Provider 架构。
+已将旧版单体入口 `module/api_handler.py` 重构并退役为模块化 Provider 架构。
+
+> 注：`module/api_handler.py` 已于 2026-03-19 删除。本文保留的是迁移记录，不再表示当前运行时仍支持旧入口。
 
 ## 目录结构
 
@@ -165,7 +167,7 @@ provider_class = registry.find_provider(args, mime)
 | Local VLM | 3 | ~300 行 |
 | **总计** | **28** | **~3600 行** |
 
-原 `api_handler.py`: 2184 行单体文件
+原 `api_handler.py`: 2184 行单体文件（已删除）
 新架构: 28 个文件，职责分离，可维护性大幅提升
 
 ---
