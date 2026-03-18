@@ -37,6 +37,49 @@ def _write_png(path: Path):
     Image.new("RGB", (32, 32), color="white").save(path)
 
 
+def test_direct_prepare_media_skips_unneeded_blob_encoding(monkeypatch, tmp_path):
+    image_path = tmp_path / "sample.png"
+    _write_png(image_path)
+
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_layout_all_en"}})
+    provider = DotsOCRProvider(ctx)
+    called = {"count": 0}
+
+    def fake_encode(*_args, **_kwargs):
+        called["count"] += 1
+        return "blob", "pixels"
+
+    monkeypatch.setattr("providers.ocr.dots.encode_image_to_blob", fake_encode, raising=False)
+
+    media = provider.prepare_media(str(image_path), "image/png", ctx.args)
+
+    assert called["count"] == 0
+    assert media.blob is None
+    assert media.pixels is None
+
+
+def test_openai_prepare_media_keeps_blob_encoding(monkeypatch, tmp_path):
+    image_path = tmp_path / "sample.png"
+    _write_png(image_path)
+
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_layout_all_en", "runtime_model_id": "served-dots"}})
+    ctx.args.local_runtime_backend = "openai"
+    provider = DotsOCRProvider(ctx)
+    called = {"count": 0}
+
+    def fake_encode(*_args, **_kwargs):
+        called["count"] += 1
+        return "blob", "pixels"
+
+    monkeypatch.setattr("providers.ocr.dots.encode_image_to_blob", fake_encode, raising=False)
+
+    media = provider.prepare_media(str(image_path), "image/png", ctx.args)
+
+    assert called["count"] == 1
+    assert media.blob == "blob"
+    assert media.pixels == "pixels"
+
+
 def test_resolve_prompt_mode_uses_upstream_mapping(monkeypatch):
     ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_layout_all_en"}})
     provider = DotsOCRProvider(ctx)

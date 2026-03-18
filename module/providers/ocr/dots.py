@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from providers.backends import OpenAIChatRuntime, find_model_config_section, resolve_runtime_backend
-from providers.base import CaptionResult, MediaContext, PromptContext
+from providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
 from providers.ocr_base import OCRProvider
 from providers.registry import register_provider
 from providers.utils import build_vision_messages, encode_image_to_blob
@@ -119,6 +119,26 @@ class DotsOCRProvider(OCRProvider):
     default_model_id = "davanstrien/dots.ocr-1.5"
     default_prompt = ""
     default_svg_model_id = DEFAULT_SVG_MODEL_ID
+
+    def prepare_media(self, uri: str, mime: str, args) -> MediaContext:
+        """Skip eager image encoding for local direct inference."""
+        blob = None
+        pixels = None
+        if mime.startswith("image") and self.get_runtime_backend().is_openai:
+            blob, pixels = encode_image_to_blob(uri, to_rgb=True)
+
+        output_dir = Path(uri).with_suffix("")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        return MediaContext(
+            uri=uri,
+            mime=mime,
+            sha256hash="",
+            modality=MediaModality.DOCUMENT if mime.startswith("application") else MediaModality.IMAGE,
+            blob=blob,
+            pixels=pixels,
+            extras={"output_dir": output_dir},
+        )
 
     def resolve_prompts(self, uri: str, mime: str) -> PromptContext:
         _, prompt_text = self._resolve_prompt_mode_and_prompt()
