@@ -67,6 +67,7 @@ class ProviderRegistry:
                 # OCR models
                 "deepseek_ocr",
                 "dots_ocr",
+                "qianfan_ocr",
                 "lighton_ocr",
                 "hunyuan_ocr",
                 "glm_ocr",

@@ -670,8 +670,19 @@ max_new_tokens = 24000
 runtime_temperature = 0.1
 runtime_top_p = 1.0
 runtime_max_tokens = 16384
-fitz_preprocess = true
+fitz_preprocess = false
 dpi = 200
+
+# Qianfan-OCR configuration
+# Model: https://huggingface.co/baidu/Qianfan-OCR
+[qianfan_ocr]
+model_id = "baidu/Qianfan-OCR"
+prompt = ""
+prompt_strategy = "append"
+think_enabled = true
+max_new_tokens = 16384
+input_size = 448
+max_num = 12
 
 # HunyuanOCR configuration
 # Requires: pip install git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4

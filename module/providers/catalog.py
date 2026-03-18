@@ -79,6 +79,7 @@ ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
         RouteSpec("mistral_ocr", "mistral_ocr", aliases=("pixtral_ocr", "pixtral"), requires_remote_config=True),
         RouteSpec("deepseek_ocr", "deepseek_ocr"),
         RouteSpec("dots_ocr", "dots_ocr"),
+        RouteSpec("qianfan_ocr", "qianfan_ocr"),
         RouteSpec("lighton_ocr", "lighton_ocr"),
         RouteSpec("hunyuan_ocr", "hunyuan_ocr"),
         RouteSpec("olmocr", "olmocr"),

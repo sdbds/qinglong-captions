@@ -38,6 +38,105 @@ def _write_png(path: Path):
     Image.new("RGB", (32, 32), color="white").save(path)
 
 
+def _compat_fetch_image(image, min_pixels=None, max_pixels=None):
+    if isinstance(image, Image.Image):
+        loaded = image.copy().convert("RGB")
+    else:
+        with Image.open(image) as pil_image:
+            loaded = pil_image.convert("RGB")
+    if min_pixels or max_pixels:
+        return dots_module._upstream_fetch_image_for_inference(
+            loaded,
+            min_pixels=min_pixels or dots_module.UPSTREAM_MIN_PIXELS,
+            max_pixels=max_pixels or dots_module.UPSTREAM_MAX_PIXELS,
+        )
+    return loaded
+
+
+def _compat_get_image_by_fitz_doc(image, target_dpi=200):
+    del target_dpi
+    return _compat_fetch_image(image)
+
+
+def _compat_pre_process_bboxes(origin_image, bboxes, input_width, input_height, factor=28, min_pixels=3136, max_pixels=11289600):
+    del factor
+    original_width, original_height = origin_image.size
+    resized_height, resized_width = dots_module._smart_resize_for_dots(
+        input_height,
+        input_width,
+        min_pixels=min_pixels,
+        max_pixels=max_pixels,
+    )
+    scale_x = original_width / resized_width
+    scale_y = original_height / resized_height
+    return [
+        [
+            int(float(bbox[0]) / scale_x),
+            int(float(bbox[1]) / scale_y),
+            int(float(bbox[2]) / scale_x),
+            int(float(bbox[3]) / scale_y),
+        ]
+        for bbox in bboxes
+    ]
+
+
+def _compat_post_process_output(response, prompt_mode, origin_image, input_image, min_pixels=None, max_pixels=None):
+    try:
+        cells = json.loads(response)
+        if not isinstance(cells, list):
+            raise ValueError("layout output is not a list")
+        processed = dots_module._post_process_cells(
+            origin_image,
+            cells,
+            input_width=input_image.width,
+            input_height=input_image.height,
+            min_pixels=min_pixels or dots_module.UPSTREAM_MIN_PIXELS,
+            max_pixels=max_pixels or dots_module.UPSTREAM_MAX_PIXELS,
+        )
+        return processed, False
+    except Exception:
+        cleaner_cls = dots_module._load_output_cleaner_class()
+        cleaner = cleaner_cls()
+        cleaned = cleaner.clean_model_output(str(response))
+        if isinstance(cleaned, list):
+            markdown = "\n\n".join(
+                str(cell.get("text", "")).strip()
+                for cell in cleaned
+                if isinstance(cell, dict) and str(cell.get("text", "")).strip()
+            )
+            return markdown, True
+        return str(cleaned), True
+
+
+@pytest.fixture(autouse=True)
+def stub_runtime_api(monkeypatch):
+    monkeypatch.setattr(
+        dots_module,
+        "_load_upstream_runtime_api",
+        lambda: {
+            "MIN_PIXELS": dots_module.UPSTREAM_MIN_PIXELS,
+            "MAX_PIXELS": dots_module.UPSTREAM_MAX_PIXELS,
+            "fetch_image": _compat_fetch_image,
+            "get_image_by_fitz_doc": _compat_get_image_by_fitz_doc,
+            "load_images_from_pdf": lambda *_args, **_kwargs: [],
+            "post_process_output": _compat_post_process_output,
+            "draw_layout_on_image": dots_module._draw_layout_on_image,
+            "layoutjson2md": lambda image, cells, text_key="text", no_page_hf=False: dots_module._layoutjson_to_markdown(
+                image,
+                [
+                    dict(cell, text=cell.get(text_key, ""))
+                    if isinstance(cell, dict) and text_key != "text"
+                    else cell
+                    for cell in cells
+                ],
+                no_page_hf=no_page_hf,
+            ),
+            "pre_process_bboxes": _compat_pre_process_bboxes,
+        },
+        raising=False,
+    )
+
+
 def test_direct_prepare_media_skips_unneeded_blob_encoding(monkeypatch, tmp_path):
     image_path = tmp_path / "sample.png"
     _write_png(image_path)
@@ -256,6 +355,7 @@ def test_load_upstream_prompt_mapping_reads_prompts_file_without_importing_packa
             raise AssertionError("dots_ocr package import should be bypassed")
         return original_import(name, globals, locals, fromlist, level)
 
+    monkeypatch.setattr(dots_module, "_vendor_dots_root", lambda: tmp_path, raising=False)
     monkeypatch.setattr(dots_module, "importlib_metadata", SimpleNamespace(distribution=fake_distribution), raising=False)
     monkeypatch.setattr(builtins, "__import__", guarded_import)
 
@@ -392,11 +492,11 @@ def test_text_prompt_single_image_writes_result_md(monkeypatch, tmp_path):
     image_path = tmp_path / "sample.png"
     _write_png(image_path)
 
-    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_layout_all_en"}})
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_ocr"}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
         "providers.ocr.dots._load_upstream_prompt_mapping",
-        lambda: {"prompt_layout_all_en": "<doc>"},
+        lambda: {"prompt_ocr": "<ocr>"},
         raising=False,
     )
     monkeypatch.setattr(
@@ -459,7 +559,7 @@ def test_layout_prompt_fallback_cleaner_writes_filtered_markdown(monkeypatch, tm
     monkeypatch.setattr(
         provider,
         "_run_direct_generation",
-        lambda **_: '[{"bbox":[0,0,56,56],"category":"Text","text":"Hello"} {"bbox":[0,0,56,56],"category":"Text","text":"World"}]',
+        lambda **_: '[{"bbox":[0,0,56,56],"category":"Text","text":"Hello"} {"bbox":[0,0,28,28],"category":"Text","text":"World"}]',
         raising=False,
     )
 
@@ -495,8 +595,42 @@ def test_single_image_attempt_uses_upstream_fitz_preprocess_defaults(monkeypatch
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
     provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
 
-    assert captured["fitz_preprocess"] is True
+    assert captured["fitz_preprocess"] is False
     assert captured["dpi"] == 200
+
+
+def test_single_image_attempt_reuses_generation_artifacts_without_second_preprocess(monkeypatch, tmp_path):
+    image_path = tmp_path / "sample.png"
+    _write_png(image_path)
+
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_ocr"}})
+    provider = DotsOCRProvider(ctx)
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_prompt_mapping",
+        lambda: {"prompt_ocr": "<ocr>"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        provider,
+        "_run_direct_generation",
+        lambda **_: dots_module.DotsInferenceArtifacts(
+            content="# extracted markdown",
+            origin_image=Image.new("RGB", (32, 32), color="white"),
+            input_image=Image.new("RGB", (56, 56), color="white"),
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        provider,
+        "_prepare_upstream_images",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("single image should not preprocess twice")),
+        raising=False,
+    )
+
+    media = provider.prepare_media(str(image_path), "image/png", ctx.args)
+    result = provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
+
+    assert result.raw == "# extracted markdown"
 
 
 def test_attempt_logs_effective_prompt_mode_and_prompt(monkeypatch, tmp_path):
@@ -574,18 +708,13 @@ def test_svg_prompt_pdf_writes_page_svgs_and_root_markdown(monkeypatch, tmp_path
     )
     monkeypatch.setattr(
         "providers.ocr.dots._load_upstream_pdf_images",
-        lambda _: [object(), object()],
-        raising=False,
-    )
-    monkeypatch.setattr(
-        "providers.ocr.dots._save_pdf_page_image",
-        lambda *args, **kwargs: str(args[1]),
+        lambda *_args, **_kwargs: [Image.new("RGB", (32, 32), color="white"), Image.new("RGB", (32, 32), color="white")],
         raising=False,
     )
     monkeypatch.setattr(
         provider,
         "_run_direct_generation",
-        lambda **kwargs: f"<svg>{kwargs['image_path']}</svg>",
+        lambda **kwargs: "<svg>page</svg>",
         raising=False,
     )
 
@@ -605,11 +734,11 @@ def test_pdf_path_uses_upstream_loader_instead_of_legacy_splitter(monkeypatch, t
     pdf_path = tmp_path / "doc.pdf"
     pdf_path.write_bytes(b"%PDF-fake")
 
-    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_layout_all_en"}})
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_ocr"}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
         "providers.ocr.dots._load_upstream_prompt_mapping",
-        lambda: {"prompt_layout_all_en": "<doc>"},
+        lambda: {"prompt_ocr": "<ocr>"},
         raising=False,
     )
     monkeypatch.setattr(
@@ -673,6 +802,45 @@ def test_pdf_pages_do_not_use_fitz_preprocess(monkeypatch, tmp_path):
     provider.attempt(media, provider.resolve_prompts(str(pdf_path), "application/pdf"))
 
     assert captured[0]["fitz_preprocess"] is False
+
+
+def test_pdf_attempt_reuses_generation_artifacts_without_second_preprocess(monkeypatch, tmp_path):
+    pdf_path = tmp_path / "doc.pdf"
+    pdf_path.write_bytes(b"%PDF-fake")
+
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_ocr"}})
+    provider = DotsOCRProvider(ctx)
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_prompt_mapping",
+        lambda: {"prompt_ocr": "<ocr>"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_pdf_images",
+        lambda *_args, **_kwargs: [Image.new("RGB", (32, 32), color="white")],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        provider,
+        "_run_direct_generation",
+        lambda **_: dots_module.DotsInferenceArtifacts(
+            content="# page content",
+            origin_image=Image.new("RGB", (32, 32), color="white"),
+            input_image=Image.new("RGB", (56, 56), color="white"),
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        provider,
+        "_prepare_upstream_images",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("pdf page should not preprocess twice")),
+        raising=False,
+    )
+
+    media = provider.prepare_media(str(pdf_path), "application/pdf", ctx.args)
+    result = provider.attempt(media, provider.resolve_prompts(str(pdf_path), "application/pdf"))
+
+    assert result.raw == "# page content"
 
 
 def test_attempt_uses_upstream_direct_max_new_tokens_default(monkeypatch, tmp_path):

@@ -213,7 +213,19 @@ dots-ocr = [
     "qwen-vl-utils",
     "PyMuPDF",
     "img2pdf",
-    "dots_ocr @ git+https://github.com/rednote-hilab/dots.ocr.git",
+    "dots_ocr",
+]
+qianfan-ocr = [
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers[serving]>=4.57.0",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
+    "safetensors",
+    "Pillow>=9.5.0",
+    "PyMuPDF",
+    "img2pdf",
 ]
 chandra-ocr = [
     "torch==2.8.0",
@@ -360,6 +372,26 @@ conflicts = [
     [
         { extra = "deepseek-ocr" },
         { extra = "dots-ocr" },
+    ],
+    [
+        { extra = "qianfan-ocr" },
+        { extra = "translate" },
+    ],
+    [
+        { extra = "qianfan-ocr" },
+        { extra = "deepseek-ocr" },
+    ],
+    [
+        { extra = "qianfan-ocr" },
+        { extra = "penguin-vl-local" },
+    ],
+    [
+        { extra = "qianfan-ocr" },
+        { extra = "dots-ocr" },
+    ],
+    [
+        { extra = "qianfan-ocr" },
+        { extra = "music-flamingo-local" },
     ],
     [
         { extra = "translate" },
@@ -610,6 +642,9 @@ conflicts = [
         { extra = "dots-ocr" },
     ],
 ]
+
+[tool.uv.sources]
+dots_ocr = { path = "third_party/dots.ocr", editable = true }
 
 [tool.uv.extra-build-dependencies]
 tensorrt-cu12-libs = ["wheel_stub"]

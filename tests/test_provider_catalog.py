@@ -26,6 +26,7 @@ def test_catalog_exposes_canonical_route_choices_only_by_default():
     alm_choices = route_choices("alm_model")
     assert "mistral_ocr" in ocr_choices
     assert "dots_ocr" in ocr_choices
+    assert "qianfan_ocr" in ocr_choices
     assert "lighton_ocr" in ocr_choices
     assert "pixtral_ocr" not in ocr_choices
     assert "pixtral" not in ocr_choices

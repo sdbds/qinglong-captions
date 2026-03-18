@@ -7,9 +7,9 @@ $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
-$kimi_api_key = "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" #
-$kimi_model_path = "moonshotai/kimi-k2.5"
-$kimi_base_url = "https://integrate.api.nvidia.com/v1"
+$kimi_api_key = ""
+$kimi_model_path = "kimi-k2.5" # "moonshotai/kimi-k2.5" if you want to use nvidia's endpoint
+$kimi_base_url = "https://api.moonshot.cn/v1" # "https://integrate.api.nvidia.com/v1" if you want to use nvidia's endpoint
 $kimi_code_api_key = ""
 $kimi_code_model_path = "k2p5"
 $kimi_code_base_url = "https://api.kimi.com/coding/v1"
@@ -53,7 +53,7 @@ $wait_time = 1
 $max_retries = 100
 $segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "lighton_ocr", "dots_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "lighton_ocr", "dots_ocr", "qianfan_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image/video tasks
@@ -89,9 +89,9 @@ foreach ($Path in $VenvPaths) {
 
 $Env:HF_HOME = "huggingface"
 $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
-$Env:HF_ENDPOINT = "https://hf-mirror.com"
+#$Env:HF_ENDPOINT = "https://hf-mirror.com"
 $Env:PILLOW_IGNORE_XMP_DATA_IS_TOO_LONG = "1"
-$Env:UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple/"
+#$Env:UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple/"
 $Env:UV_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 $Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
 $Env:UV_NO_BUILD_ISOLATION = "1"
@@ -479,6 +479,9 @@ if ($ocr_model) {
   }
   elseif ($ocr_model -eq "dots_ocr") {
     Add-UvExtra "dots-ocr"
+  }
+  elseif ($ocr_model -eq "qianfan_ocr") {
+    Add-UvExtra "qianfan-ocr"
   }
   elseif ($ocr_model -eq "olmocr") {
     Add-UvExtra "olmocr"

@@ -173,6 +173,7 @@ class CaptionStep:
         "deepseek_ocr": "deepseek-ocr",
         "lighton_ocr": "lighton-ocr",
         "dots_ocr": "dots-ocr",
+        "qianfan_ocr": "qianfan-ocr",
         "olmocr": "olmocr",
         "hunyuan_ocr": "hunyuan-ocr",
         "moondream": "moondream",
