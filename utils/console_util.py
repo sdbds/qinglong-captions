@@ -1,3 +1,5 @@
+import traceback
+
 from rich.console import Console
 from rich.layout import Layout
 from rich.markdown import Markdown
@@ -11,6 +13,18 @@ from utils.tag_highlighting import get_tag_classifier
 
 # 全局控制台实例
 console = Console(color_system="truecolor", force_terminal=True)
+
+
+def print_exception(console, exc, prefix=None, *, summary_style="red", traceback_style=None):
+    """Print an exception summary followed by its full traceback when available."""
+    summary = f"{type(exc).__name__}: {exc}"
+    if prefix:
+        summary = f"{prefix}: {summary}"
+    console.print(Text(summary, style=summary_style))
+
+    formatted = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    if formatted and formatted.strip():
+        console.print(Text(formatted, style=traceback_style or summary_style))
 
 
 class BaseLayout:

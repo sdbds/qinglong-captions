@@ -41,3 +41,33 @@ def test_run_python_script_keeps_history_and_adds_separator(monkeypatch):
         assert lines.index(ProcessRunner.TASK_DIVIDER) > lines.index("existing log")
     finally:
         log_buffer.clear()
+
+
+def test_run_python_script_logs_full_traceback(monkeypatch):
+    log_buffer.clear()
+    runner = ProcessRunner()
+
+    async def fake_run(cmd, work_dir, env):
+        def raise_inside_runner():
+            raise RuntimeError("subprocess boom")
+
+        raise_inside_runner()
+
+    monkeypatch.setattr(runner, "_build_env", lambda env_vars=None: {})
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+    monkeypatch.setattr(runner, "_resolve_project_python", lambda work_dir, env: sys.executable)
+
+    try:
+        result = asyncio.run(
+            runner.run_python_script("module.captioner", ["dataset"], native_console=False),
+        )
+
+        lines = [line for _seq, line in log_buffer.get_all_lines()]
+        joined = "\n".join(lines)
+
+        assert result.status == ProcessStatus.ERROR
+        assert "Traceback" in joined
+        assert "RuntimeError: subprocess boom" in joined
+        assert "raise_inside_runner" in joined
+    finally:
+        log_buffer.clear()

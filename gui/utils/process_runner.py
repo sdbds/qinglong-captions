@@ -9,6 +9,7 @@
 """
 
 import asyncio
+import io
 import json
 import re
 import shutil
@@ -16,11 +17,12 @@ import subprocess
 import sys
 import os
 import tempfile
-import traceback
 from pathlib import Path
 from typing import Callable, List, Optional
 from dataclasses import dataclass
 from enum import Enum
+
+from rich.console import Console
 
 try:
     import tomllib
@@ -29,6 +31,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 
 from gui.utils.log_buffer import log_buffer as _global_log_buffer, LogBuffer
 from gui.utils.ansi_to_html import strip_ansi
+from utils.console_util import print_exception
 
 
 _TRANSIENT_SPINNER_FRAMES = frozenset("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
@@ -43,6 +46,14 @@ def _get_uv_patch_lock() -> asyncio.Lock:
     if _uv_patch_lock is None:
         _uv_patch_lock = asyncio.Lock()
     return _uv_patch_lock
+
+
+def _render_exception_text(exc: BaseException, prefix: Optional[str] = None, *, summary_style: str = "red") -> str:
+    """Render exception details via the shared Rich helper for log-buffer output."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, color_system=None)
+    print_exception(console, exc, prefix=prefix, summary_style=summary_style)
+    return buffer.getvalue().strip()
 
 
 class ProcessStatus(Enum):
@@ -816,7 +827,7 @@ class ProcessRunner:
             detail = str(e) or repr(e)
             error_msg = f"执行出错: {type(e).__name__}: {detail}"
             self._notify_log(error_msg)
-            self._notify_log(traceback.format_exc(limit=6))
+            self._notify_log(_render_exception_text(e, prefix="执行出错"))
             return ProcessResult(ProcessStatus.ERROR, -1, error_msg)
         finally:
             self._task_divider_emitted = False
@@ -971,7 +982,7 @@ class ProcessRunner:
             detail = str(e) or repr(e)
             error_msg = f"执行出错: {type(e).__name__}: {detail}"
             self._notify_log(error_msg)
-            self._notify_log(traceback.format_exc(limit=6))
+            self._notify_log(_render_exception_text(e, prefix="执行出错"))
             return ProcessResult(ProcessStatus.ERROR, -1, error_msg)
         finally:
             self.process = None

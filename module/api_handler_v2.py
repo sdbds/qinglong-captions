@@ -27,6 +27,7 @@ from rich.progress import Progress
 from config.runtime_config import coerce_runtime_config
 from module.providers import CaptionResult, ProviderContext, get_registry
 from module.providers.catalog import normalize_runtime_args
+from utils.console_util import print_exception
 
 
 def api_process_batch(
@@ -84,7 +85,7 @@ def api_process_batch(
         result = provider.execute(uri, mime, sha256hash)
         return result
     except Exception as e:
-        console.print(f"[red]Provider {provider_class.name} failed: {e}[/red]")
+        print_exception(console, e, prefix=f"Provider {provider_class.name} failed")
         raise
 
 

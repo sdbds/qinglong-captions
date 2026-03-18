@@ -98,6 +98,7 @@ def test_pyproject_declares_qianfan_ocr_extra():
     assert any(dep == "torchvision" for dep in qianfan_deps)
     assert any(dep.startswith("transformers[serving]>=4.57.0") for dep in qianfan_deps)
     assert any(dep.startswith("huggingface_hub") for dep in qianfan_deps)
+    assert any(dep.startswith("timm") for dep in qianfan_deps)
     assert "PyMuPDF" in qianfan_deps
     assert "img2pdf" in qianfan_deps
 

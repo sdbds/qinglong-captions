@@ -1,6 +1,10 @@
+import io
 import os
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
+from rich.console import Console
 
 from tests.provider_v2_helpers import make_provider_args
 
@@ -76,6 +80,40 @@ class TestApiHandlerV2:
             assert not is_v2_enabled()
         finally:
             os.environ["QINGLONG_API_V2"] = old_val
+
+    def test_provider_failure_logs_full_traceback(self):
+        from module.api_handler_v2 import api_process_batch
+
+        args = make_provider_args(
+            step_api_key="sk-xxx",
+            max_retries=1,
+            wait_time=0.01,
+            dir_name=False,
+        )
+        buf = io.StringIO()
+        console = Console(file=buf, force_terminal=False, color_system=None)
+
+        def execute_boom(*_args, **_kwargs):
+            raise RuntimeError("execute-fail")
+
+        with (
+            patch("module.api_handler_v2.Console", return_value=console),
+            patch("providers.base.Provider.execute", side_effect=execute_boom),
+            pytest.raises(RuntimeError, match="execute-fail"),
+        ):
+            api_process_batch(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                config={"prompts": {}},
+                args=args,
+                sha256hash="abc",
+            )
+
+        output = buf.getvalue()
+        assert "Provider" in output
+        assert "RuntimeError: execute-fail" in output
+        assert "Traceback" in output
+        assert "execute_boom" in output
 
 
 class TestCaptionerV2Switch:

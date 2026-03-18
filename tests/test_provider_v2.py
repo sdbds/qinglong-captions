@@ -453,6 +453,25 @@ class TestWithRetryImpl:
             with_retry_impl(fn, RetryConfig(max_retries=5, base_wait=0.01))
         assert counter["n"] == 1
 
+    def test_logs_full_traceback_to_console(self):
+        from providers.base import RetryConfig
+        from providers.utils import with_retry_impl
+        from rich.console import Console
+
+        buf = io.StringIO()
+        console = Console(file=buf, force_terminal=False, color_system=None)
+
+        def retry_boom():
+            raise RuntimeError("retry-fail")
+
+        with pytest.raises(RuntimeError, match="retry-fail"):
+            with_retry_impl(retry_boom, RetryConfig(max_retries=1, base_wait=0.01), console=console)
+
+        output = buf.getvalue()
+        assert "RuntimeError: retry-fail" in output
+        assert "Traceback" in output
+        assert "retry_boom" in output
+
 
 # ──────────────────────────────────────────────
 #  build_vision_messages

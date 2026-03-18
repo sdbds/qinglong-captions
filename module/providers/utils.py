@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional, Tuple
 
 from PIL import Image
 from rich.console import Console
+from utils.console_util import print_exception
 
 try:
     from rich_pixels import Pixels
@@ -126,6 +127,14 @@ def with_retry_impl(fn: Callable[[], Any], retry_config: Any, console: Optional[
         try:
             return fn()
         except Exception as e:
+            if console:
+                print_exception(
+                    console,
+                    e,
+                    prefix=f"[retry] {attempt + 1}/{max_retries} failed",
+                    summary_style="yellow",
+                )
+
             if attempt >= max_retries - 1:
                 if retry_config.on_exhausted:
                     try:
@@ -133,21 +142,6 @@ def with_retry_impl(fn: Callable[[], Any], retry_config: Any, console: Optional[
                     except Exception:
                         pass
                 raise
-
-            # 日志
-            if console:
-                try:
-                    tb = traceback.extract_tb(e.__traceback__)
-                    if tb:
-                        last = tb[-1]
-                        console.print(
-                            f"[yellow][retry] {attempt + 1}/{max_retries} failed at "
-                            f"{Path(last.filename).name}:{last.lineno}: {type(e).__name__}[/yellow]"
-                        )
-                    else:
-                        console.print(f"[yellow][retry] {attempt + 1}/{max_retries} failed: {type(e).__name__}: {e}[/yellow]")
-                except Exception:
-                    console.print(f"[yellow][retry] {attempt + 1}/{max_retries} failed: {e}[/yellow]")
 
             # 计算等待时间
             wait = classifier(e)

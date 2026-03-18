@@ -95,7 +95,8 @@ def test_run_direct_generation_uses_qianfan_chat_interface(monkeypatch, tmp_path
     captured = {}
 
     class FakeTensor:
-        def to(self, dtype=None):
+        def to(self, device=None, dtype=None):
+            captured["pixel_device"] = device
             captured["pixel_dtype"] = dtype
             return self
 
@@ -147,6 +148,101 @@ def test_run_direct_generation_uses_qianfan_chat_interface(monkeypatch, tmp_path
     assert result == "<think>hidden</think>\n# final"
 
 
+def test_run_direct_generation_suppresses_broken_wandb_import(monkeypatch, tmp_path):
+    image_path = tmp_path / "sample.png"
+    _write_png(image_path)
+
+    ctx = make_ctx({"qianfan_ocr": {"model_id": "baidu/Qianfan-OCR"}})
+    provider = QianfanOCRProvider(ctx)
+    captured = {}
+    broken_wandb = object()
+
+    class FakeTensor:
+        def to(self, device=None, dtype=None):
+            return self
+
+    class FakeModel:
+        def chat(self, tokenizer, pixel_values=None, question=None, generation_config=None):
+            return "# final"
+
+    class FakeLoader:
+        def get_or_load_processor(self, model_id, processor_cls, **kwargs):
+            return "tokenizer"
+
+        def get_or_load_model(self, model_id, model_cls, **kwargs):
+            captured["wandb_module"] = sys.modules.get("wandb")
+            return FakeModel()
+
+    fake_transformers = SimpleNamespace(AutoModel=object, AutoTokenizer=object)
+
+    monkeypatch.setattr(qianfan_module, "_load_image_tensor", lambda *_args, **_kwargs: FakeTensor(), raising=False)
+    monkeypatch.setattr(qianfan_module, "resolve_device_dtype", lambda: ("cpu", "bf16", "eager"), raising=False)
+    monkeypatch.setattr(qianfan_module, "_TRANS_LOADER", FakeLoader(), raising=False)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+    monkeypatch.setitem(sys.modules, "wandb", broken_wandb)
+
+    provider._run_direct_generation(
+        image_path=str(image_path),
+        question="Parse this document to Markdown.<think>",
+        model_id="baidu/Qianfan-OCR",
+        max_new_tokens=128,
+    )
+
+    assert captured["wandb_module"] is None
+
+
+def test_run_direct_generation_moves_pixels_to_vision_device(monkeypatch, tmp_path):
+    image_path = tmp_path / "sample.png"
+    _write_png(image_path)
+
+    ctx = make_ctx({"qianfan_ocr": {"model_id": "baidu/Qianfan-OCR"}})
+    provider = QianfanOCRProvider(ctx)
+    captured = {}
+
+    class FakeTensor:
+        def to(self, device=None, dtype=None):
+            captured["pixel_device"] = device
+            captured["pixel_dtype"] = dtype
+            return self
+
+    class FakeVisionParam:
+        device = "cuda:0"
+
+    class FakeVisionModel:
+        def parameters(self):
+            yield FakeVisionParam()
+
+    class FakeModel:
+        vision_model = FakeVisionModel()
+
+        def chat(self, tokenizer, pixel_values=None, question=None, generation_config=None):
+            return "# final"
+
+    class FakeLoader:
+        def get_or_load_processor(self, model_id, processor_cls, **kwargs):
+            return "tokenizer"
+
+        def get_or_load_model(self, model_id, model_cls, **kwargs):
+            return FakeModel()
+
+    fake_transformers = SimpleNamespace(AutoModel=object, AutoTokenizer=object)
+
+    monkeypatch.setattr(qianfan_module, "_load_image_tensor", lambda *_args, **_kwargs: FakeTensor(), raising=False)
+    monkeypatch.setattr(qianfan_module, "resolve_device_dtype", lambda: ("cpu", "bf16", "eager"), raising=False)
+    monkeypatch.setattr(qianfan_module, "_TRANS_LOADER", FakeLoader(), raising=False)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    provider._run_direct_generation(
+        image_path=str(image_path),
+        question="Parse this document to Markdown.<think>",
+        model_id="baidu/Qianfan-OCR",
+        max_new_tokens=128,
+    )
+
+    assert captured["pixel_device"] == "cuda:0"
+    assert captured["pixel_dtype"] == "bf16"
+
+
 def test_attempt_single_image_writes_cleaned_result_md(monkeypatch, tmp_path):
     image_path = tmp_path / "sample.png"
     _write_png(image_path)
@@ -165,6 +261,31 @@ def test_attempt_single_image_writes_cleaned_result_md(monkeypatch, tmp_path):
 
     assert (tmp_path / "sample" / "result.md").read_text(encoding="utf-8") == "# final"
     assert result.raw == "# final"
+
+
+def test_attempt_single_image_renders_placeholder_images(monkeypatch, tmp_path):
+    image_path = tmp_path / "sample.png"
+    Image.new("RGB", (100, 100), color="white").save(image_path)
+
+    ctx = make_ctx({"qianfan_ocr": {"max_new_tokens": 64}})
+    provider = QianfanOCRProvider(ctx)
+    monkeypatch.setattr(
+        provider,
+        "_run_direct_generation",
+        lambda **_: "Before\n\n![image](<box>[[<COORD_250>, <COORD_250>, <COORD_750>, <COORD_750>]]</box>)",
+        raising=False,
+    )
+
+    media = provider.prepare_media(str(image_path), "image/png", ctx.args)
+    result = provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
+
+    result_md = (tmp_path / "sample" / "result.md").read_text(encoding="utf-8")
+    assert result_md == "Before\n\n![image](images/image-001.png)"
+    assert result.raw == "Before\n\n![image](images/image-001.png)"
+    crop_path = tmp_path / "sample" / "images" / "image-001.png"
+    assert crop_path.exists()
+    with Image.open(crop_path) as crop:
+        assert crop.size == (50, 50)
 
 
 def test_attempt_pdf_writes_cleaned_page_results_and_merged_markdown(monkeypatch, tmp_path):
@@ -198,3 +319,48 @@ def test_attempt_pdf_writes_cleaned_page_results_and_merged_markdown(monkeypatch
     assert (tmp_path / "sample" / "page_0002" / "result.md").read_text(encoding="utf-8") == "# page 2"
     assert (tmp_path / "sample" / "result.md").read_text(encoding="utf-8") == "# page 1\n<--- Page Split --->\n# page 2"
     assert result.raw == "# page 1\n<--- Page Split --->\n# page 2"
+
+
+def test_attempt_pdf_renders_placeholder_images_for_pages_and_root_markdown(monkeypatch, tmp_path):
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4")
+
+    ctx = make_ctx({"qianfan_ocr": {"max_new_tokens": 64}})
+    provider = QianfanOCRProvider(ctx)
+    monkeypatch.setattr(
+        qianfan_module,
+        "pdf_to_images_high_quality",
+        lambda _uri: [Image.new("RGB", (100, 100), color="white"), Image.new("RGB", (100, 100), color="white")],
+        raising=False,
+    )
+    responses = iter(
+        [
+            "![image](<box>[[<COORD_100>, <COORD_100>, <COORD_600>, <COORD_600>]]</box>)",
+            "![image](<box>[[<COORD_200>, <COORD_200>, <COORD_800>, <COORD_800>]]</box>)",
+        ]
+    )
+    monkeypatch.setattr(
+        provider,
+        "_run_direct_generation",
+        lambda **_: next(responses),
+        raising=False,
+    )
+
+    media = provider.prepare_media(str(pdf_path), "application/pdf", ctx.args)
+    result = provider.attempt(media, provider.resolve_prompts(str(pdf_path), "application/pdf"))
+
+    root_dir = tmp_path / "sample"
+    page1_md = (root_dir / "page_0001" / "result.md").read_text(encoding="utf-8")
+    page2_md = (root_dir / "page_0002" / "result.md").read_text(encoding="utf-8")
+    merged_md = (root_dir / "result.md").read_text(encoding="utf-8")
+
+    assert page1_md == "![image](images/page_0001-image-001.png)"
+    assert page2_md == "![image](images/page_0002-image-001.png)"
+    assert merged_md == (
+        "![image](page_0001/images/page_0001-image-001.png)\n"
+        "<--- Page Split --->\n"
+        "![image](page_0002/images/page_0002-image-001.png)"
+    )
+    assert result.raw == merged_md
+    assert (root_dir / "page_0001" / "images" / "page_0001-image-001.png").exists()
+    assert (root_dir / "page_0002" / "images" / "page_0002-image-001.png").exists()

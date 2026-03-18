@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import sys
 import time
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional
@@ -22,6 +24,25 @@ from utils.transformer_loader import resolve_device_dtype, transformerLoader
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 _TRANS_LOADER: Optional[transformerLoader] = None
+_MISSING = object()
+_IMAGE_PLACEHOLDER_RE = re.compile(
+    r"!\[(?P<label>[^\]]*)\]\(\s*(?:<box>)?\s*\[\[(?P<coords>[^\]]+)\]\]\s*(?:</box>)?\s*\)"
+)
+_COORD_TOKEN_RE = re.compile(r"<COORD_(\d+)>|(\d+)")
+_LOCAL_RENDERED_IMAGE_RE = re.compile(r"!\[(?P<label>[^\]]*)\]\((?P<path>images/[^)]+)\)")
+
+
+@contextmanager
+def _suppress_broken_wandb_import():
+    previous = sys.modules.get("wandb", _MISSING)
+    sys.modules["wandb"] = None
+    try:
+        yield
+    finally:
+        if previous is _MISSING:
+            sys.modules.pop("wandb", None)
+        else:
+            sys.modules["wandb"] = previous
 
 
 def _build_transform(input_size: int):
@@ -129,6 +150,93 @@ def _load_image_tensor(image_file: str, *, input_size: int = 448, max_num: int =
     return torch.stack(pixel_values)
 
 
+def _resolve_vision_device(model: Any):
+    vision_model = getattr(model, "vision_model", None)
+    if vision_model is not None:
+        try:
+            return next(vision_model.parameters()).device
+        except Exception:
+            pass
+
+    try:
+        return next(model.parameters()).device
+    except Exception:
+        pass
+
+    return getattr(model, "device", None)
+
+
+def _parse_normalized_coords(raw_coords: str) -> tuple[int, int, int, int] | None:
+    values = [int(coord_a or coord_b) for coord_a, coord_b in _COORD_TOKEN_RE.findall(raw_coords or "")]
+    if len(values) != 4:
+        return None
+    return values[0], values[1], values[2], values[3]
+
+
+def _normalized_coords_to_pixels(
+    coords: tuple[int, int, int, int],
+    *,
+    width: int,
+    height: int,
+) -> tuple[int, int, int, int] | None:
+    x1, y1, x2, y2 = coords
+    left = max(0, min(width, int(x1 / 1000 * width)))
+    top = max(0, min(height, int(y1 / 1000 * height)))
+    right = max(0, min(width, int(x2 / 1000 * width)))
+    bottom = max(0, min(height, int(y2 / 1000 * height)))
+    if right <= left or bottom <= top:
+        return None
+    return left, top, right, bottom
+
+
+def _render_placeholder_images(
+    markdown: str,
+    *,
+    source_image_path: Path,
+    asset_dir: Path,
+    asset_prefix: str,
+) -> str:
+    if not markdown or not _IMAGE_PLACEHOLDER_RE.search(markdown):
+        return markdown
+
+    with Image.open(source_image_path) as source:
+        page_image = source.convert("RGB")
+    width, height = page_image.size
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    crop_index = 0
+
+    def replace_placeholder(match: re.Match[str]) -> str:
+        nonlocal crop_index
+        coords = _parse_normalized_coords(match.group("coords"))
+        if coords is None:
+            return match.group(0)
+        pixel_box = _normalized_coords_to_pixels(coords, width=width, height=height)
+        if pixel_box is None:
+            return match.group(0)
+
+        crop_index += 1
+        asset_name = f"{asset_prefix}-{crop_index:03d}.png"
+        asset_path = asset_dir / asset_name
+        page_image.crop(pixel_box).save(asset_path)
+        rendered_path = asset_path.relative_to(asset_dir.parent).as_posix()
+        label = match.group("label") or "image"
+        return f"![{label}]({rendered_path})"
+
+    return _IMAGE_PLACEHOLDER_RE.sub(replace_placeholder, markdown)
+
+
+def _prefix_rendered_image_paths(markdown: str, page_dir_name: str) -> str:
+    if not markdown:
+        return markdown
+
+    def replace_image_path(match: re.Match[str]) -> str:
+        label = match.group("label") or "image"
+        path = match.group("path")
+        return f"![{label}]({Path(page_dir_name, path).as_posix()})"
+
+    return _LOCAL_RENDERED_IMAGE_RE.sub(replace_image_path, markdown)
+
+
 @register_provider("qianfan_ocr")
 class QianfanOCRProvider(OCRProvider):
     """Qianfan OCR Provider."""
@@ -196,19 +304,24 @@ class QianfanOCRProvider(OCRProvider):
         if _TRANS_LOADER is None:
             _TRANS_LOADER = transformerLoader(attn_kw="_attn_implementation", device_map="auto")
 
-        tokenizer = _TRANS_LOADER.get_or_load_processor(model_id, AutoTokenizer, console=self.ctx.console)
-        model = _TRANS_LOADER.get_or_load_model(
-            model_id,
-            AutoModel,
+        with _suppress_broken_wandb_import():
+            tokenizer = _TRANS_LOADER.get_or_load_processor(model_id, AutoTokenizer, console=self.ctx.console)
+            model = _TRANS_LOADER.get_or_load_model(
+                model_id,
+                AutoModel,
+                dtype=dtype,
+                attn_impl=attn_impl,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True,
+                device_map="auto",
+                use_safetensors=True,
+                console=self.ctx.console,
+            )
+        pixel_device = _resolve_vision_device(model)
+        pixel_values = _load_image_tensor(image_path, input_size=input_size, max_num=max_num).to(
+            device=pixel_device,
             dtype=dtype,
-            attn_impl=attn_impl,
-            trust_remote_code=True,
-            low_cpu_mem_usage=True,
-            device_map="auto",
-            use_safetensors=True,
-            console=self.ctx.console,
         )
-        pixel_values = _load_image_tensor(image_path, input_size=input_size, max_num=max_num).to(dtype=dtype)
         with torch.no_grad():
             response = model.chat(
                 tokenizer,
@@ -218,10 +331,23 @@ class QianfanOCRProvider(OCRProvider):
             )
         return response if isinstance(response, str) else str(response)
 
-    def _write_clean_markdown(self, output_dir: Path, raw_text: str) -> str:
+    def _write_clean_markdown(
+        self,
+        output_dir: Path,
+        raw_text: str,
+        *,
+        source_image_path: Path,
+        asset_prefix: str,
+    ) -> str:
         cleaned = self._clean_reasoning_output(raw_text)
-        write_markdown_output(output_dir, cleaned)
-        return cleaned
+        rendered = _render_placeholder_images(
+            cleaned,
+            source_image_path=source_image_path,
+            asset_dir=output_dir / "images",
+            asset_prefix=asset_prefix,
+        )
+        write_markdown_output(output_dir, rendered)
+        return rendered
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         runtime = self.get_runtime_backend()
@@ -257,8 +383,13 @@ class QianfanOCRProvider(OCRProvider):
                     input_size=input_size,
                     max_num=max_num,
                 )
-                cleaned_page = self._write_clean_markdown(page_dir, raw_page)
-                page_contents.append(cleaned_page.strip())
+                cleaned_page = self._write_clean_markdown(
+                    page_dir,
+                    raw_page,
+                    source_image_path=page_img_path,
+                    asset_prefix=f"{page_dir.name}-image",
+                )
+                page_contents.append(_prefix_rendered_image_paths(cleaned_page.strip(), page_dir.name))
 
             content = "\n<--- Page Split --->\n".join(page_contents)
             write_markdown_output(output_dir, content)
@@ -271,7 +402,12 @@ class QianfanOCRProvider(OCRProvider):
                 input_size=input_size,
                 max_num=max_num,
             )
-            content = self._write_clean_markdown(output_dir, raw_output)
+            content = self._write_clean_markdown(
+                output_dir,
+                raw_output,
+                source_image_path=Path(media.uri),
+                asset_prefix="image",
+            )
 
         try:
             display_markdown(
