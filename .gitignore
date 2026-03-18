@@ -177,6 +177,7 @@ watermark_detection/
 .playwright-cli/
 .claude/
 .agents/
+.worktrees/
 
 # windsurf rules
 .windsurfrules
