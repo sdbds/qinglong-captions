@@ -35,3 +35,14 @@ def test_write_caption_output_writes_markdown_for_documents(tmp_path):
     assert text_path.suffix == ".md"
     assert text_path.read_text(encoding="utf-8") == "# Title\n"
     assert json_path is None
+
+
+def test_write_markdown_output_skips_empty_markdown(tmp_path):
+    from utils.output_writer import write_markdown_output
+
+    output_dir = tmp_path / "doc"
+
+    result = write_markdown_output(output_dir, "   \n\t  ")
+
+    assert result is None
+    assert not (output_dir / "result.md").exists()

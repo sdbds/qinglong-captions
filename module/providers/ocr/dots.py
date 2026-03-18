@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import math
 import sys
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
+from time import perf_counter
 from typing import Optional
+
+from PIL import Image
 
 from providers.backends import OpenAIChatRuntime, find_model_config_section, resolve_runtime_backend
 from providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
@@ -16,11 +21,16 @@ from providers.registry import register_provider
 from providers.utils import build_vision_messages, encode_image_to_blob
 from utils.output_writer import write_markdown_output
 from utils.parse_display import display_markdown, extract_code_block_content
-from utils.stream_util import pdf_to_images_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
-DEFAULT_PROMPT_MODE = "prompt_layout_all_en"
+DEFAULT_PROMPT_MODE = "prompt_ocr"
 DEFAULT_SVG_MODEL_ID = "davanstrien/dots.ocr-1.5-svg"
+UPSTREAM_MIN_PIXELS = 3136
+UPSTREAM_MAX_PIXELS = 11289600
+UPSTREAM_DIRECT_MAX_NEW_TOKENS = 24000
+UPSTREAM_RUNTIME_MAX_TOKENS = 16384
+UPSTREAM_DPI = 200
+UPSTREAM_FITZ_PREPROCESS = True
 _TRANS_LOADER: Optional[transformerLoader] = None
 
 try:
@@ -29,22 +39,27 @@ except ImportError:  # pragma: no cover - Python < 3.8 fallback
     import importlib_metadata  # type: ignore[no-redef]
 
 
-def _find_upstream_prompts_file() -> Path | None:
-    """Locate the upstream prompts.py file without importing the broken package."""
+def _find_upstream_utils_file(relative_path: str) -> Path | None:
+    """Locate a file inside the upstream dots_ocr package without importing its top-level package."""
     for dist_name in ("dots_ocr", "dots-ocr"):
         try:
             distribution = importlib_metadata.distribution(dist_name)
         except importlib_metadata.PackageNotFoundError:
             continue
-        candidate = Path(distribution.locate_file("dots_ocr/utils/prompts.py"))
+        candidate = Path(distribution.locate_file(relative_path))
         if candidate.is_file():
             return candidate
 
     for entry in sys.path:
-        candidate = Path(entry) / "dots_ocr" / "utils" / "prompts.py"
+        candidate = Path(entry) / Path(relative_path)
         if candidate.is_file():
             return candidate
     return None
+
+
+def _find_upstream_prompts_file() -> Path | None:
+    """Locate the upstream prompts.py file without importing the broken package."""
+    return _find_upstream_utils_file("dots_ocr/utils/prompts.py")
 
 
 def _load_prompt_mapping_from_file(prompts_path: Path) -> dict[str, str]:
@@ -69,6 +84,25 @@ def _load_upstream_prompt_mapping() -> dict[str, str]:
             "dots_ocr prompt mapping not available. Install the dots-ocr extra."
         )
     return _load_prompt_mapping_from_file(prompts_path)
+
+
+def _load_upstream_pdf_images(pdf_path: str, dpi: int = 200):
+    """Load PDF pages using the upstream dots_ocr PDF pipeline."""
+    doc_utils_path = _find_upstream_utils_file("dots_ocr/utils/doc_utils.py")
+    if doc_utils_path is None:
+        raise ImportError(
+            "dots_ocr PDF utilities are unavailable. Install the dots-ocr extra."
+        )
+    spec = importlib.util.spec_from_file_location("_dots_ocr_doc_utils", str(doc_utils_path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"unable to load doc_utils spec from {doc_utils_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    load_images_from_pdf = getattr(module, "load_images_from_pdf", None)
+    if load_images_from_pdf is None:
+        raise ValueError(f"load_images_from_pdf missing from {doc_utils_path}")
+    return load_images_from_pdf(pdf_path, dpi=dpi)
 
 
 def _load_config_task_prompt_mapping(config) -> dict[str, str]:
@@ -112,6 +146,100 @@ def _save_pdf_page_image(pil_image, page_path: Path) -> str:
     return str(page_path)
 
 
+def _load_input_image(image_path: str):
+    """Load an image like the upstream HF parser: materialize a PIL image before chat assembly."""
+    with Image.open(image_path) as image:
+        if image.mode == "RGBA":
+            white_background = Image.new("RGB", image.size, (255, 255, 255))
+            white_background.paste(image, mask=image.split()[3])
+            return white_background
+        return image.convert("RGB")
+
+
+def _round_by_factor(number: int, factor: int) -> int:
+    return round(number / factor) * factor
+
+
+def _ceil_by_factor(number: int, factor: int) -> int:
+    return math.ceil(number / factor) * factor
+
+
+def _floor_by_factor(number: int, factor: int) -> int:
+    return math.floor(number / factor) * factor
+
+
+def _smart_resize_for_dots(
+    height: int,
+    width: int,
+    factor: int = 28,
+    min_pixels: int = UPSTREAM_MIN_PIXELS,
+    max_pixels: int = UPSTREAM_MAX_PIXELS,
+) -> tuple[int, int]:
+    if max(height, width) / min(height, width) > 200:
+        raise ValueError(
+            f"absolute aspect ratio must be smaller than 200, got {max(height, width) / min(height, width)}"
+        )
+    h_bar = max(factor, _round_by_factor(height, factor))
+    w_bar = max(factor, _round_by_factor(width, factor))
+    if h_bar * w_bar > max_pixels:
+        beta = math.sqrt((height * width) / max_pixels)
+        h_bar = max(factor, _floor_by_factor(height / beta, factor))
+        w_bar = max(factor, _floor_by_factor(width / beta, factor))
+    elif h_bar * w_bar < min_pixels:
+        beta = math.sqrt(min_pixels / (height * width))
+        h_bar = _ceil_by_factor(height * beta, factor)
+        w_bar = _ceil_by_factor(width * beta, factor)
+        if h_bar * w_bar > max_pixels:
+            beta = math.sqrt((h_bar * w_bar) / max_pixels)
+            h_bar = max(factor, _floor_by_factor(h_bar / beta, factor))
+            w_bar = max(factor, _floor_by_factor(w_bar / beta, factor))
+    return h_bar, w_bar
+
+
+def _upstream_fetch_image_for_inference(
+    image: Image.Image,
+    *,
+    min_pixels: int,
+    max_pixels: int,
+) -> Image.Image:
+    image = image.convert("RGB")
+    width, height = image.size
+    resized_height, resized_width = _smart_resize_for_dots(
+        height,
+        width,
+        factor=28,
+        min_pixels=min_pixels,
+        max_pixels=max_pixels,
+    )
+    if (resized_width, resized_height) != (width, height):
+        image = image.resize((resized_width, resized_height))
+    return image
+
+
+def _fitz_preprocess_image(image: Image.Image, dpi: int = UPSTREAM_DPI):
+    """Mirror upstream get_image_by_fitz_doc/fitz_doc_to_image for image inputs."""
+    try:
+        import fitz
+    except ImportError as exc:
+        raise ImportError(
+            "dots_ocr fitz preprocess is unavailable. Install PyMuPDF."
+        ) from exc
+
+    data_bytes = io.BytesIO()
+    image.save(data_bytes, format="PNG")
+    pdf_bytes = fitz.open(stream=data_bytes.getvalue()).convert_to_pdf()
+    doc = fitz.open("pdf", pdf_bytes)
+    try:
+        page = doc[0]
+        mat = fitz.Matrix(dpi / 72, dpi / 72)
+        pixmap = page.get_pixmap(matrix=mat, alpha=False)
+        if pixmap.width > 4500 or pixmap.height > 4500:
+            pixmap = page.get_pixmap(matrix=fitz.Matrix(1, 1), alpha=False)
+        return Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+    finally:
+        doc.close()
+
+
 @register_provider("dots_ocr")
 class DotsOCRProvider(OCRProvider):
     """OCR provider backed by davanstrien/dots.ocr-1.5."""
@@ -120,8 +248,18 @@ class DotsOCRProvider(OCRProvider):
     default_prompt = ""
     default_svg_model_id = DEFAULT_SVG_MODEL_ID
 
+    def _log_stage_start(self, stage: str, details: str = "") -> float:
+        suffix = f" ({details})" if details else ""
+        self.ctx.console.print(f"dots_ocr stage start: {stage}{suffix}")
+        return perf_counter()
+
+    def _log_stage_done(self, stage: str, started_at: float) -> None:
+        elapsed = perf_counter() - started_at
+        self.ctx.console.print(f"dots_ocr stage done: {stage} ({elapsed:.2f}s)")
+
     def prepare_media(self, uri: str, mime: str, args) -> MediaContext:
         """Skip eager image encoding for local direct inference."""
+        timer = self._log_stage_start("prepare_media", f"mime={mime}")
         blob = None
         pixels = None
         if mime.startswith("image") and self.get_runtime_backend().is_openai:
@@ -130,7 +268,7 @@ class DotsOCRProvider(OCRProvider):
         output_dir = Path(uri).with_suffix("")
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        return MediaContext(
+        media = MediaContext(
             uri=uri,
             mime=mime,
             sha256hash="",
@@ -139,6 +277,8 @@ class DotsOCRProvider(OCRProvider):
             pixels=pixels,
             extras={"output_dir": output_dir},
         )
+        self._log_stage_done("prepare_media", timer)
+        return media
 
     def resolve_prompts(self, uri: str, mime: str) -> PromptContext:
         _, prompt_text = self._resolve_prompt_mode_and_prompt()
@@ -182,6 +322,27 @@ class DotsOCRProvider(OCRProvider):
             or self.default_model_id
         )
 
+    def _resolve_image_pixel_limits(self) -> tuple[int, int]:
+        min_pixels = int(
+            self._get_model_config("min_pixels", UPSTREAM_MIN_PIXELS)
+            or UPSTREAM_MIN_PIXELS
+        )
+        max_pixels = int(
+            self._get_model_config("max_pixels", UPSTREAM_MAX_PIXELS)
+            or UPSTREAM_MAX_PIXELS
+        )
+        return min_pixels, max_pixels
+
+    def _resolve_image_preprocess_settings(self) -> tuple[bool, int]:
+        fitz_preprocess = bool(
+            self._get_model_config("fitz_preprocess", UPSTREAM_FITZ_PREPROCESS)
+        )
+        dpi = int(
+            self._get_model_config("dpi", UPSTREAM_DPI)
+            or UPSTREAM_DPI
+        )
+        return fitz_preprocess, dpi
+
     def _write_text_result(self, output_dir: Path, content: str) -> Path:
         return write_markdown_output(Path(output_dir), str(content), filename="result.md")
 
@@ -206,6 +367,8 @@ class DotsOCRProvider(OCRProvider):
         prompt_text: str,
         model_id: str,
         max_new_tokens: int,
+        fitz_preprocess: bool = False,
+        dpi: int = UPSTREAM_DPI,
     ) -> str:
         try:
             from qwen_vl_utils import process_vision_info
@@ -220,13 +383,20 @@ class DotsOCRProvider(OCRProvider):
         if _TRANS_LOADER is None:
             _TRANS_LOADER = transformerLoader(attn_kw="attn_implementation", device_map="auto")
 
+        stage_timer = self._log_stage_start("resolve_model_source", f"model_id={model_id}")
         load_source = _resolve_model_source(model_id)
+        self._log_stage_done("resolve_model_source", stage_timer)
+
+        stage_timer = self._log_stage_start("load_processor")
         processor = _TRANS_LOADER.get_or_load_processor(
             load_source,
             AutoProcessor,
             console=self.ctx.console,
             trust_remote_code=True,
         )
+        self._log_stage_done("load_processor", stage_timer)
+
+        stage_timer = self._log_stage_start("load_model")
         model = _TRANS_LOADER.get_or_load_model(
             load_source,
             AutoModelForCausalLM,
@@ -238,20 +408,47 @@ class DotsOCRProvider(OCRProvider):
             use_safetensors=True,
             console=self.ctx.console,
         )
+        self._log_stage_done("load_model", stage_timer)
 
+        stage_timer = self._log_stage_start("load_input_image", f"image={Path(image_path).name}")
+        input_image = _load_input_image(image_path)
+        self._log_stage_done("load_input_image", stage_timer)
+        if fitz_preprocess:
+            stage_timer = self._log_stage_start("fitz_preprocess_image", f"dpi={dpi}")
+            input_image = _fitz_preprocess_image(input_image, dpi=dpi)
+            self._log_stage_done("fitz_preprocess_image", stage_timer)
+
+        min_pixels, max_pixels = self._resolve_image_pixel_limits()
+        stage_timer = self._log_stage_start("upstream_fetch_image", f"min_pixels={min_pixels}, max_pixels={max_pixels}")
+        input_image = _upstream_fetch_image_for_inference(
+            input_image,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+        )
+        self._log_stage_done("upstream_fetch_image", stage_timer)
         messages = [{
             "role": "user",
             "content": [
-                {"type": "image", "image": image_path},
+                {
+                    "type": "image",
+                    "image": input_image,
+                },
                 {"type": "text", "text": prompt_text},
             ],
         }]
+        stage_timer = self._log_stage_start("apply_chat_template")
         text = processor.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True,
         )
+        self._log_stage_done("apply_chat_template", stage_timer)
+
+        stage_timer = self._log_stage_start("process_vision_info")
         image_inputs, video_inputs = process_vision_info(messages)
+        self._log_stage_done("process_vision_info", stage_timer)
+
+        stage_timer = self._log_stage_start("build_inputs")
         inputs = processor(
             text=[text],
             images=image_inputs,
@@ -259,26 +456,33 @@ class DotsOCRProvider(OCRProvider):
             padding=True,
             return_tensors="pt",
         )
+        self._log_stage_done("build_inputs", stage_timer)
 
         try:
             model_device = model.device
         except Exception:
             model_device = next(model.parameters()).device
+        stage_timer = self._log_stage_start("move_inputs_to_device", f"device={model_device}")
         inputs = inputs.to(model_device)
+        self._log_stage_done("move_inputs_to_device", stage_timer)
 
+        stage_timer = self._log_stage_start("generate", f"max_new_tokens={int(max_new_tokens)}")
         generated_ids = model.generate(
             **inputs,
             max_new_tokens=int(max_new_tokens),
             do_sample=False,
         )
+        self._log_stage_done("generate", stage_timer)
         generated_ids_trimmed = [
             out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
+        stage_timer = self._log_stage_start("decode")
         output_texts = processor.batch_decode(
             generated_ids_trimmed,
             skip_special_tokens=True,
             clean_up_tokenization_spaces=False,
         )
+        self._log_stage_done("decode", stage_timer)
         content = output_texts[0] if output_texts else ""
         if prompt_mode == "prompt_image_to_svg":
             extracted = extract_code_block_content(content, code_type="svg", console=self.ctx.console)
@@ -300,13 +504,7 @@ class DotsOCRProvider(OCRProvider):
             )
         )
         default_max_tokens = int(
-            model_section.get(
-                "runtime_max_tokens",
-                model_section.get(
-                    "max_new_tokens",
-                    provider_section.get("runtime_max_tokens", provider_section.get("max_new_tokens", 4096)),
-                ),
-            )
+            model_section.get("runtime_max_tokens", provider_section.get("runtime_max_tokens", UPSTREAM_RUNTIME_MAX_TOKENS))
         )
         return resolve_runtime_backend(
             self.ctx.args,
@@ -324,10 +522,33 @@ class DotsOCRProvider(OCRProvider):
         image_path: str,
         prompt_mode: str,
         prompt_text: str,
+        fitz_preprocess: bool = False,
+        dpi: int = UPSTREAM_DPI,
     ) -> str:
         runtime = self._get_runtime_backend_for_prompt_mode(prompt_mode)
         backend = OpenAIChatRuntime(runtime)
-        blob, _ = encode_image_to_blob(image_path, to_rgb=True)
+        stage_timer = self._log_stage_start("load_input_image", f"image={Path(image_path).name}")
+        input_image = _load_input_image(image_path)
+        self._log_stage_done("load_input_image", stage_timer)
+        if fitz_preprocess:
+            stage_timer = self._log_stage_start("fitz_preprocess_image", f"dpi={dpi}")
+            input_image = _fitz_preprocess_image(input_image, dpi=dpi)
+            self._log_stage_done("fitz_preprocess_image", stage_timer)
+        min_pixels, max_pixels = self._resolve_image_pixel_limits()
+        stage_timer = self._log_stage_start("upstream_fetch_image", f"min_pixels={min_pixels}, max_pixels={max_pixels}")
+        input_image = _upstream_fetch_image_for_inference(
+            input_image,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+        )
+        self._log_stage_done("upstream_fetch_image", stage_timer)
+        stage_timer = self._log_stage_start("encode_image_to_blob", f"image={Path(image_path).name}")
+        with io.BytesIO() as buffer:
+            input_image.save(buffer, format="JPEG", quality=95)
+            blob = buffer.getvalue()
+        import base64
+        blob = base64.b64encode(blob).decode("utf-8")
+        self._log_stage_done("encode_image_to_blob", stage_timer)
         if not blob:
             raise RuntimeError(f"DOTS_OCR_IMAGE_ENCODE_FAILED: {image_path}")
 
@@ -337,7 +558,9 @@ class DotsOCRProvider(OCRProvider):
             blob,
             text_first=False,
         )
+        stage_timer = self._log_stage_start("openai_complete", f"model_id={runtime.model_id}")
         content = backend.complete(messages)
+        self._log_stage_done("openai_complete", stage_timer)
         if prompt_mode == "prompt_image_to_svg":
             extracted = extract_code_block_content(content, code_type="svg", console=self.ctx.console)
             return extracted or content
@@ -348,13 +571,18 @@ class DotsOCRProvider(OCRProvider):
         media: MediaContext,
         prompt_mode: str,
         prompt_text: str,
+        *,
+        fitz_preprocess: bool,
+        dpi: int,
     ) -> CaptionResult:
         output_dir = Path(media.extras.get("output_dir") or Path(media.uri).with_suffix(""))
         output_dir.mkdir(parents=True, exist_ok=True)
         runtime = self._get_runtime_backend_for_prompt_mode(prompt_mode)
 
         if media.mime.startswith("application/pdf"):
-            images = pdf_to_images_high_quality(media.uri)
+            stage_timer = self._log_stage_start("upstream_pdf_to_images", f"file={Path(media.uri).name}")
+            images = _load_upstream_pdf_images(media.uri)
+            self._log_stage_done("upstream_pdf_to_images", stage_timer)
             if prompt_mode == "prompt_image_to_svg":
                 page_dirs: list[Path] = []
                 for index, pil_image in enumerate(images, start=1):
@@ -368,6 +596,8 @@ class DotsOCRProvider(OCRProvider):
                         image_path=str(saved_image_path),
                         prompt_mode=prompt_mode,
                         prompt_text=prompt_text,
+                        fitz_preprocess=False,
+                        dpi=dpi,
                     )
                     self._write_svg_result(page_dir, svg_content)
                     page_dirs.append(page_dir)
@@ -397,6 +627,8 @@ class DotsOCRProvider(OCRProvider):
                     image_path=str(saved_image_path),
                     prompt_mode=prompt_mode,
                     prompt_text=prompt_text,
+                    fitz_preprocess=False,
+                    dpi=dpi,
                 )
                 self._write_text_result(page_dir, page_content)
                 page_contents.append(str(page_content).strip())
@@ -419,6 +651,8 @@ class DotsOCRProvider(OCRProvider):
             image_path=media.uri,
             prompt_mode=prompt_mode,
             prompt_text=prompt_text,
+            fitz_preprocess=fitz_preprocess,
+            dpi=dpi,
         )
         if prompt_mode == "prompt_image_to_svg":
             self._write_svg_result(output_dir, content)
@@ -452,16 +686,24 @@ class DotsOCRProvider(OCRProvider):
         prompt_mode, resolved_prompt = self._resolve_prompt_mode_and_prompt()
         prompt_text = prompts.user or resolved_prompt
         model_id = self._select_model_id(prompt_mode)
+        fitz_preprocess, dpi = self._resolve_image_preprocess_settings()
         output_dir = Path(media.extras.get("output_dir") or Path(media.uri).with_suffix(""))
         output_dir.mkdir(parents=True, exist_ok=True)
+        self.ctx.console.print(f"dots_ocr prompt_mode: {prompt_mode}")
+        self.ctx.console.print(f"dots_ocr prompt: {prompt_text}")
 
         if self.get_runtime_backend().is_openai:
-            return self._attempt_via_openai_backend(media, prompt_mode, prompt_text)
+            return self._attempt_via_openai_backend(media, prompt_mode, prompt_text, fitz_preprocess=fitz_preprocess, dpi=dpi)
 
-        max_new_tokens = int(self._get_model_config("max_new_tokens", 8192) or 8192)
+        max_new_tokens = int(
+            self._get_model_config("max_new_tokens", UPSTREAM_DIRECT_MAX_NEW_TOKENS)
+            or UPSTREAM_DIRECT_MAX_NEW_TOKENS
+        )
 
         if media.mime.startswith("application/pdf"):
-            images = pdf_to_images_high_quality(media.uri)
+            stage_timer = self._log_stage_start("upstream_pdf_to_images", f"file={Path(media.uri).name}")
+            images = _load_upstream_pdf_images(media.uri)
+            self._log_stage_done("upstream_pdf_to_images", stage_timer)
             if prompt_mode == "prompt_image_to_svg":
                 page_dirs: list[Path] = []
                 for index, pil_image in enumerate(images, start=1):
@@ -477,6 +719,8 @@ class DotsOCRProvider(OCRProvider):
                         prompt_text=prompt_text,
                         model_id=model_id,
                         max_new_tokens=max_new_tokens,
+                        fitz_preprocess=False,
+                        dpi=dpi,
                     )
                     self._write_svg_result(page_dir, svg_content)
                     page_dirs.append(page_dir)
@@ -507,6 +751,8 @@ class DotsOCRProvider(OCRProvider):
                     prompt_text=prompt_text,
                     model_id=model_id,
                     max_new_tokens=max_new_tokens,
+                    fitz_preprocess=False,
+                    dpi=dpi,
                 )
                 self._write_text_result(page_dir, page_content)
                 page_contents.append(str(page_content).strip())
@@ -530,6 +776,8 @@ class DotsOCRProvider(OCRProvider):
             prompt_text=prompt_text,
             model_id=model_id,
             max_new_tokens=max_new_tokens,
+            fitz_preprocess=fitz_preprocess,
+            dpi=dpi,
         )
         if prompt_mode == "prompt_image_to_svg":
             self._write_svg_result(output_dir, content)

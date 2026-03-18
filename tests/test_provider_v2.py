@@ -970,6 +970,43 @@ class TestOCRProviderBase:
         result = FakeOCR(ctx).execute(str(doc_path), "application/pdf", "pdf-hash")
         assert result.raw == "config prompt"
 
+    def test_post_validate_removes_markdown_sidecars_when_result_empty(self, tmp_path):
+        from providers.base import CaptionResult, MediaContext, MediaModality, ProviderContext
+        from providers.ocr_base import OCRProvider
+        from rich.console import Console
+
+        output_dir = tmp_path / "sample"
+        output_dir.mkdir()
+        (output_dir / "result.md").write_text("# stale\n", encoding="utf-8")
+        page_dir = output_dir / "page_0001"
+        page_dir.mkdir()
+        (page_dir / "result.md").write_text("# stale page\n", encoding="utf-8")
+
+        class FakeOCR(OCRProvider):
+            name = "fake_ocr"
+
+            def attempt(self, media, prompts):
+                return CaptionResult(raw="")
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO()),
+            config={},
+            args=SimpleNamespace(max_retries=1, wait_time=0.01),
+        )
+        provider = FakeOCR(ctx)
+        media = MediaContext(
+            uri=str(tmp_path / "sample.pdf"),
+            mime="application/pdf",
+            sha256hash="",
+            modality=MediaModality.DOCUMENT,
+            extras={"output_dir": output_dir},
+        )
+
+        provider.post_validate(CaptionResult(raw=""), media, ctx.args)
+
+        assert not (output_dir / "result.md").exists()
+        assert not (page_dir / "result.md").exists()
+
 
 class TestVisionAPIProviders:
 

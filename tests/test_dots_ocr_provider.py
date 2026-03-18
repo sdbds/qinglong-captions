@@ -278,10 +278,23 @@ def test_resolve_model_source_downloads_remote_snapshot(monkeypatch, tmp_path):
 
 
 def test_run_direct_generation_uses_snapshot_path(monkeypatch, tmp_path):
-    ctx = make_ctx({"dots_ocr": {"model_id": "davanstrien/dots.ocr-1.5"}})
+    log_buffer = io.StringIO()
+    ctx = ProviderContext(
+        console=Console(file=log_buffer, force_terminal=False),
+        config={"dots_ocr": {"model_id": "davanstrien/dots.ocr-1.5"}},
+        args=SimpleNamespace(
+            ocr_model="dots_ocr",
+            document_image=True,
+            dir_name=False,
+            openai_model_name="",
+            local_runtime_backend="",
+        ),
+    )
     provider = DotsOCRProvider(ctx)
     resolved_snapshot = tmp_path / "models" / "dots"
     resolved_snapshot.mkdir(parents=True)
+    image_path = tmp_path / "image.png"
+    _write_png(image_path)
     captured = {}
 
     class FakeInputs(dict):
@@ -351,7 +364,7 @@ def test_run_direct_generation_uses_snapshot_path(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "qwen_vl_utils", fake_qwen_vl_utils)
 
     result = provider._run_direct_generation(
-        image_path=str(tmp_path / "image.png"),
+        image_path=str(image_path),
         prompt_mode="prompt_layout_all_en",
         prompt_text="<prompt>",
         model_id="davanstrien/dots.ocr-1.5",
@@ -360,7 +373,13 @@ def test_run_direct_generation_uses_snapshot_path(monkeypatch, tmp_path):
 
     assert captured["processor_load"]["model_id"] == str(resolved_snapshot.resolve())
     assert captured["model_load"]["model_id"] == str(resolved_snapshot.resolve())
+    assert isinstance(captured["messages"][0]["content"][0]["image"], Image.Image)
+    assert "min_pixels" not in captured["messages"][0]["content"][0]
+    assert "max_pixels" not in captured["messages"][0]["content"][0]
     assert result == "decoded-text"
+    logs = log_buffer.getvalue()
+    assert "dots_ocr stage start: load_processor" in logs
+    assert "dots_ocr stage done: generate" in logs
 
 
 def test_text_prompt_single_image_writes_result_md(monkeypatch, tmp_path):
@@ -386,6 +405,69 @@ def test_text_prompt_single_image_writes_result_md(monkeypatch, tmp_path):
 
     assert (tmp_path / "sample" / "result.md").read_text(encoding="utf-8") == "# extracted markdown"
     assert result.raw == "# extracted markdown"
+
+
+def test_single_image_attempt_uses_upstream_fitz_preprocess_defaults(monkeypatch, tmp_path):
+    image_path = tmp_path / "sample.png"
+    _write_png(image_path)
+
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_ocr"}})
+    provider = DotsOCRProvider(ctx)
+    captured = {}
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_prompt_mapping",
+        lambda: {"prompt_ocr": "<ocr>"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        provider,
+        "_run_direct_generation",
+        lambda **kwargs: captured.update(kwargs) or "# extracted markdown",
+        raising=False,
+    )
+
+    media = provider.prepare_media(str(image_path), "image/png", ctx.args)
+    provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
+
+    assert captured["fitz_preprocess"] is True
+    assert captured["dpi"] == 200
+
+
+def test_attempt_logs_effective_prompt_mode_and_prompt(monkeypatch, tmp_path):
+    image_path = tmp_path / "sample.png"
+    _write_png(image_path)
+
+    log_buffer = io.StringIO()
+    ctx = ProviderContext(
+        console=Console(file=log_buffer, force_terminal=False),
+        config={"dots_ocr": {"prompt_mode": "prompt_layout_all_en", "prompt": "<effective-prompt>"}},
+        args=SimpleNamespace(
+            ocr_model="dots_ocr",
+            document_image=True,
+            dir_name=False,
+            openai_model_name="",
+            local_runtime_backend="",
+        ),
+    )
+    provider = DotsOCRProvider(ctx)
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_prompt_mapping",
+        lambda: {"prompt_layout_all_en": "<upstream>"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        provider,
+        "_run_direct_generation",
+        lambda **_: "# extracted markdown",
+        raising=False,
+    )
+
+    media = provider.prepare_media(str(image_path), "image/png", ctx.args)
+    provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
+
+    logs = log_buffer.getvalue()
+    assert "dots_ocr prompt_mode: prompt_layout_all_en" in logs
+    assert "dots_ocr prompt: <effective-prompt>" in logs
 
 
 def test_svg_prompt_single_image_writes_result_svg(monkeypatch, tmp_path):
@@ -425,7 +507,7 @@ def test_svg_prompt_pdf_writes_page_svgs_and_root_markdown(monkeypatch, tmp_path
         raising=False,
     )
     monkeypatch.setattr(
-        "providers.ocr.dots.pdf_to_images_high_quality",
+        "providers.ocr.dots._load_upstream_pdf_images",
         lambda _: [object(), object()],
         raising=False,
     )
@@ -451,6 +533,126 @@ def test_svg_prompt_pdf_writes_page_svgs_and_root_markdown(monkeypatch, tmp_path
     assert "page_0001/result.svg" in root_md
     assert "page_0002/result.svg" in root_md
     assert result.raw == root_md
+
+
+def test_pdf_path_uses_upstream_loader_instead_of_legacy_splitter(monkeypatch, tmp_path):
+    pdf_path = tmp_path / "doc.pdf"
+    pdf_path.write_bytes(b"%PDF-fake")
+
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_layout_all_en"}})
+    provider = DotsOCRProvider(ctx)
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_prompt_mapping",
+        lambda: {"prompt_layout_all_en": "<doc>"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_pdf_images",
+        lambda *_args, **_kwargs: [object()],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "providers.ocr.dots.pdf_to_images_high_quality",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("legacy pdf splitter should not be used")),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "providers.ocr.dots._save_pdf_page_image",
+        lambda *args, **kwargs: str(args[1]),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        provider,
+        "_run_direct_generation",
+        lambda **_: "# page content",
+        raising=False,
+    )
+
+    media = provider.prepare_media(str(pdf_path), "application/pdf", ctx.args)
+    result = provider.attempt(media, provider.resolve_prompts(str(pdf_path), "application/pdf"))
+
+    assert result.raw == "# page content"
+
+
+def test_pdf_pages_do_not_use_fitz_preprocess(monkeypatch, tmp_path):
+    pdf_path = tmp_path / "doc.pdf"
+    pdf_path.write_bytes(b"%PDF-fake")
+
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_ocr"}})
+    provider = DotsOCRProvider(ctx)
+    captured = []
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_prompt_mapping",
+        lambda: {"prompt_ocr": "<ocr>"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_pdf_images",
+        lambda *_args, **_kwargs: [object()],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "providers.ocr.dots._save_pdf_page_image",
+        lambda *args, **kwargs: str(args[1]),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        provider,
+        "_run_direct_generation",
+        lambda **kwargs: captured.append(kwargs) or "# page content",
+        raising=False,
+    )
+
+    media = provider.prepare_media(str(pdf_path), "application/pdf", ctx.args)
+    provider.attempt(media, provider.resolve_prompts(str(pdf_path), "application/pdf"))
+
+    assert captured[0]["fitz_preprocess"] is False
+
+
+def test_attempt_uses_upstream_direct_max_new_tokens_default(monkeypatch, tmp_path):
+    image_path = tmp_path / "sample.png"
+    _write_png(image_path)
+
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_layout_all_en"}})
+    provider = DotsOCRProvider(ctx)
+    captured = {}
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_prompt_mapping",
+        lambda: {"prompt_layout_all_en": "<doc>"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        provider,
+        "_run_direct_generation",
+        lambda **kwargs: captured.setdefault("max_new_tokens", kwargs["max_new_tokens"]) or "# extracted markdown",
+        raising=False,
+    )
+
+    media = provider.prepare_media(str(image_path), "image/png", ctx.args)
+    provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
+
+    assert captured["max_new_tokens"] == 24000
+
+
+def test_runtime_backend_uses_upstream_server_max_tokens_default(monkeypatch):
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_layout_all_en"}})
+    ctx.args.local_runtime_backend = "openai"
+    provider = DotsOCRProvider(ctx)
+    captured = {}
+
+    class FakeRuntime:
+        mode = "openai"
+        model_id = "served-dots"
+
+    monkeypatch.setattr(
+        "providers.ocr.dots.resolve_runtime_backend",
+        lambda *args, **kwargs: captured.setdefault("default_max_tokens", kwargs["default_max_tokens"]) or FakeRuntime(),
+        raising=False,
+    )
+
+    provider._get_runtime_backend_for_prompt_mode("prompt_layout_all_en")
+
+    assert captured["default_max_tokens"] == 16384
 
 
 def test_server_backend_uses_same_resolved_prompt(monkeypatch, tmp_path):

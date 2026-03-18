@@ -664,9 +664,12 @@ max_new_tokens = 4096
 [dots_ocr]
 model_id = "davanstrien/dots.ocr-1.5"
 svg_model_id = "davanstrien/dots.ocr-1.5-svg"
-prompt_mode = "prompt_layout_all_en"
+prompt_mode = "prompt_ocr"
 prompt = ""
-max_new_tokens = 8192
+max_new_tokens = 24000
+runtime_max_tokens = 16384
+fitz_preprocess = true
+dpi = 200
 
 # HunyuanOCR configuration
 # Requires: pip install git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4

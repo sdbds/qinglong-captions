@@ -18,6 +18,7 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+import logging
 import toml
 from nicegui import ui, app
 from wizard.step0_setup import render_setup_step
@@ -361,8 +362,29 @@ def not_found_page():
     page_base(content)
 
 
+def _install_exception_filter():
+    """替换 NiceGUI 默认异常处理器，过滤 timer 在页面切换时的 parent_slot 竞态错误。
+
+    NiceGUI 的 ui.timer 在页面导航/重连时存在竞态：
+    timer 的 asyncio 任务可能在 parent_slot 被销毁之后、on_disconnect 回调之前触发，
+    导致 RuntimeError('The parent slot of the element has been deleted.')。
+    该错误无害（timer 随后会自然停止），但会打印干扰性的 traceback。
+    """
+    _nicegui_log = logging.getLogger("nicegui")
+
+    def _filtered_exception_handler(exc: Exception) -> None:
+        if isinstance(exc, RuntimeError) and "parent slot" in str(exc):
+            return
+        _nicegui_log.exception(exc)
+
+    # NiceGUI 默认 _exception_handlers == [log.exception]，替换为带过滤的版本
+    app._exception_handlers[:] = [_filtered_exception_handler]
+
+
 def main():
     """主函数"""
+    _install_exception_filter()
+
     # 设置页面路由
     ui.page("/")(home_page)
     ui.page("/import")(import_page)

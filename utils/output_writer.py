@@ -28,12 +28,37 @@ def _structured_description(payload: dict) -> str:
     )
 
 
-def write_markdown_output(output_dir: Path, content: str, filename: str = "result.md") -> Path:
+def has_meaningful_text_content(content: object) -> bool:
+    return bool(str(content).strip())
+
+
+def write_markdown_output(output_dir: Path, content: str, filename: str = "result.md") -> Optional[Path]:
+    if not has_meaningful_text_content(content):
+        return None
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     target = safe_child_path(output_dir, filename, default_name="result.md")
     target.write_text(content, encoding="utf-8")
     return target
+
+
+def remove_markdown_output_files(output_dir: Path) -> list[Path]:
+    output_dir = Path(output_dir)
+    if not output_dir.exists():
+        return []
+
+    removed: list[Path] = []
+    for pattern in ("*.md", "*.mmd"):
+        for path in output_dir.rglob(pattern):
+            if not path.is_file():
+                continue
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            removed.append(path)
+    return removed
 
 
 def write_caption_output(source_path: Path, output, mime: str) -> tuple[Path, Optional[Path]]:

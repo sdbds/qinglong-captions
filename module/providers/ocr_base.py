@@ -17,7 +17,11 @@ from .backends import OpenAIChatRuntime, find_model_config_section, resolve_runt
 from .base import MediaContext, MediaModality, PromptContext, Provider, ProviderType
 from .capabilities import ProviderCapabilities
 from .utils import build_vision_messages, encode_image_to_blob
-from utils.output_writer import write_markdown_output
+from utils.output_writer import (
+    has_meaningful_text_content,
+    remove_markdown_output_files,
+    write_markdown_output,
+)
 
 
 class OCRProvider(Provider):
@@ -233,6 +237,13 @@ class OCRProvider(Provider):
                 "runtime_model_id": runtime.model_id,
             },
         )
+
+    def post_validate(self, result, media: MediaContext, args: Any):
+        result = super().post_validate(result, media, args)
+        output_dir = media.extras.get("output_dir") or result.metadata.get("output_dir")
+        if output_dir and not has_meaningful_text_content(result.description):
+            remove_markdown_output_files(Path(output_dir))
+        return result
 
     def get_retry_config(self):
         """
