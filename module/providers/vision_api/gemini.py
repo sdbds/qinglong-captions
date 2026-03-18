@@ -15,6 +15,7 @@ from rich_pixels import Pixels
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.registry import register_provider
 from providers.vision_api_base import StructuredOutputConfig, VisionAPIProvider
+from utils.console_util import print_exception
 from utils.parse_display import (
     display_caption_and_rate,
     display_pair_image_description,
@@ -180,7 +181,7 @@ def attempt_gemini(
             try:
                 captions = json.loads(response_text)
             except json.JSONDecodeError as e:
-                console.print(f"[red]Error decoding JSON: {e}[/red]")
+                print_exception(console, e, prefix="Error decoding JSON")
                 if "Expecting value: line 1 column 1 (char 0)" in str(e):
                     console.print("[red]Image was filtered, skipping[/red]")
                     return ""

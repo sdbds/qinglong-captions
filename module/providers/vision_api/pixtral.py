@@ -20,6 +20,7 @@ from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.registry import register_provider
 from providers.utils import build_vision_messages
 from providers.vision_api_base import VisionAPIProvider
+from utils.console_util import print_exception
 from utils.parse_display import (
     display_caption_layout,
     display_markdown,
@@ -98,7 +99,7 @@ def attempt_pixtral(
                             resize=(ocr_image.width // 18, ocr_image.height // 18),
                         )
                     except Exception as e:
-                        console.print(f"[yellow]Error loading image: {e}[/yellow]")
+                        print_exception(console, e, prefix="Error loading image", summary_style="yellow")
                         ocr_pixels = None
                 else:
                     console.print("[yellow]Image found but no base64 data available[/yellow]")
@@ -265,7 +266,7 @@ class MistralOCRProvider(VisionAPIProvider):
                     media.extras["signed_url"] = signed_url.url
                     break
                 except Exception as e:
-                    self.log(f"Error uploading PDF: {e}", "red")
+                    print_exception(self.ctx.console, e, prefix="Error uploading PDF")
                     if upload_attempt < args.max_retries - 1:
                         self.log(f"Retrying in {args.wait_time}s...", "yellow")
                         import time

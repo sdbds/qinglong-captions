@@ -32,6 +32,7 @@ from rich.progress import (
 )
 
 from module.lanceImport import transform2lance
+from utils.console_util import print_exception
 
 console = Console(color_system="truecolor", force_terminal=True)
 
@@ -45,7 +46,7 @@ try:
     _cfg = load_config(str(CONFIG_DIR))
     SERIES_EXCLUDE_LIST = set(_cfg.get("wdtagger", {}).get("series_exclude_list", []))
 except Exception as e:
-    console.print(f"[red]Error loading config: {e}, using default empty exclude list.[/red]")
+    print_exception(console, e, prefix="Error loading config, using default empty exclude list")
 # --- End Config Loading ---
 
 
@@ -164,7 +165,7 @@ def load_and_preprocess_batch(uris, is_cl_tagger=False):
         try:
             return preprocess_image(Image.open(uri).convert("RGB"), is_cl_tagger)
         except Exception as e:
-            console.print(f"[red]Error processing {uri}: {str(e)}[/red]")
+            print_exception(console, e, prefix=f"Error processing {uri}")
             return None
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
@@ -193,7 +194,7 @@ def process_batch(images, session, input_name):
         probs = stable_sigmoid(outputs[0])
         return probs
     except Exception as e:
-        console.print(f"[red]Batch processing error: {str(e)}[/red]")
+        print_exception(console, e, prefix="Batch processing error")
         return None
 
 
@@ -1032,7 +1033,7 @@ def main(args):
             json.dump(all_json_tags, jf, ensure_ascii=False, indent=2)
         console.print(f"[bold green]JSON saved to:[/bold green] {json_output_path}")
     except Exception as e:
-        console.print(f"[red]Failed to save JSON: {e}[/red]")
+        print_exception(console, e, prefix="Failed to save JSON")
 
     flush_merge_insert()
 
@@ -1230,7 +1231,7 @@ class TagClassifier:
                             if tag_key and tag_key not in tag_categories:
                                 tag_categories[tag_key] = category_id
             except Exception as e:
-                console.print(f"[red]Error merging tags from {tags_json_path}: {e}[/red]")
+                print_exception(console, e, prefix=f"Error merging tags from {tags_json_path}")
 
         return tag_categories
 

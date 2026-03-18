@@ -14,6 +14,7 @@ from rich.text import Text
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.local_vlm_base import LocalVLMProvider
 from providers.registry import register_provider
+from utils.console_util import print_exception
 from utils.parse_display import (
     display_caption_layout,
     display_markdown,
@@ -105,7 +106,7 @@ def attempt_moondream(
             console.print("[blue]Moondream compile() finished[/blue]")
     except Exception as e:
         if console:
-            console.print(Text(f"Moondream compile() failed: {e}", style="yellow"))
+            print_exception(console, e, prefix="Moondream compile() failed", summary_style="yellow")
 
     # Parse task combinations
     task_list = []
@@ -124,7 +125,7 @@ def attempt_moondream(
             result = model.query(image=image, question=question, reasoning=False)
             content = result.get("answer", "")
         except Exception as e:
-            console.print(Text(f"Moondream OCR failed: {e}", style="yellow"))
+            print_exception(console, e, prefix="Moondream OCR failed", summary_style="yellow")
             raise Exception("RETRY_MOONDREAM_OCR")
 
         display_markdown(
@@ -168,7 +169,7 @@ def attempt_moondream(
             results.append(("Caption", caption_result, caption_metadata))
 
         except Exception as e:
-            console.print(Text(f"Moondream caption failed: {e}", style="yellow"))
+            print_exception(console, e, prefix="Moondream caption failed", summary_style="yellow")
             results.append(("Caption", f"Error: {e}", {}))
 
     # Query task
@@ -179,7 +180,7 @@ def attempt_moondream(
                 query_result = result.get("answer", "")
                 results.append(("Query", query_result, {}))
             except Exception as e:
-                console.print(Text(f"Moondream query failed: {e}", style="yellow"))
+                print_exception(console, e, prefix="Moondream query failed", summary_style="yellow")
                 results.append(("Query", f"Error: {e}", {}))
         else:
             results.append(("Query", "No prompt provided for query task", {}))
@@ -195,7 +196,7 @@ def attempt_moondream(
                     point_result += f"Point {i + 1}: x={point['x']:.3f}, y={point['y']:.3f}\n"
                 results.append(("Point", point_result, {}))
             except Exception as e:
-                console.print(Text(f"Moondream point failed: {e}", style="yellow"))
+                print_exception(console, e, prefix="Moondream point failed", summary_style="yellow")
                 results.append(("Point", f"Error: {e}", {}))
         else:
             results.append(("Point", "No prompt provided for point task", {}))
@@ -215,7 +216,7 @@ def attempt_moondream(
                     )
                 results.append(("Detect", detect_result, {}))
             except Exception as e:
-                console.print(Text(f"Moondream detect failed: {e}", style="yellow"))
+                print_exception(console, e, prefix="Moondream detect failed", summary_style="yellow")
                 results.append(("Detect", f"Error: {e}", {}))
         else:
             results.append(("Detect", "No prompt provided for detect task", {}))

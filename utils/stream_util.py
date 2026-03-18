@@ -8,6 +8,7 @@ import toml
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TimeRemainingColumn
 
+from utils.console_util import print_exception
 from utils.tag_highlighting import get_tag_classifier
 
 console = Console(color_system="truecolor", force_terminal=True)
@@ -268,7 +269,7 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_t
                     raise Exception(f"FFmpeg failed: {stderr}")
 
             except Exception as e:
-                console.print(f"[red]Failed to run ffmpeg:[/red] {str(e)}")
+                print_exception(console, e, prefix="Failed to run ffmpeg")
                 raise
 
             if save_caption_func:
@@ -418,7 +419,7 @@ def split_name_series(names: str) -> str:
         _cfg = load_config(str(CONFIG_DIR))
         SERIES_EXCLUDE_LIST = set(_cfg.get("wdtagger", {}).get("series_exclude_list", []))
     except Exception as e:
-        console.print(f"[red]Error loading config: {e}, using default empty exclude list.[/red]")
+        print_exception(console, e, prefix="Error loading config, using default empty exclude list")
     # --- End Config Loading ---
 
     for item in items:

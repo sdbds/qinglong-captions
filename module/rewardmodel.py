@@ -212,8 +212,14 @@ def process_batch(pixel_tensors, model, prompts):
                 else:
                     s = model.score(t, pr)
             except Exception as e:
-                console.print(
-                    f"[red]score(tensor single) failed[/red] model={type(model).__name__}, px_type={type(px).__name__}, pr_type={type(pr).__name__}, device={model_device}, err={e}"
+                print_exception(
+                    console,
+                    e,
+                    prefix=(
+                        "score(tensor single) failed "
+                        f"model={type(model).__name__}, px_type={type(px).__name__}, "
+                        f"pr_type={type(pr).__name__}, device={model_device}"
+                    ),
                 )
                 if isinstance(px, np.ndarray):
                     console.print(f"[yellow]ndarray shape={px.shape}, dtype={px.dtype}[/yellow]")

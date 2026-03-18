@@ -20,6 +20,7 @@ from typing import Any, Optional
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.cloud_vlm_base import CloudVLMProvider
 from providers.registry import register_provider
+from utils.console_util import print_exception
 
 
 @register_provider("openai_compatible")
@@ -93,7 +94,7 @@ class OpenAICompatibleProvider(CloudVLMProvider):
             result = completion.choices[0].message.content or ""
             
         except Exception as e:
-            self.log(f"API call failed: {e}", "red")
+            print_exception(self.ctx.console, e, prefix="API call failed")
             # 如果 JSON 模式失败，尝试不用 JSON 模式重试
             if use_json_mode and "response_format" in request_params:
                 self.log("Retrying without JSON mode...", "yellow")
@@ -102,7 +103,7 @@ class OpenAICompatibleProvider(CloudVLMProvider):
                     completion = client.chat.completions.create(**request_params)
                     result = completion.choices[0].message.content or ""
                 except Exception as e2:
-                    self.log(f"Retry failed: {e2}", "red")
+                    print_exception(self.ctx.console, e2, prefix="Retry failed")
                     return CaptionResult(raw="")
             else:
                 return CaptionResult(raw="")
@@ -198,7 +199,7 @@ class OpenAICompatibleProvider(CloudVLMProvider):
             return cfg.base_wait
 
         cfg.classify_error = classify
-        cfg.on_exhausted = lambda e: self.log(
-            f"OpenAI compatible provider exhausted: {e}", "yellow"
-        ) or ""
+        cfg.on_exhausted = lambda e: (
+            print_exception(self.ctx.console, e, prefix="OpenAI compatible provider exhausted", summary_style="yellow") or ""
+        )
         return cfg

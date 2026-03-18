@@ -32,6 +32,7 @@ from rich.progress import (
 )
 
 from config.config import get_supported_extensions
+from utils.console_util import print_exception
 from utils.stream_util import calculate_dimensions
 
 # Global console for general script-level logging if needed outside the class
@@ -124,8 +125,14 @@ class ImageProcessor:
                 save_image.save(str(save_path))
             # self.console.print(f"[green]Successfully saved {Path(save_path).name}[/green]") # Optional: for verbose saving log
         except Exception as e:
-            self.console.print(
-                f"[yellow]Failed to save {Path(save_path).name} with original settings (format: {original_format}, quality: {original_quality}), attempting default save: {str(e)}[/yellow]"
+            print_exception(
+                self.console,
+                e,
+                prefix=(
+                    f"Failed to save {Path(save_path).name} with original settings "
+                    f"(format: {original_format}, quality: {original_quality}), attempting default save"
+                ),
+                summary_style="yellow",
             )
             try:
                 # Fallback: convert to RGB and save as PNG if specific format save fails badly
@@ -135,7 +142,7 @@ class ImageProcessor:
                     pil_image.save(str(save_path), format="PNG")  # Default save, often PNG
                 self.console.print(f"[green]Successfully saved {Path(save_path).name} using fallback (PNG).[/green]")
             except Exception as fallback_e:
-                self.console.print(f"[red]Fallback save also failed for {Path(save_path).name}: {fallback_e}[/red]")
+                print_exception(self.console, fallback_e, prefix=f"Fallback save also failed for {Path(save_path).name}")
 
     def _resize_pil_to_target_with_padding(
         self,
@@ -276,7 +283,7 @@ class ImageProcessor:
             # but resize usually expects 3 channels if color. Forcing RGB for np.array ensures 3 channels.
 
         except Exception as e:
-            self.console.print(f"[red]Cannot read image: {image_path} - {str(e)}[/red]")
+            print_exception(self.console, e, prefix=f"Cannot read image: {image_path}")
             return False
 
         h, w = image_cv.shape[:2]
@@ -424,7 +431,7 @@ class ImageProcessor:
                                 f"[yellow]Reference {ref_img_path.name} not found. Skipping alignment for {src_img_path_obj.name}.[/yellow]"
                             )
                     except Exception as e:
-                        self.console.print(f"[red]Error during alignment for {src_img_path_obj.name}: {e}[/red]")
+                        print_exception(self.console, e, prefix=f"Error during alignment for {src_img_path_obj.name}")
                     finally:
                         progress.update(task_id, advance=1)
             else:  # Resize-only mode
@@ -639,10 +646,10 @@ class ImageProcessor:
                 return aligned_warped_image_pil, reference_image_pil_resized_to_target
 
             except cv2.error as e:
-                self.console.print(f"[red]OpenCV CUDA error during alignment: {e}. Falling back to CPU.[/red]")
+                print_exception(self.console, e, prefix="OpenCV CUDA error during alignment. Falling back to CPU")
                 use_gpu = False  # Fallback to CPU
             except Exception as e:
-                self.console.print(f"[red]Generic error during GPU alignment: {e}. Falling back to CPU.[/red]")
+                print_exception(self.console, e, prefix="Generic error during GPU alignment. Falling back to CPU")
                 use_gpu = False  # Fallback to CPU
 
         # CPU Alignment (or fallback)

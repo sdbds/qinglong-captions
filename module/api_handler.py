@@ -17,8 +17,18 @@ from rich.text import Text
 from rich_pixels import Pixels
 
 from module.providers.catalog import get_first_attr, normalize_runtime_args, route_matches_provider
+from utils.console_util import print_exception
 
 console = Console(color_system="truecolor", force_terminal=True)
+
+
+def _log_exception(prefix: str, exc: BaseException, *, summary_style: str = "red") -> str:
+    print_exception(console, exc, prefix=prefix, summary_style=summary_style)
+    return ""
+
+
+def _make_exhausted_logger(prefix: str):
+    return lambda e: _log_exception(prefix, e, summary_style="yellow")
 
 
 def api_process_batch(
@@ -366,7 +376,7 @@ def api_process_batch(
         try:
             from openai import OpenAI
         except Exception as e:
-            console.print(Text(f"OpenAI SDK not installed: {e}", style="red"))
+            _log_exception("OpenAI SDK not installed", e)
             return ""
         client = OpenAI(api_key=args.step_api_key, base_url="https://api.stepfun.com/v1")
 
@@ -425,7 +435,7 @@ def api_process_batch(
             classify_err=lambda e: (
                 59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (console.print(Text(f"StepFun retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("StepFun retries exhausted"),
         )
         return result
 
@@ -522,7 +532,7 @@ def api_process_batch(
             classify_err=lambda e: (
                 59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (console.print(Text(f"QwenVL retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("QwenVL retries exhausted"),
         )
         return content
 
@@ -567,7 +577,7 @@ def api_process_batch(
             classify_err=lambda e: (
                 59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (console.print(Text(f"GLM retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("GLM retries exhausted"),
         )
         return content
 
@@ -577,7 +587,7 @@ def api_process_batch(
         try:
             from openai import OpenAI
         except Exception as e:
-            console.print(Text(f"OpenAI SDK not installed: {e}", style="red"))
+            _log_exception("OpenAI SDK not installed", e)
             return ""
 
         if not getattr(args, "kimi_code_api_key", ""):
@@ -670,7 +680,7 @@ def api_process_batch(
             classify_err=lambda e: (
                 59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (console.print(Text(f"Kimi-Code retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("Kimi-Code retries exhausted"),
         )
         if result:
             try:
@@ -702,7 +712,7 @@ def api_process_batch(
                         return parsed
                     return parsed
             except Exception as e:
-                console.print(f"[red]Failed to parse Kimi-Code JSON response: {e}[/red]")
+                _log_exception("Failed to parse Kimi-Code JSON response", e)
                 console.print(f"[yellow]Raw response: {raw_result}[/yellow]")
         return result
 
@@ -712,7 +722,7 @@ def api_process_batch(
         try:
             from openai import OpenAI
         except Exception as e:
-            console.print(Text(f"OpenAI SDK not installed: {e}", style="red"))
+            _log_exception("OpenAI SDK not installed", e)
             return ""
 
         if not getattr(args, "kimi_api_key", ""):
@@ -801,7 +811,7 @@ def api_process_batch(
             classify_err=lambda e: (
                 59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (console.print(Text(f"Kimi retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("Kimi retries exhausted"),
         )
         if result:
             try:
@@ -833,7 +843,7 @@ def api_process_batch(
                         return parsed
                     return parsed
             except Exception as e:
-                console.print(f"[red]Failed to parse Kimi JSON response: {e}[/red]")
+                _log_exception("Failed to parse Kimi JSON response", e)
                 console.print(f"[yellow]Raw response: {raw_result}[/yellow]")
         return result
 
@@ -843,7 +853,7 @@ def api_process_batch(
         try:
             from openai import OpenAI
         except Exception as e:
-            console.print(Text(f"OpenAI SDK not installed: {e}", style="red"))
+            _log_exception("OpenAI SDK not installed", e)
             return ""
 
         if not getattr(args, "minimax_code_api_key", ""):
@@ -922,7 +932,7 @@ def api_process_batch(
             classify_err=lambda e: (
                 59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (console.print(Text(f"MiniMax-Code retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("MiniMax-Code retries exhausted"),
         )
         if result:
             try:
@@ -954,7 +964,7 @@ def api_process_batch(
                         return parsed
                     return parsed
             except Exception as e:
-                console.print(f"[red]Failed to parse MiniMax-Code JSON response: {e}[/red]")
+                _log_exception("Failed to parse MiniMax-Code JSON response", e)
                 console.print(f"[yellow]Raw response: {raw_result}[/yellow]")
         return result
 
@@ -964,7 +974,7 @@ def api_process_batch(
         try:
             from openai import OpenAI
         except Exception as e:
-            console.print(Text(f"OpenAI SDK not installed: {e}", style="red"))
+            _log_exception("OpenAI SDK not installed", e)
             return ""
 
         if not getattr(args, "minimax_api_key", ""):
@@ -1043,7 +1053,7 @@ def api_process_batch(
             classify_err=lambda e: (
                 59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (console.print(Text(f"MiniMax API retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("MiniMax API retries exhausted"),
         )
         if result:
             try:
@@ -1075,7 +1085,7 @@ def api_process_batch(
                         return parsed
                     return parsed
             except Exception as e:
-                console.print(f"[red]Failed to parse MiniMax API JSON response: {e}[/red]")
+                _log_exception("Failed to parse MiniMax API JSON response", e)
                 console.print(f"[yellow]Raw response: {raw_result}[/yellow]")
         return result
 
@@ -1084,7 +1094,7 @@ def api_process_batch(
         try:
             from volcenginesdkarkruntime import Ark  # local import to avoid hard dep
         except Exception as e:
-            console.print(Text(f"Ark SDK not installed: {e}", style="red"))
+            _log_exception("Ark SDK not installed", e)
             return ""
 
         if not getattr(args, "ark_model_path", ""):
@@ -1144,7 +1154,7 @@ def api_process_batch(
             except Exception as e:
                 # Extra diagnostics for Ark attempt
                 try:
-                    console.print(Text(f"Ark attempt raised: {type(e).__name__}: {e}", style="red"))
+                    _log_exception("Ark attempt raised", e)
                     console.print(Text(traceback.format_exc(), style="red"))
                 except Exception:
                     pass
@@ -1158,7 +1168,7 @@ def api_process_batch(
             classify_err=lambda e: (
                 59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (console.print(Text(f"Ark retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("Ark retries exhausted"),
         )
         return content
 
@@ -1195,7 +1205,7 @@ def api_process_batch(
                     attempt_deepseek_ocr as deepseek_attempt,
                 )
             except Exception as e:
-                console.print(Text(f"DeepSeek-OCR provider not available: {e}", style="red"))
+                _log_exception("DeepSeek-OCR provider not available", e)
                 raise
 
             return deepseek_attempt(
@@ -1218,7 +1228,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: args.wait_time,
-            on_exhausted=lambda e: (console.print(Text(f"DeepSeek-OCR retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("DeepSeek-OCR retries exhausted"),
         )
         return content
 
@@ -1251,7 +1261,7 @@ def api_process_batch(
                     attempt_hunyuan_ocr as hunyuan_attempt,
                 )
             except Exception as e:
-                console.print(Text(f"HunyuanOCR provider not available: {e}", style="red"))
+                _log_exception("HunyuanOCR provider not available", e)
                 raise
 
             return hunyuan_attempt(
@@ -1272,7 +1282,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: args.wait_time,
-            on_exhausted=lambda e: (console.print(Text(f"HunyuanOCR retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("HunyuanOCR retries exhausted"),
         )
         return content
 
@@ -1308,7 +1318,7 @@ def api_process_batch(
                     attempt_glm_ocr as glm_attempt,
                 )
             except Exception as e:
-                console.print(Text(f"GLM-OCR provider not available: {e}", style="red"))
+                _log_exception("GLM-OCR provider not available", e)
                 raise
 
             return glm_attempt(
@@ -1329,7 +1339,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: args.wait_time,
-            on_exhausted=lambda e: (console.print(Text(f"GLM-OCR retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("GLM-OCR retries exhausted"),
         )
         return content
 
@@ -1359,7 +1369,7 @@ def api_process_batch(
                     attempt_lighton_ocr as lighton_attempt,
                 )
             except Exception as e:
-                console.print(Text(f"LightOn OCR provider not available: {e}", style="red"))
+                _log_exception("LightOn OCR provider not available", e)
                 raise
 
             return lighton_attempt(
@@ -1380,7 +1390,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: args.wait_time,
-            on_exhausted=lambda e: (console.print(Text(f"LightOn OCR retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("LightOn OCR retries exhausted"),
         )
         return content
 
@@ -1389,7 +1399,7 @@ def api_process_batch(
             from providers.base import ProviderContext
             from providers.ocr.dots import DotsOCRProvider
         except Exception as e:
-            console.print(Text(f"Dots OCR provider not available: {e}", style="red"))
+            _log_exception("Dots OCR provider not available", e)
             raise
 
         ctx = ProviderContext(
@@ -1434,7 +1444,7 @@ def api_process_batch(
                     attempt_chandra_ocr as chandra_attempt,
                 )
             except Exception as e:
-                console.print(Text(f"Chandra OCR provider not available: {e}", style="red"))
+                _log_exception("Chandra OCR provider not available", e)
                 raise
 
             return chandra_attempt(
@@ -1455,7 +1465,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: args.wait_time,
-            on_exhausted=lambda e: (console.print(Text(f"Chandra OCR retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("Chandra OCR retries exhausted"),
         )
         return content
 
@@ -1492,7 +1502,7 @@ def api_process_batch(
                     attempt_olmocr as olmocr_attempt,
                 )
             except Exception as e:
-                console.print(Text(f"OLMOCR provider not available: {e}", style="red"))
+                _log_exception("OLMOCR provider not available", e)
                 raise
 
             return olmocr_attempt(
@@ -1516,7 +1526,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: args.wait_time,
-            on_exhausted=lambda e: (console.print(Text(f"OLMOCR retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("OLMOCR retries exhausted"),
         )
         return content
 
@@ -1649,7 +1659,7 @@ def api_process_batch(
                     attempt_paddle_ocr as paddle_attempt,
                 )
             except Exception as e:
-                console.print(Text(f"PaddleOCR provider not available: {e}", style="red"))
+                _log_exception("PaddleOCR provider not available", e)
                 raise
 
             return paddle_attempt(
@@ -1670,7 +1680,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: args.wait_time,
-            on_exhausted=lambda e: (console.print(Text(f"PaddleOCR retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("PaddleOCR retries exhausted"),
         )
         return content
 
@@ -1703,7 +1713,7 @@ def api_process_batch(
                     attempt_nanonets_ocr as nanonets_attempt,
                 )
             except Exception as e:
-                console.print(Text(f"Nanonets OCR provider not available: {e}", style="red"))
+                _log_exception("Nanonets OCR provider not available", e)
                 raise
 
             return nanonets_attempt(
@@ -1724,7 +1734,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: args.wait_time,
-            on_exhausted=lambda e: (console.print(Text(f"Nanonets OCR retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("Nanonets OCR retries exhausted"),
         )
         return content
 
@@ -1757,7 +1767,7 @@ def api_process_batch(
                     attempt_firered_ocr as firered_attempt,
                 )
             except Exception as e:
-                console.print(Text(f"FireRed-OCR provider not available: {e}", style="red"))
+                _log_exception("FireRed-OCR provider not available", e)
                 raise
 
             return firered_attempt(
@@ -1778,7 +1788,7 @@ def api_process_batch(
             base_wait=args.wait_time,
             console=console,
             classify_err=lambda e: args.wait_time,
-            on_exhausted=lambda e: (console.print(Text(f"FireRed-OCR retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("FireRed-OCR retries exhausted"),
         )
         return content
 
@@ -1817,7 +1827,7 @@ def api_process_batch(
                         attempt_moondream as vlm_attempt,
                     )
                 except Exception as e:
-                    console.print(Text(f"Moondream provider not available: {e}", style="red"))
+                    _log_exception("Moondream provider not available", e)
                     raise
 
                 return vlm_attempt(
@@ -1874,7 +1884,7 @@ def api_process_batch(
                 try:
                     from module.providers.cloud_vlm.stepfun import attempt_stepfun
                 except Exception as e:
-                    console.print(Text(f"Step3-VL Local provider not available: {e}", style="red"))
+                    _log_exception("Step3-VL Local provider not available", e)
                     raise
 
                 # Prepare media for Step3-VL local model
@@ -1913,7 +1923,7 @@ def api_process_batch(
             classify_err=lambda e: (
                 59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_MOONDREAM_" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (console.print(Text(f"Moondream retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("Moondream retries exhausted"),
         )
         return content
 
@@ -1923,7 +1933,7 @@ def api_process_batch(
         try:
             from mistralai import Mistral
         except Exception as e:
-            console.print(Text(f"Mistral SDK not installed: {e}", style="red"))
+            _log_exception("Mistral SDK not installed", e)
             return ""
         client = Mistral(api_key=get_first_attr(args, "mistral_api_key", "pixtral_api_key", default=""))
         captions = []
@@ -1977,8 +1987,7 @@ def api_process_batch(
                     signed_url = client.files.get_signed_url(file_id=uploaded_pdf.id)
                     break
                 except Exception as e:
-                    error_msg = Text(str(e), style="red")
-                    console.print(f"[red]Error uploading PDF: {error_msg}[/red]")
+                    _log_exception("Error uploading PDF", e)
                     if upload_attempt < args.max_retries - 1:
                         console.print(f"[yellow]Retrying in {args.wait_time} seconds...[/yellow]")
                         time.sleep(args.wait_time)
@@ -2039,7 +2048,7 @@ def api_process_batch(
             classify_err=lambda e: (
                 59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_PIXTRAL_" in str(e)) else None)
             ),
-            on_exhausted=lambda e: (console.print(Text(f"Pixtral retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("Pixtral retries exhausted"),
         )
         return result
 
@@ -2050,7 +2059,7 @@ def api_process_batch(
             from google import genai
             from google.genai import types
         except Exception as e:
-            console.print(Text(f"Google GenAI SDK not installed: {e}", style="red"))
+            _log_exception("Google GenAI SDK not installed", e)
             return ""
         generation_config = (
             config["generation_config"][args.gemini_model_path.replace(".", "_")]
@@ -2282,7 +2291,7 @@ def api_process_batch(
                     else None
                 )
             ),
-            on_exhausted=lambda e: (console.print(Text(f"Gemini retries exhausted: {e}", style="yellow")) or ""),
+            on_exhausted=_make_exhausted_logger("Gemini retries exhausted"),
         )
         return result
 
@@ -2357,11 +2366,11 @@ def encode_image(image_path: str, to_rgb: bool = False) -> Optional[Tuple[str, P
         if "XMP data is too long" in str(e):
             console.print(f"[yellow]Warning:[/yellow] Skipping image with XMP data error - {image_path}")
         else:
-            console.print(f"[red]Error:[/red] OS error processing file {image_path}: {str(e)}")
+            _log_exception(f"Error: OS error processing file {image_path}", e)
     except ValueError as e:
-        console.print(f"[red]Error:[/red] Invalid value while processing {image_path}: {str(e)}")
+        _log_exception(f"Error: Invalid value while processing {image_path}", e)
     except Exception as e:
-        console.print(f"[red]Error:[/red] Unexpected error processing {image_path}: {str(e)}")
+        _log_exception(f"Error: Unexpected error processing {image_path}", e)
     return None, None
 
 
@@ -2443,7 +2452,7 @@ def with_retry(
         except Exception as e:
             if attempt >= max_retries - 1:
                 if console:
-                    console.print(Text(str(e), style="red"))
+                    _log_exception("[with_retry] final failure", e)
                 if on_exhausted is not None:
                     try:
                         return on_exhausted(e)

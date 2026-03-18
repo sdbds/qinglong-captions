@@ -31,6 +31,7 @@ from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.cloud_vlm_base import CloudVLMProvider
 from providers.registry import register_provider
 from providers.utils import build_vision_messages
+from utils.console_util import print_exception
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +151,7 @@ def _load_tags_from_json(uri: str, progress: Optional[Progress] = None) -> list[
         return tags
     except Exception as e:
         if progress:
-            progress.console.print(f"[red]Error loading or parsing {tags_json_path}: {e}[/red]")
+            print_exception(progress.console, e, prefix=f"Error loading or parsing {tags_json_path}")
         return []
 
 

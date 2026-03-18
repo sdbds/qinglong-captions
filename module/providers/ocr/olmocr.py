@@ -14,6 +14,7 @@ from rich_pixels import Pixels
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.ocr_base import OCRProvider
 from providers.registry import register_provider
+from utils.console_util import print_exception
 from utils.parse_display import display_markdown
 from utils.output_writer import write_markdown_output
 from utils.stream_util import pdf_to_images_high_quality
@@ -175,7 +176,7 @@ def attempt_olmocr(
                     max_new_tokens=max_new_tokens,
                 )
             except Exception as e:
-                console.print(f"[yellow]OLM OCR page {idx + 1} failed: {e}[/yellow]")
+                print_exception(console, e, prefix=f"OLM OCR page {idx + 1} failed", summary_style="yellow")
                 page_content = ""
 
             try:

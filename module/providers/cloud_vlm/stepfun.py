@@ -20,6 +20,7 @@ from rich_pixels import Pixels
 from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.cloud_vlm_base import CloudVLMProvider
 from providers.registry import register_provider
+from utils.console_util import print_exception
 from utils.parse_display import (
     display_caption_and_rate,
     display_caption_layout,
@@ -140,7 +141,7 @@ def attempt_stepfun(
             img = Image.open(uri).convert("RGB")
             user_content.append({"type": "image", "image": img})
         except Exception as e:
-            console.print(f"[red]Failed to load image {uri}: {e}[/red]")
+            print_exception(console, e, prefix=f"Failed to load image {uri}")
             raise
 
         # Load and add pair image if present
@@ -149,7 +150,7 @@ def attempt_stepfun(
                 pair_img = Image.open(pair_uri).convert("RGB")
                 user_content.append({"type": "image", "image": pair_img})
             except Exception as e:
-                console.print(f"[red]Failed to load pair image {pair_uri}: {e}[/red]")
+                print_exception(console, e, prefix=f"Failed to load pair image {pair_uri}")
                 raise
 
         user_content.append({"type": "text", "text": prompt})
@@ -165,11 +166,7 @@ def attempt_stepfun(
                 return_tensors="pt",
             ).to(model.device)
         except Exception as e:
-            console.print(f"[red]Error in apply_chat_template:[/red] {e}")
-            console.print("[red]Full traceback:[/red]")
-            import traceback
-
-            console.print(traceback.format_exc())
+            print_exception(console, e, prefix="Error in apply_chat_template")
             raise
 
         # Generation parameters
@@ -360,5 +357,5 @@ class StepfunProvider(CloudVLMProvider):
             return None
 
         cfg.classify_error = classify
-        cfg.on_exhausted = lambda e: (self.ctx.console.print(f"[yellow]StepFun exhausted: {e}[/yellow]") or "")
+        cfg.on_exhausted = lambda e: (print_exception(self.ctx.console, e, prefix="StepFun exhausted", summary_style="yellow") or "")
         return cfg

@@ -32,6 +32,7 @@ from scenedetect import (
 from scenedetect.scene_manager import save_images, write_scene_list_html
 
 from config.config import BASE_VIDEO_EXTENSIONS
+from utils.console_util import print_exception
 
 
 # 辅助函数：在线程中运行异步任务
@@ -144,7 +145,7 @@ class SceneDetector:
 
             return scene_list
         except Exception as e:
-            self.console.print(f"[red]Scene detection failed: {str(e)}[/red]")
+            print_exception(self.console, e, prefix="Scene detection failed")
             return []
 
     def start_async_detection(self, video_path):
@@ -187,7 +188,7 @@ class SceneDetector:
         except Exception as e:
             self._detection_complete = True
             self.scene_list = []
-            self.console.print(f"[red]scene detection failed: {str(e)}[/red]")
+            print_exception(self.console, e, prefix="scene detection failed")
             return []
 
     def wait_for_detection(self, video_path=None, timeout=None):
@@ -205,7 +206,7 @@ class SceneDetector:
         except Exception as e:
             self._detection_complete = True
             self.scene_list = []
-            self.console.print(f"[red]scene detection failed: {str(e)}[/red]")
+            print_exception(self.console, e, prefix="scene detection failed")
             return []
 
     def get_timestamps(self, scene_list):
@@ -290,7 +291,7 @@ class SceneDetector:
                     num_images=video2images_min_number,
                 )
             except Exception as e:
-                self.console.print(f"[red]can't save scene images: {str(e)}[/red]")
+                print_exception(self.console, e, prefix="can't save scene images")
 
         if save_html:
             # create HTML report file name
@@ -315,7 +316,7 @@ class SceneDetector:
                             image_width = int(orig_width * scale)
                             image_height = int(orig_height * scale)
                     except Exception as e:
-                        self.console.print(f"[red]can't get image size: {str(e)}[/red]")
+                        print_exception(self.console, e, prefix="can't get image size")
 
             try:
                 self.console.print("[green]Generating HTML report...[/green]")
@@ -327,7 +328,7 @@ class SceneDetector:
                     image_width=image_width,
                 )
             except Exception as e:
-                self.console.print(f"[red]can't save HTML report: {str(e)}[/red]")
+                print_exception(self.console, e, prefix="can't save HTML report")
 
         # 使用ffmpeg分割视频
         try:
@@ -339,7 +340,7 @@ class SceneDetector:
                 show_progress=True,
             )
         except Exception as e:
-            self.console.print(f"[red]split video failed: {str(e)}[/red]")
+            print_exception(self.console, e, prefix="split video failed")
             return []
 
     async def split_video_async(

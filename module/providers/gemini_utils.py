@@ -13,6 +13,7 @@ from typing import Any, List, Tuple
 
 from google.genai import types
 
+from utils.console_util import print_exception
 from utils.stream_util import sanitize_filename
 
 
@@ -131,7 +132,12 @@ def upload_or_get(
 
         except Exception as e:
             if output_console:
-                output_console.print(f"[yellow]Upload attempt {upload_attempt + 1}/{max_retries} failed: {e}[/yellow]")
+                print_exception(
+                    output_console,
+                    e,
+                    prefix=f"Upload attempt {upload_attempt + 1}/{max_retries} failed",
+                    summary_style="yellow",
+                )
             if upload_attempt < max_retries - 1:
                 time.sleep(wait_time * 2)
             else:

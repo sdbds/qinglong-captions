@@ -27,6 +27,7 @@ from providers.base import CaptionResult, MediaContext, PromptContext
 from providers.cloud_vlm_base import CloudVLMProvider
 from providers.registry import register_provider
 from providers.utils import build_vision_messages
+from utils.console_util import print_exception
 
 
 def _load_tags_from_json(uri: str, progress: Optional[Progress] = None) -> list[str]:
@@ -46,7 +47,7 @@ def _load_tags_from_json(uri: str, progress: Optional[Progress] = None) -> list[
         return tags
     except Exception as e:
         if progress:
-            progress.console.print(f"[red]Error loading or parsing {tags_json_path}: {e}[/red]")
+            print_exception(progress.console, e, prefix=f"Error loading or parsing {tags_json_path}")
         return []
 
 
@@ -369,7 +370,7 @@ class MiniMaxCodeProvider(CloudVLMProvider):
                     metadata={"provider": self.name}
                 )
         except Exception as e:
-            self.log(f"Failed to parse MiniMax Code JSON response: {e}", "yellow")
+            print_exception(self.ctx.console, e, prefix="Failed to parse MiniMax Code JSON response", summary_style="yellow")
 
         return CaptionResult(
             raw=result if isinstance(result, str) else json.dumps(result, ensure_ascii=False),
@@ -482,5 +483,7 @@ class MiniMaxCodeProvider(CloudVLMProvider):
             return None
 
         cfg.classify_error = classify
-        cfg.on_exhausted = lambda e: (self.ctx.console.print(f"[yellow]MiniMax Code retries exhausted: {e}[/yellow]") or "")
+        cfg.on_exhausted = lambda e: (
+            print_exception(self.ctx.console, e, prefix="MiniMax Code retries exhausted", summary_style="yellow") or ""
+        )
         return cfg

@@ -25,6 +25,7 @@ from rich.text import Text
 from .base import MediaContext, MediaModality, Provider, ProviderContext, PromptContext, ProviderType
 from .capabilities import ProviderCapabilities
 from .utils import build_vision_messages, encode_image_to_blob
+from utils.console_util import print_exception
 
 
 class CloudVLMProvider(Provider):
@@ -90,7 +91,7 @@ class CloudVLMProvider(Provider):
                 with open(uri, "rb") as f:
                     audio_blob = f.read()
             except Exception as e:
-                self.log(f"Failed to read audio: {e}", "yellow")
+                print_exception(self.ctx.console, e, prefix="Failed to read audio", summary_style="yellow")
 
         return MediaContext(
             uri=uri,
@@ -307,7 +308,7 @@ class CloudVLMProvider(Provider):
                         if num_part.isdigit():
                             extras_paths.append((int(num_part), pth))
         except Exception as e:
-            self.log(f"Failed to scan pair extras: {e}", "yellow")
+            print_exception(self.ctx.console, e, prefix="Failed to scan pair extras", summary_style="yellow")
             return []
 
         # 按数字排序
@@ -322,6 +323,6 @@ class CloudVLMProvider(Provider):
                     result.append(blob)
                     self.log(f"Paired extra: {pth.name}", "blue")
             except Exception as e:
-                self.log(f"Failed to encode pair extra {pth}: {e}", "yellow")
+                print_exception(self.ctx.console, e, prefix=f"Failed to encode pair extra {pth}", summary_style="yellow")
 
         return result
