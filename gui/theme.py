@@ -2155,9 +2155,11 @@ def get_modern_css() -> str:
         
         /* ===== Page Container ===== */
         .modern-page-container {{
+            width: 100% !important;
             max-width: 1400px !important;
             margin: 0 auto !important;
             padding: 24px !important;
+            box-sizing: border-box !important;
         }}
         
         /* ===== Tabs ===== */

@@ -18,8 +18,12 @@ from pathlib import Path
 _COLOR_INJECT_DIR = str(Path(__file__).parent / "_color_inject")
 
 
-def _setup_windows_console():
-    """配置 Windows 控制台: UTF-8 + ANSI 虚拟终端处理"""
+def _setup_windows_console() -> int:
+    """配置 Windows 控制台: UTF-8 + ANSI 虚拟终端处理 + 调整窗口/缓冲区宽度
+
+    Returns:
+        实际设置的控制台列数（0 表示未能调整）
+    """
     import ctypes
 
     kernel32 = ctypes.windll.kernel32
@@ -35,6 +39,47 @@ def _setup_windows_console():
     mode.value |= ENABLE_VIRTUAL_TERMINAL_PROCESSING
     kernel32.SetConsoleMode(handle, mode)
 
+    # 调整控制台缓冲区列数、窗口大小并居中
+    cols = 0
+    try:
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        screen_w = user32.GetSystemMetrics(0)  # SM_CXSCREEN
+        screen_h = user32.GetSystemMetrics(1)  # SM_CYSCREEN
+        target_w = int(screen_w * 2 / 3)
+        target_h = int(screen_h * 2 / 3)
+
+        # 获取控制台字体尺寸以计算列数
+        class COORD(ctypes.Structure):
+            _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+        class CONSOLE_FONT_INFO(ctypes.Structure):
+            _fields_ = [("nFont", ctypes.c_ulong), ("dwFontSize", COORD)]
+
+        font_info = CONSOLE_FONT_INFO()
+        kernel32.GetCurrentConsoleFont(handle, False, ctypes.byref(font_info))
+        char_w = font_info.dwFontSize.X or 8   # 默认回退 8px
+        char_h = font_info.dwFontSize.Y or 16  # 默认回退 16px
+
+        hwnd = kernel32.GetConsoleWindow()
+        if hwnd:
+            import subprocess as _sp
+
+            # TODO: 硬编码测试，确认正确值后改回自动计算
+            cols = 120
+
+            left = (screen_w - target_w) // 2
+            top = (screen_h - target_h) // 2
+            _sp.run(f"mode con cols={cols}", shell=True,
+                    stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+            user32.MoveWindow(hwnd, left, top, target_w, target_h, True)
+
+    except Exception:
+        cols = 0  # 非关键，失败不影响功能
+
+    return cols
+
 
 def main():
     if len(sys.argv) < 4:
@@ -46,7 +91,9 @@ def main():
     cmd = sys.argv[3:]
 
     if sys.platform == "win32":
-        _setup_windows_console()
+        console_cols = _setup_windows_console()
+    else:
+        console_cols = 0
 
     # 构建子进程环境变量
     env = os.environ.copy()
@@ -60,6 +107,9 @@ def main():
     # 注入 _color_inject/ 到 PYTHONPATH 最前面，使 sitecustomize.py 被自动执行
     existing_pp = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = _COLOR_INJECT_DIR + os.pathsep + existing_pp if existing_pp else _COLOR_INJECT_DIR
+    # 告知子进程实际终端列数，使 rich 等库按窗口宽度格式化输出
+    if console_cols > 0:
+        env["COLUMNS"] = str(console_cols)
 
     # 通过管道捕获子进程输出（ANSI 码由 sitecustomize 的 _FakeTTY 同步写到日志文件）
     proc = subprocess.Popen(

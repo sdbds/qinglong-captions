@@ -41,7 +41,7 @@ class LogViewer:
         self._last_replayed_seq: int = 0
         self._log_source: LogBuffer = log_source if log_source is not None else log_buffer
 
-        with ui.card().classes(get_classes("card")).style("width: 66vw; max-width: 100%; box-sizing: border-box;"):
+        with ui.card().classes(get_classes("card") + " w-full").style("box-sizing: border-box;"):
             # 工具栏
             with ui.row().classes("w-full items-center justify-between q-pa-md"):
                 with ui.row().classes("items-center gap-2"):
@@ -105,6 +105,7 @@ class LogViewer:
                 self.scroll_area = ui.scroll_area(on_scroll=self._handle_scroll).classes("w-full log-scroll-area").style(f"height: {height};")
                 with self.scroll_area:
                     self.log_container = ui.element("div").style(
+                        "width: 100%; box-sizing: border-box; "
                         "font-family: 'Cascadia Code', 'Consolas', 'Monaco', monospace; "
                         "font-size: 13px; line-height: 1.5; padding: 12px; "
                         "white-space: pre-wrap; word-break: break-all; "
@@ -122,7 +123,7 @@ class LogViewer:
             self._line_count = len(history_lines)
             html_parts = [self._converter.convert_line(line) for line in history_lines]
             with self.log_container:
-                ui.html("<br>".join(html_parts) + "<br>", sanitize=False).style("display: inline;")
+                ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
             self.scroll_area.scroll_to(percent=1.0)
 
         # 当前客户端断连时取消订阅，避免回调打到已销毁的组件
@@ -154,6 +155,14 @@ class LogViewer:
                 width: 10px !important;
                 background: linear-gradient(180deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%) !important;
                 border-radius: 999px !important;
+            }}
+
+            .log-scroll-area .q-scrollarea__container {{
+                width: 100% !important;
+            }}
+            .log-scroll-area .q-scrollarea__content {{
+                width: 100% !important;
+                min-width: 100% !important;
             }}
         </style>
         """)
@@ -195,7 +204,7 @@ class LogViewer:
 
             # 追加到容器（sanitize=False 关闭 DOMPurify，保留 <span style> 颜色）
             with self.log_container:
-                ui.html(html_block, sanitize=False).style("display: inline;")
+                ui.html(html_block, sanitize=False)
 
             # 超过 1.5x max_lines 时，Python 侧清空并重新渲染最新的 max_lines 行
             if self._line_count > int(self.max_lines * 1.5):
@@ -205,7 +214,7 @@ class LogViewer:
                 self.log_container.clear()
                 html_parts = [self._converter.convert_line(line) for line in self.lines]
                 with self.log_container:
-                    ui.html("<br>".join(html_parts) + "<br>", sanitize=False).style("display: inline;")
+                    ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
 
             # 自动滚动
             if self.auto_scroll and self._stick_to_bottom:
@@ -245,7 +254,7 @@ class LogViewer:
         self._line_count = len(history_lines)
         html_parts = [self._converter.convert_line(line) for line in history_lines]
         with self.log_container:
-            ui.html("<br>".join(html_parts) + "<br>", sanitize=False).style("display: inline;")
+            ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
         self.scroll_area.scroll_to(percent=1.0)
 
     def attach_job(self, job):
