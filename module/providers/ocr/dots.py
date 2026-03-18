@@ -18,7 +18,7 @@ from utils.parse_display import display_markdown, extract_code_block_content
 from utils.stream_util import pdf_to_images_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
-DEFAULT_PROMPT_MODE = "prompt_layout_all_en"
+DEFAULT_PROMPT_MODE = "prompt_ocr"
 DEFAULT_SVG_MODEL_ID = "davanstrien/dots.ocr-1.5-svg"
 _TRANS_LOADER: Optional[transformerLoader] = None
 
@@ -68,6 +68,16 @@ def _load_upstream_prompt_mapping() -> dict[str, str]:
             "dots_ocr prompt mapping not available. Install the dots-ocr extra."
         )
     return _load_prompt_mapping_from_file(prompts_path)
+
+
+def _load_config_task_prompt_mapping(config: dict) -> dict[str, str]:
+    """Load optional dots_ocr prompt-mode overrides from prompts.task.dots_ocr."""
+    prompts_section = config.get("prompts", {})
+    task_section = prompts_section.get("task", {})
+    dots_section = task_section.get("dots_ocr", {})
+    if not isinstance(dots_section, dict):
+        return {}
+    return {str(key): str(value) for key, value in dots_section.items()}
 
 
 def _download_model_snapshot(repo_id: str) -> str:
@@ -121,6 +131,7 @@ class DotsOCRProvider(OCRProvider):
 
     def _resolve_prompt_mode_and_prompt(self) -> tuple[str, str]:
         prompt_map = _load_upstream_prompt_mapping()
+        task_prompt_map = _load_config_task_prompt_mapping(self.ctx.config)
         prompt_mode = str(
             self._get_model_config("prompt_mode", DEFAULT_PROMPT_MODE)
             or DEFAULT_PROMPT_MODE
@@ -128,7 +139,7 @@ class DotsOCRProvider(OCRProvider):
         if prompt_mode not in prompt_map:
             raise ValueError(f"Unsupported dots_ocr prompt_mode: {prompt_mode}")
 
-        prompt_text = prompt_map[prompt_mode]
+        prompt_text = task_prompt_map.get(prompt_mode, prompt_map[prompt_mode])
         provider_prompt = str(self._get_model_config("prompt", "") or "").strip()
         global_prompt = str(
             self.ctx.config.get("prompts", {}).get("dots_ocr_prompt", "") or ""

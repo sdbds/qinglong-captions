@@ -109,7 +109,7 @@ max_new_tokens = 4096
 [dots_ocr]
 model_id = "davanstrien/dots.ocr-1.5"
 svg_model_id = "davanstrien/dots.ocr-1.5-svg"
-prompt_mode = "prompt_layout_all_en"
+prompt_mode = "prompt_ocr"
 prompt = ""
 max_new_tokens = 8192
 

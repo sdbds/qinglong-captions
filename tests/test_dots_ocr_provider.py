@@ -89,6 +89,32 @@ def test_global_prompt_fallback_applies_when_provider_prompt_empty(monkeypatch):
     assert prompt_text == "<fallback>"
 
 
+def test_task_prompt_mapping_applies_when_no_direct_override(monkeypatch):
+    ctx = make_ctx(
+        {
+            "dots_ocr": {"prompt_mode": "prompt_web_parsing", "prompt": ""},
+            "prompts": {
+                "dots_ocr_prompt": "",
+                "task": {
+                    "dots_ocr": {
+                        "prompt_web_parsing": "<task-override>",
+                    }
+                },
+            },
+        }
+    )
+    provider = DotsOCRProvider(ctx)
+    monkeypatch.setattr(
+        "providers.ocr.dots._load_upstream_prompt_mapping",
+        lambda: {"prompt_web_parsing": "<upstream>"},
+        raising=False,
+    )
+
+    _, prompt_text = provider._resolve_prompt_mode_and_prompt()
+
+    assert prompt_text == "<task-override>"
+
+
 def test_prompt_image_to_svg_selects_svg_model(monkeypatch):
     ctx = make_ctx(
         {
