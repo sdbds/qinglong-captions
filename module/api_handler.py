@@ -1396,8 +1396,8 @@ def api_process_batch(
 
     elif provider == "dots_ocr":
         try:
-            from providers.base import ProviderContext
-            from providers.ocr.dots import DotsOCRProvider
+            from module.providers.base import ProviderContext
+            from module.providers.ocr.dots import DotsOCRProvider
         except Exception as e:
             _log_exception("Dots OCR provider not available", e)
             raise

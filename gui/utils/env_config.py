@@ -17,8 +17,6 @@ CONFIG_PATH = PROJECT_ROOT / "config" / "env_vars.json"
 # 分组: runtime / uv / network
 ENV_VAR_DEFINITIONS: list[dict] = [
     # ── Runtime ──
-    {"key": "QINGLONG_API_V2", "default": "1", "group": "runtime",
-     "desc_en": "Use V2 API architecture (set 0 only for temporary legacy fallback; removal target after 2026-06-30)", "desc_zh": "使用 V2 API 架构（仅在临时回退旧版时设为 0；计划于 2026-06-30 之后移除）"},
     {"key": "HF_HOME", "default": "huggingface", "group": "runtime",
      "desc_en": "HuggingFace cache directory", "desc_zh": "HuggingFace 缓存目录"},
     {"key": "HF_ENDPOINT", "default": "https://hf-mirror.com", "group": "runtime",

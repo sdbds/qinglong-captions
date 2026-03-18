@@ -1,5 +1,4 @@
 import io
-import os
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -10,17 +9,62 @@ from tests.provider_v2_helpers import make_provider_args
 
 
 class TestApiHandlerV2:
-    def test_no_provider_returns_empty(self):
-        from module.api_handler_v2 import api_process_batch
+    def test_no_provider_raises_explicit_error(self):
+        from module.api_handler_v2 import NoProviderAvailableError, api_process_batch
 
-        result = api_process_batch(
-            uri="/fake.jpg",
-            mime="image/jpeg",
-            config={"prompts": {}},
-            args=make_provider_args(),
-            sha256hash="abc",
+        with pytest.raises(NoProviderAvailableError, match="mime=image/jpeg") as exc_info:
+            api_process_batch(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                config={"prompts": {}},
+                args=make_provider_args(),
+                sha256hash="abc",
+            )
+
+        message = str(exc_info.value)
+        assert "No provider available for mime=image/jpeg" in message
+        assert "Available providers:" in message
+
+    def test_no_provider_error_includes_import_failure_summary(self):
+        from module.api_handler_v2 import NoProviderAvailableError, api_process_batch
+
+        args = make_provider_args(
+            max_retries=1,
+            wait_time=0.01,
+            dir_name=False,
         )
-        assert result.raw == ""
+
+        class FailedImport:
+            def summary(self):
+                return "paddle_ocr import failed: RuntimeError: boom"
+
+        class EmptyRegistry:
+            def find_provider(self, *_args, **_kwargs):
+                return None
+
+            def list_providers(self):
+                return ["gemini", "paddle_ocr"]
+
+            def list_import_failures(self):
+                return [FailedImport()]
+
+        with (
+            patch("module.api_handler_v2.get_registry", return_value=EmptyRegistry()),
+            pytest.raises(NoProviderAvailableError) as exc_info,
+        ):
+            api_process_batch(
+                uri="/fake.jpg",
+                mime="application/pdf",
+                config={"prompts": {}},
+                args=args,
+                sha256hash="abc",
+            )
+
+        message = str(exc_info.value)
+        assert "No provider available for mime=application/pdf" in message
+        assert "Available providers: ['gemini', 'paddle_ocr']" in message
+        assert "Import failures:" in message
+        assert "paddle_ocr import failed: RuntimeError: boom" in message
 
     def test_with_provider_calls_execute(self):
         from providers.base import CaptionResult
@@ -69,17 +113,12 @@ class TestApiHandlerV2:
             )
         assert result.raw == "mocked gemini"
 
-    def test_is_v2_enabled(self):
-        from module.api_handler_v2 import is_v2_enabled, use_v2
+    def test_api_handler_v2_exports_no_legacy_toggle_helpers(self):
+        import module.api_handler_v2 as api_handler_v2
 
-        old_val = os.environ.get("QINGLONG_API_V2", "0")
-        try:
-            use_v2(True)
-            assert is_v2_enabled()
-            use_v2(False)
-            assert not is_v2_enabled()
-        finally:
-            os.environ["QINGLONG_API_V2"] = old_val
+        assert not hasattr(api_handler_v2, "api_process_batch_legacy")
+        assert not hasattr(api_handler_v2, "is_v2_enabled")
+        assert not hasattr(api_handler_v2, "use_v2")
 
     def test_provider_failure_logs_full_traceback(self):
         from module.api_handler_v2 import api_process_batch
@@ -115,16 +154,41 @@ class TestApiHandlerV2:
         assert "Traceback" in output
         assert "execute_boom" in output
 
+    def test_provider_resolution_failure_logs_full_traceback(self):
+        from module.api_handler_v2 import api_process_batch
+
+        args = make_provider_args(
+            max_retries=1,
+            wait_time=0.01,
+            dir_name=False,
+        )
+        buf = io.StringIO()
+        console = Console(file=buf, force_terminal=False, color_system=None)
+
+        class BrokenRegistry:
+            def find_provider(self, *_args, **_kwargs):
+                raise RuntimeError("discover-fail")
+
+        with (
+            patch("module.api_handler_v2.Console", return_value=console),
+            patch("module.api_handler_v2.get_registry", return_value=BrokenRegistry()),
+            pytest.raises(RuntimeError, match="discover-fail"),
+        ):
+            api_process_batch(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                config={"prompts": {}},
+                args=args,
+                sha256hash="abc",
+            )
+
+        output = buf.getvalue()
+        assert "Provider resolution failed" in output
+        assert "RuntimeError: discover-fail" in output
+        assert "Traceback" in output
+
 
 class TestCaptionerV2Switch:
-    def test_v1_import_default(self):
-        old = os.environ.pop("QINGLONG_API_V2", None)
-        try:
-            assert os.environ.get("QINGLONG_API_V2", "0") != "1"
-        finally:
-            if old is not None:
-                os.environ["QINGLONG_API_V2"] = old
-
     def test_v2_wrapper_unwraps_caption_result(self):
         from providers.base import CaptionResult
 

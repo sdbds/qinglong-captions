@@ -117,10 +117,9 @@ result = api_process_batch(uri, mime, config, args, hash)
 # result: CaptionResult
 ```
 
-### 切换开关
+### 运行入口
 ```bash
-export QINGLONG_API_V2=1   # 启用新架构
-export QINGLONG_API_V2=0   # 使用旧代码
+python module/captioner.py ...
 ```
 
 ## 性能优化

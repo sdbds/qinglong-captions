@@ -13,9 +13,9 @@ from typing import Any, Optional
 import torch
 from PIL import Image
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.ocr_base import OCRProvider
-from providers.registry import register_provider
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.ocr_base import OCRProvider
+from module.providers.registry import register_provider
 from utils.output_writer import write_markdown_output
 from utils.parse_display import display_markdown
 from utils.stream_util import pdf_to_images_high_quality

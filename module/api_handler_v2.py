@@ -4,21 +4,15 @@ Provider V2 统一入口
 重构后的 api_process_batch，使用新的 Provider 架构
 
 用法:
-    # 默认使用 V2 新架构
-    # 通过环境变量显式回退到旧代码（临时兼容，不建议长期使用）
-    # 计划在 2026-06-30 之后、V2 默认路径连续两个小版本稳定后移除
-    export QINGLONG_API_V2=0  # 显式回退到旧代码
-
     from module.api_handler_v2 import api_process_batch
     result = api_process_batch(uri, mime, config, args, hash)
 
 向后兼容:
     - 函数签名与原 api_process_batch 完全一致
     - 返回值 CaptionResult 可以通过 .raw 获取字符串
-    - 不会在失败时自动回退到旧实现；是否启用旧实现只由 QINGLONG_API_V2 控制
+    - 不会在失败时自动回退到旧实现
 """
 
-import os
 from typing import Any, Optional
 
 from rich.console import Console
@@ -28,6 +22,35 @@ from config.runtime_config import coerce_runtime_config
 from module.providers import CaptionResult, ProviderContext, get_registry
 from module.providers.catalog import normalize_runtime_args
 from utils.console_util import print_exception
+
+
+class NoProviderAvailableError(RuntimeError):
+    """Raised when no provider can handle the current request."""
+
+    def __init__(self, *, mime: str, available_providers: list[str], import_failures: list[object]):
+        self.mime = mime
+        self.available_providers = available_providers
+        self.import_failures = import_failures
+
+        details = [
+            f"No provider available for mime={mime}",
+            f"Available providers: {available_providers}",
+        ]
+        if import_failures:
+            details.append("Import failures:")
+            details.extend(f"  - {failure.summary()}" for failure in import_failures)
+        super().__init__("\n".join(details))
+
+
+def _build_no_provider_error(registry: Any, mime: str) -> NoProviderAvailableError:
+    available_providers = registry.list_providers()
+    list_import_failures = getattr(registry, "list_import_failures", None)
+    import_failures = list_import_failures() if callable(list_import_failures) else []
+    return NoProviderAvailableError(
+        mime=mime,
+        available_providers=available_providers,
+        import_failures=import_failures,
+    )
 
 
 def api_process_batch(
@@ -67,13 +90,16 @@ def api_process_batch(
     registry = get_registry()
 
     # 查找 provider
-    provider_class = registry.find_provider(args, mime)
+    try:
+        provider_class = registry.find_provider(args, mime)
+    except Exception as e:
+        print_exception(console, e, prefix="Provider resolution failed")
+        raise
 
     if not provider_class:
-        # 没有 provider 能处理
-        console.print(f"[red]No provider available for mime={mime}[/red]")
-        console.print(f"[yellow]Available providers: {registry.list_providers()}[/yellow]")
-        return CaptionResult(raw="")
+        error = _build_no_provider_error(registry, mime)
+        console.print(f"[red]{error}[/red]")
+        raise error
 
     console.print(f"[blue]Using provider: {provider_class.name}[/blue]")
 
@@ -91,48 +117,3 @@ def api_process_batch(
 
 # 兼容旧接口的别名
 api_process_batch_v2 = api_process_batch
-
-
-def api_process_batch_legacy(
-    uri: str,
-    mime: str,
-    config: dict,
-    args: Any,
-    sha256hash: str,
-    progress: Optional[Progress] = None,
-    task_id=None,
-) -> str:
-    """
-    旧实现调用（用于回退）
-
-    直接调用原 api_handler.api_process_batch
-    """
-    from module.api_handler import api_process_batch as _legacy
-
-    return _legacy(
-        uri=uri,
-        mime=mime,
-        config=config,
-        args=args,
-        sha256hash=sha256hash,
-        progress=progress,
-        task_id=task_id,
-    )
-
-
-# 便捷函数：检查是否使用 V2
-def is_v2_enabled() -> bool:
-    """检查是否启用了 V2 架构（默认启用）"""
-    return os.environ.get("QINGLONG_API_V2", "1") != "0"
-
-
-# 便捷函数：切换版本
-def use_v2(enabled: bool = True):
-    """
-    设置是否使用 V2 架构
-
-    用法:
-        use_v2(True)   # 启用 V2
-        use_v2(False)  # 使用旧代码
-    """
-    os.environ["QINGLONG_API_V2"] = "1" if enabled else "0"

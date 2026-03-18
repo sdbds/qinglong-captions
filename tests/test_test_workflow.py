@@ -69,3 +69,19 @@ def test_test_workflow_bootstraps_project_virtualenv_before_frozen_sync():
     assert venv_index < project_python_index < bootstrap_index < sync_index
     assert "./.venv/Scripts/python.exe" in content
     assert "./.venv/bin/python" in content
+
+
+def test_test_workflow_runs_strict_provider_discovery_before_provider_v2_suite():
+    content = WORKFLOW.read_text(encoding="utf-8")
+
+    strict_discovery_index = content.index("reg.discover(strict=True)")
+    provider_suite_index = content.index("python -m pytest tests/test_provider_v2.py tests/test_provider_registry.py tests/test_provider_routes.py tests/test_api_handler_v2.py -q --durations=20")
+
+    assert strict_discovery_index < provider_suite_index
+
+
+def test_test_workflow_strict_provider_discovery_bootstraps_module_import_root():
+    content = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "from providers.registry import get_registry" in content
+    assert "sys.path.insert(0, str(ROOT / 'module'))" not in content

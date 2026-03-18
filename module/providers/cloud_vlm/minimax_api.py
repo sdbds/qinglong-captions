@@ -22,10 +22,10 @@ from rich.console import Console
 from rich.progress import Progress
 from rich.text import Text
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.cloud_vlm_base import CloudVLMProvider
-from providers.registry import register_provider
-from providers.utils import build_vision_messages
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.cloud_vlm_base import CloudVLMProvider
+from module.providers.registry import register_provider
+from module.providers.utils import build_vision_messages
 from utils.console_util import print_exception
 
 
@@ -255,7 +255,7 @@ class MiniMaxAPIProvider(CloudVLMProvider):
         1. 需要 minimax_api_key
         2. 支持 image 和 video
         """
-        return getattr(args, "minimax_api_key", "") != ""
+        return getattr(args, "minimax_api_key", "") != "" and mime.startswith(("image", "video"))
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         """执行 MiniMax API 调用"""

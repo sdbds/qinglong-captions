@@ -17,9 +17,9 @@ from rich.progress import Progress
 from rich.text import Text
 from rich_pixels import Pixels
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.cloud_vlm_base import CloudVLMProvider
-from providers.registry import register_provider
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.cloud_vlm_base import CloudVLMProvider
+from module.providers.registry import register_provider
 from utils.console_util import print_exception
 from utils.parse_display import (
     display_caption_and_rate,
@@ -292,7 +292,7 @@ class StepfunProvider(CloudVLMProvider):
 
     @classmethod
     def can_handle(cls, args, mime: str) -> bool:
-        return getattr(args, "step_api_key", "") != ""
+        return getattr(args, "step_api_key", "") != "" and mime.startswith(("image", "video"))
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         from openai import OpenAI

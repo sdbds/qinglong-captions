@@ -17,11 +17,11 @@ from typing import Optional
 
 from PIL import Image, ImageDraw
 
-from providers.backends import OpenAIChatRuntime, find_model_config_section, resolve_runtime_backend
-from providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
-from providers.ocr_base import OCRProvider
-from providers.registry import register_provider
-from providers.utils import build_vision_messages, encode_image_to_blob
+from module.providers.backends import OpenAIChatRuntime, find_model_config_section, resolve_runtime_backend
+from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
+from module.providers.ocr_base import OCRProvider
+from module.providers.registry import register_provider
+from module.providers.utils import build_vision_messages, encode_image_to_blob
 from utils.output_writer import write_markdown_output
 from utils.parse_display import display_markdown, extract_code_block_content
 from utils.transformer_loader import resolve_device_dtype, transformerLoader

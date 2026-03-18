@@ -27,10 +27,10 @@ from utils.parse_display import (
 )
 from utils.stream_util import format_description
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.cloud_vlm_base import CloudVLMProvider
-from providers.registry import register_provider
-from providers.utils import build_vision_messages
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.cloud_vlm_base import CloudVLMProvider
+from module.providers.registry import register_provider
+from module.providers.utils import build_vision_messages
 from utils.console_util import print_exception
 
 
@@ -297,7 +297,7 @@ class KimiVLProvider(CloudVLMProvider):
     @classmethod
     def can_handle(cls, args, mime: str) -> bool:
         """kimi_vl 在 kimi_code 之后检查"""
-        return getattr(args, "kimi_api_key", "") != ""
+        return getattr(args, "kimi_api_key", "") != "" and mime.startswith(("image", "video"))
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         from openai import OpenAI

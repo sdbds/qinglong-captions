@@ -11,9 +11,9 @@ from PIL import Image
 from onnx_runtime.artifacts import build_component_filename, download_onnx_artifact_set
 from onnx_runtime.config import OnnxRuntimeConfig
 from onnx_runtime.session import load_session_bundle
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.local_vlm_base import LocalVLMProvider
-from providers.registry import register_provider
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.local_vlm_base import LocalVLMProvider
+from module.providers.registry import register_provider
 
 _ONNX_TYPE_TO_DTYPE = {
     "tensor(float)": np.float32,

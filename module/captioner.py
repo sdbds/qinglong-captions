@@ -5,27 +5,25 @@ from PIL import Image
 from rich.console import Console
 from module.caption_pipeline.orchestrator import process_batch as _pipeline_process_batch
 from module.providers.catalog import normalize_runtime_args, route_choices
-import os as _os
+from module.api_handler_v2 import api_process_batch as _api_process_batch_v2
 
-if _os.environ.get("QINGLONG_API_V2", "1") == "0":
-    # 旧架构：通过 QINGLONG_API_V2=0 显式回退
-    print("Warning: QINGLONG_API_V2=0 is deprecated and keeps the legacy V1 caption pipeline enabled.", file=sys.stderr)
-    from module.api_handler import api_process_batch
-else:
-    from module.api_handler_v2 import api_process_batch as _api_process_batch_v2
 
-    def api_process_batch(uri, mime, config, args, sha256hash, progress=None, task_id=None):
-        """V2 包装：将 CaptionResult 转为兼容旧入口的基础类型。"""
-        result = _api_process_batch_v2(
-            uri=uri, mime=mime, config=config, args=args,
-            sha256hash=sha256hash, progress=progress, task_id=task_id,
-        )
-        # CaptionResult -> str | dict
-        if hasattr(result, 'parsed') and result.parsed is not None:
-            return result.parsed
-        if hasattr(result, 'raw'):
-            return result.raw
-        return result
+def api_process_batch(uri, mime, config, args, sha256hash, progress=None, task_id=None):
+    """将 V2 CaptionResult 转为旧编排层使用的基础类型。"""
+    result = _api_process_batch_v2(
+        uri=uri,
+        mime=mime,
+        config=config,
+        args=args,
+        sha256hash=sha256hash,
+        progress=progress,
+        task_id=task_id,
+    )
+    if hasattr(result, "parsed") and result.parsed is not None:
+        return result.parsed
+    if hasattr(result, "raw"):
+        return result.raw
+    return result
 from module.lanceexport import extract_from_lance
 from module.lanceImport import transform2lance
 

@@ -98,7 +98,6 @@ $Env:UV_NO_BUILD_ISOLATION = "1"
 $Env:UV_NO_CACHE = "0"
 $Env:UV_LINK_MODE = "symlink"
 $Env:UV_INDEX_STRATEGY = "unsafe-best-match"
-$env:QINGLONG_API_V2="1"
 #$Env:CUDA_VISIBLE_DEVICES = "1"  # 设置GPU id，0表示使用第一个GPU，-1表示不使用GPU
 
 #$Env:HTTP_PROXY = "http://127.0.0.1:7890"

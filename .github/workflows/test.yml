@@ -134,6 +134,10 @@ jobs:
           uv sync --frozen --group test
           if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }
 
+      - name: Run strict provider discovery gate
+        run: |
+          uv run --group test python -c "from providers.registry import get_registry; reg = get_registry(); reg.discover(strict=True)"
+
       - name: Run Provider V2 suite
         run: |
           uv run --group test python -m pytest tests/test_provider_v2.py tests/test_provider_registry.py tests/test_provider_routes.py tests/test_api_handler_v2.py -q --durations=20

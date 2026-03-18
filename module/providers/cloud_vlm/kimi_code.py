@@ -7,10 +7,10 @@
 优先级：kimi_code > kimi_vl
 """
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.cloud_vlm_base import CloudVLMProvider
-from providers.registry import register_provider
-from providers.utils import build_vision_messages
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.cloud_vlm_base import CloudVLMProvider
+from module.providers.registry import register_provider
+from module.providers.utils import build_vision_messages
 
 
 @register_provider("kimi_code")
@@ -20,7 +20,7 @@ class KimiCodeProvider(CloudVLMProvider):
     @classmethod
     def can_handle(cls, args, mime: str) -> bool:
         """kimi_code 优先级高于 kimi_vl"""
-        return getattr(args, "kimi_code_api_key", "") != ""
+        return getattr(args, "kimi_code_api_key", "") != "" and mime.startswith(("image", "video"))
 
     # Kimi Code API 通过 User-Agent 识别 coding agent，必须设置此 header
     KIMI_CODE_USER_AGENT = "claude-code/0.1.0"

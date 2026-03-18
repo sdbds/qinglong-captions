@@ -11,9 +11,9 @@ from rich.console import Console
 from rich.progress import Progress
 from rich.text import Text
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.cloud_vlm_base import CloudVLMProvider
-from providers.registry import register_provider
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.cloud_vlm_base import CloudVLMProvider
+from module.providers.registry import register_provider
 from utils.parse_display import extract_code_block_content
 
 

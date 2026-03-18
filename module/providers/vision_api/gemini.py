@@ -12,9 +12,9 @@ from rich.progress import Progress
 from rich.text import Text
 from rich_pixels import Pixels
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.registry import register_provider
-from providers.vision_api_base import StructuredOutputConfig, VisionAPIProvider
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.registry import register_provider
+from module.providers.vision_api_base import StructuredOutputConfig, VisionAPIProvider
 from utils.console_util import print_exception
 from utils.parse_display import (
     display_caption_and_rate,
@@ -252,7 +252,7 @@ class GeminiProvider(VisionAPIProvider):
 
     @classmethod
     def can_handle(cls, args, mime: str) -> bool:
-        return getattr(args, "gemini_api_key", "") != ""
+        return getattr(args, "gemini_api_key", "") != "" and mime.startswith(("image", "video", "audio"))
 
     def get_structured_output_config(self, media: MediaContext, args) -> StructuredOutputConfig:
         """Gemini 结构化输出配置"""
@@ -272,7 +272,7 @@ class GeminiProvider(VisionAPIProvider):
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         from google import genai
-        from providers.gemini_utils import upload_or_get
+        from module.providers.gemini_utils import upload_or_get
 
         client = genai.Client(api_key=self.ctx.args.gemini_api_key)
         model_path = self.ctx.args.gemini_model_path

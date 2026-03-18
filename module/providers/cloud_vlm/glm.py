@@ -6,9 +6,9 @@ from typing import Any, Optional
 
 from rich.progress import Progress
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.cloud_vlm_base import CloudVLMProvider
-from providers.registry import register_provider
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.cloud_vlm_base import CloudVLMProvider
+from module.providers.registry import register_provider
 
 
 def attempt_glm(*, client, model_path, messages, console, progress=None, task_id=None) -> str:

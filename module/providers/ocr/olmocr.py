@@ -11,9 +11,9 @@ from rich.console import Console
 from rich.progress import Progress
 from rich_pixels import Pixels
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.ocr_base import OCRProvider
-from providers.registry import register_provider
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.ocr_base import OCRProvider
+from module.providers.registry import register_provider
 from utils.console_util import print_exception
 from utils.parse_display import display_markdown
 from utils.output_writer import write_markdown_output

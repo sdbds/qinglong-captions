@@ -1,4 +1,8 @@
 import inspect
+import importlib
+from unittest.mock import patch
+
+import pytest
 
 from tests.provider_v2_helpers import make_provider_args
 
@@ -98,6 +102,37 @@ class TestProviderRegistry:
         reg.register("fake_test", FakeProvider)
         assert reg.get_provider("fake_test") is FakeProvider
         reg._providers.pop("fake_test", None)
+
+    def test_discover_strict_raises_with_full_import_traceback(self):
+        from providers.registry import ProviderDiscoveryError, get_registry
+
+        reg = get_registry()
+        original_providers = dict(reg._providers)
+        original_discovered = reg._discovered
+        original_failures = dict(getattr(reg, "_import_failures", {}))
+        real_import_module = importlib.import_module
+
+        def fake_import_module(name, package=None):
+            if name == "module.providers.ocr.paddle":
+                raise RuntimeError("boom import")
+            return real_import_module(name, package)
+
+        try:
+            reg._providers = {}
+            reg._discovered = False
+            reg._import_failures = {}
+            with patch("providers.registry.importlib.import_module", side_effect=fake_import_module):
+                with pytest.raises(ProviderDiscoveryError, match="paddle_ocr"):
+                    reg.discover(strict=True)
+
+            failure = reg.get_import_failure("paddle_ocr")
+            assert failure is not None
+            assert "Traceback" in failure.traceback
+            assert "RuntimeError: boom import" in failure.traceback
+        finally:
+            reg._providers = original_providers
+            reg._discovered = original_discovered
+            reg._import_failures = original_failures
 
 
 class TestPriorityOrder:

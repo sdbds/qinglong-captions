@@ -15,11 +15,11 @@ from rich.progress import Progress
 from rich.text import Text
 from rich_pixels import Pixels
 
-from providers.catalog import get_first_attr, route_matches_provider
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.registry import register_provider
-from providers.utils import build_vision_messages
-from providers.vision_api_base import VisionAPIProvider
+from module.providers.catalog import get_first_attr, route_matches_provider
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.registry import register_provider
+from module.providers.utils import build_vision_messages
+from module.providers.vision_api_base import VisionAPIProvider
 from utils.console_util import print_exception
 from utils.parse_display import (
     display_caption_layout,

@@ -9,9 +9,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.local_vlm_base import LocalVLMProvider
-from providers.registry import register_provider
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.local_vlm_base import LocalVLMProvider
+from module.providers.registry import register_provider
 
 
 def _repeat_kv(hidden_states, num_key_value_groups):

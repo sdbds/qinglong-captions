@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.local_vlm_base import LocalVLMProvider
-from providers.registry import register_provider
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.local_vlm_base import LocalVLMProvider
+from module.providers.registry import register_provider
 
 
 @register_provider("step_vl_local")

@@ -11,9 +11,9 @@ from rich.console import Console
 from rich.progress import Progress
 from rich.text import Text
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.local_vlm_base import LocalVLMProvider
-from providers.registry import register_provider
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.local_vlm_base import LocalVLMProvider
+from module.providers.registry import register_provider
 from utils.console_util import print_exception
 from utils.parse_display import (
     display_caption_layout,

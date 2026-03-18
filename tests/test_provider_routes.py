@@ -10,6 +10,14 @@ class TestFindProvider:
         assert reg.find_provider(args, "image/jpeg").name == "stepfun"
         assert reg.find_provider(args, "video/mp4").name == "stepfun"
 
+    def test_stepfun_does_not_claim_pdf(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(step_api_key="sk-xxx")
+        provider = reg.find_provider(args, "application/pdf")
+        assert provider is None
+
     def test_ark_video(self):
         from providers.registry import get_registry
 
@@ -130,6 +138,30 @@ class TestFindProvider:
         provider = reg.find_provider(args, "image/png")
         assert provider is not None and provider.name == "qianfan_ocr"
 
+    def test_explicit_ocr_route_beats_cloud_priority_for_images(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(step_api_key="sk-xxx", ocr_model="paddle_ocr", document_image=True)
+        provider = reg.find_provider(args, "image/png")
+        assert provider is not None and provider.name == "paddle_ocr"
+
+    def test_explicit_ocr_route_beats_cloud_priority_for_pdfs(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(step_api_key="sk-xxx", ocr_model="paddle_ocr")
+        provider = reg.find_provider(args, "application/pdf")
+        assert provider is not None and provider.name == "paddle_ocr"
+
+    def test_kimi_code_does_not_steal_explicit_ocr_route(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(kimi_code_api_key="kc-xxx", ocr_model="qianfan_ocr", document_image=True)
+        provider = reg.find_provider(args, "image/png")
+        assert provider is not None and provider.name == "qianfan_ocr"
+
     def test_ocr_pdf_always_handled(self):
         from providers.registry import get_registry
 
@@ -151,6 +183,14 @@ class TestFindProvider:
 
         reg = get_registry()
         args = make_provider_args(vlm_image_model="moondream")
+        provider = reg.find_provider(args, "image/jpeg")
+        assert provider is not None and provider.name == "moondream"
+
+    def test_vlm_route_ignores_irrelevant_ocr_setting(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(vlm_image_model="moondream", ocr_model="paddle_ocr", document_image=False)
         provider = reg.find_provider(args, "image/jpeg")
         assert provider is not None and provider.name == "moondream"
 

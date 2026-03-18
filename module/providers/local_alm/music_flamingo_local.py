@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.caption_pipeline.postprocess import normalize_and_validate_subtitle_text
-from providers.local_alm_base import LocalALMProvider
-from providers.registry import register_provider
+from module.providers.local_alm_base import LocalALMProvider
+from module.providers.registry import register_provider
 
 
 @register_provider("music_flamingo_local")

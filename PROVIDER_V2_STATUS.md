@@ -101,15 +101,9 @@ print(result.description)   # 描述文本
 print(result.parsed)        # 结构化数据（如果有）
 ```
 
-### 切换新旧代码
+### 使用入口
 
 ```bash
-# 使用新架构
-export QINGLONG_API_V2=1
-python module/captioner.py ...
-
-# 使用旧代码（回退）
-export QINGLONG_API_V2=0
 python module/captioner.py ...
 ```
 
@@ -150,9 +144,8 @@ provider_class = registry.find_provider(args, mime)
 ## 向后兼容性
 
 - ✅ 函数签名与原 api_process_batch 完全一致
-- ✅ 可通过环境变量切换新旧代码
 - ✅ CaptionResult 可以通过 .raw 属性获取字符串
-- ✅ 失败时可自动回退到旧实现
+- ✅ 失败时显式抛错，不再静默回退到旧实现
 
 ## 下一步建议
 

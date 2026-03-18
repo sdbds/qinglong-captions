@@ -10,10 +10,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from providers.base import CaptionResult, MediaContext, PromptContext
-from providers.capabilities import ProviderCapabilities
-from providers.local_vlm_base import LocalVLMProvider
-from providers.registry import register_provider
+from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.capabilities import ProviderCapabilities
+from module.providers.local_vlm_base import LocalVLMProvider
+from module.providers.registry import register_provider
 
 from utils.parse_display import extract_code_block_content
 
