@@ -1,3 +1,6 @@
 [submodule "third_party/SongPrep"]
 	path = third_party/SongPrep
 	url = https://github.com/sdbds/SongPrep
+[submodule "third_party/dots.ocr"]
+	path = third_party/dots.ocr
+	url = https://github.com/sdbds/dots.ocr
