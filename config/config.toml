@@ -706,10 +706,10 @@ max_new_tokens = 15000
 
 # Chandra OCR configuration
 # Model: https://huggingface.co/datalab-to/chandra-ocr-2
-# Requires: pip install chandra-ocr
+# Requires: pip install chandra-ocr[hf]
 [chandra_ocr]
 model_id = "datalab-to/chandra-ocr-2"
-max_new_tokens = 8192
+max_new_tokens = 12384
 prompt_type = "ocr_layout"
 
 [paddle_ocr.save]

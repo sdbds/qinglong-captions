@@ -34,7 +34,7 @@ def attempt_chandra_ocr(
     prompt_type: str = "ocr_layout",
     pixels: Optional[Pixels] = None,
     output_dir: Optional[str] = None,
-    max_new_tokens: int = 8192,
+    max_new_tokens: int = 12384,
 ) -> str:
     """Run local Chandra OCR on a single image or PDF and return markdown text.
 
@@ -188,7 +188,7 @@ class ChandraOCRProvider(OCRProvider):
             prompt_type=prompt_type,
             pixels=media.pixels,
             output_dir=str(output_dir) if output_dir else None,
-            max_new_tokens=self._get_model_config("max_new_tokens", 8192),
+            max_new_tokens=self._get_model_config("max_new_tokens", 12384),
         )
 
         return CaptionResult(

@@ -388,7 +388,7 @@ def test_attempt_chandra_ocr_uses_chandra2_hf_contract(tmp_path):
     assert fake_processor.tokenizer.padding_side == "left"
     assert captured["generate_batch"][0].prompt_type == "ocr_layout"
     assert captured["generate_model"] is fake_model
-    assert captured["max_output_tokens"] == 8192
+    assert captured["max_output_tokens"] == 12384
     assert captured["parse_markdown_raw"] == "<div>hello</div>"
 
 
