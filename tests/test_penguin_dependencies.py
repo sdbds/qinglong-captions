@@ -254,15 +254,17 @@ def test_run_ps1_mentions_qianfan_ocr_extra():
     assert 'Add-UvExtra "qianfan-ocr"' in content
 
 
-def test_run_ps1_mentions_music_flamingo_local_extra():
+def test_run_ps1_uses_generic_extra_fallback_for_music_flamingo():
     content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
 
     assert '"music_flamingo_local"' in content
     assert 'Add-UvExtra "music-flamingo-local"' in content
     assert "--alm_model=$alm_model" in content
     assert "if ($null -ne $segment_time)" in content
-    assert "uv.lock 未包含 music-flamingo-local" in content
-    assert "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf" in content
+    assert "Get-PyprojectExtraRequirements" in content
+    assert "uv.lock 未包含所选 extra，回退到 pyproject optional-dependencies 直接安装" in content
+    assert 'if ($Extra -eq "music-flamingo-local")' not in content
+    assert "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf" not in content
 
 
 def test_run_ps1_locks_with_python_3_11_only():

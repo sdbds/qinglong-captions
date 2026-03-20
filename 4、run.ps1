@@ -196,25 +196,64 @@ function Test-UvLockHasExtra {
   return $LockContent.Contains($ExtraName)
 }
 
-function Write-ExtraFallbackRequirements {
+function Get-PyprojectExtraRequirements {
   param (
-    [string[]]$Extras,
-    [string]$OutputPath
+    [string[]]$Extras
   )
 
-  if ($Extras.Count -eq 1 -and $Extras[0] -eq "music-flamingo-local") {
-    @(
-      "torch==2.8.0"
-      "torchaudio"
-      "accelerate"
-      "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf"
-      "huggingface_hub[hf_xet]>=0.35.2"
-      "safetensors"
-    ) | Set-Content -Path $OutputPath -Encoding UTF8
-    return $true
+  $UniqueExtras = @($Extras | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+  if ($UniqueExtras.Count -eq 0) {
+    return @()
   }
 
-  return $false
+  $PyProject = Join-Path $PSScriptRoot "pyproject.toml"
+  if (-not (Test-Path $PyProject)) {
+    return $null
+  }
+
+  $PythonExe = Get-ProjectPython
+  if ([string]::IsNullOrWhiteSpace($PythonExe)) {
+    return $null
+  }
+
+  $ExtraJson = $UniqueExtras | ConvertTo-Json -Compress
+  $PythonScript = @'
+import json
+import pathlib
+import sys
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+
+pyproject = pathlib.Path(sys.argv[1])
+extras = json.loads(sys.argv[2])
+data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+optional_deps = data.get("project", {}).get("optional-dependencies", {})
+requirements = []
+seen = set()
+
+for extra in extras:
+    extra_requirements = optional_deps.get(extra)
+    if not extra_requirements:
+        raise SystemExit(3)
+    for requirement in extra_requirements:
+        text = str(requirement).strip()
+        if text and text not in seen:
+            seen.add(text)
+            requirements.append(text)
+
+for requirement in requirements:
+    print(requirement)
+'@
+
+  $Output = & $PythonExe -c $PythonScript $PyProject $ExtraJson 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    return $null
+  }
+
+  return @($Output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
 }
 
 function Install-UvDependencyPatch {
@@ -254,38 +293,69 @@ function Install-UvDependencyPatch {
     return
   }
 
+  $UniqueExtras = @($Extras | Select-Object -Unique)
+  $UniqueGroups = @($Groups | Select-Object -Unique)
   $PythonExe = Get-ProjectPython
   $ReqFile = Join-Path $env:TEMP "qinglong_uv_patch_$PID.txt"
-  $ExportArgs = [System.Collections.ArrayList]::new()
-  [void]$ExportArgs.Add("export")
-  [void]$ExportArgs.Add("--frozen")
-  [void]$ExportArgs.Add("--no-emit-project")
-  [void]$ExportArgs.Add("--format")
-  [void]$ExportArgs.Add("requirements-txt")
-  [void]$ExportArgs.Add("--output-file")
-  [void]$ExportArgs.Add($ReqFile)
-  foreach ($Extra in ($Extras | Select-Object -Unique)) {
-    [void]$ExportArgs.Add("--extra")
-    [void]$ExportArgs.Add($Extra)
-  }
-  foreach ($Group in ($Groups | Select-Object -Unique)) {
-    [void]$ExportArgs.Add("--group")
-    [void]$ExportArgs.Add($Group)
+
+  $FallbackExtras = [System.Collections.ArrayList]::new()
+  foreach ($Extra in $UniqueExtras) {
+    if (-not (Test-UvLockHasExtra $Extra)) {
+      [void]$FallbackExtras.Add($Extra)
+    }
   }
 
-  $UsedFallbackRequirements = $false
-  if (($Extras | Select-Object -Unique) -contains "music-flamingo-local" -and -not (Test-UvLockHasExtra "music-flamingo-local")) {
-    Write-Output "检测到 uv.lock 未包含 music-flamingo-local，回退到固定依赖清单"
-    $UsedFallbackRequirements = Write-ExtraFallbackRequirements -Extras ($Extras | Select-Object -Unique) -OutputPath $ReqFile
+  $Requirements = [System.Collections.Generic.List[string]]::new()
+  $FallbackRequirements = @()
+  if ($FallbackExtras.Count -gt 0) {
+    Write-Output "检测到 uv.lock 未包含所选 extra，回退到 pyproject optional-dependencies 直接安装"
+    $FallbackRequirements = Get-PyprojectExtraRequirements -Extras $FallbackExtras
+    if ($null -eq $FallbackRequirements -or $FallbackRequirements.Count -eq 0) {
+      throw "fallback requirements generation failed"
+    }
   }
 
-  if (-not $UsedFallbackRequirements) {
+  $ExportExtras = @($UniqueExtras | Where-Object { $FallbackExtras -notcontains $_ })
+  if ($ExportExtras.Count -gt 0 -or $UniqueGroups.Count -gt 0) {
+    $ExportArgs = [System.Collections.ArrayList]::new()
+    [void]$ExportArgs.Add("export")
+    [void]$ExportArgs.Add("--frozen")
+    [void]$ExportArgs.Add("--no-emit-project")
+    [void]$ExportArgs.Add("--format")
+    [void]$ExportArgs.Add("requirements-txt")
+    [void]$ExportArgs.Add("--output-file")
+    [void]$ExportArgs.Add($ReqFile)
+    foreach ($Extra in $ExportExtras) {
+      [void]$ExportArgs.Add("--extra")
+      [void]$ExportArgs.Add($Extra)
+    }
+    foreach ($Group in $UniqueGroups) {
+      [void]$ExportArgs.Add("--group")
+      [void]$ExportArgs.Add($Group)
+    }
+
     Write-Output "导出当前功能所需依赖清单，避免构建本地项目包"
     uv @ExportArgs
     if (!($?)) {
       throw "uv export failed"
     }
+
+    foreach ($Line in (Get-Content $ReqFile)) {
+      [void]$Requirements.Add($Line)
+    }
   }
+
+  if ($FallbackExtras.Count -gt 0) {
+    foreach ($Line in $FallbackRequirements) {
+      [void]$Requirements.Add($Line)
+    }
+  }
+
+  if ($Requirements.Count -eq 0) {
+    throw "no requirements generated for dependency patch"
+  }
+
+  $Requirements | Select-Object -Unique | Set-Content -Path $ReqFile -Encoding UTF8
 
   $InstallArgs = [System.Collections.ArrayList]::new()
   [void]$InstallArgs.Add("pip")

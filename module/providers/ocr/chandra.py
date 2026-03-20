@@ -30,7 +30,7 @@ def attempt_chandra_ocr(
     console: Console,
     progress: Optional[Progress],
     task_id: Optional[Any],
-    model_id: str = "datalab-to/chandra",
+    model_id: str = "datalab-to/chandra-ocr-2",
     prompt_type: str = "ocr_layout",
     pixels: Optional[Pixels] = None,
     output_dir: Optional[str] = None,
@@ -43,7 +43,8 @@ def attempt_chandra_ocr(
       prompt_type: Chandra prompt type; default is "ocr_layout"
       max_new_tokens: maximum number of tokens to generate
     """
-    from chandra.model.hf import generate_hf, BatchInputItem
+    from chandra.model.hf import generate_hf
+    from chandra.model.schema import BatchInputItem
     from chandra.output import parse_markdown
 
     start_time = time.time()
@@ -52,7 +53,7 @@ def attempt_chandra_ocr(
     if not output_dir:
         output_dir = str(p.with_suffix(""))
 
-    from transformers import AutoModel, AutoProcessor
+    from transformers import AutoModelForImageTextToText, AutoProcessor
 
     device, dtype, attn_impl = resolve_device_dtype()
     global _TRANS_LOADER
@@ -60,9 +61,12 @@ def attempt_chandra_ocr(
         _TRANS_LOADER = transformerLoader(attn_kw="_attn_implementation", device_map="auto")
 
     processor = _TRANS_LOADER.get_or_load_processor(model_id, AutoProcessor, console=console)
+    tokenizer = getattr(processor, "tokenizer", None)
+    if tokenizer is not None and hasattr(tokenizer, "padding_side"):
+        tokenizer.padding_side = "left"
     model = _TRANS_LOADER.get_or_load_model(
         model_id,
-        AutoModel,
+        AutoModelForImageTextToText,
         dtype=dtype,
         attn_impl=attn_impl,
         device_map="auto",
@@ -88,8 +92,8 @@ def attempt_chandra_ocr(
 
             # Process with Chandra OCR
             inputs = [BatchInputItem(image=pil_img, prompt_type=prompt_type)]
-            raw_output = generate_hf(model, inputs, max_new_tokens=max_new_tokens)
-            output_text = parse_markdown(raw_output[0])
+            raw_output = generate_hf(inputs, model, max_output_tokens=max_new_tokens)
+            output_text = parse_markdown(raw_output[0].raw)
 
             # Process line breaks for display - add two spaces before newlines for markdown line breaks
             output_text = output_text.replace("\n", "  \n")
@@ -126,8 +130,8 @@ def attempt_chandra_ocr(
 
         # Process with Chandra OCR
         inputs = [BatchInputItem(image=pil_img, prompt_type=prompt_type)]
-        raw_output = generate_hf(model, inputs, max_new_tokens=max_new_tokens)
-        content = parse_markdown(raw_output[0])
+        raw_output = generate_hf(inputs, model, max_output_tokens=max_new_tokens)
+        content = parse_markdown(raw_output[0].raw)
 
         # Process line breaks for display - add two spaces before newlines for markdown line breaks
         content = content.replace("\n", "  \n")
@@ -161,7 +165,7 @@ def attempt_chandra_ocr(
 class ChandraOCRProvider(OCRProvider):
     """Chandra OCR Provider"""
 
-    default_model_id = "datalab-to/chandra"
+    default_model_id = "datalab-to/chandra-ocr-2"
     default_prompt = ""
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:

@@ -109,11 +109,14 @@ def render_console_page():
         for line in lines:
             html_parts.append(converter.convert_line(line))
 
-        with log_container:
-            ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
+        try:
+            with log_container:
+                ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
 
-        if auto_scroll["value"]:
-            scroll_area.scroll_to(percent=1.0)
+            if auto_scroll["value"]:
+                scroll_area.scroll_to(percent=1.0)
+        except RuntimeError:
+            pass
 
     flush_timer["ref"] = ui.timer(0.1, flush)
 

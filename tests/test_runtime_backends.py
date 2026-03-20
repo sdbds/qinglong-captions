@@ -291,6 +291,107 @@ def test_attempt_qwenvl_local_normalizes_file_image_uris(tmp_path):
     assert captured["messages"][1]["content"][0]["image"] == str(image_path.resolve())
 
 
+def test_attempt_chandra_ocr_uses_chandra2_hf_contract(tmp_path):
+    from PIL import Image
+
+    from module.providers.ocr import chandra as chandra_module
+
+    image_path = tmp_path / "sample.png"
+    Image.new("RGB", (8, 8), "white").save(image_path)
+
+    captured = {}
+
+    class FakeLoader:
+        def get_or_load_processor(self, *args, **kwargs):
+            captured["processor_id"] = args[0]
+            return fake_processor
+
+        def get_or_load_model(self, *args, **kwargs):
+            captured["model_id"] = args[0]
+            captured["model_cls"] = args[1]
+            return fake_model
+
+    class FakeModel:
+        device = "cpu"
+
+    class FakeBatchInputItem:
+        def __init__(self, *, image, prompt=None, prompt_type=None):
+            self.image = image
+            self.prompt = prompt
+            self.prompt_type = prompt_type
+
+    def fake_generate_hf(batch, model, max_output_tokens=None, **kwargs):
+        captured["generate_batch"] = batch
+        captured["generate_model"] = model
+        captured["max_output_tokens"] = max_output_tokens
+        return [SimpleNamespace(raw="<div>hello</div>")]
+
+    def fake_parse_markdown(raw):
+        captured["parse_markdown_raw"] = raw
+        return "hello"
+
+    fake_loader = FakeLoader()
+    fake_model = FakeModel()
+    fake_processor = SimpleNamespace(tokenizer=SimpleNamespace(padding_side="right"))
+
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoProcessor = object
+    fake_transformers.AutoModelForImageTextToText = type("FakeAutoModelForImageTextToText", (), {})
+
+    fake_chandra = types.ModuleType("chandra")
+    fake_chandra_model = types.ModuleType("chandra.model")
+    fake_chandra_hf = types.ModuleType("chandra.model.hf")
+    fake_chandra_schema = types.ModuleType("chandra.model.schema")
+    fake_chandra_output = types.ModuleType("chandra.output")
+
+    fake_chandra_hf.generate_hf = fake_generate_hf
+    fake_chandra_schema.BatchInputItem = FakeBatchInputItem
+    fake_chandra_output.parse_markdown = fake_parse_markdown
+    fake_chandra.model = fake_chandra_model
+    fake_chandra_model.hf = fake_chandra_hf
+    fake_chandra_model.schema = fake_chandra_schema
+
+    original_loader = chandra_module._TRANS_LOADER
+    chandra_module._TRANS_LOADER = None
+
+    try:
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "transformers": fake_transformers,
+                    "chandra": fake_chandra,
+                    "chandra.model": fake_chandra_model,
+                    "chandra.model.hf": fake_chandra_hf,
+                    "chandra.model.schema": fake_chandra_schema,
+                    "chandra.output": fake_chandra_output,
+                },
+            ),
+            patch("module.providers.ocr.chandra.resolve_device_dtype", return_value=("cpu", "float32", "eager")),
+            patch("module.providers.ocr.chandra.transformerLoader", return_value=fake_loader),
+            patch("module.providers.ocr.chandra.write_markdown_output"),
+            patch("module.providers.ocr.chandra.display_markdown"),
+        ):
+            result = chandra_module.attempt_chandra_ocr(
+                uri=str(image_path),
+                console=Console(file=io.StringIO(), force_terminal=False),
+                progress=None,
+                task_id=None,
+            )
+    finally:
+        chandra_module._TRANS_LOADER = original_loader
+
+    assert result == "hello"
+    assert captured["processor_id"] == "datalab-to/chandra-ocr-2"
+    assert captured["model_id"] == "datalab-to/chandra-ocr-2"
+    assert captured["model_cls"] is fake_transformers.AutoModelForImageTextToText
+    assert fake_processor.tokenizer.padding_side == "left"
+    assert captured["generate_batch"][0].prompt_type == "ocr_layout"
+    assert captured["generate_model"] is fake_model
+    assert captured["max_output_tokens"] == 8192
+    assert captured["parse_markdown_raw"] == "<div>hello</div>"
+
+
 def test_local_vlm_runtime_uses_model_config_for_shared_openai_model():
     from providers.base import ProviderContext
     from providers.local_vlm_base import LocalVLMProvider

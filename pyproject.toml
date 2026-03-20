@@ -242,7 +242,7 @@ chandra-ocr = [
     "triton-windows; sys_platform == 'win32'",
     "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "safetensors",
-    "chandra-ocr",
+    "chandra-ocr>=0.2.0",
     "PyMuPDF",
     "img2pdf",
 ]

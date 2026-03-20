@@ -150,10 +150,10 @@ model_id = "nanonets/Nanonets-OCR2-3B"
 max_new_tokens = 15000
 
 # Chandra OCR configuration
-# Model: https://huggingface.co/datalab-to/chandra
+# Model: https://huggingface.co/datalab-to/chandra-ocr-2
 # Requires: pip install chandra-ocr
 [chandra_ocr]
-model_id = "datalab-to/chandra"
+model_id = "datalab-to/chandra-ocr-2"
 max_new_tokens = 8192
 prompt_type = "ocr_layout"
 

@@ -18,6 +18,7 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+import asyncio
 import logging
 import toml
 from nicegui import ui, app
@@ -363,22 +364,38 @@ def not_found_page():
 
 
 def _install_exception_filter():
-    """替换 NiceGUI 默认异常处理器，过滤 timer 在页面切换时的 parent_slot 竞态错误。
+    """monkey-patch app.handle_exception，在 PATH A 之前拦截 parent_slot 竞态错误。
 
-    NiceGUI 的 ui.timer 在页面导航/重连时存在竞态：
-    timer 的 asyncio 任务可能在 parent_slot 被销毁之后、on_disconnect 回调之前触发，
-    导致 RuntimeError('The parent slot of the element has been deleted.')。
-    该错误无害（timer 随后会自然停止），但会打印干扰性的 traceback。
+    NiceGUI 的 app.handle_exception 先走 PATH A（client handler），再走 PATH B（app handlers）。
+    替换 _exception_handlers 列表只能影响 PATH B，无法阻止 PATH A 的级联异常逃逸到 stderr。
+    直接 patch handle_exception 本身，在任何 handler 之前就拦截，彻底消除打印。
+    同时安装 asyncio 事件循环异常 handler 作为安全网。
     """
-    _nicegui_log = logging.getLogger("nicegui")
+    _original_handle = app.handle_exception
 
-    def _filtered_exception_handler(exc: Exception) -> None:
-        if isinstance(exc, RuntimeError) and "parent slot" in str(exc):
-            return
-        _nicegui_log.exception(exc)
+    def _filtered_handle(exception: Exception) -> None:
+        if isinstance(exception, RuntimeError) and "parent slot" in str(exception):
+            return  # 静默吞掉，不传递给任何 handler
+        _original_handle(exception)
 
-    # NiceGUI 默认 _exception_handlers == [log.exception]，替换为带过滤的版本
-    app._exception_handlers[:] = [_filtered_exception_handler]
+    app.handle_exception = _filtered_handle
+
+    def _on_startup():
+        loop = asyncio.get_running_loop()
+        _default_handler = loop.get_exception_handler()
+
+        def _loop_exception_handler(loop, ctx):
+            exc = ctx.get("exception")
+            if isinstance(exc, RuntimeError) and "parent slot" in str(exc):
+                return
+            if _default_handler:
+                _default_handler(loop, ctx)
+            else:
+                loop.default_exception_handler(ctx)
+
+        loop.set_exception_handler(_loop_exception_handler)
+
+    app.on_startup(_on_startup)
 
 
 def main():
