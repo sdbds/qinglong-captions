@@ -32,6 +32,9 @@ deepseek_ocr_prompt = """
 <|grounding|>Convert the document to markdown.
 """
 
+# Logics-Parsing-v2 prompt (official default)
+logics_ocr_prompt = """QwenVL HTML"""
+
 # HunyuanOCR prompt (Chinese document parsing by default)
 # Leave empty to use provider's default prompt
 hunyuan_ocr_prompt = """

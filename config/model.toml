@@ -96,6 +96,14 @@ base_size = 1024
 image_size = 768
 crop_mode = true
 
+# Logics-Parsing-v2 configuration
+# Model: https://huggingface.co/Logics-MLLM/Logics-Parsing-v2
+[logics_ocr]
+model_id = "Logics-MLLM/Logics-Parsing-v2"
+max_new_tokens = 16384
+min_pixels = 3136
+max_pixels = 7372800
+
 # LightOnOCR-2 configuration
 # Model: https://huggingface.co/lightonai/LightOnOCR-2-1B
 # Requires: transformers[serving]>=5.0.0

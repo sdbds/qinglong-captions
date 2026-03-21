@@ -263,7 +263,7 @@ $wait_time = 1
 $max_retries = 10
 $segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "logics_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image/video tasks
@@ -353,6 +353,24 @@ $document_image = $true
 说明：
 - 这个 extra 依赖 `transformers>=5`。
 - 默认 prompt 留空，直接使用模型默认 OCR 行为。
+
+#### 本地 Logics Parsing OCR
+
+`logics_ocr` 对接的是 [`Logics-MLLM/Logics-Parsing-v2`](https://huggingface.co/Logics-MLLM/Logics-Parsing-v2)，支持 `image/*` 与 PDF OCR。
+
+1. 安装依赖：
+```powershell
+uv sync --extra logics-ocr
+```
+2. 运行本地 OCR：
+```powershell
+$ocr_model = "logics_ocr"
+$document_image = $true
+```
+
+说明：
+- 默认 prompt 使用官方推荐的 `QwenVL HTML`。
+- 输出会自动把模型生成的结构化 HTML 转成更适合项目现有预览和导出的 Markdown。
 
 </details>
 
@@ -819,7 +837,7 @@ $wait_time = 1
 $max_retries = 10
 $segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "logics_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image/video tasks

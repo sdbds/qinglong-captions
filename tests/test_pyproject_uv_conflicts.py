@@ -91,3 +91,18 @@ def test_dots_ocr_conflicts_with_known_transformers_incompatible_extras():
     for pair in expected_pairs:
         reversed_pair = list(reversed(pair))
         assert pair in conflicts or reversed_pair in conflicts
+
+
+def test_logics_ocr_conflicts_with_known_transformers_incompatible_extras():
+    conflicts = _load_conflicts()
+    expected_pairs = [
+        [{"extra": "logics-ocr"}, {"extra": "translate"}],
+        [{"extra": "logics-ocr"}, {"extra": "deepseek-ocr"}],
+        [{"extra": "logics-ocr"}, {"extra": "dots-ocr"}],
+        [{"extra": "logics-ocr"}, {"extra": "penguin-vl-local"}],
+        [{"extra": "logics-ocr"}, {"extra": "music-flamingo-local"}],
+    ]
+
+    for pair in expected_pairs:
+        reversed_pair = list(reversed(pair))
+        assert pair in conflicts or reversed_pair in conflicts

@@ -64,6 +64,11 @@ class ToolsStep:
             "crop_transparent": True,
             "preprocess_recursive": True,
             "reward_batch_size": 1,
+            "audio_separator_segment_size": 1151,
+            "audio_separator_overlap": 8,
+            "audio_separator_batch_size": 8,
+            "audio_separator_recursive": True,
+            "audio_separator_overwrite": False,
             "translate_max_chars": 2200,
             "translate_context_chars": 300,
             "translate_max_new_tokens": 2048,
@@ -91,6 +96,7 @@ class ToolsStep:
                 watermark_tab = ui.tab(t("watermark_detection"), icon="water_drop")
                 preprocess_tab = ui.tab(t("preprocess"), icon="image")
                 reward_tab = ui.tab(t("reward_model"), icon="stars")
+                audio_separator_tab = ui.tab(t("audio_separator"), icon="graphic_eq")
                 translate_tab = ui.tab(t("translate"), icon="translate")
 
             with ui.tab_panels(tabs, value=watermark_tab).classes("w-full"):
@@ -105,6 +111,10 @@ class ToolsStep:
                 # 图像评分
                 with ui.tab_panel(reward_tab):
                     self._render_reward_tool()
+
+                # 音频分轨
+                with ui.tab_panel(audio_separator_tab):
+                    self._render_audio_separator_tool()
 
                 # 文本翻译
                 with ui.tab_panel(translate_tab):
@@ -301,6 +311,75 @@ class ToolsStep:
             # 开始按钮
             with ui.row().classes("w-full justify-end q-mt-md"):
                 start_btn = ui.button(t("start_scoring"), on_click=self._start_reward, icon="play_arrow")
+                start_btn.classes("modern-btn-success").props('type="button"')
+                self._remember_tool_start_button(start_btn)
+
+    def _render_audio_separator_tool(self):
+        """渲染音频分轨工具"""
+        with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
+            with ui.row().classes("w-full items-center gap-2 q-mb-md"):
+                ui.icon("graphic_eq", size="22px").style(f"color: {COLORS['primary']};")
+                ui.label(t("audio_separator")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
+
+            ui.label(t("audio_separator_desc")).classes("text-body2 q-mb-md").style("color: var(--color-text-secondary);")
+
+            self.audio_separator_input = create_path_selector(
+                label=t("input_path"),
+                selection_type="dir",
+            )
+            self.audio_separator_output = create_path_selector(
+                label=t("output_dir"),
+                selection_type="dir",
+            )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                self.audio_separator_output_format = styled_select(
+                    options={"wav": "WAV", "flac": "FLAC", "mp3": "MP3"},
+                    value="wav",
+                    label=t("output_format"),
+                    icon="audiotrack",
+                    icon_color=COLORS["primary"],
+                    flex=1,
+                )
+
+                editable_slider(
+                    label_key="segment_size",
+                    value_ref=self.config,
+                    value_key="audio_separator_segment_size",
+                    min_val=2,
+                    max_val=2048,
+                    step=1,
+                    decimals=0,
+                    flex=1,
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                editable_slider(
+                    label_key="overlap",
+                    value_ref=self.config,
+                    value_key="audio_separator_overlap",
+                    min_val=1,
+                    max_val=50,
+                    step=1,
+                    decimals=0,
+                )
+
+                editable_slider(
+                    label_key="batch_size",
+                    value_ref=self.config,
+                    value_key="audio_separator_batch_size",
+                    min_val=1,
+                    max_val=32,
+                    step=1,
+                    decimals=0,
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                toggle_switch("recursive", self.config, "audio_separator_recursive")
+                toggle_switch("overwrite", self.config, "audio_separator_overwrite")
+
+            with ui.row().classes("w-full justify-end q-mt-md"):
+                start_btn = ui.button(t("start_audio_separator"), on_click=self._start_audio_separator, icon="play_arrow")
                 start_btn.classes("modern-btn-success").props('type="button"')
                 self._remember_tool_start_button(start_btn)
 
@@ -572,6 +651,43 @@ class ToolsStep:
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("scoring_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("scoring_failed"), type="negative"),
+        )
+
+    async def _start_audio_separator(self):
+        """开始音频分轨"""
+        input_path = self.audio_separator_input.value
+        if not input_path or not Path(input_path).exists():
+            ui.notify(t("select_valid_input"), type="warning")
+            return
+
+        args = [input_path]
+
+        if self.audio_separator_output.value:
+            args.append(f"--output_dir={self.audio_separator_output.value}")
+
+        args.append(f"--output_format={self.audio_separator_output_format.value}")
+        args.append(f"--segment_size={int(self.config['audio_separator_segment_size'])}")
+        args.append(f"--overlap={int(self.config['audio_separator_overlap'])}")
+        args.append(f"--batch_size={int(self.config['audio_separator_batch_size'])}")
+
+        if self.config["audio_separator_recursive"]:
+            args.append("--recursive")
+
+        if self.config["audio_separator_overwrite"]:
+            args.append("--overwrite")
+
+        def pre_log(lv):
+            lv.info(t("log_start_audio_separator"))
+            lv.info(f"{t('log_input_path')}: {input_path}")
+            lv.info(f"{t('log_params')}: {args}")
+
+        await self.panel.run_job(
+            "module.audio_separator",
+            args,
+            name="Audio Separator",
+            pre_log=pre_log,
+            on_success=lambda r: ui.notify(t("audio_separator_success"), type="positive"),
+            on_failure=lambda r: ui.notify(t("audio_separator_failed"), type="negative"),
         )
 
 

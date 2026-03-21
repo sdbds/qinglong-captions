@@ -65,6 +65,7 @@ _PROVIDER_MODULES: Dict[str, str] = {
     "minimax_code": "module.providers.cloud_vlm.minimax_code",
     "minimax_api": "module.providers.cloud_vlm.minimax_api",
     "deepseek_ocr": "module.providers.ocr.deepseek",
+    "logics_ocr": "module.providers.ocr.logics",
     "dots_ocr": "module.providers.ocr.dots",
     "qianfan_ocr": "module.providers.ocr.qianfan",
     "lighton_ocr": "module.providers.ocr.lighton",
@@ -132,6 +133,7 @@ class ProviderRegistry:
                 "minimax_api",
                 # OCR models
                 "deepseek_ocr",
+                "logics_ocr",
                 "dots_ocr",
                 "qianfan_ocr",
                 "lighton_ocr",

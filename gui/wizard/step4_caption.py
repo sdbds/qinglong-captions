@@ -169,6 +169,7 @@ class CaptionStep:
     OCR_EXTRA_MAP = {
         "paddle_ocr": "paddleocr",
         "deepseek_ocr": "deepseek-ocr",
+        "logics_ocr": "logics-ocr",
         "lighton_ocr": "lighton-ocr",
         "dots_ocr": "dots-ocr",
         "qianfan_ocr": "qianfan-ocr",

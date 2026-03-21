@@ -71,6 +71,19 @@ def test_pyproject_declares_lighton_ocr_extra():
     assert any(dep.startswith("huggingface_hub") for dep in lighton_deps)
 
 
+def test_pyproject_declares_logics_ocr_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "logics-ocr" in optional_deps
+    logics_deps = optional_deps["logics-ocr"]
+    assert any(dep.startswith("torch==2.8.0") for dep in logics_deps)
+    assert any(dep.startswith("transformers[serving]>=4.57.0") for dep in logics_deps)
+    assert any(dep.startswith("huggingface_hub") for dep in logics_deps)
+    assert "PyMuPDF" in logics_deps
+    assert "img2pdf" in logics_deps
+
+
 def test_pyproject_declares_dots_ocr_extra():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     optional_deps = pyproject["project"]["optional-dependencies"]
@@ -143,6 +156,17 @@ def test_caption_step_includes_lighton_extra():
     step.vlm_image_model = SimpleNamespace(value="")
 
     assert step._build_local_extra_args() == ["--extra", "lighton-ocr"]
+
+
+def test_caption_step_includes_logics_ocr_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_logics")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="logics_ocr")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="")
+
+    assert step._build_local_extra_args() == ["--extra", "logics-ocr"]
 
 
 def test_caption_step_includes_dots_ocr_extra():
@@ -240,6 +264,13 @@ def test_run_ps1_mentions_lighton_ocr_extra():
     assert 'Add-UvExtra "lighton-ocr"' in content
 
 
+def test_run_ps1_mentions_logics_ocr_extra():
+    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+
+    assert '"logics_ocr"' in content
+    assert 'Add-UvExtra "logics-ocr"' in content
+
+
 def test_run_ps1_mentions_dots_ocr_extra():
     content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
 
@@ -322,6 +353,26 @@ def test_config_declares_qianfan_ocr_defaults():
     assert "max_new_tokens = 16384" in runtime_toml
     assert "input_size = 448" in runtime_toml
     assert "max_num = 12" in runtime_toml
+
+
+def test_config_declares_logics_ocr_defaults():
+    model_toml = (ROOT / "config" / "model.toml").read_text(encoding="utf-8")
+    runtime_toml = (ROOT / "config" / "config.toml").read_text(encoding="utf-8")
+    prompts_toml = (ROOT / "config" / "prompts.toml").read_text(encoding="utf-8")
+
+    assert "[logics_ocr]" in model_toml
+    assert 'model_id = "Logics-MLLM/Logics-Parsing-v2"' in model_toml
+    assert "max_new_tokens = 16384" in model_toml
+    assert "min_pixels = 3136" in model_toml
+    assert "max_pixels = 7372800" in model_toml
+
+    assert "[logics_ocr]" in runtime_toml
+    assert 'model_id = "Logics-MLLM/Logics-Parsing-v2"' in runtime_toml
+    assert "max_new_tokens = 16384" in runtime_toml
+    assert "min_pixels = 3136" in runtime_toml
+    assert "max_pixels = 7372800" in runtime_toml
+
+    assert 'logics_ocr_prompt = """QwenVL HTML"""' in prompts_toml
 
 
 def test_runtime_prompt_config_files_parse_with_toml_library():

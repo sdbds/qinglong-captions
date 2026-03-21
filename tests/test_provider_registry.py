@@ -27,7 +27,7 @@ class TestProviderRegistry:
         reg = get_registry()
         reg.discover()
         providers = reg.list_providers()
-        assert len(providers) >= 23
+        assert len(providers) >= 24
         expected = [
             "stepfun",
             "ark",
@@ -36,6 +36,7 @@ class TestProviderRegistry:
             "kimi_code",
             "kimi_vl",
             "deepseek_ocr",
+            "logics_ocr",
             "dots_ocr",
             "qianfan_ocr",
             "lighton_ocr",

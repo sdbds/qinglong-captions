@@ -25,6 +25,7 @@ def test_catalog_exposes_canonical_route_choices_only_by_default():
     vlm_choices = route_choices("vlm_image_model")
     alm_choices = route_choices("alm_model")
     assert "mistral_ocr" in ocr_choices
+    assert "logics_ocr" in ocr_choices
     assert "dots_ocr" in ocr_choices
     assert "qianfan_ocr" in ocr_choices
     assert "lighton_ocr" in ocr_choices
@@ -73,6 +74,7 @@ def test_catalog_marks_only_remote_routes_as_needing_api_config():
     assert route_requires_remote_config("ocr_model", "mistral_ocr") is True
     assert route_requires_remote_config("ocr_model", "pixtral") is True
     assert route_requires_remote_config("ocr_model", "deepseek_ocr") is False
+    assert route_requires_remote_config("ocr_model", "logics_ocr") is False
     assert route_requires_remote_config("ocr_model", "dots_ocr") is False
     assert route_requires_remote_config("ocr_model", "lighton_ocr") is False
     assert route_requires_remote_config("vlm_image_model", "qwen_vl_local") is False

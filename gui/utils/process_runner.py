@@ -85,6 +85,7 @@ SCRIPT_REGISTRY = {
     "module.lanceexport": ("./module/lanceexport.py", None),
     # step 6 - 工具
     "module.waterdetect": ("./module/waterdetect.py", None),
+    "module.audio_separator": ("./module/audio_separator.py", None),
     "utils.preprocess_datasets": ("./utils/preprocess_datasets.py", None),
     "module.rewardmodel": ("./module/rewardmodel.py", None),
     "module.texttranslate": ("./module/texttranslate.py", "translate"),
