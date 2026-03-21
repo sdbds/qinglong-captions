@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+from contextlib import contextmanager, nullcontext
 import importlib.util
 import sys
+import threading
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Optional
 
 import torch
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
 
 if TYPE_CHECKING:
     from transformers import AutoModel, AutoProcessor
@@ -21,6 +34,178 @@ def _default_auto_processor():
     from transformers import AutoProcessor
 
     return AutoProcessor
+
+
+@lru_cache(maxsize=1)
+def _default_console() -> Console:
+    try:
+        from utils.console_util import console as shared_console
+
+        return shared_console
+    except Exception:
+        return Console(color_system="truecolor", force_terminal=True)
+
+
+def _resolve_console(console: Optional[Any]) -> Console:
+    if isinstance(console, Console):
+        return console
+    return _default_console()
+
+
+class _RichHFDownloadProgress:
+    def __init__(
+        self,
+        progress: Progress,
+        *,
+        desc: str,
+        total: Optional[int] = None,
+        initial: int = 0,
+    ) -> None:
+        self._progress = progress
+        self._desc = desc or "download"
+        self._total = total
+        self._initial = initial
+        self._task_id: Optional[int] = None
+
+    def __enter__(self) -> "_RichHFDownloadProgress":
+        self._task_id = self._progress.add_task(
+            f"[cyan]{self._desc}[/cyan]",
+            total=self._total,
+            completed=self._initial,
+        )
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        if self._task_id is not None:
+            if exc_type is None and self._total is not None:
+                self._progress.update(self._task_id, completed=self._total)
+            self._progress.remove_task(self._task_id)
+        return False
+
+    def update(self, advance: float) -> None:
+        if self._task_id is None or not advance:
+            return
+        self._progress.update(self._task_id, advance=advance)
+
+
+_HF_PROGRESS_PATCH_LOCK = threading.RLock()
+_HF_PROGRESS_PATCH_DEPTH = 0
+_HF_PROGRESS_PATCH_ORIGINAL: Any = None
+_HF_PROGRESS_PATCH_PROGRESS: Optional[Progress] = None
+
+
+@contextmanager
+def hf_download_reporting(console: Optional[Any] = None):
+    """Render Hugging Face download progress with Rich while loading artifacts."""
+
+    global _HF_PROGRESS_PATCH_DEPTH, _HF_PROGRESS_PATCH_ORIGINAL, _HF_PROGRESS_PATCH_PROGRESS
+
+    try:
+        from huggingface_hub import file_download
+        from huggingface_hub.utils import enable_progress_bars
+    except Exception:
+        yield
+        return
+
+    resolved_console = _resolve_console(console)
+
+    with _HF_PROGRESS_PATCH_LOCK:
+        enable_progress_bars()
+        if _HF_PROGRESS_PATCH_DEPTH == 0:
+            _HF_PROGRESS_PATCH_ORIGINAL = file_download._get_progress_bar_context
+            _HF_PROGRESS_PATCH_PROGRESS = Progress(
+                TextColumn("{task.description}", justify="right"),
+                BarColumn(bar_width=28),
+                TaskProgressColumn(),
+                DownloadColumn(binary_units=True),
+                TransferSpeedColumn(),
+                TimeElapsedColumn(),
+                TimeRemainingColumn(),
+                console=resolved_console,
+                transient=True,
+            )
+            _HF_PROGRESS_PATCH_PROGRESS.start()
+
+            def _rich_progress_context(**kwargs: Any):
+                existing_bar = kwargs.get("_tqdm_bar")
+                if existing_bar is not None:
+                    return nullcontext(existing_bar)
+
+                progress = _HF_PROGRESS_PATCH_PROGRESS
+                if progress is None:
+                    return _HF_PROGRESS_PATCH_ORIGINAL(**kwargs)
+
+                return _RichHFDownloadProgress(
+                    progress,
+                    desc=str(kwargs.get("desc") or "download"),
+                    total=kwargs.get("total"),
+                    initial=int(kwargs.get("initial") or 0),
+                )
+
+            file_download._get_progress_bar_context = _rich_progress_context
+        _HF_PROGRESS_PATCH_DEPTH += 1
+
+    try:
+        yield
+    finally:
+        with _HF_PROGRESS_PATCH_LOCK:
+            _HF_PROGRESS_PATCH_DEPTH -= 1
+            if _HF_PROGRESS_PATCH_DEPTH == 0:
+                file_download._get_progress_bar_context = _HF_PROGRESS_PATCH_ORIGINAL
+                if _HF_PROGRESS_PATCH_PROGRESS is not None:
+                    _HF_PROGRESS_PATCH_PROGRESS.stop()
+                _HF_PROGRESS_PATCH_ORIGINAL = None
+                _HF_PROGRESS_PATCH_PROGRESS = None
+
+
+def load_pretrained_component(
+    component_cls: Any,
+    repo_id: str,
+    *,
+    console: Optional[Any] = None,
+    component_name: Optional[str] = None,
+    **kwargs: Any,
+) -> Any:
+    """Call `from_pretrained` with Rich logging and Hugging Face download progress."""
+
+    resolved_console = _resolve_console(console)
+    label = component_name or getattr(component_cls, "__name__", "component")
+
+    resolved_console.print(f"[cyan]Resolving Hugging Face {label}:[/cyan] {repo_id}")
+
+    try:
+        with hf_download_reporting(resolved_console):
+            loaded = component_cls.from_pretrained(repo_id, **kwargs)
+    except Exception:
+        resolved_console.print(f"[red]Failed to load Hugging Face {label}:[/red] {repo_id}")
+        raise
+
+    resolved_console.print(f"[green]Hugging Face {label} ready:[/green] {repo_id}")
+    return loaded
+
+
+def snapshot_download_with_reporting(
+    repo_id: str,
+    *,
+    console: Optional[Any] = None,
+    **kwargs: Any,
+) -> str:
+    """Call `snapshot_download` with Rich logging and Hugging Face download progress."""
+
+    from huggingface_hub import snapshot_download
+
+    resolved_console = _resolve_console(console)
+    resolved_console.print(f"[cyan]Resolving Hugging Face snapshot:[/cyan] {repo_id}")
+
+    try:
+        with hf_download_reporting(resolved_console):
+            snapshot_path = snapshot_download(repo_id=repo_id, **kwargs)
+    except Exception:
+        resolved_console.print(f"[red]Failed to download Hugging Face snapshot:[/red] {repo_id}")
+        raise
+
+    resolved_console.print(f"[green]Hugging Face snapshot ready:[/green] {repo_id}")
+    return str(snapshot_path)
 
 
 class BufferedTextStreamer:
@@ -137,7 +322,13 @@ class transformerLoader:
         if use_fast is not None:
             kwargs["use_fast"] = use_fast
         kwargs["trust_remote_code"] = trust_remote_code
-        processor = processor_cls.from_pretrained(processor_id, **kwargs)
+        processor = load_pretrained_component(
+            processor_cls,
+            processor_id,
+            console=console,
+            component_name="processor",
+            **kwargs,
+        )
         self._processor_cache[key] = processor
         return processor
 
@@ -188,7 +379,13 @@ class transformerLoader:
         if extra_kwargs:
             kwargs.update(extra_kwargs)
         try:
-            model = model_cls.from_pretrained(model_id, **kwargs)
+            model = load_pretrained_component(
+                model_cls,
+                model_id,
+                console=console,
+                component_name="model",
+                **kwargs,
+            )
         except ImportError as exc:
             if not (self.attn_kw and attn_impl and attn_impl != "eager" and _is_missing_flash_attn_error(exc)):
                 raise
@@ -196,7 +393,13 @@ class transformerLoader:
             fallback_kwargs[self.attn_kw] = "eager"
             if console:
                 console.print("[yellow]flash_attn 不可用，回退到 eager attention 继续加载[/yellow]")
-            model = model_cls.from_pretrained(model_id, **fallback_kwargs)
+            model = load_pretrained_component(
+                model_cls,
+                model_id,
+                console=console,
+                component_name="model",
+                **fallback_kwargs,
+            )
         try:
             model = model.eval()
         except Exception:

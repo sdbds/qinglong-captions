@@ -46,3 +46,20 @@ def test_write_markdown_output_skips_empty_markdown(tmp_path):
 
     assert result is None
     assert not (output_dir / "result.md").exists()
+
+
+def test_write_caption_output_honors_structured_caption_extension_for_audio(tmp_path):
+    from utils.output_writer import write_caption_output
+
+    source = tmp_path / "track.wav"
+    source.write_bytes(b"audio")
+
+    text_path, json_path = write_caption_output(
+        source,
+        {"description": "Warm synth-pop summary", "caption_extension": "txt"},
+        mime="audio/wav",
+    )
+
+    assert text_path.suffix == ".txt"
+    assert text_path.read_text(encoding="utf-8") == "Warm synth-pop summary"
+    assert json.loads(json_path.read_text(encoding="utf-8"))["caption_extension"] == "txt"

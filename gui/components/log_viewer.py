@@ -37,6 +37,7 @@ class LogViewer:
         self._line_count = 0  # 已渲染到 DOM 的行数
         self._converter = AnsiToHtmlConverter()
         self._stick_to_bottom = True
+        self._programmatic_scroll = False
         self._sub_id: Optional[int] = None
         self._last_replayed_seq: int = 0
         self._log_source: LogBuffer = log_source if log_source is not None else log_buffer
@@ -54,6 +55,7 @@ class LogViewer:
                         self.auto_scroll = new_value
                         if new_value:
                             self._stick_to_bottom = True
+                            self._programmatic_scroll = True
                             self.scroll_area.scroll_to(percent=1.0)
 
                     self.scroll_toggle, self.get_scroll_value = toggle_switch_simple(
@@ -124,6 +126,7 @@ class LogViewer:
             html_parts = [self._converter.convert_line(line) for line in history_lines]
             with self.log_container:
                 ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
+            self._programmatic_scroll = True
             self.scroll_area.scroll_to(percent=1.0)
 
         # 当前客户端断连时取消订阅，避免回调打到已销毁的组件
@@ -176,6 +179,9 @@ class LogViewer:
 
     def _handle_scroll(self, e):
         """跟踪用户是否仍停留在日志底部。"""
+        if self._programmatic_scroll:
+            self._programmatic_scroll = False
+            return
         self._stick_to_bottom = self._is_near_bottom(
             e.vertical_position,
             e.vertical_size,
@@ -218,6 +224,7 @@ class LogViewer:
 
             # 自动滚动
             if self.auto_scroll and self._stick_to_bottom:
+                self._programmatic_scroll = True
                 self.scroll_area.scroll_to(percent=1.0)
         except RuntimeError:
             return  # parent slot deleted (page navigated away)
@@ -255,6 +262,7 @@ class LogViewer:
         html_parts = [self._converter.convert_line(line) for line in history_lines]
         with self.log_container:
             ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
+        self._programmatic_scroll = True
         self.scroll_area.scroll_to(percent=1.0)
 
     def attach_job(self, job):
@@ -273,6 +281,7 @@ class LogViewer:
 
         # 清空当前显示，回放新源历史
         self._clear_display()
+        self._stick_to_bottom = True
         self._replay_history(self._log_source.get_all_lines())
 
         # 订阅新源

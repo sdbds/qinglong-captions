@@ -68,6 +68,7 @@ class ToolsStep:
             "audio_separator_overlap": 8,
             "audio_separator_batch_size": 1,
             "audio_separator_overwrite": False,
+            "audio_separator_harmony_separation": False,
             "translate_max_chars": 2200,
             "translate_context_chars": 300,
             "translate_max_new_tokens": 2048,
@@ -371,6 +372,7 @@ class ToolsStep:
 
             with ui.row().classes("w-full gap-4 q-mt-md"):
                 toggle_switch("overwrite", self.config, "audio_separator_overwrite")
+                toggle_switch("harmony_separation", self.config, "audio_separator_harmony_separation")
 
             with ui.row().classes("w-full justify-end q-mt-md"):
                 start_btn = ui.button(t("start_audio_separator"), on_click=self._start_audio_separator, icon="play_arrow")
@@ -663,6 +665,8 @@ class ToolsStep:
 
         if self.config["audio_separator_overwrite"]:
             args.append("--overwrite")
+        if self.config["audio_separator_harmony_separation"]:
+            args.append("--harmony_separation")
 
         def pre_log(lv):
             lv.info(t("log_start_audio_separator"))

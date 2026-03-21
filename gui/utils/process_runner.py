@@ -35,6 +35,16 @@ from utils.console_util import print_exception
 
 
 _TRANSIENT_SPINNER_FRAMES = frozenset("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+_PROGRESS_PERCENT_RE = re.compile(r"\d{1,3}%")
+_PROGRESS_BAR_RE = re.compile(r"[#=\-━─█▉▊▋▌▍▎▏]{6,}")
+_PROGRESS_BYTES_RE = re.compile(
+    r"\b\d+(?:\.\d+)?/\d+(?:\.\d+)?\s*(?:B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)\b",
+    re.IGNORECASE,
+)
+_PROGRESS_TIME_RE = re.compile(r"(?:\b(?:\d+:)?\d{1,2}:\d{2}\b|-:--:--|-:--)")
+_LEADING_NON_SGR_ANSI_RE = re.compile(
+    r"^(?:(?:\x1b\[[0-9;?]*[A-LN-Za-ln-z])|(?:\x1b\][^\x07]*\x07))+"
+)
 
 # 序列化 _patch_shared_environment，防止两个并发 Job 同时修改共享 .venv
 _uv_patch_lock: Optional[asyncio.Lock] = None
@@ -461,7 +471,17 @@ class ProcessRunner:
     def _is_transient_console_update(line: str) -> bool:
         """判断是否为仅用于终端刷新的瞬时进度帧。"""
         plain = strip_ansi(line).strip()
-        return bool(plain) and plain[0] in _TRANSIENT_SPINNER_FRAMES
+        if not plain:
+            return True
+        if plain[0] in _TRANSIENT_SPINNER_FRAMES:
+            return True
+        if _PROGRESS_PERCENT_RE.search(plain) and (
+            _PROGRESS_BAR_RE.search(plain)
+            or _PROGRESS_BYTES_RE.search(plain)
+            or _PROGRESS_TIME_RE.search(plain)
+        ):
+            return True
+        return False
 
     def _emit_tail_line(self, lines: list[str], *, final_flush: bool = False):
         """提交一行稳定日志，跳过 spinner 这类瞬时刷新。"""
@@ -476,7 +496,11 @@ class ProcessRunner:
         if self._is_transient_console_update(raw) and (overwritten or final_flush):
             return
 
-        lines.append(raw)
+        normalized = _LEADING_NON_SGR_ANSI_RE.sub("", raw)
+        if not strip_ansi(normalized).strip():
+            return
+
+        lines.append(normalized)
 
     def _publish_tailed_line(self, raw: str):
         """将稳定日志推送到此实例的 log_buffer（订阅者自动收到）。"""

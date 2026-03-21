@@ -64,12 +64,19 @@ class LocalLLMProvider(ABC):
 
     def _load_components(self) -> Tuple[Any, Any]:
         from transformers import AutoModelForCausalLM, AutoTokenizer
+        from utils.transformer_loader import load_pretrained_component
 
         device, dtype, attn_impl = self._resolve_device_dtype()
         if self.console:
             self.console.print(f"[green]Loading text model:[/green] {self.model_id} ({device}, {dtype})")
 
-        tokenizer = AutoTokenizer.from_pretrained(self.model_id, trust_remote_code=self.trust_remote_code)
+        tokenizer = load_pretrained_component(
+            AutoTokenizer,
+            self.model_id,
+            console=self.console,
+            component_name="tokenizer",
+            trust_remote_code=self.trust_remote_code,
+        )
         model_kwargs: dict[str, Any] = {
             "trust_remote_code": self.trust_remote_code,
             "low_cpu_mem_usage": True,
@@ -78,7 +85,13 @@ class LocalLLMProvider(ABC):
         }
         if attn_impl != "eager":
             model_kwargs["attn_implementation"] = attn_impl
-        model = AutoModelForCausalLM.from_pretrained(self.model_id, **model_kwargs)
+        model = load_pretrained_component(
+            AutoModelForCausalLM,
+            self.model_id,
+            console=self.console,
+            component_name="model",
+            **model_kwargs,
+        )
         try:
             model = model.eval()
         except Exception:

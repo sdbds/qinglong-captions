@@ -543,3 +543,121 @@ def test_transformer_loader_passes_torch_dtype_instead_of_dtype():
     assert captured["kwargs"]["torch_dtype"] == "float32"
     assert "dtype" not in captured["kwargs"]
     json.dumps({"torch_dtype": captured["kwargs"]["torch_dtype"]})
+
+
+def test_load_pretrained_component_wraps_hf_progress_context(monkeypatch):
+    from contextlib import contextmanager
+
+    from utils.transformer_loader import load_pretrained_component
+
+    state = {}
+    console_buffer = io.StringIO()
+
+    @contextmanager
+    def original_progress_context(**kwargs):
+        state.setdefault("original_calls", []).append(kwargs)
+
+        class _OriginalBar:
+            def update(self, advance):
+                state.setdefault("original_updates", []).append(advance)
+
+        yield _OriginalBar()
+
+    fake_file_download = types.SimpleNamespace(_get_progress_bar_context=original_progress_context)
+    fake_hf = types.ModuleType("huggingface_hub")
+    fake_hf.file_download = fake_file_download
+    fake_utils = types.ModuleType("huggingface_hub.utils")
+
+    def fake_enable_progress_bars():
+        state["progress_bars_enabled"] = True
+
+    fake_utils.enable_progress_bars = fake_enable_progress_bars
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.utils", fake_utils)
+
+    class FakeLoader:
+        @staticmethod
+        def from_pretrained(model_id, **kwargs):
+            state["patched_during_call"] = fake_file_download._get_progress_bar_context is not original_progress_context
+            state["kwargs"] = kwargs
+            with fake_file_download._get_progress_bar_context(
+                desc="model.safetensors",
+                log_level=20,
+                total=100,
+                initial=0,
+                name="huggingface_hub.http_get",
+            ) as progress:
+                progress.update(40)
+                progress.update(60)
+            return {"model_id": model_id}
+
+    result = load_pretrained_component(
+        FakeLoader,
+        "demo/model",
+        console=Console(file=console_buffer, force_terminal=False),
+        component_name="model",
+        trust_remote_code=True,
+    )
+
+    assert result == {"model_id": "demo/model"}
+    assert state["progress_bars_enabled"] is True
+    assert state["patched_during_call"] is True
+    assert state["kwargs"]["trust_remote_code"] is True
+    assert fake_file_download._get_progress_bar_context is original_progress_context
+    output = console_buffer.getvalue()
+    assert "Resolving Hugging Face model" in output
+    assert "Hugging Face model ready" in output
+
+
+def test_snapshot_download_with_reporting_wraps_hf_progress_context(monkeypatch):
+    from contextlib import contextmanager
+
+    from utils.transformer_loader import snapshot_download_with_reporting
+
+    state = {}
+
+    @contextmanager
+    def original_progress_context(**kwargs):
+        state.setdefault("original_calls", []).append(kwargs)
+
+        class _OriginalBar:
+            def update(self, advance):
+                state.setdefault("original_updates", []).append(advance)
+
+        yield _OriginalBar()
+
+    fake_file_download = types.SimpleNamespace(_get_progress_bar_context=original_progress_context)
+    fake_hf = types.ModuleType("huggingface_hub")
+    fake_hf.file_download = fake_file_download
+    fake_utils = types.ModuleType("huggingface_hub.utils")
+
+    def fake_enable_progress_bars():
+        state["progress_bars_enabled"] = True
+
+    def fake_snapshot_download(*, repo_id, **kwargs):
+        state["patched_during_call"] = fake_file_download._get_progress_bar_context is not original_progress_context
+        state["kwargs"] = kwargs
+        with fake_file_download._get_progress_bar_context(
+            desc="weights.safetensors",
+            log_level=20,
+            total=64,
+            initial=0,
+            name="huggingface_hub.http_get",
+        ) as progress:
+            progress.update(64)
+        return f"C:/models/{repo_id.replace('/', '_')}"
+
+    fake_hf.snapshot_download = fake_snapshot_download
+    fake_utils.enable_progress_bars = fake_enable_progress_bars
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.utils", fake_utils)
+
+    path = snapshot_download_with_reporting("demo/model", local_dir="C:/cache")
+
+    assert path == "C:/models/demo_model"
+    assert state["progress_bars_enabled"] is True
+    assert state["patched_during_call"] is True
+    assert state["kwargs"]["local_dir"] == "C:/cache"
+    assert fake_file_download._get_progress_bar_context is original_progress_context

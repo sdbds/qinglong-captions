@@ -136,6 +136,62 @@ def test_process_segmented_media_only_merges_sidecar_once(tmp_path):
     assert "chunk1" in merged
 
 
+def test_process_segmented_media_merges_structured_summaries_into_txt_payload(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from module.caption_pipeline.orchestrator import _process_segmented_media
+
+    audio_path = tmp_path / "track.wav"
+    audio_path.write_bytes(b"audio")
+    (tmp_path / "track.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nsidecar\n",
+        encoding="utf-8",
+    )
+
+    clip_dir = tmp_path / "track_clip"
+    clip_dir.mkdir()
+    for index in range(2):
+        (clip_dir / f"track_{index}.wav").write_bytes(b"chunk")
+
+    class DummyProgress:
+        def add_task(self, *_args, **_kwargs):
+            return "task"
+
+        def update(self, *_args, **_kwargs):
+            return None
+
+    def fake_api_process_batch_fn(**kwargs):
+        uri = Path(kwargs["uri"])
+        if uri.name == "track_0.wav":
+            return {"description": "Slow piano intro", "caption_extension": ".txt", "provider": "music_flamingo_local"}
+        return {"description": "Full drums and vocal hook", "caption_extension": ".txt", "provider": "music_flamingo_local"}
+
+    args = SimpleNamespace(segment_time=30)
+
+    with patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", lambda *a, **k: None):
+        merged = _process_segmented_media(
+            str(audio_path),
+            "audio/wav",
+            60000,
+            "hash",
+            args,
+            {},
+            DummyProgress(),
+            "task",
+            fake_api_process_batch_fn,
+            _quiet_console(),
+        )
+
+    assert merged["caption_extension"] == ".txt"
+    assert merged["provider"] == "music_flamingo_local"
+    assert len(merged["segments"]) == 2
+    assert "Segment 1 [00:00:00 - 00:00:30]" in merged["description"]
+    assert "Slow piano intro" in merged["description"]
+    assert "Full drums and vocal hook" in merged["description"]
+    assert "sidecar" not in merged["description"]
+
+
 def test_normalize_subtitle_timestamps_preserves_existing_hours():
     from module.caption_pipeline.postprocess import _normalize_subtitle_timestamps
 

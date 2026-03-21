@@ -302,18 +302,20 @@ $local_runtime_model_id = "RekaAI/reka-edge-2603"
 
 #### 本地 Music Flamingo ALM
 
-`music_flamingo_local` 对接的是 [`nvidia/music-flamingo-think-2601-hf`](https://huggingface.co/nvidia/music-flamingo-think-2601-hf)，用于 `audio/*` 输入的描述型字幕生成。
+`music_flamingo_local` 默认对接的是 [`henry1477/music-flamingo-2601-hf-fp8`](https://huggingface.co/henry1477/music-flamingo-2601-hf-fp8)，用于 `audio/*` 输入的描述型字幕生成。
 
 1. 安装依赖：
 ```powershell
 uv sync --extra music-flamingo-local
 ```
+   这组 extra 现在会一并安装 `kernels`；在 Windows 上还会补装 `triton-windows`，用于 FP8 / Triton kernel 路径。
 2. 启用本地音频模型：
 ```powershell
 $alm_model = "music_flamingo_local"
 ```
-3. `segment_time` 留空时会使用模型卡默认上限 `1200` 秒；只有手动设置 `$segment_time = 90` 这类值时，才会显式覆盖。
-4. 这个模型默认做描述型音频 SRT，不是逐字 ASR；如果你要做歌词/语音转录，建议后续接独立 ASR 模型。
+3. 当前默认是 FP8 量化版。代码会在 CUDA 路径下把 `torch_dtype` 交给 Transformers 按模型仓库内的量化配置自动决定，并保留 `audio_tower / multi_modal_projector / lm_head` 的 bf16 行为。
+4. `segment_time` 留空时会使用模型卡默认上限 `1200` 秒；只有手动设置 `$segment_time = 90` 这类值时，才会显式覆盖。
+5. 这个模型默认做描述型音频 SRT，不是逐字 ASR；如果你要做歌词/语音转录，建议后续接独立 ASR 模型。
 
 如果你走第 3 种方式，调用链会复用现有本地 OpenAI-compatible 多模态入口，配置方法和 Gemini / 其他 VLM provider 保持一致，只是后端换成你自己的本地服务。
 
@@ -876,18 +878,20 @@ $local_runtime_model_id = "RekaAI/reka-edge-2603"
 
 #### Local Music Flamingo ALM
 
-`music_flamingo_local` targets [`nvidia/music-flamingo-think-2601-hf`](https://huggingface.co/nvidia/music-flamingo-think-2601-hf) for descriptive `audio/*` captioning.
+`music_flamingo_local` now defaults to [`henry1477/music-flamingo-2601-hf-fp8`](https://huggingface.co/henry1477/music-flamingo-2601-hf-fp8) for descriptive `audio/*` captioning.
 
 1. Install the extra:
 ```powershell
 uv sync --extra music-flamingo-local
 ```
+   This extra now installs `kernels`, and on Windows it also pulls in `triton-windows` for the FP8 / Triton kernel path.
 2. Enable the local audio model:
 ```powershell
 $alm_model = "music_flamingo_local"
 ```
-3. Leave `segment_time` as `$null` to use the model-card default limit of `1200` seconds. Set a numeric value only when you want to override it explicitly.
-4. This provider is aimed at descriptive audio SRT output, not word-for-word ASR. For transcription, keep a dedicated ASR model in a later stage.
+3. The default repo is the FP8 quantized build. On CUDA, this project now lets Transformers read the repo quantization config directly instead of forcing a runtime `torch_dtype`, while the audio tower / projector / LM head stay in bf16 as defined by the model repo.
+4. Leave `segment_time` as `$null` to use the model-card default limit of `1200` seconds. Set a numeric value only when you want to override it explicitly.
+5. This provider is aimed at descriptive audio SRT output, not word-for-word ASR. For transcription, keep a dedicated ASR model in a later stage.
 
 Server mode reuses the existing local OpenAI-compatible multimodal path, so the configuration pattern stays the same as other VLM backends.
 

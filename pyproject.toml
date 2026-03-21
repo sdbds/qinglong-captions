@@ -321,6 +321,8 @@ music-flamingo-local = [
     "torch==2.8.0",
     "torchaudio",
     "accelerate",
+    "kernels",
+    "triton-windows ; sys_platform == 'win32'",
     "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf",
     "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "huggingface_hub[hf_xet]>=0.35.2",
@@ -576,6 +578,10 @@ conflicts = [
     [
         { extra = "paddleocr" },
         { extra = "chandra-ocr" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "dots-ocr" },
     ],
     [
         { extra = "paddleocr" },

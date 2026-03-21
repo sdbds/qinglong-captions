@@ -39,6 +39,7 @@ from rich.progress import (
 from config.config import CONSOLE_COLORS, DATASET_SCHEMA, get_supported_extensions
 from utils.lance_blob import take_blob_files
 from utils.console_util import print_exception
+from utils.output_writer import caption_extension_from_payload, normalize_caption_extension
 from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
 
 console = Console(color_system="truecolor", force_terminal=True)
@@ -171,6 +172,22 @@ def _resolve_caption_target_path(
     return base_path.with_suffix(extension)
 
 
+def _extract_structured_caption_payload(caption_lines: List[str]) -> Optional[Dict[str, Any]]:
+    for line in caption_lines:
+        if not line:
+            continue
+        text = line.strip()
+        if not (text.startswith("{") and text.endswith("}")):
+            continue
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
 def save_caption(
     caption_path: str,
     caption_lines: List[str],
@@ -185,7 +202,9 @@ def save_caption(
             console.print(f"[red]No caption content found for {caption_path}[/red]")
             return False
 
-        caption_path = _resolve_caption_target_path(Path(caption_path), media_type, caption_suffix, caption_extension)
+        structured_payload = _extract_structured_caption_payload(caption_lines)
+        effective_caption_extension = normalize_caption_extension(caption_extension) or caption_extension_from_payload(structured_payload)
+        caption_path = _resolve_caption_target_path(Path(caption_path), media_type, caption_suffix, effective_caption_extension)
         caption_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(caption_path, "w", encoding="utf-8") as f:

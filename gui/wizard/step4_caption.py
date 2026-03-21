@@ -229,6 +229,20 @@ class CaptionStep:
             return 1200
         return 600
 
+    @staticmethod
+    def _format_args_for_log(args: list[str]) -> str:
+        redacted_args: list[str] = []
+        for arg in args:
+            if not isinstance(arg, str):
+                arg = str(arg)
+            if arg.startswith("--") and "=" in arg:
+                key, _value = arg.split("=", 1)
+                if "api_key" in key.lower():
+                    redacted_args.append(f"{key}=***")
+                    continue
+            redacted_args.append(arg)
+        return repr(redacted_args)
+
     def _handle_segment_time_change(self, value: Any) -> None:
         self.config["segment_time"] = int(value)
         if not self._syncing_segment_time:
@@ -703,7 +717,7 @@ class CaptionStep:
             lv.info(t("log_start_caption"))
             lv.info(f"{t('log_dataset_path')}: {dataset_path}")
             lv.info(f"{t('log_mode')}: {self.mode.value}")
-            lv.info(f"{t('log_params')}: {args[:5]}...")
+            lv.info(f"{t('log_params')}: {self._format_args_for_log(args)}")
             if uv_extra_args:
                 lv.info(f"uv extras: {uv_extra_args}")
 

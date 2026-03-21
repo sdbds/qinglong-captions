@@ -42,6 +42,41 @@ def _serialize_subtitles(subs: pysrt.SubRipFile) -> str:
     return "".join(str(sub) for sub in subs)
 
 
+def _structured_description(payload: dict) -> str:
+    return str(
+        payload.get("long_description")
+        or payload.get("description")
+        or payload.get("short_description")
+        or ""
+    ).strip()
+
+
+def _format_segment_timestamp(seconds: float) -> str:
+    total_seconds = max(int(seconds), 0)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _build_segment_summary_payload(segment_outputs: list[dict]) -> dict:
+    description_parts = []
+    for segment in segment_outputs:
+        description_parts.append(
+            f"Segment {segment['index']} [{_format_segment_timestamp(segment['start_seconds'])} - {_format_segment_timestamp(segment['end_seconds'])}]\n"
+            f"{segment['description']}"
+        )
+
+    merged = {
+        "description": "\n\n".join(description_parts).strip(),
+        "caption_extension": ".txt",
+        "segments": segment_outputs,
+    }
+    provider = next((segment.get("provider") for segment in segment_outputs if segment.get("provider")), None)
+    if provider:
+        merged["provider"] = provider
+    return merged
+
+
 def _process_segmented_media(filepath, mime, duration, sha256hash, args, config, progress, task_id, api_process_batch_fn, console):
     console.print(f"[blue]{filepath} video > {args.segment_time} seconds[/blue]")
     console.print("[blue]split video[/blue]")
@@ -80,13 +115,14 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
     files = sorted(clip_dir.glob(f"*{pathfile.suffix}"))
 
     merged_subs = pysrt.SubRipFile()
-    sub_path = Path(filepath).with_suffix(".srt")
-    if sub_path.exists():
-        merged_subs.extend(pysrt.open(sub_path, encoding="utf-8"))
+    segment_outputs: list[dict] = []
+    subtitle_mode: bool | None = None
     total_duration = 0
     clip_task = progress.add_task("[cyan]Processing clips...", total=num_chunks)
 
     for index in range(num_chunks):
+        start_time = index * chunk_duration
+        end_time = min((index + 1) * chunk_duration, duration_seconds)
         uri = files[index]
         chunk_output = api_process_batch_fn(
             uri=uri,
@@ -98,6 +134,30 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
             task_id=task_id,
         )
         chunk_output = postprocess_caption_content(chunk_output, uri, args, console)
+
+        if isinstance(chunk_output, dict):
+            if subtitle_mode is None:
+                subtitle_mode = False
+            description = _structured_description(chunk_output)
+            if description:
+                segment_outputs.append(
+                    {
+                        "index": index + 1,
+                        "start_seconds": start_time,
+                        "end_seconds": end_time,
+                        "description": description,
+                        "provider": chunk_output.get("provider"),
+                    }
+                )
+            progress.update(clip_task, advance=1, refresh=True, description="[yellow]merged summary chunk[/yellow]")
+            continue
+
+        if subtitle_mode is None:
+            subtitle_mode = True
+            sub_path = Path(filepath).with_suffix(".srt")
+            if sub_path.exists():
+                merged_subs.extend(pysrt.open(sub_path, encoding="utf-8"))
+
         chunk_subs = pysrt.from_string(chunk_output)
 
         for sub in list(chunk_subs):
@@ -116,6 +176,11 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
         progress.update(clip_task, advance=1, refresh=True, description="[yellow]merging complete for chunk [/yellow]")
 
     progress.update(clip_task, completed=num_chunks, visible=False)
+    if segment_outputs:
+        for file in files:
+            file.unlink(missing_ok=True)
+        return _build_segment_summary_payload(segment_outputs)
+
     merged_subs.clean_indexes()
 
     for file in files:

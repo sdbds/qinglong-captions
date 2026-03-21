@@ -81,6 +81,11 @@ class PromptContext:
         )
 
 
+def build_chat_text_message(role: str, text: str) -> Dict[str, Any]:
+    """Build a text-only chat message compatible with multimodal chat templates."""
+    return {"role": role, "content": [{"type": "text", "text": text}]}
+
+
 @dataclass
 class RetryConfig:
     """重试配置"""

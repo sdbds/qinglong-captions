@@ -73,6 +73,19 @@ def test_save_caption_with_language_suffix(tmp_path):
     assert (tmp_path / 'foo_zh_cn.md').read_text(encoding='utf-8') == '# Hello\n'
 
 
+def test_save_caption_uses_structured_caption_extension_from_json(tmp_path):
+    base = tmp_path / 'song.wav'
+    ok = save_caption(
+        str(base),
+        ['{"description":"A short song summary","caption_extension":".txt"}'],
+        'audio',
+    )
+
+    assert ok is True
+    assert (tmp_path / 'song.txt').read_text(encoding='utf-8') == 'A short song summary'
+    assert (tmp_path / 'song.json').read_text(encoding='utf-8').strip()
+
+
 class UppercaseTranslator:
     def translate(self, text, source_lang, target_lang, *, context='', glossary=''):
         return text.upper()

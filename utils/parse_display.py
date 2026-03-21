@@ -50,6 +50,14 @@ def extract_code_block_content(
             console.print(f"[blue]Extracted content length:[/blue] {len(content)}")
             console.print(f"[blue]Found {len(markers)} ``` markers[/blue]")
         return content
+    if len(markers) == 1:
+        content = response_text[markers[0] + 3 :].strip()
+        if code_type and content.startswith(code_type):
+            content = content[len(code_type) :].strip()
+        if console:
+            console.print("[yellow]Only one ``` marker found; treating the rest of the response as code block content[/yellow]")
+            console.print(f"[blue]Extracted content length:[/blue] {len(content)}")
+        return content
     else:
         if console:
             console.print(f"[red]Not enough ``` markers: found {len(markers)}[/red]")

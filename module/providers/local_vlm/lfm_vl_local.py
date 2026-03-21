@@ -11,7 +11,7 @@ from PIL import Image
 from onnx_runtime.artifacts import build_component_filename, download_onnx_artifact_set
 from onnx_runtime.config import resolve_tool_runtime_config
 from onnx_runtime.session import load_session_bundle
-from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.base import CaptionResult, MediaContext, PromptContext, build_chat_text_message
 from module.providers.local_vlm_base import LocalVLMProvider
 from module.providers.registry import register_provider
 
@@ -65,6 +65,7 @@ class LFMVLLocalProvider(LocalVLMProvider):
 
     def _load_model(self):
         from transformers import AutoProcessor
+        from utils.transformer_loader import load_pretrained_component
 
         model_id = self.model_id
         runtime_config = resolve_tool_runtime_config(
@@ -81,7 +82,13 @@ class LFMVLLocalProvider(LocalVLMProvider):
             "blue",
         )
 
-        processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+        processor = load_pretrained_component(
+            AutoProcessor,
+            model_id,
+            console=self.ctx.console,
+            component_name="processor",
+            trust_remote_code=True,
+        )
         session_paths = download_onnx_artifact_set(
             model_id,
             component_files,
@@ -164,7 +171,7 @@ class LFMVLLocalProvider(LocalVLMProvider):
         user_content.append({"type": "text", "text": prompts.user})
         messages = [{"role": "user", "content": user_content}]
         if prompts.system:
-            messages.insert(0, {"role": "system", "content": prompts.system})
+            messages.insert(0, build_chat_text_message("system", prompts.system))
         return messages
 
     def _load_images(self, media: MediaContext) -> list[Image.Image]:

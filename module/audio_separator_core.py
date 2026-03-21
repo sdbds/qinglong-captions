@@ -17,6 +17,7 @@ from config.loader import load_config
 from module.onnx_runtime import OnnxModelSpec, OnnxRuntimeConfig, load_single_model_bundle, resolve_tool_runtime_config
 
 DEFAULT_AUDIO_SEPARATOR_REPO_ID = "bdsqlsz/BS-ROFO-SW-Fixed-ONNX"
+DEFAULT_HARMONY_SEPARATOR_REPO_ID = "bdsqlsz/mel_band_roformer_karaoke_aufr33-ONNX"
 DEFAULT_AUDIO_SEPARATOR_MODEL_DIR = "audio_separator"
 DEFAULT_OUTPUT_FORMAT = "wav"
 DEFAULT_SEGMENT_SIZE = 1101
@@ -27,6 +28,20 @@ MODEL_FILENAME = "model.onnx"
 SUPPORTED_AUDIO_EXTENSIONS = (".wav", ".flac", ".mp3", ".m4a", ".ogg")
 SUPPORTED_OUTPUT_FORMATS = ("wav", "flac", "mp3")
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
+
+
+def _emit_log(logger: Callable[..., Any] | None, message: str) -> None:
+    if logger is not None:
+        logger(message)
+
+
+def _maybe_enable_hf_progress_bars() -> None:
+    try:
+        from huggingface_hub.utils import enable_progress_bars
+
+        enable_progress_bars()
+    except Exception:
+        return
 
 
 @dataclass(frozen=True)
@@ -45,6 +60,8 @@ class AudioSeparatorMetadata:
     hop_length: int
     win_length: int
     normalized: bool
+    zero_dc: bool = False
+    secondary_stem_name: str | None = None
 
     @classmethod
     def from_dict(cls, repo_id: str, payload: dict[str, Any]) -> "AudioSeparatorMetadata":
@@ -64,6 +81,8 @@ class AudioSeparatorMetadata:
             hop_length=int(stft.get("hop_length", 512)),
             win_length=int(stft.get("win_length", 2048)),
             normalized=bool(stft.get("normalized", False)),
+            zero_dc=bool(stft.get("zero_dc", False)),
+            secondary_stem_name=payload.get("secondary_stem_name"),
         )
         metadata.validate()
         return metadata
@@ -125,16 +144,24 @@ def download_audio_separator_metadata(
     local_dir: str | Path,
     force_download: bool = False,
     downloader: Callable[..., str] | None = None,
+    logger: Callable[..., Any] | None = None,
 ) -> tuple[AudioSeparatorMetadata, Path]:
     downloader = downloader or hf_hub_download
-    metadata_path = Path(
-        downloader(
-            repo_id=repo_id,
-            filename=METADATA_FILENAME,
-            local_dir=str(Path(local_dir)),
-            force_download=force_download,
+    metadata_path = Path(local_dir) / METADATA_FILENAME
+    if metadata_path.exists() and not force_download:
+        _emit_log(logger, f"[green]Using existing audio separator metadata[/green] {metadata_path}")
+    else:
+        _emit_log(logger, f"[cyan]Downloading audio separator metadata[/cyan] {repo_id}:{METADATA_FILENAME}")
+        _maybe_enable_hf_progress_bars()
+        metadata_path = Path(
+            downloader(
+                repo_id=repo_id,
+                filename=METADATA_FILENAME,
+                local_dir=str(Path(local_dir)),
+                force_download=force_download,
+            )
         )
-    )
+        _emit_log(logger, f"[green]Downloaded audio separator metadata[/green] {metadata_path}")
     return load_audio_separator_metadata_file(metadata_path, repo_id=repo_id), metadata_path
 
 
@@ -256,6 +283,9 @@ def reconstruct_chunk_waveforms(
 
     stft_window = window if window is not None else torch.hann_window(metadata.win_length, dtype=torch.float32)
     chunk_stft = mask_complex * stft.unsqueeze(0)
+    if metadata.zero_dc:
+        chunk_stft = chunk_stft.clone()
+        chunk_stft[:, :, 0, :] = 0
     outputs = []
     for stem_index in range(metadata.num_stems):
         outputs.append(
@@ -270,6 +300,20 @@ def reconstruct_chunk_waveforms(
             )
         )
     return torch.stack(outputs, dim=0).to(dtype=torch.float32)
+
+
+def finalize_stem_outputs(
+    separated: torch.Tensor,
+    mix: torch.Tensor,
+    metadata: AudioSeparatorMetadata,
+) -> dict[str, torch.Tensor]:
+    outputs = {
+        stem_name: separated[index].clone()
+        for index, stem_name in enumerate(metadata.stem_names)
+    }
+    if metadata.secondary_stem_name and metadata.num_stems == 1:
+        outputs[str(metadata.secondary_stem_name)] = (mix - separated[0]).clone()
+    return outputs
 
 
 def _run_ffmpeg(command: list[str], *, input_bytes: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
@@ -392,9 +436,11 @@ class AudioSeparator:
         artifact_loader: Callable[..., Path] | None = None,
         session_bundle_loader: Callable[..., Any] | None = None,
         ffmpeg_executable: str | None = None,
+        logger: Callable[..., Any] | None = None,
     ) -> None:
         self.repo_id = repo_id
         self.model_dir = build_local_model_dir(model_dir, repo_id)
+        self.logger = logger
         self.runtime_config = runtime_config or resolve_audio_separator_runtime_config(
             force_download=force_download,
             config_dir=config_dir,
@@ -404,6 +450,7 @@ class AudioSeparator:
             local_dir=self.model_dir,
             force_download=self.runtime_config.force_download,
             downloader=metadata_downloader,
+            logger=self.logger,
         )
         self.spec = OnnxModelSpec(
             repo_id=repo_id,
@@ -416,6 +463,7 @@ class AudioSeparator:
             runtime_config=self.runtime_config,
             artifact_loader=artifact_loader,
             session_bundle_loader=session_bundle_loader,
+            logger=self.logger,
         )
         self.session = self.bundle.session
         self.providers = tuple(self.bundle.providers)
@@ -518,7 +566,4 @@ class AudioSeparator:
                     counter[start : start + valid_length] += weights
 
         separated = accumulator / counter.clamp_min(1e-8).view(1, 1, -1)
-        return {
-            stem_name: separated[index].clone()
-            for index, stem_name in enumerate(self.metadata.stem_names)
-        }
+        return finalize_stem_outputs(separated, mix, self.metadata)

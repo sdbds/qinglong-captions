@@ -7,6 +7,8 @@ $Config = @{
     segment_size    = 1101                                 # model default dim_t from inference config
     overlap         = 8                                    # Chunk step in seconds, matching original mdxc_overlap semantics
     batch_size      = 8                                    # Number of chunks per ONNX batch
+    harmony_separation = $false                            # Run a second harmony split on non-silent vocals after the 6-stem pass
+    harmony_repo_id = "bdsqlsz/mel_band_roformer_karaoke_aufr33-ONNX" # Harmony split model repo ID
     overwrite       = $false                               # Overwrite existing song output directories
     force_download  = $false                               # Force re-download model artifacts
 }
@@ -32,7 +34,7 @@ foreach ($Path in $VenvPaths) {
 
 $Env:HF_HOME = "huggingface"
 $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
-$Env:UV_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple/"
+#$Env:UV_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple/"
 $Env:UV_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 $Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
 $Env:UV_NO_BUILD_ISOLATION = "1"
@@ -149,6 +151,8 @@ if ($Config.output_format) { [void]$ExtArgs.Add("--output_format=$($Config.outpu
 if ($Config.segment_size) { [void]$ExtArgs.Add("--segment_size=$($Config.segment_size)") }
 if ($Config.overlap) { [void]$ExtArgs.Add("--overlap=$($Config.overlap)") }
 if ($Config.batch_size) { [void]$ExtArgs.Add("--batch_size=$($Config.batch_size)") }
+if ($Config.harmony_separation) { [void]$ExtArgs.Add("--harmony_separation") }
+if ($Config.harmony_repo_id) { [void]$ExtArgs.Add("--harmony_repo_id=$($Config.harmony_repo_id)") }
 if ($Config.overwrite) { [void]$ExtArgs.Add("--overwrite") }
 if ($Config.force_download) { [void]$ExtArgs.Add("--force_download") }
 #endregion

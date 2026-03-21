@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.base import CaptionResult, MediaContext, PromptContext, build_chat_text_message
 from module.providers.capabilities import ProviderCapabilities
 from module.providers.local_vlm_base import LocalVLMProvider
 from module.providers.registry import register_provider
@@ -39,7 +39,7 @@ class RekaEdgeLocalProvider(LocalVLMProvider):
         import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
 
-        from utils.transformer_loader import resolve_device_dtype
+        from utils.transformer_loader import load_pretrained_component, resolve_device_dtype
 
         model_id = self.model_id
         device, dtype, _ = resolve_device_dtype()
@@ -47,7 +47,13 @@ class RekaEdgeLocalProvider(LocalVLMProvider):
 
         self.log(f"Loading Reka Edge model: {model_id} (device={device}, dtype={dtype})", "blue")
 
-        processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+        processor = load_pretrained_component(
+            AutoProcessor,
+            model_id,
+            console=self.ctx.console,
+            component_name="processor",
+            trust_remote_code=True,
+        )
 
         load_kwargs: dict[str, Any] = {
             "trust_remote_code": True,
@@ -56,7 +62,13 @@ class RekaEdgeLocalProvider(LocalVLMProvider):
         if device == "cuda":
             load_kwargs["device_map"] = "auto"
 
-        model = AutoModelForImageTextToText.from_pretrained(model_id, **load_kwargs).eval()
+        model = load_pretrained_component(
+            AutoModelForImageTextToText,
+            model_id,
+            console=self.ctx.console,
+            component_name="model",
+            **load_kwargs,
+        ).eval()
         if device != "cuda":
             model = model.to(device)
 
@@ -175,7 +187,7 @@ class RekaEdgeLocalProvider(LocalVLMProvider):
 
         messages = [{"role": "user", "content": user_content}]
         if prompts.system:
-            messages.insert(0, {"role": "system", "content": prompts.system})
+            messages.insert(0, build_chat_text_message("system", prompts.system))
         return messages
 
     def _move_inputs_to_device(self, inputs: Any, *, device: str, dtype: Any):

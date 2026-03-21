@@ -15,8 +15,26 @@ def _caption_extension_for_mime(mime: str) -> str:
     return ".txt"
 
 
-def caption_output_path(source_path: Path, mime: str) -> Path:
-    return safe_sibling_path(source_path, _caption_extension_for_mime(mime))
+def normalize_caption_extension(extension: object) -> Optional[str]:
+    if extension is None:
+        return None
+    value = str(extension).strip()
+    if not value:
+        return None
+    if not value.startswith("."):
+        value = f".{value}"
+    return value
+
+
+def caption_extension_from_payload(payload: object) -> Optional[str]:
+    if not isinstance(payload, dict):
+        return None
+    return normalize_caption_extension(payload.get("caption_extension"))
+
+
+def caption_output_path(source_path: Path, mime: str, output=None) -> Path:
+    extension = caption_extension_from_payload(output) or _caption_extension_for_mime(mime)
+    return safe_sibling_path(source_path, extension)
 
 
 def _structured_description(payload: dict) -> str:
@@ -45,7 +63,7 @@ def write_markdown_output(output_dir: Path, content: str, filename: str = "resul
 
 def write_caption_output(source_path: Path, output, mime: str) -> tuple[Path, Optional[Path]]:
     source_path = Path(source_path)
-    text_path = caption_output_path(source_path, mime)
+    text_path = caption_output_path(source_path, mime, output)
     json_path: Optional[Path] = None
 
     if isinstance(output, dict):

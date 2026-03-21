@@ -31,7 +31,6 @@ def test_lfm_model_config_defaults_match_vl_recommendations():
 
 def test_lfm_provider_loads_expected_artifact_bundle(monkeypatch):
     from providers.base import ProviderContext
-    from providers.local_vlm.lfm_vl_local import LFMVLLocalProvider
 
     captured = {}
     console_buffer = io.StringIO()
@@ -45,6 +44,15 @@ def test_lfm_provider_loads_expected_artifact_bundle(monkeypatch):
     fake_transformers = types.ModuleType("transformers")
     fake_transformers.AutoProcessor = FakeProcessor
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+    fake_transformer_loader = types.ModuleType("utils.transformer_loader")
+
+    def fake_load_pretrained_component(component_cls, model_id, **kwargs):
+        return component_cls.from_pretrained(model_id, trust_remote_code=kwargs.get("trust_remote_code", False))
+
+    fake_transformer_loader.load_pretrained_component = fake_load_pretrained_component
+    monkeypatch.setitem(sys.modules, "utils.transformer_loader", fake_transformer_loader)
+
+    from providers.local_vlm.lfm_vl_local import LFMVLLocalProvider
 
     def fake_download(repo_id, artifacts, **kwargs):
         captured["download"] = (repo_id, artifacts, kwargs)
@@ -91,7 +99,6 @@ def test_lfm_provider_loads_expected_artifact_bundle(monkeypatch):
 
 def test_lfm_runtime_config_prefers_onnx_section_over_model_section(monkeypatch):
     from providers.base import ProviderContext
-    from providers.local_vlm.lfm_vl_local import LFMVLLocalProvider
 
     captured = {}
 
@@ -103,6 +110,15 @@ def test_lfm_runtime_config_prefers_onnx_section_over_model_section(monkeypatch)
     fake_transformers = types.ModuleType("transformers")
     fake_transformers.AutoProcessor = FakeProcessor
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+    fake_transformer_loader = types.ModuleType("utils.transformer_loader")
+
+    def fake_load_pretrained_component(component_cls, model_id, **kwargs):
+        return component_cls.from_pretrained(model_id, trust_remote_code=kwargs.get("trust_remote_code", False))
+
+    fake_transformer_loader.load_pretrained_component = fake_load_pretrained_component
+    monkeypatch.setitem(sys.modules, "utils.transformer_loader", fake_transformer_loader)
+
+    from providers.local_vlm.lfm_vl_local import LFMVLLocalProvider
 
     def fake_download(repo_id, artifacts, **kwargs):
         return {name: Path(f"C:/models/{Path(path).name}") for name, path in artifacts.items()}
@@ -173,7 +189,10 @@ def test_lfm_provider_attempt_merges_image_embeddings_and_decodes_until_eos(tmp_
         def apply_chat_template(messages, add_generation_prompt=False, tokenize=False):
             assert add_generation_prompt is True
             assert tokenize is False
-            assert messages[0]["role"] == "system"
+            assert messages[0] == {
+                "role": "system",
+                "content": [{"type": "text", "text": "system"}],
+            }
             assert messages[1]["content"][0]["type"] == "image"
             return "prompt"
 

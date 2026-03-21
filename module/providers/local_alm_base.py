@@ -6,6 +6,7 @@ LocalALMProvider - 本地音频语言模型 Provider 基类
 
 from __future__ import annotations
 
+import sys
 import threading
 from pathlib import Path
 from typing import Any, ClassVar, Dict
@@ -72,9 +73,45 @@ class LocalALMProvider(Provider):
     def _load_model(self):
         raise NotImplementedError(f"{self.name} must implement _load_model()")
 
+    @staticmethod
+    def _coerce_dtype(value: Any) -> Any:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip().removeprefix("torch.")
+        torch_module = sys.modules.get("torch")
+        if torch_module is None:
+            return normalized
+        return getattr(torch_module, normalized, normalized)
+
+    def _resolve_model_input_dtype(self, model: Any) -> Any:
+        for attr in ("audio_tower", "audio_encoder"):
+            module = getattr(model, attr, None)
+            if module is None:
+                continue
+            try:
+                first_param = next(module.parameters())
+            except Exception:
+                first_param = None
+            if first_param is None:
+                continue
+            dtype = self._coerce_dtype(getattr(first_param, "dtype", None))
+            if dtype is not None:
+                return dtype
+
+        config = getattr(model, "config", None)
+        if config is not None:
+            for attr in ("torch_dtype", "dtype"):
+                dtype = self._coerce_dtype(getattr(config, attr, None))
+                if dtype is not None:
+                    return dtype
+
+        return self._coerce_dtype(getattr(model, "dtype", None))
+
     def _move_inputs_to_model(self, inputs: Any, model: Any) -> Any:
         device = getattr(model, "device", None)
-        dtype = getattr(model, "dtype", None)
+        dtype = self._resolve_model_input_dtype(model)
         if device is None or not isinstance(inputs, dict):
             return inputs
 

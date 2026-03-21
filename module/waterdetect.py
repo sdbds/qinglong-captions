@@ -114,7 +114,15 @@ def process_batch(images, session, input_name):
 def load_model(args):
     """加载模型和标签"""
     global processor
-    processor = AutoImageProcessor.from_pretrained(args.repo_id, use_fast=True)
+    from utils.transformer_loader import load_pretrained_component
+
+    processor = load_pretrained_component(
+        AutoImageProcessor,
+        args.repo_id,
+        console=console,
+        component_name="processor",
+        use_fast=True,
+    )
     runtime_config = resolve_tool_runtime_config(
         load_config(str(CONFIG_DIR)),
         tool_name="waterdetect",

@@ -24,7 +24,7 @@ from module.providers.registry import register_provider
 from module.providers.utils import build_vision_messages, encode_image_to_blob
 from utils.output_writer import write_markdown_output
 from utils.parse_display import display_markdown, extract_code_block_content
-from utils.transformer_loader import resolve_device_dtype, transformerLoader
+from utils.transformer_loader import resolve_device_dtype, snapshot_download_with_reporting, transformerLoader
 
 DEFAULT_PROMPT_MODE = "prompt_ocr"
 DEFAULT_SVG_MODEL_ID = "davanstrien/dots.ocr-1.5-svg"
@@ -180,12 +180,11 @@ def _load_config_task_prompt_mapping(config) -> dict[str, str]:
 def _download_model_snapshot(repo_id: str) -> str:
     """Resolve an HF repo id to a local snapshot path."""
     try:
-        from huggingface_hub import snapshot_download
+        return snapshot_download_with_reporting(repo_id)
     except ImportError as exc:
         raise ImportError(
             "dots_ocr model download support is unavailable. Install the dots-ocr extra."
         ) from exc
-    return str(snapshot_download(repo_id=repo_id))
 
 
 @lru_cache(maxsize=8)

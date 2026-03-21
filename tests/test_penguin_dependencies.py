@@ -124,6 +124,8 @@ def test_pyproject_declares_music_flamingo_local_extra():
     music_flamingo_deps = optional_deps["music-flamingo-local"]
     assert any(dep.startswith("torch==2.8.0") for dep in music_flamingo_deps)
     assert any(dep.startswith("accelerate") for dep in music_flamingo_deps)
+    assert any(dep.startswith("kernels") for dep in music_flamingo_deps)
+    assert any(dep.startswith("triton-windows") for dep in music_flamingo_deps)
     assert any(dep.startswith("transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf") for dep in music_flamingo_deps)
     assert any(dep.startswith("huggingface_hub") for dep in music_flamingo_deps)
 
@@ -248,6 +250,25 @@ def test_caption_step_builds_explicit_segment_time_override():
     args = step._build_caption_args("demo-dataset")
 
     assert "--segment_time=90" in args
+
+
+def test_caption_step_formats_full_args_for_log_with_redaction():
+    CaptionStep = _load_caption_step("test_step4_caption_log_format")
+
+    formatted = CaptionStep._format_args_for_log(
+        [
+            "demo-dataset",
+            "--openai_api_key=super-secret",
+            "--segment_time=90",
+            "--wait_time=1",
+        ]
+    )
+
+    assert "demo-dataset" in formatted
+    assert "--segment_time=90" in formatted
+    assert "--wait_time=1" in formatted
+    assert "--openai_api_key=***" in formatted
+    assert "super-secret" not in formatted
 
 
 def test_run_ps1_mentions_lfm_vl_local_extra():
