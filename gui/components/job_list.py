@@ -32,7 +32,7 @@ class JobListDrawer:
 
         # 右侧抽屉
         self.drawer = ui.right_drawer(value=False, top_corner=True, bordered=True).style(
-            "width: 360px; padding: 0;"
+            "width: min(360px, 90vw); padding: 0;"
         )
         with self.drawer:
             self._render_drawer_content()
@@ -50,7 +50,7 @@ class JobListDrawer:
             # 标题栏
             with ui.row().classes("w-full items-center justify-between q-pa-md").style(
                 f"background: linear-gradient(135deg, {COLORS['primary']}22, {COLORS['secondary']}11); "
-                "border-bottom: 1px solid rgba(99,102,241,0.15); flex-shrink: 0;"
+                "border-bottom: 1px solid rgba(5, 150, 105, 0.15); flex-shrink: 0;"
             ):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("assignment", size="22px").style(f"color: {COLORS['primary']};")
@@ -93,7 +93,7 @@ class JobListDrawer:
         is_active = job.status in (JobStatus.PENDING, JobStatus.RUNNING)
 
         with ui.card().classes("w-full").style(
-            "border-radius: 0; border: none; border-bottom: 1px solid rgba(99,102,241,0.1); "
+            "border-radius: 0; border: none; border-bottom: 1px solid rgba(5, 150, 105, 0.1); "
             "background: transparent;"
         ):
             with ui.row().classes("w-full items-center gap-3 q-pa-md"):

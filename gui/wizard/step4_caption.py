@@ -5,10 +5,8 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from theme import get_classes, COLORS
 from components.path_selector import create_path_selector
-from components.log_viewer import create_log_viewer
 from components.advanced_inputs import editable_slider, toggle_switch, styled_select, styled_input
-from gui.utils.job_manager import job_manager
-from gui.utils.process_runner import ProcessStatus
+from components.execution_panel import ExecutionPanel
 from gui.utils.i18n import t
 from module.providers.catalog import route_choices, route_requires_remote_config
 
@@ -212,11 +210,9 @@ class CaptionStep:
             "scene_luma_only": False,
             "document_image": True,
         }
-        self.log_viewer = None
-        self.is_running = False
+        self.panel: ExecutionPanel = None
         self.api_keys = {}
         self._syncing_segment_time = False
-        self.current_job = None
 
     @staticmethod
     def _has_text(value: Any) -> bool:
@@ -410,21 +406,9 @@ class CaptionStep:
                 with ui.tab_panel(ocr_tab):
                     self._render_ocr_settings()
 
-            # 控制按钮和日志
-            with ui.card().classes(get_classes("card") + " w-full q-pa-md q-mt-md"):
-                with ui.row().classes("w-full items-center justify-between"):
-                    ui.label(t("captioner_settings")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
-
-                    with ui.row().classes("gap-2"):
-                        self.stop_btn = ui.button(t("stop"), on_click=self._stop_caption, icon="stop")
-                        self.stop_btn.classes("modern-btn-danger").props('type="button"')
-                        self.stop_btn.set_enabled(False)
-
-                        self.start_btn = ui.button(t("start_caption"), on_click=self._start_caption, icon="play_arrow")
-                        self.start_btn.classes("modern-btn-success").props('type="button"')
-
-            # 日志查看器
-            self.log_viewer = create_log_viewer()
+            # 执行面板 (Start/Stop + LogViewer)
+            self.panel = ExecutionPanel(start_label=t("start_caption"))
+            self.panel._on_start = self._start_caption
 
     def _render_basic_settings(self):
         """渲染基础设置"""
@@ -676,10 +660,6 @@ class CaptionStep:
             ui.notify(t("at_least_one_api"), type="warning")
             return
 
-        self.is_running = True
-        self.start_btn.set_enabled(False)
-        self.stop_btn.set_enabled(True)
-
         args = self._build_caption_args(dataset_path)
         uv_extra_args = self._build_local_extra_args()
         job_name = self._build_job_name()
@@ -688,45 +668,23 @@ class CaptionStep:
         if uv_extra_args:
             runner_kwargs["uv_extra_args"] = uv_extra_args
 
-        # 提交 Job
-        job = await job_manager.submit("module.captioner", args, name=job_name, **runner_kwargs)
-        self.current_job = job
-        self.log_viewer.attach_job(job)
+        def pre_log(lv):
+            lv.info(t("log_start_caption"))
+            lv.info(f"{t('log_dataset_path')}: {dataset_path}")
+            lv.info(f"{t('log_mode')}: {self.mode.value}")
+            lv.info(f"{t('log_params')}: {args[:5]}...")
+            if uv_extra_args:
+                lv.info(f"uv extras: {uv_extra_args}")
 
-        self.log_viewer.info(t("log_start_caption"))
-        self.log_viewer.info(f"{t('log_dataset_path')}: {dataset_path}")
-        self.log_viewer.info(f"{t('log_mode')}: {self.mode.value}")
-        self.log_viewer.info(f"{t('log_params')}: {args[:5]}...")
-        if uv_extra_args:
-            self.log_viewer.info(f"uv extras: {uv_extra_args}")
-
-        result = await job.wait()
-
-        try:
-            if result.status == ProcessStatus.SUCCESS:
-                self.log_viewer.success(t("caption_success"))
-                ui.notify(t("caption_success"), type="positive")
-            else:
-                self.log_viewer.error(t("caption_failed"))
-                ui.notify(t("caption_failed"), type="negative")
-
-            self.is_running = False
-            self.current_job = None
-            self.start_btn.set_enabled(True)
-            self.stop_btn.set_enabled(False)
-        except RuntimeError:
-            pass
-
-    def _stop_caption(self):
-        """停止字幕生成"""
-        if self.current_job:
-            job_manager.cancel(self.current_job.id)
-            self.current_job = None
-        self.is_running = False
-        self.start_btn.set_enabled(True)
-        self.stop_btn.set_enabled(False)
-        self.log_viewer.info(t("task_stopped"))
-        ui.notify(t("task_stopped"), type="info")
+        await self.panel.run_job(
+            "module.captioner",
+            args,
+            name=job_name,
+            runner_kwargs=runner_kwargs,
+            pre_log=pre_log,
+            on_success=lambda r: ui.notify(t("caption_success"), type="positive"),
+            on_failure=lambda r: ui.notify(t("caption_failed"), type="negative"),
+        )
 
 
 def render_caption_step():

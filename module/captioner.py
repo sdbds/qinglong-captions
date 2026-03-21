@@ -44,7 +44,7 @@ def process_batch(args, config):
 
 
 def setup_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(allow_abbrev=False)
 
     parser.add_argument("dataset_dir", type=str, help="directory for dataset")
 
@@ -280,13 +280,6 @@ def setup_parser() -> argparse.ArgumentParser:
         type=str,
         default="all",
         help="Mode for processing the dataset",
-    )
-
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="config/config.toml",
-        help="Path to legacy config file (deprecated, use --config_dir instead)",
     )
 
     parser.add_argument(

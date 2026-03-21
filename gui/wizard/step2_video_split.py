@@ -2,13 +2,11 @@
 
 from nicegui import ui
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from theme import get_classes, COLORS
 from components.path_selector import create_path_selector
-from components.log_viewer import create_log_viewer
 from components.advanced_inputs import editable_slider, toggle_switch, styled_select
-from gui.utils.job_manager import job_manager
-from gui.utils.process_runner import ProcessStatus
+from components.execution_panel import ExecutionPanel
 from gui.utils.i18n import t
 
 
@@ -41,9 +39,7 @@ class VideoSplitStep:
             "save_html": True,
             "recursive": False,
         }
-        self.log_viewer = None
-        self.is_running = False
-        self.current_job = None
+        self.panel: ExecutionPanel = None
 
     def render(self):
         """渲染页面"""
@@ -150,22 +146,14 @@ class VideoSplitStep:
                             ui.icon("play_circle", size="22px").style(f"color: {COLORS['success']};")
                             ui.label(t("start_split")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
 
-                    # 控制按钮
+                    # 导航按钮
                     with ui.row().classes("w-full items-center justify-between q-mt-md"):
-                        with ui.row().classes("gap-2"):
-                            prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
-                            prev_btn.classes("modern-btn-ghost").props('type="button"')
+                        prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
+                        prev_btn.classes("modern-btn-ghost").props('type="button"')
 
-                        with ui.row().classes("gap-2"):
-                            self.stop_btn = ui.button(t("stop"), on_click=self._stop_split, icon="stop")
-                            self.stop_btn.classes("modern-btn-danger").props('type="button"')
-                            self.stop_btn.set_enabled(False)
-
-                            self.start_btn = ui.button(t("start_split"), on_click=self._start_split, icon="play_arrow")
-                            self.start_btn.classes("modern-btn-success").props('type="button"')
-
-                    # 日志查看器
-                    self.log_viewer = create_log_viewer()
+                    # 执行面板 (Start/Stop + LogViewer)
+                    self.panel = ExecutionPanel(start_label=t("start_split"))
+                    self.panel._on_start = self._start_split
 
     def _on_detector_change(self, e):
         """检测器改变时更新默认阈值"""
@@ -179,10 +167,6 @@ class VideoSplitStep:
         if not input_dir or not Path(input_dir).exists():
             ui.notify(t("select_valid_input"), type="warning")
             return
-
-        self.is_running = True
-        self.start_btn.set_enabled(False)
-        self.stop_btn.set_enabled(True)
 
         detector = self.detector.value
         threshold = self.config["threshold"]
@@ -216,42 +200,22 @@ class VideoSplitStep:
         if images_per_scene > 0:
             args.append(f"--video2images_min_number={images_per_scene}")
 
-        # 提交 Job
-        job = await job_manager.submit("module.videospilter", args, name="Video Split")
-        self.current_job = job
-        self.log_viewer.attach_job(job)
+        def pre_log(lv):
+            lv.info(t("log_start_split"))
+            lv.info(f"{t('log_input_path')}: {input_dir}")
+            lv.info(f"{t('log_detector')}: {detector}")
+            lv.info(f"{t('log_threshold')}: {threshold}")
+            lv.info(f"{t('log_min_scene_len')}: {min_scene_len}")
+            lv.info(f"{t('log_params')}: {args}")
 
-        self.log_viewer.info(t("log_start_split"))
-        self.log_viewer.info(f"{t('log_input_path')}: {input_dir}")
-        self.log_viewer.info(f"{t('log_detector')}: {detector}")
-        self.log_viewer.info(f"{t('log_threshold')}: {threshold}")
-        self.log_viewer.info(f"{t('log_min_scene_len')}: {min_scene_len}")
-        self.log_viewer.info(f"{t('log_params')}: {args}")
-
-        result = await job.wait()
-
-        if result.status == ProcessStatus.SUCCESS:
-            self.log_viewer.success(t("split_success"))
-            ui.notify(t("split_success"), type="positive")
-        else:
-            self.log_viewer.error(t("split_failed"))
-            ui.notify(t("split_failed"), type="negative")
-
-        self.is_running = False
-        self.current_job = None
-        self.start_btn.set_enabled(True)
-        self.stop_btn.set_enabled(False)
-
-    def _stop_split(self):
-        """停止分割"""
-        if self.current_job:
-            job_manager.cancel(self.current_job.id)
-            self.current_job = None
-        self.is_running = False
-        self.start_btn.set_enabled(True)
-        self.stop_btn.set_enabled(False)
-        self.log_viewer.info(t("task_stopped"))
-        ui.notify(t("task_stopped"), type="info")
+        await self.panel.run_job(
+            "module.videospilter",
+            args,
+            name="Video Split",
+            pre_log=pre_log,
+            on_success=lambda r: ui.notify(t("split_success"), type="positive"),
+            on_failure=lambda r: ui.notify(t("split_failed"), type="negative"),
+        )
 
 
 def render_video_split_step():

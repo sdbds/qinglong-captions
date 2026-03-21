@@ -18,6 +18,18 @@ from pathlib import Path
 _COLOR_INJECT_DIR = str(Path(__file__).parent / "_color_inject")
 
 
+def _normalize_rich_color_system(value: str) -> str:
+    """Normalize env-provided Rich color system names."""
+    normalized = (value or "").strip().lower()
+    aliases = {
+        "24bit": "truecolor",
+        "24-bit": "truecolor",
+        "full": "truecolor",
+        "256color": "256",
+    }
+    return aliases.get(normalized, normalized)
+
+
 def _setup_windows_console() -> int:
     """配置 Windows 控制台: UTF-8 + ANSI 虚拟终端处理 + 调整窗口/缓冲区宽度
 
@@ -39,16 +51,10 @@ def _setup_windows_console() -> int:
     mode.value |= ENABLE_VIRTUAL_TERMINAL_PROCESSING
     kernel32.SetConsoleMode(handle, mode)
 
-    # 调整控制台缓冲区列数、窗口大小并居中
+    # 调整控制台缓冲区列数
     cols = 0
     try:
-        from ctypes import wintypes
-
         user32 = ctypes.windll.user32
-        screen_w = user32.GetSystemMetrics(0)  # SM_CXSCREEN
-        screen_h = user32.GetSystemMetrics(1)  # SM_CYSCREEN
-        target_w = int(screen_w * 2 / 3)
-        target_h = int(screen_h * 2 / 3)
 
         # 获取控制台字体尺寸以计算列数
         class COORD(ctypes.Structure):
@@ -77,11 +83,6 @@ def _setup_windows_console() -> int:
             _sp.run(f"mode con cols={cols}", shell=True,
                     stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
 
-            # 居中窗口
-            left = (screen_w - target_w) // 2
-            top = (screen_h - target_h) // 2
-            user32.MoveWindow(hwnd, left, top, target_w, target_h, True)
-
     except Exception:
         cols = 0  # 非关键，失败不影响功能
 
@@ -104,11 +105,28 @@ def main():
 
     # 构建子进程环境变量
     env = os.environ.copy()
+    requested_color_system = _normalize_rich_color_system(env.get("_QINGLONG_RICH_COLOR_SYSTEM", ""))
     env["FORCE_COLOR"] = "1"
-    env["COLORTERM"] = "truecolor"
-    env["TERM"] = "xterm-256color"
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUNBUFFERED"] = "1"
+    if requested_color_system == "truecolor":
+        env["COLORTERM"] = "truecolor"
+        env["TERM"] = "xterm-256color"
+    elif requested_color_system == "256":
+        env.pop("COLORTERM", None)
+        env["TERM"] = "xterm-256color"
+    elif requested_color_system == "standard":
+        env.pop("COLORTERM", None)
+        env["TERM"] = "xterm"
+    elif requested_color_system == "windows":
+        env.pop("COLORTERM", None)
+        env["TERM"] = "windows"
+    elif requested_color_system == "auto":
+        pass
+    else:
+        env["COLORTERM"] = "truecolor"
+        env["TERM"] = "xterm-256color"
+
     # 告知 sitecustomize.py 日志文件路径（用于 _FakeTTY 镜像写入）
     env["_QINGLONG_LOG_FILE"] = log_file
     # 注入 _color_inject/ 到 PYTHONPATH 最前面，使 sitecustomize.py 被自动执行

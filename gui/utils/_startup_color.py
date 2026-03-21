@@ -13,6 +13,7 @@ import sys
 import os
 
 _log_path = os.environ.get("_QINGLONG_LOG_FILE", "")
+_requested_color_system = os.environ.get("_QINGLONG_RICH_COLOR_SYSTEM", "").strip().lower()
 
 
 # ── 1. 替换 sys.stdout 为伪 TTY ──────────────────────────────────────────────
@@ -73,6 +74,8 @@ def _patch_rich():
 
         def _new_init(self, *args, **kwargs):
             kwargs.setdefault("legacy_windows", False)
+            if _requested_color_system and _requested_color_system != "auto":
+                kwargs["color_system"] = _requested_color_system
             _orig(self, *args, **kwargs)
 
         _rc.Console.__init__ = _new_init

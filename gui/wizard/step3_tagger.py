@@ -2,13 +2,11 @@
 
 from nicegui import ui
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from theme import get_classes, COLORS
 from components.path_selector import create_path_selector
-from components.log_viewer import create_log_viewer
 from components.advanced_inputs import editable_slider, toggle_switch, styled_select, styled_input
-from gui.utils.job_manager import job_manager
-from gui.utils.process_runner import ProcessStatus
+from components.execution_panel import ExecutionPanel
 from gui.utils.i18n import t
 
 
@@ -38,9 +36,7 @@ class TaggerStep:
             "remove_parents_tag": True,
             "overwrite": True,
         }
-        self.log_viewer = None
-        self.is_running = False
-        self.current_job = None
+        self.panel: ExecutionPanel = None
 
     def render(self):
         """渲染页面"""
@@ -169,119 +165,75 @@ class TaggerStep:
                         prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
                         prev_btn.classes("modern-btn-ghost").props('type="button"')
 
-                        with ui.row().classes("gap-2"):
-                            self.stop_btn = ui.button(t("stop"), on_click=self._stop_tagging, icon="stop")
-                            self.stop_btn.classes("modern-btn-danger").props('type="button"')
-                            self.stop_btn.set_enabled(False)
-
-                            self.start_btn = ui.button(t("start_tagging"), on_click=self._start_tagging, icon="play_arrow")
-                            self.start_btn.classes("modern-btn-success").props('type="button"')
-
-                    # 日志查看器
-                    self.log_viewer = create_log_viewer()
+                    # 执行面板 (Start/Stop + LogViewer)
+                    self.panel = ExecutionPanel(start_label=t("start_tagging"))
+                    self.panel._on_start = self._start_tagging
 
     async def _start_tagging(self):
         """开始打标"""
-        try:
-            train_data_dir = self.train_data_dir.value
-            if not train_data_dir or not Path(train_data_dir).exists():
-                ui.notify(t("select_valid_train_dir"), type="warning")
-                return
+        train_data_dir = self.train_data_dir.value
+        if not train_data_dir or not Path(train_data_dir).exists():
+            ui.notify(t("select_valid_train_dir"), type="warning")
+            return
 
-            self.is_running = True
-            self.start_btn.set_enabled(False)
-            self.stop_btn.set_enabled(True)
+        repo_id = self.repo_id.value
+        model_dir = self.model_dir.value or "wd14_tagger_model"
+        batch_size = int(self.config["batch_size"])
+        thresh = self.config["thresh"]
+        general_threshold = self.config["general_threshold"]
+        character_threshold = self.config["character_threshold"]
 
-            repo_id = self.repo_id.value
-            model_dir = self.model_dir.value or "wd14_tagger_model"
-            batch_size = int(self.config["batch_size"])
-            thresh = self.config["thresh"]
-            general_threshold = self.config["general_threshold"]
-            character_threshold = self.config["character_threshold"]
+        # 构建参数
+        args = [train_data_dir]
+        args.append(f"--repo_id={repo_id}")
+        args.append(f"--model_dir={model_dir}")
+        args.append(f"--batch_size={batch_size}")
+        args.append(f"--thresh={thresh}")
+        args.append(f"--general_threshold={general_threshold}")
+        args.append(f"--character_threshold={character_threshold}")
+        args.append("--caption_extension=.txt")
 
-            # 构建参数
-            args = [train_data_dir]
-            args.append(f"--repo_id={repo_id}")
-            args.append(f"--model_dir={model_dir}")
-            args.append(f"--batch_size={batch_size}")
-            args.append(f"--thresh={thresh}")
-            args.append(f"--general_threshold={general_threshold}")
-            args.append(f"--character_threshold={character_threshold}")
-            args.append("--caption_extension=.txt")
+        # 功能开关
+        if self.config["remove_underscore"]:
+            args.append("--remove_underscore")
+        if self.config["frequency_tags"]:
+            args.append("--frequency_tags")
+        if self.config["use_rating_tags"]:
+            args.append("--use_rating_tags")
+        if self.config["use_quality_tags"]:
+            args.append("--use_quality_tags")
+        if self.config["use_model_tags"]:
+            args.append("--use_model_tags")
+        if self.config["character_tags_first"]:
+            args.append("--character_tags_first")
+        if self.config["remove_parents_tag"]:
+            args.append("--remove_parents_tag")
+        if self.config["overwrite"]:
+            args.append("--overwrite")
 
-            # 功能开关
-            if self.config["remove_underscore"]:
-                args.append("--remove_underscore")
-            if self.config["frequency_tags"]:
-                args.append("--frequency_tags")
-            if self.config["use_rating_tags"]:
-                args.append("--use_rating_tags")
-            if self.config["use_quality_tags"]:
-                args.append("--use_quality_tags")
-            if self.config["use_model_tags"]:
-                args.append("--use_model_tags")
-            if self.config["character_tags_first"]:
-                args.append("--character_tags_first")
-            if self.config["remove_parents_tag"]:
-                args.append("--remove_parents_tag")
-            if self.config["overwrite"]:
-                args.append("--overwrite")
+        # 标签设置
+        if self.undesired_tags.value:
+            args.append(f"--undesired_tags={self.undesired_tags.value}")
+        if self.always_first_tags.value:
+            args.append(f"--always_first_tags={self.always_first_tags.value}")
+        if self.tag_replacement.value:
+            args.append(f"--tag_replacement={self.tag_replacement.value}")
 
-            # 标签设置
-            if self.undesired_tags.value:
-                args.append(f"--undesired_tags={self.undesired_tags.value}")
-            if self.always_first_tags.value:
-                args.append(f"--always_first_tags={self.always_first_tags.value}")
-            if self.tag_replacement.value:
-                args.append(f"--tag_replacement={self.tag_replacement.value}")
+        def pre_log(lv):
+            lv.info(t("log_start_tagging"))
+            lv.info(f"{t('log_data_dir')}: {train_data_dir}")
+            lv.info(f"{t('log_model')}: {repo_id}")
+            lv.info(f"{t('log_batch_size')}: {batch_size}")
+            lv.info(f"{t('log_params')}: {args}")
 
-            # 提交 Job（Tagger 使用 wdtagger extra）
-            job = await job_manager.submit("utils.wdtagger", args, name="Tagger (WD14)")
-            self.current_job = job
-            self.log_viewer.attach_job(job)
-
-            self.log_viewer.info(t("log_start_tagging"))
-            self.log_viewer.info(f"{t('log_data_dir')}: {train_data_dir}")
-            self.log_viewer.info(f"{t('log_model')}: {repo_id}")
-            self.log_viewer.info(f"{t('log_batch_size')}: {batch_size}")
-            self.log_viewer.info(f"{t('log_params')}: {args}")
-
-            result = await job.wait()
-
-            if result.status == ProcessStatus.SUCCESS:
-                self.log_viewer.success(t("tagging_success"))
-                ui.notify(t("tagging_success"), type="positive")
-            else:
-                self.log_viewer.error(f"{t('tagging_failed')}: {result.message}")
-                ui.notify(t("tagging_failed"), type="negative")
-
-        except RuntimeError:
-            pass  # 用户已离开页面，元素已销毁
-        except Exception as e:
-            try:
-                self.log_viewer.error(f"{t('tagging_error')}: {e}")
-                ui.notify(f"{t('tagging_error')}: {e}", type="negative")
-            except RuntimeError:
-                pass
-        finally:
-            try:
-                self.is_running = False
-                self.current_job = None
-                self.start_btn.set_enabled(True)
-                self.stop_btn.set_enabled(False)
-            except RuntimeError:
-                pass
-
-    def _stop_tagging(self):
-        """停止打标"""
-        if self.current_job:
-            job_manager.cancel(self.current_job.id)
-            self.current_job = None
-        self.is_running = False
-        self.start_btn.set_enabled(True)
-        self.stop_btn.set_enabled(False)
-        self.log_viewer.info(t("task_stopped"))
-        ui.notify(t("task_stopped"), type="info")
+        await self.panel.run_job(
+            "utils.wdtagger",
+            args,
+            name="Tagger (WD14)",
+            pre_log=pre_log,
+            on_success=lambda r: ui.notify(t("tagging_success"), type="positive"),
+            on_failure=lambda r: ui.notify(t("tagging_failed"), type="negative"),
+        )
 
 
 def render_tagger_step():

@@ -316,6 +316,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "task_finished": "Task finished",
         "task_failed": "Task failed",
         "task_stopped": "Task stopped",
+        "task_already_running": "Task already running",
         "config_saved": "Config saved",
         "config_loaded": "Config loaded",
         "language_changed": "Language changed",
@@ -716,6 +717,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "task_finished": "任务已完成",
         "task_failed": "任务失败",
         "task_stopped": "任务已停止",
+        "task_already_running": "已有任务正在运行",
         "config_saved": "配置已保存",
         "config_loaded": "配置已加载",
         "language_changed": "语言已切换",
@@ -1011,6 +1013,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "task_finished": "タスク完了",
         "task_failed": "タスク失敗",
         "task_stopped": "タスク停止",
+        "task_already_running": "タスクは既に実行中です",
         "language_changed": "言語を変更しました",
         # Tab labels
         "basic_settings": "基本設定",
@@ -1300,6 +1303,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "task_finished": "작업 완료",
         "task_failed": "작업 실패",
         "task_stopped": "작업 중지",
+        "task_already_running": "이미 작업이 실행 중입니다",
         "language_changed": "언어가 변경되었습니다",
         # Tab labels
         "basic_settings": "기본 설정",

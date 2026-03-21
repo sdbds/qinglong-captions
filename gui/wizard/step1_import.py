@@ -2,13 +2,11 @@
 
 from nicegui import ui
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from theme import get_classes, COLORS
 from components.path_selector import create_path_selector
-from components.log_viewer import create_log_viewer
 from components.advanced_inputs import toggle_switch, styled_select, styled_input
-from gui.utils.job_manager import job_manager, JobStatus
-from gui.utils.process_runner import ProcessStatus
+from components.execution_panel import ExecutionPanel
 from gui.utils.i18n import t
 
 
@@ -29,9 +27,7 @@ class ImportStep:
             "no_save_binary": False,
             "not_save_disk": False,
         }
-        self.log_viewer = None
-        self.is_running = False
-        self.current_job = None
+        self.panel: ExecutionPanel = None
 
     def render(self):
         """渲染页面"""
@@ -114,22 +110,14 @@ class ImportStep:
                                 ui.label(t("output_name")).classes("text-caption").style("color: var(--color-text-secondary);")
                                 ui.label("").bind_text_from(self.output_name, "value").classes("text-body2")
 
-                    # 控制按钮
+                    # 导航按钮
                     with ui.row().classes("w-full items-center justify-between q-mt-md"):
-                        with ui.row().classes("gap-2"):
-                            prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
-                            prev_btn.classes("modern-btn-ghost").props('type="button"')
+                        prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
+                        prev_btn.classes("modern-btn-ghost").props('type="button"')
 
-                        with ui.row().classes("gap-2"):
-                            self.stop_btn = ui.button(t("stop"), on_click=self._stop_import, icon="stop")
-                            self.stop_btn.classes("modern-btn-danger").props('type="button"')
-                            self.stop_btn.set_enabled(False)
-
-                            self.start_btn = ui.button(t("start_import"), on_click=self._start_import, icon="play_arrow")
-                            self.start_btn.classes("modern-btn-success").props('type="button"')
-
-                    # 日志查看器
-                    self.log_viewer = create_log_viewer()
+                    # 执行面板 (Start/Stop + LogViewer)
+                    self.panel = ExecutionPanel(start_label=t("start_import"))
+                    self.panel._on_start = self._start_import
 
     async def _start_import(self):
         """开始导入"""
@@ -142,10 +130,6 @@ class ImportStep:
         import_mode = self.IMPORT_MODES.get(self.import_mode.value, 0)
         tag = self.tag.value or "gemini"
 
-        self.is_running = True
-        self.start_btn.set_enabled(False)
-        self.stop_btn.set_enabled(True)
-
         # 构建参数
         args = [input_path]
         args.append(f"--output_name={output_name}")
@@ -157,42 +141,22 @@ class ImportStep:
         if self.config["not_save_disk"]:
             args.append("--not_save_disk")
 
-        # 提交 Job
-        job = await job_manager.submit("module.lanceImport", args, name="Import")
-        self.current_job = job
-        self.log_viewer.attach_job(job)
+        def pre_log(lv):
+            lv.info(t("log_start_import"))
+            lv.info(f"{t('log_input_path')}: {input_path}")
+            lv.info(f"{t('log_output_name')}: {output_name}")
+            lv.info(f"{t('log_import_mode')}: {self.import_mode.value}")
+            lv.info(f"{t('log_tag')}: {tag}")
+            lv.info(f"{t('log_params')}: {args}")
 
-        self.log_viewer.info(t("log_start_import"))
-        self.log_viewer.info(f"{t('log_input_path')}: {input_path}")
-        self.log_viewer.info(f"{t('log_output_name')}: {output_name}")
-        self.log_viewer.info(f"{t('log_import_mode')}: {self.import_mode.value}")
-        self.log_viewer.info(f"{t('log_tag')}: {tag}")
-        self.log_viewer.info(f"{t('log_params')}: {args}")
-
-        result = await job.wait()
-
-        if result.status == ProcessStatus.SUCCESS:
-            self.log_viewer.success(t("import_success"))
-            ui.notify(t("import_success"), type="positive")
-        else:
-            self.log_viewer.error(t("import_failed"))
-            ui.notify(t("import_failed"), type="negative")
-
-        self.is_running = False
-        self.current_job = None
-        self.start_btn.set_enabled(True)
-        self.stop_btn.set_enabled(False)
-
-    def _stop_import(self):
-        """停止导入"""
-        if self.current_job:
-            job_manager.cancel(self.current_job.id)
-            self.current_job = None
-        self.is_running = False
-        self.start_btn.set_enabled(True)
-        self.stop_btn.set_enabled(False)
-        self.log_viewer.info(t("task_stopped"))
-        ui.notify(t("task_stopped"), type="info")
+        await self.panel.run_job(
+            "module.lanceImport",
+            args,
+            name="Import",
+            pre_log=pre_log,
+            on_success=lambda r: ui.notify(t("import_success"), type="positive"),
+            on_failure=lambda r: ui.notify(t("import_failed"), type="negative"),
+        )
 
 
 def render_import_step():

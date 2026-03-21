@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "module"))
@@ -15,6 +17,13 @@ def test_captioner_parser_leaves_segment_time_unset_by_default():
     args = setup_parser().parse_args(["datasets"])
 
     assert args.segment_time is None
+
+
+def test_captioner_parser_rejects_legacy_config_flag():
+    from module.captioner import setup_parser
+
+    with pytest.raises(SystemExit):
+        setup_parser().parse_args(["datasets", "--config", "config/config.toml"])
 
 
 def test_music_flamingo_uses_provider_specific_default_segment_time():

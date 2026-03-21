@@ -184,6 +184,40 @@ class ProcessRunner:
         return env
 
     @staticmethod
+    def _normalize_console_color_system(color_system: Optional[str]) -> Optional[str]:
+        """规范化原生控制台颜色系统参数。"""
+        if color_system is None:
+            return None
+
+        value = str(color_system).strip().lower()
+        if not value:
+            return None
+
+        aliases = {
+            "24bit": "truecolor",
+            "24-bit": "truecolor",
+            "full": "truecolor",
+            "256color": "256",
+        }
+        value = aliases.get(value, value)
+
+        if value not in {"auto", "standard", "256", "truecolor", "windows"}:
+            raise ValueError(f"Unsupported console_color_system: {color_system}")
+
+        return value
+
+    @classmethod
+    def _build_native_wrapper_env(cls, env: dict, console_color_system: Optional[str]) -> dict:
+        """为原生控制台包装进程附加渲染控制环境变量。"""
+        wrapper_env = env.copy()
+        normalized = cls._normalize_console_color_system(console_color_system)
+        if normalized is None:
+            wrapper_env.pop("_QINGLONG_RICH_COLOR_SYSTEM", None)
+        else:
+            wrapper_env["_QINGLONG_RICH_COLOR_SYSTEM"] = normalized
+        return wrapper_env
+
+    @staticmethod
     def _find_uv() -> Optional[str]:
         """查找 uv 可执行文件路径"""
         return shutil.which("uv")
@@ -733,6 +767,7 @@ class ProcessRunner:
         uv_extra: Optional[str] = None,
         uv_extra_args: Optional[List[str]] = None,
         native_console: bool = True,
+        console_color_system: Optional[str] = "truecolor",
     ) -> ProcessResult:
         """运行 Python 脚本（完全非阻塞）
 
@@ -744,6 +779,7 @@ class ProcessRunner:
             uv_extra: 强制指定 pyproject optional dependency extra。
             uv_extra_args: 额外的依赖 profile 参数（如 extra/group）。
             native_console: Windows 下使用原生控制台窗口（支持 rich 颜色/图片）。
+            console_color_system: Rich 控制台颜色系统，可选 auto/standard/256/truecolor/windows。
         """
         if self._running:
             return ProcessResult(ProcessStatus.ERROR, -1, "已有任务在运行")
@@ -808,7 +844,7 @@ class ProcessRunner:
 
             # Step 2: 启动进程
             if use_native:
-                return_code = await self._run_native(cmd, work_dir, env)
+                return_code = await self._run_native(cmd, work_dir, env, console_color_system)
             else:
                 return_code = await self._run_logged_subprocess(cmd, work_dir, env)
 
@@ -839,7 +875,13 @@ class ProcessRunner:
     # ------------------------------------------------------------------
     #  原生控制台模式
     # ------------------------------------------------------------------
-    async def _run_native(self, cmd: List[str], work_dir: Path, env: dict) -> int:
+    async def _run_native(
+        self,
+        cmd: List[str],
+        work_dir: Path,
+        env: dict,
+        console_color_system: Optional[str] = "truecolor",
+    ) -> int:
         """通过 console_wrapper.py 在原生控制台中运行命令。
 
         特性:
@@ -865,11 +907,12 @@ class ProcessRunner:
         ps_exe = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
         ps_cmd = _powershell_call(parts)
         wrapper_cmd = [ps_exe, "-NoProfile", "-NoLogo", "-Command", ps_cmd]
+        wrapper_env = self._build_native_wrapper_env(env, console_color_system)
 
         self.process = subprocess.Popen(
             wrapper_cmd,
             cwd=str(work_dir),
-            env=env,
+            env=wrapper_env,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
         self._notify_log("已在 PowerShell 控制台窗口中启动，输出同步显示在下方")

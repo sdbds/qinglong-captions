@@ -61,9 +61,9 @@ class SetupStep:
                     ui.row()
                     .classes("w-full items-center justify-between q-pa-sm")
                     .style(f"""
-                    background: rgba(99, 102, 241, 0.1);
+                    background: rgba(5, 150, 105, 0.08);
                     border-radius: 10px;
-                    border: 1px solid rgba(99, 102, 241, 0.2);
+                    border: 1px solid rgba(5, 150, 105, 0.2);
                 """) as python_row
                 ):
                     with ui.row().classes("items-center gap-2"):
@@ -79,9 +79,9 @@ class SetupStep:
                     ui.row()
                     .classes("w-full items-center justify-between q-pa-sm q-mt-sm")
                     .style(f"""
-                    background: rgba(236, 72, 153, 0.1);
+                    background: rgba(251, 191, 36, 0.08);
                     border-radius: 10px;
-                    border: 1px solid rgba(236, 72, 153, 0.2);
+                    border: 1px solid rgba(251, 191, 36, 0.2);
                 """) as torch_row
                 ):
                     with ui.row().classes("items-center gap-2"):

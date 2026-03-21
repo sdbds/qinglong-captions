@@ -2,13 +2,11 @@
 
 from nicegui import ui
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from theme import get_classes, COLORS
 from components.path_selector import create_path_selector
-from components.log_viewer import create_log_viewer
 from components.advanced_inputs import toggle_switch, styled_select
-from gui.utils.job_manager import job_manager
-from gui.utils.process_runner import ProcessStatus
+from components.execution_panel import ExecutionPanel
 from gui.utils.i18n import t
 
 
@@ -21,9 +19,7 @@ class ExportStep:
         self.config: Dict[str, Any] = {
             "not_clip_with_caption": False,
         }
-        self.log_viewer = None
-        self.is_running = False
-        self.current_job = None
+        self.panel: ExecutionPanel = None
 
     def render(self):
         """渲染页面"""
@@ -103,22 +99,14 @@ class ExportStep:
                             ui.icon("play_circle", size="22px").style(f"color: {COLORS['success']};")
                             ui.label(t("start_export")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
 
-                    # 控制按钮
+                    # 导航按钮
                     with ui.row().classes("w-full items-center justify-between q-mt-md"):
-                        with ui.row().classes("gap-2"):
-                            prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
-                            prev_btn.classes("modern-btn-ghost").props('type="button"')
+                        prev_btn = ui.button(t("prev_step"), on_click=stepper.previous, icon="arrow_back")
+                        prev_btn.classes("modern-btn-ghost").props('type="button"')
 
-                        with ui.row().classes("gap-2"):
-                            self.stop_btn = ui.button(t("stop"), on_click=self._stop_export, icon="stop")
-                            self.stop_btn.classes("modern-btn-danger").props('type="button"')
-                            self.stop_btn.set_enabled(False)
-
-                            self.start_btn = ui.button(t("start_export"), on_click=self._start_export, icon="play_arrow")
-                            self.start_btn.classes("modern-btn-success").props('type="button"')
-
-                    # 日志查看器
-                    self.log_viewer = create_log_viewer()
+                    # 执行面板 (Start/Stop + LogViewer)
+                    self.panel = ExecutionPanel(start_label=t("start_export"))
+                    self.panel._on_start = self._start_export
 
     async def _start_export(self):
         """开始导出"""
@@ -126,10 +114,6 @@ class ExportStep:
         if not lance_file or not Path(lance_file).exists():
             ui.notify(t("select_valid_lance"), type="warning")
             return
-
-        self.is_running = True
-        self.start_btn.set_enabled(False)
-        self.stop_btn.set_enabled(True)
 
         output_dir = self.output_dir.value or "./datasets"
         version = self.version.value
@@ -142,41 +126,21 @@ class ExportStep:
         if self.config["not_clip_with_caption"]:
             args.append("--not_clip_with_caption")
 
-        # 提交 Job
-        job = await job_manager.submit("module.lanceexport", args, name="Export")
-        self.current_job = job
-        self.log_viewer.attach_job(job)
+        def pre_log(lv):
+            lv.info(t("log_start_export"))
+            lv.info(f"{t('log_lance_file')}: {lance_file}")
+            lv.info(f"{t('log_output_dir')}: {output_dir}")
+            lv.info(f"{t('log_version')}: {version}")
+            lv.info(f"{t('log_params')}: {args}")
 
-        self.log_viewer.info(t("log_start_export"))
-        self.log_viewer.info(f"{t('log_lance_file')}: {lance_file}")
-        self.log_viewer.info(f"{t('log_output_dir')}: {output_dir}")
-        self.log_viewer.info(f"{t('log_version')}: {version}")
-        self.log_viewer.info(f"{t('log_params')}: {args}")
-
-        result = await job.wait()
-
-        if result.status == ProcessStatus.SUCCESS:
-            self.log_viewer.success(t("export_success"))
-            ui.notify(t("export_success"), type="positive")
-        else:
-            self.log_viewer.error(t("export_failed"))
-            ui.notify(t("export_failed"), type="negative")
-
-        self.is_running = False
-        self.current_job = None
-        self.start_btn.set_enabled(True)
-        self.stop_btn.set_enabled(False)
-
-    def _stop_export(self):
-        """停止导出"""
-        if self.current_job:
-            job_manager.cancel(self.current_job.id)
-            self.current_job = None
-        self.is_running = False
-        self.start_btn.set_enabled(True)
-        self.stop_btn.set_enabled(False)
-        self.log_viewer.info(t("task_stopped"))
-        ui.notify(t("task_stopped"), type="info")
+        await self.panel.run_job(
+            "module.lanceexport",
+            args,
+            name="Export",
+            pre_log=pre_log,
+            on_success=lambda r: ui.notify(t("export_success"), type="positive"),
+            on_failure=lambda r: ui.notify(t("export_failed"), type="negative"),
+        )
 
 
 def render_export_step():

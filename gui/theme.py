@@ -2057,7 +2057,19 @@ def get_modern_css() -> str:
             background: var(--color-gold-light);
             border-radius: 2px;
         }}
-        
+
+        /* ===== Header Responsive - Narrow Screen Adaptation ===== */
+        @media (max-width: 1100px) {{
+            .modern-header .q-btn__content > span.block {{
+                display: none !important;
+            }}
+        }}
+        @media (max-width: 768px) {{
+            .modern-header > .row {{
+                flex-wrap: wrap;
+            }}
+        }}
+
         /* ===== Stepper (Q-Stepper) ===== */
         .q-stepper {{
             background: transparent !important;

@@ -97,7 +97,7 @@ class LogViewer:
                 .classes("w-full q-px-md q-mb-md")
                 .style(f"""
                 background: rgba(15, 23, 42, 0.8);
-                border: 1px solid rgba(99, 102, 241, 0.2);
+                border: 1px solid rgba(5, 150, 105, 0.2);
                 border-radius: 12px;
                 overflow: hidden;
             """)
@@ -313,6 +313,10 @@ class LogViewer:
         self._clear_display()
         self._log_source.clear()
         self._log_source.push("日志已清空")
+
+    def reset_display(self):
+        """只清空当前显示，不修改当前日志源中的历史内容。"""
+        self._clear_display()
 
     def _save_log(self):
         """保存日志到文件（纯文本，无 ANSI）"""
