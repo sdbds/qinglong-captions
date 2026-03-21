@@ -577,6 +577,10 @@ conflicts = [
     ],
     [
         { extra = "paddleocr" },
+        { extra = "logics-ocr" },
+    ],
+    [
+        { extra = "paddleocr" },
         { extra = "hunyuan-ocr" },
     ],
     [
@@ -621,7 +625,19 @@ conflicts = [
     ],
     [
         { extra = "paddleocr" },
+        { extra = "qianfan-ocr" },
+    ],
+    [
+        { extra = "paddleocr" },
         { extra = "lighton-ocr" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "music-flamingo-local" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "eureka-audio-local" },
     ],
     [
         { group = "test" },

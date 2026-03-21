@@ -14,6 +14,11 @@ def _load_conflicts():
     return pyproject["tool"]["uv"]["conflicts"]
 
 
+def _load_optional_dependencies():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return pyproject["project"]["optional-dependencies"]
+
+
 def _load_extra_conflict_sets():
     sets = []
     for group in _load_conflicts():
@@ -42,6 +47,21 @@ def test_penguin_vl_local_conflicts_with_lfm_vl_local():
 
 def test_paddleocr_conflicts_with_lfm_vl_local():
     assert _has_extra_conflict("paddleocr", "lfm-vl-local")
+
+
+def test_paddleocr_conflicts_with_logics_ocr():
+    assert _has_extra_conflict("paddleocr", "logics-ocr")
+
+
+def test_paddleocr_conflicts_with_all_torch_stack_extras():
+    torch_extras = [
+        name
+        for name, deps in _load_optional_dependencies().items()
+        if name != "paddleocr" and any(dep.startswith(("torch", "torchvision", "torchaudio")) for dep in deps)
+    ]
+
+    for extra in torch_extras:
+        assert _has_extra_conflict("paddleocr", extra)
 
 
 def test_lighton_ocr_conflicts_with_translate():
