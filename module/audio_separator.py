@@ -48,9 +48,7 @@ def collect_audio_inputs(input_path: Path, *, recursive: bool) -> tuple[list[Pat
     return files, input_path
 
 
-def resolve_output_root(input_path: Path, output_dir: str | Path | None) -> Path:
-    if output_dir:
-        return Path(output_dir)
+def resolve_output_root(input_path: Path) -> Path:
     if input_path.is_dir():
         return input_path
     return input_path.parent
@@ -83,7 +81,6 @@ def build_stem_output_path(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Separate audio into 6 stems using the BS-ROFO-SW-Fixed ONNX model.")
     parser.add_argument("input_path", help="Input audio file or directory")
-    parser.add_argument("--output_dir", default="", help="Output root directory")
     parser.add_argument(
         "--repo_id",
         default=DEFAULT_AUDIO_SEPARATOR_REPO_ID,
@@ -116,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--batch_size",
         type=int,
         default=DEFAULT_BATCH_SIZE,
-        help="Number of chunks to infer in one ONNX batch",
+        help="Number of chunks to infer in one ONNX batch; lower values reduce peak VRAM usage",
     )
     parser.add_argument("--recursive", action="store_true", help="Recursively scan directories for audio files")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing song output directories")
@@ -130,7 +127,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
         console.print(f"[red]Input path does not exist:[/red] {input_path}")
         return 1
 
-    output_root = resolve_output_root(input_path, args.output_dir).expanduser()
+    output_root = resolve_output_root(input_path).expanduser()
     audio_files, input_root = collect_audio_inputs(input_path, recursive=bool(args.recursive))
     if not audio_files:
         console.print(f"[yellow]No supported audio files found under:[/yellow] {input_path}")

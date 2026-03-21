@@ -146,7 +146,7 @@ def test_audio_separator_parser_defaults():
     assert args.output_format == "wav"
     assert args.segment_size == 1151
     assert args.overlap == 8
-    assert args.batch_size == 8
+    assert args.batch_size == 1
 
 
 def test_audio_separator_script_help_runs_from_script_path():
@@ -166,7 +166,6 @@ def test_audio_separator_script_help_runs_from_script_path():
 def test_tools_step_audio_separator_maps_args(monkeypatch, tmp_path):
     step = ToolsStep()
     input_dir = tmp_path / "music"
-    output_dir = tmp_path / "out"
     input_dir.mkdir()
 
     captured = {}
@@ -182,7 +181,6 @@ def test_tools_step_audio_separator_maps_args(monkeypatch, tmp_path):
     monkeypatch.setattr(step6_tools.ui, "notify", lambda message, **kwargs: notifications.append((message, kwargs)))
 
     step.audio_separator_input = SimpleNamespace(value=str(input_dir))
-    step.audio_separator_output = SimpleNamespace(value=str(output_dir))
     step.audio_separator_output_format = SimpleNamespace(value="flac")
     step.panel = SimpleNamespace(run_job=fake_run_job)
     step.config["audio_separator_recursive"] = True
@@ -194,11 +192,10 @@ def test_tools_step_audio_separator_maps_args(monkeypatch, tmp_path):
     assert captured["script_key"] == "module.audio_separator"
     assert captured["name"] == "Audio Separator"
     assert captured["args"][0] == str(input_dir)
-    assert "--output_dir=" + str(output_dir) in captured["args"]
     assert "--output_format=flac" in captured["args"]
     assert "--segment_size=1151" in captured["args"]
     assert "--overlap=8" in captured["args"]
-    assert "--batch_size=8" in captured["args"]
+    assert "--batch_size=1" in captured["args"]
     assert "--recursive" in captured["args"]
     assert "--overwrite" in captured["args"]
 
@@ -216,7 +213,6 @@ def test_tools_step_audio_separator_requires_existing_input(monkeypatch, tmp_pat
     monkeypatch.setattr(step6_tools.ui, "notify", lambda message, **kwargs: notifications.append((message, kwargs)))
 
     step.audio_separator_input = SimpleNamespace(value=str(missing))
-    step.audio_separator_output = SimpleNamespace(value="")
     step.audio_separator_output_format = SimpleNamespace(value="wav")
     step.panel = SimpleNamespace(run_job=fake_run_job)
 

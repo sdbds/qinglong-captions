@@ -66,7 +66,7 @@ class ToolsStep:
             "reward_batch_size": 1,
             "audio_separator_segment_size": 1151,
             "audio_separator_overlap": 8,
-            "audio_separator_batch_size": 8,
+            "audio_separator_batch_size": 1,
             "audio_separator_recursive": True,
             "audio_separator_overwrite": False,
             "translate_max_chars": 2200,
@@ -325,10 +325,6 @@ class ToolsStep:
 
             self.audio_separator_input = create_path_selector(
                 label=t("input_path"),
-                selection_type="dir",
-            )
-            self.audio_separator_output = create_path_selector(
-                label=t("output_dir"),
                 selection_type="dir",
             )
 
@@ -661,9 +657,6 @@ class ToolsStep:
             return
 
         args = [input_path]
-
-        if self.audio_separator_output.value:
-            args.append(f"--output_dir={self.audio_separator_output.value}")
 
         args.append(f"--output_format={self.audio_separator_output_format.value}")
         args.append(f"--segment_size={int(self.config['audio_separator_segment_size'])}")

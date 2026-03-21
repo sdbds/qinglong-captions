@@ -618,6 +618,10 @@ conflicts = [
         { extra = "paddleocr" },
     ],
     [
+        { group = "test" },
+        { extra = "dots-ocr" },
+    ],
+    [
         { extra = "hunyuan-ocr" },
         { extra = "glm-ocr" },
     ],
