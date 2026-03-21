@@ -75,6 +75,14 @@ def test_select_execution_providers_prefers_cuda_and_falls_back_to_cpu():
     )
 
     assert providers[0][0] == "CUDAExecutionProvider"
+    assert providers[0][1] == {
+        "arena_extend_strategy": "kSameAsRequested",
+        "cudnn_conv_algo_search": "EXHAUSTIVE",
+        "do_copy_in_default_stream": True,
+        "cudnn_conv_use_max_workspace": "1",
+        "tunable_op_enable": True,
+        "tunable_op_tuning_enable": True,
+    }
     assert providers[-1] == "CPUExecutionProvider"
 
 
@@ -173,3 +181,102 @@ def test_load_session_bundle_cache_key_includes_runtime_fingerprint(tmp_path):
 
     assert bundle_a is not bundle_b
     assert len(calls) == 2
+
+
+def test_load_session_bundle_uses_model_dir_for_tensorrt_cache_paths(tmp_path):
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.session import clear_session_bundle_cache, load_session_bundle
+
+    captured = {}
+
+    class FakeSession:
+        def __init__(self, path, sess_options=None, providers=None):
+            captured["providers"] = providers
+            self.path = path
+            self.providers = providers
+
+    clear_session_bundle_cache()
+
+    model_dir = tmp_path / "wd14_tagger_model" / "SmilingWolf_wd-v1-4-moat-tagger-v2"
+    session_paths = {"model": model_dir / "model.onnx"}
+    runtime = OnnxRuntimeConfig(execution_provider="tensorrt")
+
+    load_session_bundle(
+        bundle_key="single:model",
+        session_paths=session_paths,
+        runtime_config=runtime,
+        available_providers=["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"],
+        session_factory=FakeSession,
+        session_options_factory=lambda: object(),
+    )
+
+    tensorrt_options = captured["providers"][0][1]
+    cuda_options = captured["providers"][1][1]
+    assert tensorrt_options["trt_engine_cache_path"] == str(model_dir / "trt_engines")
+    assert tensorrt_options["trt_timing_cache_path"] == str(model_dir)
+    assert tensorrt_options["trt_builder_optimization_level"] == 3
+    assert tensorrt_options["trt_max_partition_iterations"] == 1000
+    assert tensorrt_options["trt_engine_hw_compatible"] is True
+    assert tensorrt_options["trt_force_sequential_engine_build"] is False
+    assert tensorrt_options["trt_context_memory_sharing_enable"] is True
+    assert tensorrt_options["trt_sparsity_enable"] is True
+    assert tensorrt_options["trt_min_subgraph_size"] == 7
+    assert cuda_options == {
+        "arena_extend_strategy": "kSameAsRequested",
+        "cudnn_conv_algo_search": "EXHAUSTIVE",
+        "do_copy_in_default_stream": True,
+        "cudnn_conv_use_max_workspace": "1",
+        "tunable_op_enable": True,
+        "tunable_op_tuning_enable": True,
+    }
+
+
+def test_load_session_bundle_uses_model_dir_for_nvtensorrtrtx_cache_paths(tmp_path):
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.session import clear_session_bundle_cache, load_session_bundle
+
+    captured = {}
+
+    class FakeSession:
+        def __init__(self, path, sess_options=None, providers=None):
+            captured["providers"] = providers
+            self.path = path
+            self.providers = providers
+
+    clear_session_bundle_cache()
+
+    model_dir = tmp_path / "wd14_tagger_model" / "SmilingWolf_wd-v1-4-moat-tagger-v2"
+    session_paths = {"model": model_dir / "model.onnx"}
+    runtime = OnnxRuntimeConfig(execution_provider="nvtensorrtrtx")
+
+    load_session_bundle(
+        bundle_key="single:model",
+        session_paths=session_paths,
+        runtime_config=runtime,
+        available_providers=[
+            "NvTensorRtRtxExecutionProvider",
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ],
+        session_factory=FakeSession,
+        session_options_factory=lambda: object(),
+    )
+
+    nvtensorrtrtx_options = captured["providers"][0][1]
+    cuda_options = captured["providers"][1][1]
+    assert nvtensorrtrtx_options == {
+        "nv_runtime_cache_path": str(model_dir / "trt_engines"),
+        "nv_dump_subgraphs": False,
+        "nv_detailed_build_log": True,
+        "enable_cuda_graph": True,
+        "nv_multi_profile_enable": False,
+        "nv_use_external_data_initializer": False,
+    }
+    assert cuda_options == {
+        "arena_extend_strategy": "kSameAsRequested",
+        "cudnn_conv_algo_search": "EXHAUSTIVE",
+        "do_copy_in_default_stream": True,
+        "cudnn_conv_use_max_workspace": "1",
+        "tunable_op_enable": True,
+        "tunable_op_tuning_enable": True,
+    }

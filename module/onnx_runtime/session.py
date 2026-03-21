@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,36 +49,78 @@ def _provider_signature(provider: Any) -> tuple[str, str]:
     return (str(provider), "")
 
 
-def _runtime_cache_dir(runtime: OnnxRuntimeConfig) -> str:
-    return str(Path(runtime.session_cache_dir)) if runtime.session_cache_dir else ""
-
-
 def _cuda_provider(runtime: OnnxRuntimeConfig) -> tuple[str, dict[str, Any]]:
     return ("CUDAExecutionProvider", dict(runtime.provider_options.get("cuda", {})))
 
 
-def _tensorrt_provider(runtime: OnnxRuntimeConfig) -> tuple[str, dict[str, Any]]:
+def _default_cache_root(session_paths: Mapping[str, str | Path] | None) -> Path | None:
+    if not session_paths:
+        return None
+
+    parents = [Path(path).parent for path in session_paths.values()]
+    if not parents:
+        return None
+    if len(parents) == 1:
+        return parents[0]
+
+    try:
+        common_parent = Path(os.path.commonpath([str(parent) for parent in parents]))
+    except ValueError:
+        return parents[0]
+
+    if common_parent.name.lower() == "onnx" and common_parent.parent != common_parent:
+        return common_parent.parent
+    return common_parent
+
+
+def _provider_cache_root(
+    runtime: OnnxRuntimeConfig,
+    session_paths: Mapping[str, str | Path] | None,
+) -> Path | None:
+    if runtime.session_cache_dir:
+        return Path(runtime.session_cache_dir)
+    return _default_cache_root(session_paths)
+
+
+def _tensorrt_provider(
+    runtime: OnnxRuntimeConfig,
+    *,
+    session_paths: Mapping[str, str | Path] | None = None,
+) -> tuple[str, dict[str, Any]]:
     raw = dict(runtime.provider_options.get("tensorrt", {}))
-    cache_dir = _runtime_cache_dir(runtime)
+    cache_root = _provider_cache_root(runtime, session_paths)
     options = {
         "trt_engine_cache_enable": raw.get("engine_cache_enable", True),
         "trt_timing_cache_enable": raw.get("timing_cache_enable", True),
         "trt_fp16_enable": raw.get("fp16_enable", True),
+        "trt_builder_optimization_level": raw.get("builder_optimization_level", 3),
+        "trt_max_partition_iterations": raw.get("max_partition_iterations", 1000),
+        "trt_engine_hw_compatible": raw.get("engine_hw_compatible", True),
+        "trt_force_sequential_engine_build": raw.get("force_sequential_engine_build", False),
+        "trt_context_memory_sharing_enable": raw.get("context_memory_sharing_enable", True),
+        "trt_sparsity_enable": raw.get("sparsity_enable", True),
+        "trt_min_subgraph_size": raw.get("min_subgraph_size", 7),
     }
-    if "builder_optimization_level" in raw:
-        options["trt_builder_optimization_level"] = raw["builder_optimization_level"]
-    if cache_dir:
-        options["trt_engine_cache_path"] = raw.get("engine_cache_path", cache_dir)
-        options["trt_timing_cache_path"] = raw.get("timing_cache_path", cache_dir)
+    if "detailed_build_log" in raw:
+        options["trt_detailed_build_log"] = raw["detailed_build_log"]
+    if "trt_detailed_build_log" in raw:
+        options["trt_detailed_build_log"] = raw["trt_detailed_build_log"]
+    if cache_root:
+        options["trt_engine_cache_path"] = raw.get("engine_cache_path", str(cache_root / "trt_engines"))
+        options["trt_timing_cache_path"] = raw.get("timing_cache_path", str(cache_root))
     return ("TensorrtExecutionProvider", options)
 
 
-def _nvtensorrtrtx_provider(runtime: OnnxRuntimeConfig) -> tuple[str, dict[str, Any]]:
+def _nvtensorrtrtx_provider(
+    runtime: OnnxRuntimeConfig,
+    *,
+    session_paths: Mapping[str, str | Path] | None = None,
+) -> tuple[str, dict[str, Any]]:
     raw = dict(runtime.provider_options.get("nvtensorrtrtx", {}))
-    cache_dir = _runtime_cache_dir(runtime)
+    cache_root = _provider_cache_root(runtime, session_paths)
     options: dict[str, Any] = {}
-    if cache_dir:
-        options["nv_runtime_cache_path"] = raw.get("runtime_cache_path", cache_dir)
+    if cache_root:
+        options["nv_runtime_cache_path"] = raw.get("runtime_cache_path", str(cache_root / "trt_engines"))
     for key, value in raw.items():
         if key == "runtime_cache_path":
             continue
@@ -93,6 +136,7 @@ def build_execution_providers(
     runtime_config: OnnxRuntimeConfig,
     *,
     available_providers: list[str] | tuple[str, ...] | None = None,
+    session_paths: Mapping[str, str | Path] | None = None,
 ) -> list[Any]:
     if available_providers is None:
         import onnxruntime as ort
@@ -132,12 +176,12 @@ def build_execution_providers(
         extras: list[Any] = []
         if "CUDAExecutionProvider" in available:
             extras.append(_cuda_provider(runtime_config))
-        return with_cpu_fallback(_tensorrt_provider(runtime_config), *extras)
+        return with_cpu_fallback(_tensorrt_provider(runtime_config, session_paths=session_paths), *extras)
     if explicit_name == "NvTensorRtRtxExecutionProvider" and "NvTensorRtRtxExecutionProvider" in available:
         extras = []
         if "CUDAExecutionProvider" in available:
             extras.append(_cuda_provider(runtime_config))
-        return with_cpu_fallback(_nvtensorrtrtx_provider(runtime_config), *extras)
+        return with_cpu_fallback(_nvtensorrtrtx_provider(runtime_config, session_paths=session_paths), *extras)
     if explicit_name == "ROCMExecutionProvider" and "ROCMExecutionProvider" in available:
         return with_cpu_fallback("ROCMExecutionProvider")
     if explicit_name == "OpenVINOExecutionProvider" and "OpenVINOExecutionProvider" in available:
@@ -147,13 +191,13 @@ def build_execution_providers(
         extras = []
         if "CUDAExecutionProvider" in available:
             extras.append(_cuda_provider(runtime_config))
-        return with_cpu_fallback(_nvtensorrtrtx_provider(runtime_config), *extras)
+        return with_cpu_fallback(_nvtensorrtrtx_provider(runtime_config, session_paths=session_paths), *extras)
 
     if "TensorrtExecutionProvider" in available:
         extras = []
         if "CUDAExecutionProvider" in available:
             extras.append(_cuda_provider(runtime_config))
-        return with_cpu_fallback(_tensorrt_provider(runtime_config), *extras)
+        return with_cpu_fallback(_tensorrt_provider(runtime_config, session_paths=session_paths), *extras)
 
     if "CUDAExecutionProvider" in available:
         return with_cpu_fallback(_cuda_provider(runtime_config))
@@ -238,7 +282,11 @@ def load_session_bundle(
     session_options_factory: Callable[[], Any] | None = None,
 ) -> OnnxSessionBundle:
     runtime = runtime_config or OnnxRuntimeConfig()
-    providers = build_execution_providers(runtime, available_providers=available_providers)
+    providers = build_execution_providers(
+        runtime,
+        available_providers=available_providers,
+        session_paths=session_paths,
+    )
     runtime_fingerprint = make_runtime_fingerprint(runtime, providers)
     cache_key = _make_cache_key(bundle_key, session_paths, providers, runtime_fingerprint)
 
