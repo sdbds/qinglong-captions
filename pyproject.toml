@@ -22,7 +22,7 @@ dependencies = [
     "imageio-ffmpeg>=0.4.8",
     "pymediainfo",
     "mutagen",
-    "mistralai>=2.1.2,<3",
+    "mistralai>=2.1.2",
     "google-genai>=1.52.0",
     "openai",
     "dashscope",
@@ -133,6 +133,18 @@ deepseek-ocr = [
     "PyMuPDF",
     "img2pdf",
 ]
+logics-ocr = [
+    "torch==2.8.0",
+    "torchvision",
+    "accelerate",
+    "transformers[serving]>=4.57.0",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+    "safetensors",
+    "Pillow>=12",
+    "PyMuPDF",
+    "img2pdf",
+]
 hunyuan-ocr = [
     "torch==2.8.0",
     "torchvision",
@@ -165,11 +177,12 @@ glm-ocr = [
 ]
 nanonets-ocr = [
     "transformers[serving]>=4.45.0",
-    "torch>=2.0.0",
+    "torch==2.8.0",
     "pillow",
     "accelerate",
     "safetensors",
     "flash-attn>=2.0.0; sys_platform != 'darwin'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
 ]
 firered-ocr = [
     "torch==2.8.0",
@@ -195,8 +208,9 @@ lighton-ocr = [
     "accelerate",
     "transformers[serving]>=5.0.0",
     "huggingface_hub[hf_xet]>=0.35.2",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
     "safetensors",
-    "Pillow>=9.5.0",
+    "Pillow>=12",
     "PyMuPDF",
     "img2pdf",
 ]
@@ -224,7 +238,7 @@ qianfan-ocr = [
     "timm>=1.0.0",
     "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "safetensors",
-    "Pillow>=9.5.0",
+    "Pillow>=12",
     "PyMuPDF",
     "img2pdf",
 ]
@@ -269,6 +283,7 @@ step-vl-local = [
     "transformers[serving]",
     "huggingface_hub[hf_xet]>=0.35.2",
     "safetensors",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
 ]
 penguin-vl-local = [
     "torch==2.8.0",
@@ -276,6 +291,7 @@ penguin-vl-local = [
     "accelerate",
     "transformers[serving]==4.51.3",
     "huggingface_hub[hf_xet]>=0.35.2",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "einops",
     "safetensors",
     "decord==0.6.0",
@@ -287,6 +303,7 @@ reka-edge-local = [
     "accelerate",
     "transformers[serving]",
     "huggingface_hub[hf_xet]>=0.35.2",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "tiktoken",
     "einops",
     "safetensors",
@@ -296,6 +313,7 @@ lfm-vl-local = [
     "onnxruntime-gpu>=1.20.2; sys_platform == 'linux'",
     "torch==2.8.0",
     "transformers[serving]>=4.56.0",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "huggingface_hub[hf_xet]>=0.35.2",
     "pillow",
 ]
@@ -304,6 +322,7 @@ music-flamingo-local = [
     "torchaudio",
     "accelerate",
     "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "huggingface_hub[hf_xet]>=0.35.2",
     "safetensors",
 ]
@@ -373,6 +392,26 @@ conflicts = [
     [
         { extra = "deepseek-ocr" },
         { extra = "dots-ocr" },
+    ],
+    [
+        { extra = "logics-ocr" },
+        { extra = "translate" },
+    ],
+    [
+        { extra = "logics-ocr" },
+        { extra = "deepseek-ocr" },
+    ],
+    [
+        { extra = "logics-ocr" },
+        { extra = "dots-ocr" },
+    ],
+    [
+        { extra = "logics-ocr" },
+        { extra = "penguin-vl-local" },
+    ],
+    [
+        { extra = "logics-ocr" },
+        { extra = "music-flamingo-local" },
     ],
     [
         { extra = "qianfan-ocr" },
@@ -641,6 +680,70 @@ conflicts = [
     [
         { extra = "music-flamingo-local" },
         { extra = "dots-ocr" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "translate" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "step-vl-local" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "lfm-vl-local" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "moondream" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "olmocr" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "nanonets-ocr" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "lighton-ocr" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "wdtagger" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "deepseek-ocr" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "firered-ocr" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "chandra-ocr" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "reka-edge-local" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "penguin-vl-local" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "hunyuan-ocr" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "glm-ocr" },
+    ],
+    [
+        { extra = "music-flamingo-local" },
+        { extra = "qwen-vl-local" },
     ],
 ]
 
