@@ -78,6 +78,7 @@ def test_lfm_provider_loads_expected_artifact_bundle(monkeypatch):
         "embed_images": "onnx/embed_images_fp16.onnx",
         "decoder": "onnx/decoder_q4.onnx",
     }
+    assert callable(captured["download"][2]["logger"])
     assert captured["bundle"]["bundle_key"] == "lfm_vl_local:LiquidAI/LFM2.5-VL-1.6B-ONNX"
     assert captured["bundle"]["runtime_config"].execution_provider == "cpu"
     assert cached["processor"] == "processor"

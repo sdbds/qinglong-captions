@@ -42,9 +42,10 @@ def test_wdtagger_load_model_and_tags_uses_single_model_bundle(monkeypatch, tmp_
 
     fake_session = SimpleNamespace(get_inputs=lambda: [SimpleNamespace(name="input")])
 
-    def fake_loader(*, spec, runtime_config):
+    def fake_loader(*, spec, runtime_config, logger=None):
         captured["spec"] = spec
         captured["runtime"] = runtime_config
+        captured["logger"] = logger
         return SimpleNamespace(
             session=fake_session,
             providers=("CPUExecutionProvider",),
@@ -67,3 +68,4 @@ def test_wdtagger_load_model_and_tags_uses_single_model_bundle(monkeypatch, tmp_
     assert label_data.names[0] == "safe"
     assert parent_to_child_map == {}
     assert captured["spec"].bundle_key == "wdtagger:SmilingWolf/wd-v1-4-moat-tagger-v2"
+    assert callable(captured["logger"])

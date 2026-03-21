@@ -128,7 +128,7 @@ def load_model(args):
     )
 
     start_time = time.time()
-    bundle = load_single_model_bundle(spec=spec, runtime_config=runtime_config)
+    bundle = load_single_model_bundle(spec=spec, runtime_config=runtime_config, logger=console.print)
     input_name = bundle.input_metas[0].name if bundle.input_metas else bundle.session.get_inputs()[0].name
     console.print("[cyan]Providers:[/cyan]")
     console.print(Pretty(bundle.providers, indent_guides=True, expand_all=True))

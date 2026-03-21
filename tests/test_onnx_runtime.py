@@ -28,6 +28,7 @@ def test_download_onnx_artifact_downloads_model_and_matching_external_data(tmp_p
     from module.onnx_runtime.artifacts import download_onnx_artifact
 
     requested = []
+    logs = []
 
     def fake_download(*, repo_id, filename, local_dir=None, force_download=False):
         requested.append((repo_id, filename, local_dir, force_download))
@@ -47,6 +48,7 @@ def test_download_onnx_artifact_downloads_model_and_matching_external_data(tmp_p
             "onnx/decoder_fp16.onnx",
         ),
         downloader=fake_download,
+        logger=logs.append,
     )
 
     assert model_path == tmp_path / "onnx" / "decoder_q4.onnx"
@@ -55,6 +57,28 @@ def test_download_onnx_artifact_downloads_model_and_matching_external_data(tmp_p
         "onnx/decoder_q4.onnx_data",
         "onnx/decoder_q4.onnx_data_1",
     ]
+    assert any("Downloading ONNX artifact" in message for message in logs)
+    assert any("Downloaded ONNX artifact" in message for message in logs)
+
+
+def test_download_onnx_artifact_logs_when_using_existing_file(tmp_path):
+    from module.onnx_runtime.artifacts import download_onnx_artifact
+
+    logs = []
+    model_path = tmp_path / "onnx" / "model.onnx"
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    model_path.write_text("onnx", encoding="utf-8")
+
+    resolved_path = download_onnx_artifact(
+        "repo/model",
+        "onnx/model.onnx",
+        local_dir=tmp_path,
+        repo_files=("onnx/model.onnx",),
+        logger=logs.append,
+    )
+
+    assert resolved_path == model_path
+    assert logs == [f"[green]Using existing ONNX artifact[/green] {model_path}"]
 
 
 def test_build_component_filename_uses_variant_suffixes():

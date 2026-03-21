@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -29,23 +30,41 @@ class SingleModelOnnxBundle:
     session_bundle: OnnxSessionBundle
 
 
+def _supports_keyword_argument(func: Callable[..., Any], name: str) -> bool:
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        return True
+
+    if name in signature.parameters:
+        return True
+    return any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values())
+
+
 def load_single_model_bundle(
     *,
     spec: OnnxModelSpec,
     runtime_config: OnnxRuntimeConfig | None = None,
     artifact_loader: Callable[..., Path] | None = None,
     session_bundle_loader: Callable[..., OnnxSessionBundle] | None = None,
+    logger: Callable[..., Any] | None = None,
 ) -> SingleModelOnnxBundle:
     runtime = runtime_config or OnnxRuntimeConfig()
     artifact_loader = artifact_loader or download_onnx_artifact
     session_bundle_loader = session_bundle_loader or load_session_bundle
 
+    artifact_kwargs = {
+        "local_dir": spec.local_dir,
+        "force_download": runtime.force_download,
+    }
+    if logger is not None and _supports_keyword_argument(artifact_loader, "logger"):
+        artifact_kwargs["logger"] = logger
+
     model_path = Path(
         artifact_loader(
             spec.repo_id,
             spec.onnx_filename,
-            local_dir=spec.local_dir,
-            force_download=runtime.force_download,
+            **artifact_kwargs,
         )
     )
     session_bundle = session_bundle_loader(

@@ -53,5 +53,49 @@ def test_load_single_model_bundle_downloads_artifact_and_builds_session(tmp_path
     assert bundle.providers == ("CPUExecutionProvider",)
     assert bundle.input_metas[0].name == "pixel_values"
     assert captured["download"][0:2] == ("repo/model", "model.onnx")
+    assert "logger" not in captured["download"][2]
     assert captured["bundle"]["bundle_key"] == "single:model"
     assert captured["bundle"]["session_paths"] == {"model": tmp_path / "model.onnx"}
+
+
+def test_load_single_model_bundle_forwards_logger_when_loader_supports_it(tmp_path):
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.single_model import OnnxModelSpec, load_single_model_bundle
+
+    captured = {}
+
+    class FakeSession:
+        @staticmethod
+        def get_inputs():
+            return [SimpleNamespace(name="pixel_values", shape=[1, 3, 224, 224])]
+
+    def fake_download(repo_id, onnx_filename, **kwargs):
+        captured["download"] = (repo_id, onnx_filename, kwargs)
+        model_path = tmp_path / onnx_filename
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        model_path.write_text("onnx", encoding="utf-8")
+        return model_path
+
+    def fake_load_session_bundle(**kwargs):
+        return SimpleNamespace(
+            sessions={"model": FakeSession()},
+            providers=("CPUExecutionProvider",),
+        )
+
+    spec = OnnxModelSpec(
+        repo_id="repo/model",
+        onnx_filename="model.onnx",
+        local_dir=tmp_path / "cache",
+        bundle_key="single:model",
+    )
+    runtime = OnnxRuntimeConfig(execution_provider="cpu")
+
+    load_single_model_bundle(
+        spec=spec,
+        runtime_config=runtime,
+        artifact_loader=fake_download,
+        session_bundle_loader=fake_load_session_bundle,
+        logger=lambda message: None,
+    )
+
+    assert callable(captured["download"][2]["logger"])

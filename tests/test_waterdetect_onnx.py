@@ -48,9 +48,10 @@ def test_waterdetect_load_model_uses_single_model_bundle(monkeypatch, tmp_path):
         captured["processor"] = (repo_id, use_fast)
         return FakeProcessor()
 
-    def fake_loader(*, spec, runtime_config):
+    def fake_loader(*, spec, runtime_config, logger=None):
         captured["spec"] = spec
         captured["runtime"] = runtime_config
+        captured["logger"] = logger
         return SimpleNamespace(
             session=fake_session,
             providers=("CPUExecutionProvider",),
@@ -72,3 +73,4 @@ def test_waterdetect_load_model_uses_single_model_bundle(monkeypatch, tmp_path):
     assert input_name == "pixel_values"
     assert captured["processor"] == ("bdsqlsz/joycaption-watermark-detection-onnx", True)
     assert captured["spec"].bundle_key == "waterdetect:bdsqlsz/joycaption-watermark-detection-onnx"
+    assert callable(captured["logger"])

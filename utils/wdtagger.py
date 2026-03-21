@@ -438,7 +438,7 @@ def load_model_and_tags(args):
         local_dir=Path(args.model_dir) / args.repo_id.replace("/", "_"),
         bundle_key=f"wdtagger:{args.repo_id}",
     )
-    bundle = load_single_model_bundle(spec=spec, runtime_config=runtime_config)
+    bundle = load_single_model_bundle(spec=spec, runtime_config=runtime_config, logger=console.print)
     ort_sess = bundle.session
     input_name = bundle.input_metas[0].name if bundle.input_metas else ort_sess.get_inputs()[0].name
     console.print(f"[blue]Providers: {bundle.providers}[/blue]")

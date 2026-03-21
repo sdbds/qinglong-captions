@@ -87,6 +87,7 @@ class LFMVLLocalProvider(LocalVLMProvider):
             component_files,
             local_dir=local_dir,
             force_download=runtime_config.force_download,
+            logger=self.ctx.console.print,
         )
         bundle = load_session_bundle(
             bundle_key=self._model_key,
