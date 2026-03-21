@@ -1046,6 +1046,90 @@ class TestVisionAPIProviders:
         assert media.blob == "blob"
         assert media.pixels == "pixels"
 
+    def test_mistral_attempt_uses_v2_client_import(self):
+        from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+        from module.providers.vision_api.pixtral import MistralOCRProvider
+        from rich.console import Console
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO()),
+            config={"prompts": {}},
+            args=SimpleNamespace(
+                mistral_api_key="mk-xxx",
+                pixtral_api_key="",
+                mistral_model_path="mistral-small-latest",
+                pixtral_model_path="",
+                max_retries=1,
+                wait_time=0.01,
+                pair_dir="",
+                document_image=False,
+                tags_highlightrate=0.0,
+            ),
+        )
+        provider = MistralOCRProvider(ctx)
+        media = MediaContext(
+            uri="/fake.png",
+            mime="image/png",
+            sha256hash="hash",
+            modality=MediaModality.IMAGE,
+            blob="base64blob",
+            pixels=object(),
+        )
+        prompts = PromptContext(system="sys", user="describe")
+
+        mock_client = MagicMock()
+        with (
+            patch("module.providers.vision_api.pixtral._create_mistral_client", return_value=mock_client) as mock_mistral,
+            patch("module.providers.vision_api.pixtral.attempt_pixtral", return_value="ok") as mock_attempt,
+        ):
+            result = provider.attempt(media, prompts)
+
+        mock_mistral.assert_called_once_with(ctx.args)
+        assert mock_attempt.call_args.kwargs["client"] is mock_client
+        assert result.raw == "ok"
+        assert result.metadata["provider"] == "mistral"
+
+    def test_mistral_attempt_reports_ocr_provider_in_ocr_mode(self):
+        from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+        from module.providers.vision_api.pixtral import MistralOCRProvider
+        from rich.console import Console
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO()),
+            config={"prompts": {}},
+            args=SimpleNamespace(
+                mistral_api_key="mk-xxx",
+                pixtral_api_key="",
+                mistral_model_path="mistral-small-latest",
+                pixtral_model_path="",
+                ocr_model="mistral_ocr",
+                max_retries=1,
+                wait_time=0.01,
+                pair_dir="",
+                document_image=True,
+                tags_highlightrate=0.0,
+            ),
+        )
+        provider = MistralOCRProvider(ctx)
+        media = MediaContext(
+            uri="/fake.png",
+            mime="image/png",
+            sha256hash="hash",
+            modality=MediaModality.IMAGE,
+            blob="base64blob",
+            pixels=object(),
+        )
+        prompts = PromptContext(system="sys", user="describe")
+
+        mock_client = MagicMock()
+        with (
+            patch("module.providers.vision_api.pixtral._create_mistral_client", return_value=mock_client),
+            patch("module.providers.vision_api.pixtral.attempt_pixtral", return_value="ok"),
+        ):
+            result = provider.attempt(media, prompts)
+
+        assert result.metadata["provider"] == "mistral_ocr"
+
     def test_gemini_attempt_uploads_large_media(self):
         from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
         from module.providers.vision_api.gemini import GeminiProvider

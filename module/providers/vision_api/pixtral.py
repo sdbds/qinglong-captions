@@ -33,6 +33,20 @@ from utils.stream_util import format_description
 # attempt_pixtral  –  moved from module.providers.pixtral_provider
 # ---------------------------------------------------------------------------
 
+
+def _create_mistral_client(args) -> Any:
+    """Create a Mistral 2.x client lazily so optional deps stay optional."""
+    try:
+        from mistralai.client import Mistral
+    except ImportError as exc:
+        raise ImportError(
+            "Mistral SDK 2.x is required. Install or upgrade `mistralai>=2.1.2,<3`."
+        ) from exc
+
+    return Mistral(
+        api_key=get_first_attr(args, "mistral_api_key", "pixtral_api_key", default="")
+    )
+
 def attempt_pixtral(
     *,
     client: Any,
@@ -227,6 +241,13 @@ def attempt_pixtral(
 class MistralOCRProvider(VisionAPIProvider):
     """Mistral OCR Provider."""
 
+    def display_name(self, mime: str) -> str:
+        if mime.startswith("application"):
+            return "mistral_ocr"
+        if route_matches_provider("ocr_model", getattr(self.ctx.args, "ocr_model", ""), self.name):
+            return "mistral_ocr"
+        return "mistral"
+
     @classmethod
     def can_handle(cls, args, mime: str) -> bool:
         # OCR 模式：用户选择 ocr_model 时走 Mistral OCR
@@ -245,9 +266,7 @@ class MistralOCRProvider(VisionAPIProvider):
 
         # PDF 处理
         if mime.startswith("application"):
-            from mistralai import Mistral
-
-            client = Mistral(api_key=get_first_attr(self.ctx.args, "mistral_api_key", "pixtral_api_key", default=""))
+            client = _create_mistral_client(self.ctx.args)
 
             # 上传 PDF
             for upload_attempt in range(getattr(args, "max_retries", 10)):
@@ -278,9 +297,7 @@ class MistralOCRProvider(VisionAPIProvider):
         return media
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
-        from mistralai import Mistral
-
-        client = Mistral(api_key=get_first_attr(self.ctx.args, "mistral_api_key", "pixtral_api_key", default=""))
+        client = _create_mistral_client(self.ctx.args)
 
         # 检查是否是 OCR 模式
         ocr_mode = route_matches_provider("ocr_model", getattr(self.ctx.args, "ocr_model", ""), self.name)
@@ -366,7 +383,7 @@ class MistralOCRProvider(VisionAPIProvider):
                 tags_highlightrate=getattr(self.ctx.args, "tags_highlightrate", 0.0),
             )
 
-        return CaptionResult(raw=result, metadata={"provider": self.name})
+        return CaptionResult(raw=result, metadata={"provider": self.display_name(media.mime)})
 
     def post_validate(self, result: CaptionResult, media: MediaContext, args) -> CaptionResult:
         """Mistral OCR 特殊的后验证：角色名校验"""

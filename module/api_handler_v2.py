@@ -101,10 +101,9 @@ def api_process_batch(
         console.print(f"[red]{error}[/red]")
         raise error
 
-    console.print(f"[blue]Using provider: {provider_class.name}[/blue]")
-
     # 实例化 provider
     provider = provider_class(ctx)
+    console.print(f"[blue]Using provider: {provider.display_name(mime)}[/blue]")
 
     # 执行
     try:

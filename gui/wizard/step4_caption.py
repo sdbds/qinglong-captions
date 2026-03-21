@@ -30,7 +30,7 @@ class CaptionStep:
             "supports_video": True,
             "supports_task": True,
         },
-        "Mistral OCR": {
+        "Mistral": {
             "key_name": "mistral_api_key",
             "models": [
                 "pixtral-large-latest",
@@ -209,6 +209,7 @@ class CaptionStep:
             "not_clip_with_caption": True,
             "scene_luma_only": False,
             "document_image": True,
+            "mistral_ocr_mode": False,
         }
         self.panel: ExecutionPanel = None
         self.api_keys = {}
@@ -301,6 +302,11 @@ class CaptionStep:
                     if task_input and task_input.value:
                         args.append(f"--gemini_task={task_input.value}")
 
+                if api_name == "Mistral" and self.config.get("mistral_ocr_mode"):
+                    args.append("--ocr_model=mistral_ocr")
+                    if self.config["document_image"]:
+                        args.append("--document_image")
+
         if hasattr(self, "openai_base_url") and self.openai_base_url.value:
             args.append(f"--openai_base_url={self.openai_base_url.value}")
             openai_key = self.api_keys.get("openai_api_key")
@@ -338,12 +344,14 @@ class CaptionStep:
         if self.config["scene_luma_only"]:
             args.append("--scene_luma_only")
 
-        if self.config["tags_highlightrate"] != 0.4:
+        if self.config["tags_highlightrate"] != 0.38:
             args.append(f"--tags_highlightrate={self.config['tags_highlightrate']}")
 
         if self.ocr_model.value:
-            args.append(f"--ocr_model={self.ocr_model.value}")
-            if self.config["document_image"]:
+            ocr_arg = f"--ocr_model={self.ocr_model.value}"
+            if ocr_arg not in args:
+                args.append(ocr_arg)
+            if self.config["document_image"] and "--document_image" not in args:
                 args.append("--document_image")
 
         if self.vlm_image_model.value:
@@ -437,9 +445,18 @@ class CaptionStep:
                 )
 
             # 开关选项
-            with ui.row().classes("w-full gap-4 q-mt-md"):
+            with ui.row().classes("w-full gap-4 q-mt-md items-center"):
                 toggle_switch("dir_name", self.config, "dir_name")
                 toggle_switch("not_clip_with_caption", self.config, "not_clip_with_caption")
+                editable_slider(
+                    label_key="tags_highlightrate",
+                    value_ref=self.config,
+                    value_key="tags_highlightrate",
+                    min_val=0.0,
+                    max_val=1.0,
+                    step=0.01,
+                    decimals=2,
+                )
 
             # 数值设置 - 使用可编辑滑块
             with ui.row().classes("w-full gap-4 q-mt-md"):
@@ -514,6 +531,29 @@ class CaptionStep:
                         task_input.classes("modern-input w-full")
                         setattr(self, f"{config['key_name']}_task", task_input)
 
+                    # Mistral 专有：OCR 模式开关
+                    if api_name == "Mistral":
+                        ui.separator().classes("q-my-md")
+                        with ui.row().classes("w-full items-center gap-2 q-mb-xs"):
+                            ui.icon("document_scanner", size="20px").style(f"color: {COLORS['info']};")
+                            ui.label(t("mistral_ocr_mode")).classes(
+                                "text-body2 text-weight-medium"
+                            ).style("color: var(--color-text);")
+
+                        toggle_switch(
+                            "mistral_ocr_toggle", self.config, "mistral_ocr_mode",
+                            on_change=self._on_mistral_ocr_toggle,
+                        )
+
+                        self._mistral_doc_container = ui.column().classes("w-full q-mt-sm")
+                        self._mistral_doc_container.set_visibility(self.config["mistral_ocr_mode"])
+                        with self._mistral_doc_container:
+                            toggle_switch("document_image", self.config, "document_image")
+
+    def _on_mistral_ocr_toggle(self, enabled: bool) -> None:
+        if hasattr(self, "_mistral_doc_container"):
+            self._mistral_doc_container.set_visibility(enabled)
+
     def _render_openai_compatible_settings(self, api_name: str, config: dict):
         """渲染 OpenAI Compatible API 的专用设置"""
         ui.label(t("openai_compatible_desc")).classes("text-caption q-mb-sm").style("color: var(--color-text-secondary);")
@@ -584,16 +624,6 @@ class CaptionStep:
                     max_val=1000,
                     step=1,
                     decimals=0,
-                )
-
-                editable_slider(
-                    label_key="tags_highlightrate",
-                    value_ref=self.config,
-                    value_key="tags_highlightrate",
-                    min_val=0.0,
-                    max_val=1.0,
-                    step=0.01,
-                    decimals=2,
                 )
 
             # 开关选项

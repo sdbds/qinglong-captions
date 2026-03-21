@@ -266,6 +266,10 @@ class Provider(ABC):
         else:
             self.ctx.console.print(msg)
 
+    def display_name(self, mime: str) -> str:
+        """用户可见的 provider 名称（用于日志和结果元数据）。"""
+        return self.name
+
 
 class ProviderType(Enum):
     """Provider 类型分类"""

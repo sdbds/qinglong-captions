@@ -237,22 +237,21 @@ def home_page():
                     with ui.row().classes("gap-2"):
                         ui.label(t("support")).classes("text-caption section-subtitle")
                         ui.label("6").classes(get_classes("badge") + " modern-badge-primary").style("padding: 2px 10px;")
-                        ui.label(t("workflow_steps")).classes("text-caption section-subtitle")
+                        ui.label(t("tools_label")).classes("text-caption section-subtitle")
 
                 with ui.row().classes("w-full gap-4"):
                     steps = [
-                        ("download", t("step") + " 1", t("dataset_import"), t("feature_list")["import_desc"], "/import"),
-                        ("movie", t("step") + " 2", t("video_split"), t("feature_list")["split_desc"], "/split"),
-                        ("label", t("step") + " 3", t("dataset_tagging"), t("feature_list")["tagger_desc"], "/tagger"),
-                        ("subtitles", t("step") + " 4", t("caption_generate"), t("feature_list")["caption_desc"], "/caption"),
-                        ("upload", t("step") + " 5", t("dataset_export"), t("feature_list")["export_desc"], "/export"),
-                        ("construction", t("step") + " 6", t("tools"), t("feature_list")["tools_desc"], "/tools"),
+                        ("download", t("dataset_import"), t("feature_list")["import_desc"], "/import"),
+                        ("movie", t("video_split"), t("feature_list")["split_desc"], "/split"),
+                        ("label", t("dataset_tagging"), t("feature_list")["tagger_desc"], "/tagger"),
+                        ("subtitles", t("caption_generate"), t("feature_list")["caption_desc"], "/caption"),
+                        ("upload", t("dataset_export"), t("feature_list")["export_desc"], "/export"),
+                        ("construction", t("tools"), t("feature_list")["tools_desc"], "/tools"),
                     ]
 
-                    for icon, step_num, title, desc, path in steps:
+                    for icon, title, desc, path in steps:
                         with ui.card().classes("step-card flex-1").on("click", lambda p=path: ui.navigate.to(p)):
                             ui.icon(icon, size="48px").classes("q-mb-md")
-                            ui.label(step_num).classes("text-caption text-uppercase q-mb-xs step-label")
                             ui.label(title).classes("text-h6 text-weight-bold q-mb-sm step-title")
                             ui.label(desc).classes("text-body2 step-desc")
 
@@ -265,7 +264,7 @@ def home_page():
                 model_list = t("model_list")
                 models = [
                     ("Gemini", model_list["gemini"], "primary"),
-                    ("Mistral OCR", model_list["pixtral"], "secondary"),
+                    ("Mistral", model_list["pixtral"], "secondary"),
                     ("Step-VL", model_list["step"], "accent"),
                     ("Qwen-VL", model_list["qwen"], "primary"),
                     ("Kimi", model_list["kimi"], "secondary"),

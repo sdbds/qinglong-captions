@@ -22,7 +22,7 @@ dependencies = [
     "imageio-ffmpeg>=0.4.8",
     "pymediainfo",
     "mutagen",
-    "mistralai>=1.9.11",
+    "mistralai>=2.1.2,<3",
     "google-genai>=1.52.0",
     "openai",
     "dashscope",

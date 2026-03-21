@@ -46,28 +46,27 @@ class ExecutionPanel:
 
         # Action Card: progress bar + buttons
         with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
-            with ui.row().classes("w-full items-center justify-between"):
-                # 左侧: indeterminate progress bar
-                self.progress = (
-                    ui.linear_progress(value=None)
-                    .props("indeterminate color=primary")
-                    .classes("col")
-                    .style("flex: 1; margin-right: 16px;")
-                )
-                self.progress.set_visibility(False)
+            # indeterminate progress bar — 全宽薄条，在按钮上方，不参与水平布局
+            self.progress = (
+                ui.linear_progress(value=None)
+                .props("indeterminate color=primary")
+                .classes("w-full")
+                .style("height: 4px; margin-bottom: 8px;")
+            )
+            self.progress.set_visibility(False)
 
-                # 右侧: Stop + Start 按钮
-                with ui.row().classes("gap-2"):
-                    self.stop_btn = ui.button(t("stop"), on_click=self.cancel, icon="stop")
-                    self.stop_btn.classes("modern-btn-danger").props('type="button"')
-                    self.stop_btn.set_enabled(False)
+            # 按钮行 — 始终靠右，位置不受 progress bar 影响
+            with ui.row().classes("w-full justify-end gap-2"):
+                self.stop_btn = ui.button(t("stop"), on_click=self.cancel, icon="stop")
+                self.stop_btn.classes("modern-btn-danger").props('type="button"')
+                self.stop_btn.set_enabled(False)
 
-                    if show_start:
-                        _label = start_label or t("start")
-                        self.start_btn = ui.button(_label, on_click=self._handle_start, icon="play_arrow")
-                        self.start_btn.classes("modern-btn-success").props('type="button"')
-                    else:
-                        self.start_btn = None
+                if show_start:
+                    _label = start_label or t("start")
+                    self.start_btn = ui.button(_label, on_click=self._handle_start, icon="play_arrow")
+                    self.start_btn.classes("modern-btn-success").props('type="button"')
+                else:
+                    self.start_btn = None
 
         # LogViewer (直接内嵌，不再套额外 card)
         self.log_viewer: LogViewer = create_log_viewer(height=height)

@@ -113,6 +113,42 @@ class TestApiHandlerV2:
             )
         assert result.raw == "mocked gemini"
 
+    def test_api_handler_logs_effective_mistral_provider_name_for_standard_image_mode(self):
+        from providers.base import CaptionResult
+        from module.api_handler_v2 import api_process_batch
+        from module.providers.vision_api.pixtral import MistralOCRProvider
+
+        args = make_provider_args(
+            mistral_api_key="mk-xxx",
+            max_retries=1,
+            wait_time=0.01,
+            dir_name=False,
+        )
+        buf = io.StringIO()
+        console = Console(file=buf, force_terminal=False, color_system=None)
+
+        class StubRegistry:
+            def find_provider(self, *_args, **_kwargs):
+                return MistralOCRProvider
+
+        with (
+            patch("module.api_handler_v2.Console", return_value=console),
+            patch("module.api_handler_v2.get_registry", return_value=StubRegistry()),
+            patch("providers.base.Provider.execute", return_value=CaptionResult(raw="mocked mistral")),
+        ):
+            result = api_process_batch(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                config={"prompts": {}},
+                args=args,
+                sha256hash="abc",
+            )
+
+        assert result.raw == "mocked mistral"
+        output = buf.getvalue()
+        assert "Using provider: mistral" in output
+        assert "Using provider: mistral_ocr" not in output
+
     def test_api_handler_v2_exports_no_legacy_toggle_helpers(self):
         import module.api_handler_v2 as api_handler_v2
 
