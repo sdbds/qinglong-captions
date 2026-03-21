@@ -130,6 +130,19 @@ def test_pyproject_declares_music_flamingo_local_extra():
     assert any(dep.startswith("huggingface_hub") for dep in music_flamingo_deps)
 
 
+def test_pyproject_declares_eureka_audio_local_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "eureka-audio-local" in optional_deps
+    eureka_audio_deps = optional_deps["eureka-audio-local"]
+    assert any(dep.startswith("torch==2.8.0") for dep in eureka_audio_deps)
+    assert any(dep.startswith("torchaudio") for dep in eureka_audio_deps)
+    assert any(dep.startswith("transformers[serving]>=4.57.0") for dep in eureka_audio_deps)
+    assert any(dep.startswith("huggingface_hub") for dep in eureka_audio_deps)
+    assert any(dep.startswith("flash-attn") for dep in eureka_audio_deps)
+
+
 def test_caption_step_includes_penguin_extra():
     CaptionStep = _load_caption_step("test_step4_caption")
 
@@ -204,6 +217,17 @@ def test_caption_step_includes_music_flamingo_extra():
     assert step._build_local_extra_args() == ["--extra", "music-flamingo-local"]
 
 
+def test_caption_step_includes_eureka_audio_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_eureka_audio")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="eureka_audio_local")
+
+    assert step._build_local_extra_args() == ["--extra", "eureka-audio-local"]
+
+
 def test_caption_step_treats_music_flamingo_as_local_route():
     CaptionStep = _load_caption_step("test_step4_caption_local_route")
 
@@ -211,6 +235,17 @@ def test_caption_step_treats_music_flamingo_as_local_route():
     step.ocr_model = SimpleNamespace(value="")
     step.vlm_image_model = SimpleNamespace(value="")
     step.alm_model = SimpleNamespace(value="music_flamingo_local")
+
+    assert step._has_local_route_config() is True
+
+
+def test_caption_step_treats_eureka_audio_as_local_route():
+    CaptionStep = _load_caption_step("test_step4_caption_local_route_eureka")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="eureka_audio_local")
 
     assert step._has_local_route_config() is True
 
@@ -317,6 +352,13 @@ def test_run_ps1_uses_generic_extra_fallback_for_music_flamingo():
     assert "uv.lock 未包含所选 extra，回退到 pyproject optional-dependencies 直接安装" in content
     assert 'if ($Extra -eq "music-flamingo-local")' not in content
     assert "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf" not in content
+
+
+def test_run_ps1_mentions_eureka_audio_extra():
+    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+
+    assert '"eureka_audio_local"' in content
+    assert 'Add-UvExtra "eureka-audio-local"' in content
 
 
 def test_run_ps1_locks_with_python_3_11_only():

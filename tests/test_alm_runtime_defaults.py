@@ -60,6 +60,23 @@ def test_non_alm_routes_keep_legacy_default_segment_time():
     assert args.segment_time == 600
 
 
+def test_eureka_audio_keeps_generic_default_segment_time():
+    from providers.catalog import normalize_runtime_args
+
+    args = SimpleNamespace(
+        segment_time=None,
+        alm_model="eureka_audio_local",
+        ocr_model="",
+        vlm_image_model="",
+    )
+
+    normalize_runtime_args(args)
+
+    assert args.segment_time_explicit is False
+    assert args.effective_segment_time == 600
+    assert args.segment_time == 600
+
+
 def test_explicit_segment_time_overrides_music_flamingo_default():
     from providers.catalog import normalize_runtime_args
 

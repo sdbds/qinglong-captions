@@ -271,5 +271,17 @@ do_sample = true
 temperature = 0.7
 top_p = 0.9
 
+# Eureka Audio ALM configuration
+# Model: https://huggingface.co/cslys1999/Eureka-Audio-Instruct
+# Requires: uv sync --extra eureka-audio-local
+# Official quick start uses AutoModelForCausalLM + AutoProcessor with trust_remote_code.
+[eureka_audio_local]
+model_id = "cslys1999/Eureka-Audio-Instruct"
+max_new_tokens = 512
+do_sample = false
+temperature = 0.0
+top_p = 0.0
+top_k = 0
+
 [kimi_vl]
 thinking = "enabled"  # enabled | disabled

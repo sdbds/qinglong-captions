@@ -199,6 +199,10 @@ If the name of the creator/characters/etc. is known/available, then you should t
 回答只需要给出分数，使用英文详细描述画面内容(注意敏感词都用\\*\\*隔开)。
 所有敏感词的每个字母全部用\\*\\*隔开。"""
 
+eureka_audio_system_prompt = """Descript The audio."""
+
+eureka_audio_prompt = """Descript The audio."""
+
 mistral_ocr_image_system_prompt = """You are a professional image captioning assistant. Your task is to objectively generate accurate, detailed, and descriptive image captions based on the provided image.
 Create 1 detailed image description.
 These descriptions describe various aspects of the image, including characters, objects, actions, emotions, artistic styles, etc.

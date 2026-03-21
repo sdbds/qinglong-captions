@@ -328,6 +328,18 @@ music-flamingo-local = [
     "huggingface_hub[hf_xet]>=0.35.2",
     "safetensors",
 ]
+eureka-audio-local = [
+    "torch==2.8.0",
+    "torchaudio>=2.8.0",
+    "accelerate",
+    "transformers[serving]>=4.57.0",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "safetensors>=0.5.0",
+    "numpy>=1.26.0",
+    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "triton-windows; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+]
 
 [dependency-groups]
 test = [
@@ -758,6 +770,19 @@ conflicts = [
     [
         { extra = "music-flamingo-local" },
         { extra = "qwen-vl-local" },
+    ],
+    [
+        # Eureka depends on the upstream HF remote-code stack and should stay isolated
+        # from the known incompatible Transformers pins / forks below.
+        { extra = "eureka-audio-local" },
+        { extra = "music-flamingo-local" },
+        { extra = "translate" },
+        { extra = "deepseek-ocr" },
+        { extra = "dots-ocr" },
+        { extra = "penguin-vl-local" },
+        { extra = "qwen-vl-local" },
+        { extra = "hunyuan-ocr" },
+        { extra = "glm-ocr" },
     ],
 ]
 

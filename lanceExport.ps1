@@ -1,7 +1,7 @@
 # Input parameters | 输入参数
 param(
-    [string]$lance_file = "./datasets/dataset.lance",  # Lance dataset path | Lance数据集路径
-    [string]$output_dir = "./datasets",                # Output directory | 输出目录
+    [string]$lance_file = "D:/CPL/dataset.lance",  # Lance dataset path | Lance数据集路径
+    [string]$output_dir = "D:/CPL",                # Output directory | 输出目录
     [string]$version = "gemini",                       # Dataset version (gemini/WDtagger/pixtral)
     [bool]$not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 )

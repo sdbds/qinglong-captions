@@ -83,6 +83,7 @@ _PROVIDER_MODULES: Dict[str, str] = {
     "reka_edge_local": "module.providers.local_vlm.reka_edge_local",
     "lfm_vl_local": "module.providers.local_vlm.lfm_vl_local",
     "music_flamingo_local": "module.providers.local_alm.music_flamingo_local",
+    "eureka_audio_local": "module.providers.local_alm.eureka_audio_local",
     "mistral_ocr": "module.providers.vision_api.pixtral",
     "gemini": "module.providers.vision_api.gemini",
 }
@@ -153,6 +154,7 @@ class ProviderRegistry:
                 "lfm_vl_local",
                 # Local ALM
                 "music_flamingo_local",
+                "eureka_audio_local",
                 # Vision API
                 "mistral_ocr",
                 "gemini",
@@ -244,9 +246,29 @@ class ProviderRegistry:
         self._import_failures.pop(canonical_name, None)
         return provider_class
 
+    def ensure_provider_loaded(self, name: str) -> None:
+        canonical_name = canonicalize_provider_name(name)
+        if not canonical_name:
+            return
+        if canonical_name in self._providers or canonical_name in self._import_failures:
+            return
+
+        module_path = _PROVIDER_MODULES.get(canonical_name)
+        if not module_path:
+            return
+
+        with self._lock:
+            if canonical_name in self._providers or canonical_name in self._import_failures:
+                return
+            self._discover_provider_module(canonical_name, module_path)
+
     def find_provider(self, args: Any, mime: str) -> Optional[Type["Provider"]]:
         """根据参数和 mime 类型找到合适的 provider"""
-        self.discover()  # 确保已发现
+        explicit_provider = self._find_explicit_provider(args, mime, ensure_loaded=True)
+        if explicit_provider is not None:
+            return explicit_provider
+
+        self.discover()  # 兜底路径再做全量发现
 
         explicit_provider = self._find_explicit_provider(args, mime)
         if explicit_provider is not None:
@@ -277,13 +299,15 @@ class ProviderRegistry:
 
         return None
 
-    def _find_explicit_provider(self, args: Any, mime: str) -> Optional[Type["Provider"]]:
+    def _find_explicit_provider(self, args: Any, mime: str, *, ensure_loaded: bool = False) -> Optional[Type["Provider"]]:
         for route_name, require_match in self._relevant_route_specs(args, mime):
             route_value = getattr(args, route_name, "")
             if not route_value:
                 continue
 
             provider_name = canonicalize_provider_name(route_provider_name(route_name, route_value))
+            if ensure_loaded:
+                self.ensure_provider_loaded(provider_name)
             failure = self.get_import_failure(provider_name)
             if failure is not None:
                 if not require_match:
@@ -334,8 +358,12 @@ class ProviderRegistry:
 
     def get_provider(self, name: str) -> Optional[Type["Provider"]]:
         """按名称获取 provider"""
+        canonical_name = canonicalize_provider_name(name)
+        self.ensure_provider_loaded(canonical_name)
+        if canonical_name in self._providers or canonical_name in self._import_failures:
+            return self._providers.get(canonical_name)
         self.discover()
-        return self._providers.get(canonicalize_provider_name(name))
+        return self._providers.get(canonical_name)
 
     def list_providers(self) -> List[str]:
         """列出所有已注册 provider"""

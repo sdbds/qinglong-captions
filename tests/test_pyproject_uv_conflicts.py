@@ -14,95 +14,85 @@ def _load_conflicts():
     return pyproject["tool"]["uv"]["conflicts"]
 
 
-def test_deepseek_ocr_conflicts_with_lfm_vl_local():
-    conflicts = _load_conflicts()
+def _load_extra_conflict_sets():
+    sets = []
+    for group in _load_conflicts():
+        extras = {
+            item["extra"]
+            for item in group
+            if isinstance(item, dict) and "extra" in item and "package" not in item
+        }
+        if extras:
+            sets.append(extras)
+    return sets
 
-    assert [
-        {"extra": "deepseek-ocr"},
-        {"extra": "lfm-vl-local"},
-    ] in conflicts or [
-        {"extra": "lfm-vl-local"},
-        {"extra": "deepseek-ocr"},
-    ] in conflicts
+
+def _has_extra_conflict(*extras: str) -> bool:
+    expected = set(extras)
+    return any(expected <= conflict_set for conflict_set in _load_extra_conflict_sets())
+
+
+def test_deepseek_ocr_conflicts_with_lfm_vl_local():
+    assert _has_extra_conflict("deepseek-ocr", "lfm-vl-local")
 
 
 def test_penguin_vl_local_conflicts_with_lfm_vl_local():
-    conflicts = _load_conflicts()
-
-    assert [
-        {"extra": "penguin-vl-local"},
-        {"extra": "lfm-vl-local"},
-    ] in conflicts or [
-        {"extra": "lfm-vl-local"},
-        {"extra": "penguin-vl-local"},
-    ] in conflicts
+    assert _has_extra_conflict("penguin-vl-local", "lfm-vl-local")
 
 
 def test_paddleocr_conflicts_with_lfm_vl_local():
-    conflicts = _load_conflicts()
-
-    assert [
-        {"extra": "paddleocr"},
-        {"extra": "lfm-vl-local"},
-    ] in conflicts or [
-        {"extra": "lfm-vl-local"},
-        {"extra": "paddleocr"},
-    ] in conflicts
+    assert _has_extra_conflict("paddleocr", "lfm-vl-local")
 
 
 def test_lighton_ocr_conflicts_with_translate():
-    conflicts = _load_conflicts()
-
-    assert [
-        {"extra": "lighton-ocr"},
-        {"extra": "translate"},
-    ] in conflicts or [
-        {"extra": "translate"},
-        {"extra": "lighton-ocr"},
-    ] in conflicts
+    assert _has_extra_conflict("lighton-ocr", "translate")
 
 
 def test_lighton_ocr_conflicts_with_paddleocr():
-    conflicts = _load_conflicts()
-
-    assert [
-        {"extra": "lighton-ocr"},
-        {"extra": "paddleocr"},
-    ] in conflicts or [
-        {"extra": "paddleocr"},
-        {"extra": "lighton-ocr"},
-    ] in conflicts
+    assert _has_extra_conflict("lighton-ocr", "paddleocr")
 
 
 def test_dots_ocr_conflicts_with_known_transformers_incompatible_extras():
-    conflicts = _load_conflicts()
     expected_pairs = [
-        [{"extra": "dots-ocr"}, {"extra": "translate"}],
-        [{"extra": "dots-ocr"}, {"extra": "wdtagger"}],
-        [{"extra": "dots-ocr"}, {"extra": "deepseek-ocr"}],
-        [{"extra": "dots-ocr"}, {"extra": "penguin-vl-local"}],
-        [{"extra": "dots-ocr"}, {"extra": "lighton-ocr"}],
-        [{"extra": "dots-ocr"}, {"extra": "hunyuan-ocr"}],
-        [{"extra": "dots-ocr"}, {"extra": "glm-ocr"}],
-        [{"extra": "dots-ocr"}, {"extra": "qwen-vl-local"}],
-        [{"extra": "dots-ocr"}, {"extra": "music-flamingo-local"}],
+        ("dots-ocr", "translate"),
+        ("dots-ocr", "wdtagger"),
+        ("dots-ocr", "deepseek-ocr"),
+        ("dots-ocr", "penguin-vl-local"),
+        ("dots-ocr", "lighton-ocr"),
+        ("dots-ocr", "hunyuan-ocr"),
+        ("dots-ocr", "glm-ocr"),
+        ("dots-ocr", "qwen-vl-local"),
+        ("dots-ocr", "music-flamingo-local"),
     ]
 
     for pair in expected_pairs:
-        reversed_pair = list(reversed(pair))
-        assert pair in conflicts or reversed_pair in conflicts
+        assert _has_extra_conflict(*pair)
 
 
 def test_logics_ocr_conflicts_with_known_transformers_incompatible_extras():
-    conflicts = _load_conflicts()
     expected_pairs = [
-        [{"extra": "logics-ocr"}, {"extra": "translate"}],
-        [{"extra": "logics-ocr"}, {"extra": "deepseek-ocr"}],
-        [{"extra": "logics-ocr"}, {"extra": "dots-ocr"}],
-        [{"extra": "logics-ocr"}, {"extra": "penguin-vl-local"}],
-        [{"extra": "logics-ocr"}, {"extra": "music-flamingo-local"}],
+        ("logics-ocr", "translate"),
+        ("logics-ocr", "deepseek-ocr"),
+        ("logics-ocr", "dots-ocr"),
+        ("logics-ocr", "penguin-vl-local"),
+        ("logics-ocr", "music-flamingo-local"),
     ]
 
     for pair in expected_pairs:
-        reversed_pair = list(reversed(pair))
-        assert pair in conflicts or reversed_pair in conflicts
+        assert _has_extra_conflict(*pair)
+
+
+def test_eureka_audio_conflicts_with_known_transformers_incompatible_extras():
+    expected_pairs = [
+        ("eureka-audio-local", "music-flamingo-local"),
+        ("eureka-audio-local", "translate"),
+        ("eureka-audio-local", "deepseek-ocr"),
+        ("eureka-audio-local", "dots-ocr"),
+        ("eureka-audio-local", "penguin-vl-local"),
+        ("eureka-audio-local", "qwen-vl-local"),
+        ("eureka-audio-local", "hunyuan-ocr"),
+        ("eureka-audio-local", "glm-ocr"),
+    ]
+
+    for pair in expected_pairs:
+        assert _has_extra_conflict(*pair)

@@ -28,6 +28,10 @@
    - 支持图片与 PDF OCR
    - 依赖 `transformers>=5`
 8. `uv.lock` 缺失时默认使用 `uv lock --python 3.11` 生成锁文件，避免全 Python 版本矩阵解析过慢。
+9. 新增可选本地 ALM `eureka_audio_local`：
+   - 默认模型：`cslys1999/Eureka-Audio-Instruct`
+   - 支持 `audio/*` 输入
+   - 基于官方 `AutoModelForCausalLM + AutoProcessor` 推理路径
 
 ### 4.0 - Provider V2 架构重构
 
@@ -261,7 +265,7 @@ $mode = "long"
 $not_clip_with_caption = $true              # Not clip with caption | 不根据caption裁剪
 $wait_time = 1
 $max_retries = 10
-$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds
+$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds, other ALMs use 600 seconds
 # OCR model configuration
 $ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "logics_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
@@ -270,7 +274,7 @@ $document_image = $true
 $vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
 
 # ALM model configuration for audio tasks
-$alm_model = ""  # Options: "music_flamingo_local", ""
+$alm_model = ""  # Options: "music_flamingo_local", "eureka_audio_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
@@ -316,6 +320,23 @@ $alm_model = "music_flamingo_local"
 3. 当前默认是 FP8 量化版。代码会在 CUDA 路径下把 `torch_dtype` 交给 Transformers 按模型仓库内的量化配置自动决定，并保留 `audio_tower / multi_modal_projector / lm_head` 的 bf16 行为。
 4. `segment_time` 留空时会使用模型卡默认上限 `1200` 秒；只有手动设置 `$segment_time = 90` 这类值时，才会显式覆盖。
 5. 这个模型默认做描述型音频 SRT，不是逐字 ASR；如果你要做歌词/语音转录，建议后续接独立 ASR 模型。
+
+#### 本地 Eureka Audio ALM
+
+`eureka_audio_local` 默认对接的是 [`cslys1999/Eureka-Audio-Instruct`](https://huggingface.co/cslys1999/Eureka-Audio-Instruct)，同样走 `audio/*` 路由，但加载方式更接近标准 Hugging Face 多模态模型。
+
+1. 安装依赖：
+```powershell
+uv sync --extra eureka-audio-local
+```
+2. 启用本地音频模型：
+```powershell
+$alm_model = "eureka_audio_local"
+```
+3. 当前实现使用官方推荐的 `AutoModelForCausalLM.from_pretrained(..., trust_remote_code=True)` 与 `AutoProcessor`，消息格式为 `audio_url + text`。
+4. 项目默认提供 `eureka_audio_system_prompt` / `eureka_audio_prompt`，两者都与模型卡 quick start 保持一致：`Descript The audio.`。
+5. `segment_time` 留空时继续使用通用默认值 `600` 秒；只有 `music_flamingo_local` 保留 `1200` 秒特例。
+6. 这个 provider 目前也按“描述型音频理解”集成，后处理仍输出 `.txt` 描述摘要，不替代专门 ASR 流程。
 
 如果你走第 3 种方式，调用链会复用现有本地 OpenAI-compatible 多模态入口，配置方法和 Gemini / 其他 VLM provider 保持一致，只是后端换成你自己的本地服务。
 
@@ -397,6 +418,10 @@ A Python toolkit for generating video captions using the Lance database format a
    - Supports image and PDF OCR
    - Requires `transformers>=5`
 7. When `uv.lock` is missing, the scripts now default to `uv lock --python 3.11` to avoid very slow full-matrix resolution.
+8. Added optional local ALM `eureka_audio_local`:
+   - Default model: `cslys1999/Eureka-Audio-Instruct`
+   - Supports `audio/*` inputs
+   - Uses the official `AutoModelForCausalLM + AutoProcessor` inference path
 
 ### 4.0 - Provider V2 Architecture Refactoring
 
@@ -837,7 +862,7 @@ $mode = "long"
 $not_clip_with_caption = $true              # Not clip with caption | 不根据caption裁剪
 $wait_time = 1
 $max_retries = 10
-$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds
+$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds, other ALMs use 600 seconds
 # OCR model configuration
 $ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "logics_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
@@ -846,7 +871,7 @@ $document_image = $true
 $vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
 
 # ALM model configuration for audio tasks
-$alm_model = ""  # Options: "music_flamingo_local", ""
+$alm_model = ""  # Options: "music_flamingo_local", "eureka_audio_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
@@ -892,6 +917,23 @@ $alm_model = "music_flamingo_local"
 3. The default repo is the FP8 quantized build. On CUDA, this project now lets Transformers read the repo quantization config directly instead of forcing a runtime `torch_dtype`, while the audio tower / projector / LM head stay in bf16 as defined by the model repo.
 4. Leave `segment_time` as `$null` to use the model-card default limit of `1200` seconds. Set a numeric value only when you want to override it explicitly.
 5. This provider is aimed at descriptive audio SRT output, not word-for-word ASR. For transcription, keep a dedicated ASR model in a later stage.
+
+#### Local Eureka Audio ALM
+
+`eureka_audio_local` defaults to [`cslys1999/Eureka-Audio-Instruct`](https://huggingface.co/cslys1999/Eureka-Audio-Instruct). It uses the same `audio/*` route as Music Flamingo, but follows the model author's standard Hugging Face loading path.
+
+1. Install the extra:
+```powershell
+uv sync --extra eureka-audio-local
+```
+2. Enable the local audio model:
+```powershell
+$alm_model = "eureka_audio_local"
+```
+3. The provider loads the model through `AutoModelForCausalLM` plus `AutoProcessor` with `trust_remote_code=True`, and sends messages in the model's `audio_url + text` chat format.
+4. The shipped `eureka_audio_system_prompt` and `eureka_audio_prompt` both default to the model-card quick-start prompt: `Descript The audio.`.
+5. Leave `segment_time` as `$null` to keep the generic `600` second default. Only `music_flamingo_local` keeps the special `1200` second default.
+6. This integration is currently wired as descriptive audio understanding and emits `.txt` summary output, not a dedicated ASR transcript.
 
 Server mode reuses the existing local OpenAI-compatible multimodal path, so the configuration pattern stays the same as other VLM backends.
 

@@ -193,6 +193,7 @@ class CaptionStep:
 
     ALM_EXTRA_MAP = {
         "music_flamingo_local": "music-flamingo-local",
+        "eureka_audio_local": "eureka-audio-local",
     }
 
     def __init__(self):
