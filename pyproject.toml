@@ -406,6 +406,10 @@ conflicts = [
         { extra = "dots-ocr" },
     ],
     [
+        { extra = "chandra-ocr" },
+        { extra = "dots-ocr" },
+    ],
+    [
         { extra = "logics-ocr" },
         { extra = "penguin-vl-local" },
     ],
