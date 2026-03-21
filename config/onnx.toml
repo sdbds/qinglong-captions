@@ -1,0 +1,26 @@
+[onnx_runtime.defaults]
+execution_provider = "auto"
+force_download = false
+model_cache_dir = ""
+session_cache_dir = ""
+
+[onnx_runtime.defaults.session]
+graph_optimization_level = "ORT_ENABLE_ALL"
+enable_mem_pattern = true
+enable_mem_reuse = true
+
+[onnx_runtime.defaults.cuda]
+arena_extend_strategy = "kSameAsRequested"
+cudnn_conv_algo_search = "EXHAUSTIVE"
+do_copy_in_default_stream = true
+
+[onnx_runtime.defaults.tensorrt]
+engine_cache_enable = true
+timing_cache_enable = true
+fp16_enable = true
+
+[onnx_runtime.wdtagger]
+
+[onnx_runtime.waterdetect]
+
+[onnx_runtime.lfm_vl_local]
