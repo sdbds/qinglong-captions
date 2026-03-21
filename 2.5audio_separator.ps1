@@ -4,10 +4,9 @@ $Config = @{
     repo_id         = "bdsqlsz/BS-ROFO-SW-Fixed-ONNX"      # Model repo ID from Hugging Face
     model_dir       = "audio_separator"                    # Local model folder path | 本地模型文件夹路径
     output_format   = "wav"                                # wav | flac | mp3
-    segment_size    = 1151                                 # chunk_size = hop_length * (segment_size - 1)
-    overlap         = 8                                    # Higher is smoother but slower
-    batch_size      = 1                                    # Number of chunks per ONNX batch
-    recursive       = $true                                # Recursively scan directories
+    segment_size    = 1101                                 # model default dim_t from inference config
+    overlap         = 8                                    # Chunk step in seconds, matching original mdxc_overlap semantics
+    batch_size      = 8                                    # Number of chunks per ONNX batch
     overwrite       = $false                               # Overwrite existing song output directories
     force_download  = $false                               # Force re-download model artifacts
 }
@@ -150,7 +149,6 @@ if ($Config.output_format) { [void]$ExtArgs.Add("--output_format=$($Config.outpu
 if ($Config.segment_size) { [void]$ExtArgs.Add("--segment_size=$($Config.segment_size)") }
 if ($Config.overlap) { [void]$ExtArgs.Add("--overlap=$($Config.overlap)") }
 if ($Config.batch_size) { [void]$ExtArgs.Add("--batch_size=$($Config.batch_size)") }
-if ($Config.recursive) { [void]$ExtArgs.Add("--recursive") }
 if ($Config.overwrite) { [void]$ExtArgs.Add("--overwrite") }
 if ($Config.force_download) { [void]$ExtArgs.Add("--force_download") }
 #endregion

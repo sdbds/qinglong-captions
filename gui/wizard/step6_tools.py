@@ -64,10 +64,9 @@ class ToolsStep:
             "crop_transparent": True,
             "preprocess_recursive": True,
             "reward_batch_size": 1,
-            "audio_separator_segment_size": 1151,
+            "audio_separator_segment_size": 1101,
             "audio_separator_overlap": 8,
             "audio_separator_batch_size": 1,
-            "audio_separator_recursive": True,
             "audio_separator_overwrite": False,
             "translate_max_chars": 2200,
             "translate_context_chars": 300,
@@ -371,7 +370,6 @@ class ToolsStep:
                 )
 
             with ui.row().classes("w-full gap-4 q-mt-md"):
-                toggle_switch("recursive", self.config, "audio_separator_recursive")
                 toggle_switch("overwrite", self.config, "audio_separator_overwrite")
 
             with ui.row().classes("w-full justify-end q-mt-md"):
@@ -662,9 +660,6 @@ class ToolsStep:
         args.append(f"--segment_size={int(self.config['audio_separator_segment_size'])}")
         args.append(f"--overlap={int(self.config['audio_separator_overlap'])}")
         args.append(f"--batch_size={int(self.config['audio_separator_batch_size'])}")
-
-        if self.config["audio_separator_recursive"]:
-            args.append("--recursive")
 
         if self.config["audio_separator_overwrite"]:
             args.append("--overwrite")

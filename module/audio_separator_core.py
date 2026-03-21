@@ -10,6 +10,7 @@ import imageio_ffmpeg
 import numpy as np
 import torch
 import torch.nn.functional as F
+from einops import rearrange
 from huggingface_hub import hf_hub_download
 
 from config.loader import load_config
@@ -18,7 +19,7 @@ from module.onnx_runtime import OnnxModelSpec, OnnxRuntimeConfig, load_single_mo
 DEFAULT_AUDIO_SEPARATOR_REPO_ID = "bdsqlsz/BS-ROFO-SW-Fixed-ONNX"
 DEFAULT_AUDIO_SEPARATOR_MODEL_DIR = "audio_separator"
 DEFAULT_OUTPUT_FORMAT = "wav"
-DEFAULT_SEGMENT_SIZE = 1151
+DEFAULT_SEGMENT_SIZE = 1101
 DEFAULT_OVERLAP = 8
 DEFAULT_BATCH_SIZE = 1
 METADATA_FILENAME = "model.json"
@@ -158,15 +159,26 @@ def segment_size_to_chunk_size(segment_size: int, hop_length: int) -> int:
     return int(hop_length) * (int(segment_size) - 1)
 
 
-def compute_chunk_positions(total_samples: int, chunk_size: int, overlap: int) -> tuple[list[int], int]:
+def overlap_seconds_to_step_size(overlap_seconds: float, sample_rate: int, chunk_size: int) -> int:
+    if float(overlap_seconds) <= 0:
+        raise ValueError(f"overlap_seconds must be > 0, got {overlap_seconds!r}")
+    if int(sample_rate) <= 0:
+        raise ValueError(f"sample_rate must be > 0, got {sample_rate!r}")
+    if int(chunk_size) <= 0:
+        raise ValueError(f"chunk_size must be > 0, got {chunk_size!r}")
+
+    desired_step = int(float(overlap_seconds) * int(sample_rate))
+    return int(chunk_size) if desired_step <= 0 else min(desired_step, int(chunk_size))
+
+
+def compute_chunk_positions(total_samples: int, chunk_size: int, step_size: int) -> tuple[list[int], int]:
     if total_samples < 0:
         raise ValueError(f"total_samples must be >= 0, got {total_samples!r}")
     if chunk_size <= 0:
         raise ValueError(f"chunk_size must be > 0, got {chunk_size!r}")
-    if overlap <= 0:
-        raise ValueError(f"overlap must be > 0, got {overlap!r}")
+    if step_size <= 0:
+        raise ValueError(f"step_size must be > 0, got {step_size!r}")
 
-    step_size = max(1, chunk_size // overlap)
     if total_samples <= chunk_size:
         return [0], step_size
 
@@ -199,8 +211,7 @@ def build_stft_features(
         return_complex=True,
     )
     stft_real = torch.view_as_real(stft).contiguous()
-    _, freqs, frames, _ = stft_real.shape
-    features = stft_real.reshape(metadata.num_channels * freqs, frames, 2).permute(1, 0, 2).reshape(frames, -1)
+    features = rearrange(stft_real, "s f t c -> t (f s c)")
     return features.to(dtype=torch.float32).contiguous(), stft.contiguous()
 
 
@@ -216,12 +227,10 @@ def mask_to_complex_tensor(mask: np.ndarray | torch.Tensor, metadata: AudioSepar
     if complex_dim != 2:
         raise ValueError(f"Expected complex dimension 2, got {complex_dim}")
 
-    reshaped = mask_tensor.reshape(
-        metadata.num_stems,
-        metadata.num_channels,
-        metadata.freq_bins,
-        mask_tensor.shape[2],
-        2,
+    reshaped = rearrange(
+        mask_tensor,
+        "n (f s) t c -> n s f t c",
+        s=metadata.num_channels,
     ).contiguous()
     return torch.view_as_complex(reshaped)
 
@@ -462,7 +471,8 @@ class AudioSeparator:
             raise ValueError(f"batch_size must be > 0, got {batch_size!r}")
 
         chunk_size = segment_size_to_chunk_size(int(segment_size), self.metadata.hop_length)
-        starts, _ = compute_chunk_positions(int(waveform.shape[-1]), chunk_size, int(overlap))
+        step_size = overlap_seconds_to_step_size(float(overlap), self.metadata.sample_rate, chunk_size)
+        starts, _ = compute_chunk_positions(int(waveform.shape[-1]), chunk_size, step_size)
         mix = waveform.to(dtype=torch.float32).contiguous()
         total_samples = int(mix.shape[-1])
         accumulator = torch.zeros(
