@@ -118,3 +118,58 @@ def test_load_session_bundle_caches_sessions(tmp_path):
     assert bundle1 is bundle2
     assert set(bundle1.sessions) == {"embed_tokens", "decoder"}
     assert len(calls) == 2
+
+
+def test_runtime_config_prefers_onnx_section_over_legacy_model_section():
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+
+    runtime = OnnxRuntimeConfig.from_runtime_sections(
+        defaults={"execution_provider": "auto", "session": {"enable_mem_pattern": True}},
+        legacy={"execution_provider": "cpu", "enable_mem_pattern": False},
+        override={"execution_provider": "cuda"},
+    )
+
+    assert runtime.execution_provider == "cuda"
+    assert runtime.enable_mem_pattern is False
+
+
+def test_load_session_bundle_cache_key_includes_runtime_fingerprint(tmp_path):
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.session import clear_session_bundle_cache, load_session_bundle
+
+    calls = []
+
+    class FakeSession:
+        def __init__(self, path, sess_options=None, providers=None):
+            calls.append((path, providers))
+            self.path = path
+            self.providers = providers
+
+    clear_session_bundle_cache()
+
+    session_paths = {
+        "model": tmp_path / "model.onnx",
+    }
+
+    runtime_a = OnnxRuntimeConfig(execution_provider="cpu", intra_op_num_threads=1)
+    runtime_b = OnnxRuntimeConfig(execution_provider="cpu", intra_op_num_threads=8)
+
+    bundle_a = load_session_bundle(
+        bundle_key="single:model",
+        session_paths=session_paths,
+        runtime_config=runtime_a,
+        available_providers=["CPUExecutionProvider"],
+        session_factory=FakeSession,
+        session_options_factory=lambda: object(),
+    )
+    bundle_b = load_session_bundle(
+        bundle_key="single:model",
+        session_paths=session_paths,
+        runtime_config=runtime_b,
+        available_providers=["CPUExecutionProvider"],
+        session_factory=FakeSession,
+        session_options_factory=lambda: object(),
+    )
+
+    assert bundle_a is not bundle_b
+    assert len(calls) == 2

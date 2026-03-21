@@ -1,8 +1,8 @@
 """Unified config loader for split TOML configuration files.
 
-Loads prompts.toml, model.toml, and general.toml from the config directory
-and merges them into a single dict, preserving the same structure as the
-original monolithic config.toml.
+Loads prompts.toml, model.toml, general.toml, and onnx.toml from the config
+directory and merges them into a single dict, preserving the same structure as
+the original monolithic config.toml.
 """
 
 from pathlib import Path
@@ -10,11 +10,11 @@ from typing import Any, Dict
 
 import toml
 
-_CONFIG_FILES = ["prompts.toml", "model.toml", "general.toml"]
+_CONFIG_FILES = ["prompts.toml", "model.toml", "general.toml", "onnx.toml"]
 
 
 def load_config(config_dir: str = "config") -> Dict[str, Any]:
-    """Load and merge prompts.toml + model.toml + general.toml into one dict.
+    """Load and merge split TOML config files into one dict.
 
     Falls back to legacy config.toml if the split files don't exist.
 

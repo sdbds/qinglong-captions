@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image
 
 from onnx_runtime.artifacts import build_component_filename, download_onnx_artifact_set
-from onnx_runtime.config import OnnxRuntimeConfig
+from onnx_runtime.config import resolve_tool_runtime_config
 from onnx_runtime.session import load_session_bundle
 from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.providers.local_vlm_base import LocalVLMProvider
@@ -67,7 +67,11 @@ class LFMVLLocalProvider(LocalVLMProvider):
         from transformers import AutoProcessor
 
         model_id = self.model_id
-        runtime_config = OnnxRuntimeConfig.from_mapping(self.model_config)
+        runtime_config = resolve_tool_runtime_config(
+            self.ctx.config,
+            tool_name=self.name,
+            legacy=self.model_config,
+        )
         local_dir = runtime_config.resolve_model_cache_dir(model_id)
         component_files = self._component_files()
 

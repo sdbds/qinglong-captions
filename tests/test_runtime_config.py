@@ -23,6 +23,16 @@ def test_runtime_config_loads_split_files(tmp_path):
     assert config.colors["image"] == "green"
 
 
+def test_runtime_config_loads_onnx_split_file(tmp_path):
+    from config.runtime_config import load_runtime_config
+
+    (tmp_path / "onnx.toml").write_text("[onnx_runtime.defaults]\nexecution_provider = 'cpu'\n", encoding="utf-8")
+
+    config = load_runtime_config(str(tmp_path))
+
+    assert config["onnx_runtime"]["defaults"]["execution_provider"] == "cpu"
+
+
 def test_runtime_config_is_read_only():
     from config.runtime_config import coerce_runtime_config
 
@@ -46,3 +56,16 @@ def test_legacy_load_config_returns_read_only_snapshot(tmp_path):
 
     with pytest.raises(TypeError):
         legacy_config.CONSOLE_COLORS["image"] = "changed"
+
+
+def test_legacy_load_config_exposes_onnx_runtime_from_config_toml(tmp_path):
+    from config import config as legacy_config
+
+    (tmp_path / "config.toml").write_text(
+        "[onnx_runtime.defaults]\nexecution_provider = 'cpu'\n",
+        encoding="utf-8",
+    )
+
+    snapshot = legacy_config.load_config(str(tmp_path))
+
+    assert snapshot["onnx_runtime"]["defaults"]["execution_provider"] == "cpu"

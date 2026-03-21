@@ -79,12 +79,64 @@ def test_lfm_provider_loads_expected_artifact_bundle(monkeypatch):
         "decoder": "onnx/decoder_q4.onnx",
     }
     assert captured["bundle"]["bundle_key"] == "lfm_vl_local:LiquidAI/LFM2.5-VL-1.6B-ONNX"
+    assert captured["bundle"]["runtime_config"].execution_provider == "cpu"
     assert cached["processor"] == "processor"
     assert cached["sessions"]["decoder"] == "decoder-session"
     output = console_buffer.getvalue()
     assert "embed_tokens_fp16.onnx" in output
     assert "embed_images_fp16.onnx" in output
     assert "decoder_q4.onnx" in output
+
+
+def test_lfm_runtime_config_prefers_onnx_section_over_model_section(monkeypatch):
+    from providers.base import ProviderContext
+    from providers.local_vlm.lfm_vl_local import LFMVLLocalProvider
+
+    captured = {}
+
+    class FakeProcessor:
+        @staticmethod
+        def from_pretrained(model_id, trust_remote_code=False):
+            return "processor"
+
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoProcessor = FakeProcessor
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    def fake_download(repo_id, artifacts, **kwargs):
+        return {name: Path(f"C:/models/{Path(path).name}") for name, path in artifacts.items()}
+
+    def fake_load_bundle(**kwargs):
+        captured["runtime"] = kwargs["runtime_config"]
+        return SimpleNamespace(sessions={"decoder": "decoder-session"}, providers=("CPUExecutionProvider",))
+
+    monkeypatch.setattr("providers.local_vlm.lfm_vl_local.download_onnx_artifact_set", fake_download, raising=False)
+    monkeypatch.setattr("providers.local_vlm.lfm_vl_local.load_session_bundle", fake_load_bundle, raising=False)
+
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO(), force_terminal=False),
+        config={
+            "lfm_vl_local": {
+                "model_id": "LiquidAI/LFM2.5-VL-1.6B-ONNX",
+                "encoder_variant": "fp16",
+                "decoder_variant": "q4",
+                "execution_provider": "cpu",
+            },
+            "onnx_runtime": {
+                "defaults": {
+                    "execution_provider": "auto",
+                },
+                "lfm_vl_local": {
+                    "execution_provider": "cuda",
+                },
+            },
+        },
+        args=SimpleNamespace(vlm_image_model="lfm_vl_local"),
+    )
+
+    LFMVLLocalProvider(ctx)._load_model()
+
+    assert captured["runtime"].execution_provider == "cuda"
 
 
 def test_lfm_provider_attempt_merges_image_embeddings_and_decodes_until_eos(tmp_path, monkeypatch):

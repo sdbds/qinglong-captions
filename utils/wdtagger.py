@@ -12,13 +12,11 @@ import torch
 import cv2
 import lance
 import numpy as np
-import onnxruntime as ort
 import pyarrow as pa
 import toml
 from huggingface_hub import hf_hub_download
 from PIL import Image
 from rich.console import Console
-from rich.pretty import Pretty
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -32,6 +30,7 @@ from rich.progress import (
 )
 
 from module.lanceImport import transform2lance
+from module.onnx_runtime import OnnxModelSpec, load_single_model_bundle, resolve_tool_runtime_config
 from utils.console_util import print_exception
 
 console = Console(color_system="truecolor", force_terminal=True)
@@ -40,6 +39,7 @@ console = Console(color_system="truecolor", force_terminal=True)
 # Load configuration from split TOML files (general.toml contains wdtagger section).
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 SERIES_EXCLUDE_LIST = set()
+_cfg = {}
 try:
     from config.loader import load_config
 
@@ -426,147 +426,22 @@ def load_model_and_tags(args):
         if len(indices) > 0:
             console.print(f"[blue]  - {category.capitalize()}: {len(indices)} tags[/blue]")
 
-    console.print(f"[blue]Providers: {ort.get_available_providers()}[/blue]")
-
-    # 设置推理提供者
-    providers = []
-    if "NvTensorRtRtxExecutionProvider" in ort.get_available_providers():
-        providers.append("NvTensorRtRtxExecutionProvider")
-        console.print("[green]Using TensorRT RTX for inference[/green]")
-        console.print("[yellow]compile may take a long time, please wait...[/yellow]")
-    elif "TensorrtExecutionProvider" in ort.get_available_providers():
-        providers.append("TensorrtExecutionProvider")
-        console.print("[green]Using TensorRT for inference[/green]")
-        console.print("[yellow]compile may take a long time, please wait...[/yellow]")
-    elif "CUDAExecutionProvider" in ort.get_available_providers():
-        providers.append("CUDAExecutionProvider")
-        console.print("[green]Using CUDA for inference[/green]")
-    elif "ROCMExecutionProvider" in ort.get_available_providers():
-        providers.append("ROCMExecutionProvider")
-        console.print("[green]Using ROCm for inference[/green]")
-    elif "OpenVINOExecutionProvider" in ort.get_available_providers():
-        providers = [("OpenVINOExecutionProvider", {"device_type": "GPU_FP32"})]
-        console.print("[green]Using OpenVINO for inference[/green]")
-    else:
-        providers.append("CPUExecutionProvider")
-        console.print("[yellow]Using CPU for inference[/yellow]")
-
-    # 创建推理会话
-    sess_options = ort.SessionOptions()
-    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL  # 启用所有优化
-
-    if "NvTensorRtRtxExecutionProvider" in providers:
-        sess_options.enable_mem_pattern = True
-        sess_options.enable_mem_reuse = True
-        providers_with_options = [
-            (
-                "NvTensorRtRtxExecutionProvider",
-                {
-                    "nv_dump_subgraphs": False,
-                    "nv_detailed_build_log": True,
-                    "enable_cuda_graph": True,
-                    "nv_multi_profile_enable": False,
-                    "nv_use_external_data_initializer": False,
-                    "nv_runtime_cache_path": f"{Path(args.model_dir) / args.repo_id.replace('/', '_')}/trt_engines",
-                },
-            ),
-            (
-                "TensorrtExecutionProvider",
-                {
-                    "trt_fp16_enable": True,  # Enable FP16 precision for faster inference
-                    "trt_builder_optimization_level": 3,
-                    "trt_max_partition_iterations": 1000,
-                    "trt_engine_cache_enable": True,
-                    "trt_engine_cache_path": f"{Path(args.model_dir) / args.repo_id.replace('/', '_')}/trt_engines",
-                    "trt_engine_hw_compatible": True,
-                    "trt_force_sequential_engine_build": False,
-                    "trt_context_memory_sharing_enable": True,
-                    "trt_timing_cache_enable": True,
-                    "trt_timing_cache_path": f"{Path(args.model_dir) / args.repo_id.replace('/', '_')}",
-                    "trt_sparsity_enable": True,
-                    "trt_min_subgraph_size": 7,
-                    # "trt_detailed_build_log": True,
-                },
-            ),
-            (
-                "CUDAExecutionProvider",
-                {
-                    "arena_extend_strategy": "kSameAsRequested",
-                    "cudnn_conv_algo_search": "EXHAUSTIVE",
-                    "do_copy_in_default_stream": True,
-                    "cudnn_conv_use_max_workspace": "1",  # 使用最大工作空间
-                    "tunable_op_enable": True,  # 启用可调优操作
-                    "tunable_op_tuning_enable": True,  # 启用调优
-                },
-            ),
-        ]
-
-    # TensorRT 优化
-    elif "TensorrtExecutionProvider" in providers:
-        sess_options.enable_mem_pattern = True
-        sess_options.enable_mem_reuse = True
-        providers_with_options = [
-            (
-                "TensorrtExecutionProvider",
-                {
-                    "trt_fp16_enable": True,  # Enable FP16 precision for faster inference
-                    "trt_builder_optimization_level": 3,
-                    "trt_max_partition_iterations": 1000,
-                    "trt_engine_cache_enable": True,
-                    "trt_engine_cache_path": f"{Path(args.model_dir) / args.repo_id.replace('/', '_')}/trt_engines",
-                    "trt_engine_hw_compatible": True,
-                    "trt_force_sequential_engine_build": False,
-                    "trt_context_memory_sharing_enable": True,
-                    "trt_timing_cache_enable": True,
-                    "trt_timing_cache_path": f"{Path(args.model_dir) / args.repo_id.replace('/', '_')}",
-                    "trt_sparsity_enable": True,
-                    "trt_min_subgraph_size": 7,
-                    # "trt_detailed_build_log": True,
-                },
-            ),
-            (
-                "CUDAExecutionProvider",
-                {
-                    "arena_extend_strategy": "kSameAsRequested",
-                    "cudnn_conv_algo_search": "EXHAUSTIVE",
-                    "do_copy_in_default_stream": True,
-                    "cudnn_conv_use_max_workspace": "1",  # 使用最大工作空间
-                    "tunable_op_enable": True,  # 启用可调优操作
-                    "tunable_op_tuning_enable": True,  # 启用调优
-                },
-            ),
-        ]
-
-    elif "CUDAExecutionProvider" in providers:
-        # CUDA GPU 优化
-        sess_options.enable_mem_pattern = True
-        sess_options.enable_mem_reuse = True
-        providers_with_options = [
-            (
-                "CUDAExecutionProvider",
-                {
-                    "arena_extend_strategy": "kSameAsRequested",
-                    "cudnn_conv_algo_search": "EXHAUSTIVE",
-                    "do_copy_in_default_stream": True,
-                    "cudnn_conv_use_max_workspace": "1",
-                    "tunable_op_enable": True,
-                    "tunable_op_tuning_enable": True,
-                },
-            ),
-        ]
-    elif "CPUExecutionProvider" in providers:
-        # CPU时启用多线程推理
-        sess_options.execution_mode = ort.ExecutionMode.ORT_PARALLEL  # 启用并行执行
-        sess_options.inter_op_num_threads = 8  # 设置线程数
-        sess_options.intra_op_num_threads = 8  # 设置算子内部并行数
-    else:
-        providers_with_options = providers
-
-    console.print("[cyan]Providers with options:[/cyan]")
-    console.print(Pretty(providers_with_options, indent_guides=True, expand_all=True))
     start_time = time.time()
-    ort_sess = ort.InferenceSession(str(model_path), sess_options=sess_options, providers=providers_with_options)
-    input_name = ort_sess.get_inputs()[0].name
+    runtime_config = resolve_tool_runtime_config(
+        _cfg,
+        tool_name="wdtagger",
+        cli_override={"force_download": args.force_download},
+    )
+    spec = OnnxModelSpec(
+        repo_id=args.repo_id,
+        onnx_filename=CL_FILES[0] if args.repo_id.startswith("cella110n/cl_tagger") else FILES[0],
+        local_dir=Path(args.model_dir) / args.repo_id.replace("/", "_"),
+        bundle_key=f"wdtagger:{args.repo_id}",
+    )
+    bundle = load_single_model_bundle(spec=spec, runtime_config=runtime_config)
+    ort_sess = bundle.session
+    input_name = bundle.input_metas[0].name if bundle.input_metas else ort_sess.get_inputs()[0].name
+    console.print(f"[blue]Providers: {bundle.providers}[/blue]")
 
     parent_to_child_map = {}
     if args.remove_parents_tag:

@@ -31,8 +31,6 @@ from pathlib import Path
 import torch
 import lance
 import numpy as np
-import onnxruntime as ort
-from huggingface_hub import hf_hub_download
 from PIL import Image
 from rich.console import Console
 from rich.pretty import Pretty
@@ -49,12 +47,13 @@ from rich.progress import (
 )
 from transformers import AutoImageProcessor
 
+from config.loader import load_config
 from module.lanceImport import transform2lance
+from module.onnx_runtime import OnnxModelSpec, load_single_model_bundle, resolve_tool_runtime_config
 from utils.console_util import print_exception
 
 console = Console(color_system="truecolor", force_terminal=True)
-
-FILES = ["model.onnx"]
+CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
 
 
 def preprocess_image(image):
@@ -114,120 +113,27 @@ def process_batch(images, session, input_name):
 
 def load_model(args):
     """加载模型和标签"""
-    model_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / "model.onnx"
-
     global processor
     processor = AutoImageProcessor.from_pretrained(args.repo_id, use_fast=True)
+    runtime_config = resolve_tool_runtime_config(
+        load_config(str(CONFIG_DIR)),
+        tool_name="waterdetect",
+        cli_override={"force_download": args.force_download},
+    )
+    spec = OnnxModelSpec(
+        repo_id=args.repo_id,
+        onnx_filename="model.onnx",
+        local_dir=Path(args.model_dir) / args.repo_id.replace("/", "_"),
+        bundle_key=f"waterdetect:{args.repo_id}",
+    )
 
-    # 下载模型
-    if not model_path.exists() or args.force_download:
-        for file in FILES:
-            file_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / file
-            if not file_path.exists() or args.force_download:
-                file_path = Path(
-                    hf_hub_download(
-                        repo_id=args.repo_id,
-                        filename=file,
-                        local_dir=file_path.parent,
-                        force_download=args.force_download,
-                    )
-                )
-                console.print(f"[blue]Downloaded {file} to {file_path}[/blue]")
-            else:
-                console.print(f"[green]Using existing {file}[/green]")
-
-    # 设置推理提供者
-    providers = []
-    if "TensorrtExecutionProvider" in ort.get_available_providers():
-        providers.append("TensorrtExecutionProvider")
-        console.print("[green]Using TensorRT for inference[/green]")
-        console.print("[yellow]compile may take a long time, please wait...[/yellow]")
-    elif "CUDAExecutionProvider" in ort.get_available_providers():
-        providers.append("CUDAExecutionProvider")
-        console.print("[green]Using CUDA for inference[/green]")
-    elif "ROCMExecutionProvider" in ort.get_available_providers():
-        providers.append("ROCMExecutionProvider")
-        console.print("[green]Using ROCm for inference[/green]")
-    elif "OpenVINOExecutionProvider" in ort.get_available_providers():
-        providers = [("OpenVINOExecutionProvider", {"device_type": "GPU_FP32"})]
-        console.print("[green]Using OpenVINO for inference[/green]")
-    else:
-        providers.append("CPUExecutionProvider")
-        console.print("[yellow]Using CPU for inference[/yellow]")
-
-    # 创建推理会话
-    sess_options = ort.SessionOptions()
-    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL  # 启用所有优化
-
-    if "CPUExecutionProvider" in providers:
-        # CPU时启用多线程推理
-        sess_options.execution_mode = ort.ExecutionMode.ORT_PARALLEL  # 启用并行执行
-        sess_options.inter_op_num_threads = 8  # 设置线程数
-        sess_options.intra_op_num_threads = 8  # 设置算子内部并行数
-
-    # TensorRT 优化
-    if "TensorrtExecutionProvider" in providers:
-        sess_options.enable_mem_pattern = True
-        sess_options.enable_mem_reuse = True
-        providers_with_options = [
-            (
-                "TensorrtExecutionProvider",
-                {
-                    "trt_fp16_enable": True,  # Enable FP16 precision for faster inference
-                    "trt_builder_optimization_level": 3,
-                    "trt_max_partition_iterations": 1000,
-                    "trt_engine_cache_enable": True,
-                    "trt_engine_cache_path": f"{Path(args.model_dir) / args.repo_id.replace('/', '_')}/trt_engines",
-                    "trt_engine_hw_compatible": True,
-                    "trt_force_sequential_engine_build": False,
-                    "trt_context_memory_sharing_enable": True,
-                    "trt_timing_cache_enable": True,
-                    "trt_timing_cache_path": f"{Path(args.model_dir) / args.repo_id.replace('/', '_')}",
-                    "trt_sparsity_enable": True,
-                    "trt_min_subgraph_size": 7,
-                    # "trt_detailed_build_log": True,
-                },
-            ),
-            (
-                "CUDAExecutionProvider",
-                {
-                    "arena_extend_strategy": "kSameAsRequested",
-                    "cudnn_conv_algo_search": "EXHAUSTIVE",
-                    "do_copy_in_default_stream": True,
-                    "cudnn_conv_use_max_workspace": "1",  # 使用最大工作空间
-                    "tunable_op_enable": True,  # 启用可调优操作
-                    "tunable_op_tuning_enable": True,  # 启用调优
-                },
-            ),
-        ]
-
-    elif "CUDAExecutionProvider" in providers:
-        # CUDA GPU 优化
-        sess_options.enable_mem_pattern = True
-        sess_options.enable_mem_reuse = True
-        providers_with_options = [
-            (
-                "CUDAExecutionProvider",
-                {
-                    "arena_extend_strategy": "kSameAsRequested",
-                    "cudnn_conv_algo_search": "EXHAUSTIVE",
-                    "do_copy_in_default_stream": True,
-                    "cudnn_conv_use_max_workspace": "1",
-                    "tunable_op_enable": True,
-                    "tunable_op_tuning_enable": True,
-                },
-            ),
-        ]
-    else:
-        providers_with_options = providers
-
-    console.print("[cyan]Providers with options:[/cyan]")
-    console.print(Pretty(providers_with_options, indent_guides=True, expand_all=True))
     start_time = time.time()
-    ort_sess = ort.InferenceSession(str(model_path), sess_options=sess_options, providers=providers_with_options)
-    input_name = ort_sess.get_inputs()[0].name
+    bundle = load_single_model_bundle(spec=spec, runtime_config=runtime_config)
+    input_name = bundle.input_metas[0].name if bundle.input_metas else bundle.session.get_inputs()[0].name
+    console.print("[cyan]Providers:[/cyan]")
+    console.print(Pretty(bundle.providers, indent_guides=True, expand_all=True))
     console.print(f"[green]Model loaded in {time.time() - start_time:.2f} seconds[/green]")
-    return ort_sess, input_name
+    return bundle.session, input_name
 
 
 def main(args):
