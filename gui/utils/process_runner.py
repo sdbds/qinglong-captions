@@ -16,17 +16,13 @@ import shutil
 import subprocess
 import sys
 import os
+import tempfile
 from pathlib import Path
 from typing import Callable, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
 from rich.console import Console
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
-    import tomli as tomllib
 
 from gui.utils.log_buffer import log_buffer as _global_log_buffer, LogBuffer
 from gui.utils.ansi_to_html import strip_ansi
@@ -44,6 +40,54 @@ _PROGRESS_TIME_RE = re.compile(r"(?:\b(?:\d+:)?\d{1,2}:\d{2}\b|-:--:--|-:--)")
 _LEADING_NON_SGR_ANSI_RE = re.compile(
     r"^(?:(?:\x1b\[[0-9;?]*[A-LN-Za-ln-z])|(?:\x1b\][^\x07]*\x07))+"
 )
+_UV_TORCH_EXTRAS = frozenset(
+    {
+        "translate",
+        "wdtagger",
+        "moondream",
+        "olmocr",
+        "deepseek-ocr",
+        "logics-ocr",
+        "hunyuan-ocr",
+        "glm-ocr",
+        "nanonets-ocr",
+        "firered-ocr",
+        "lighton-ocr",
+        "dots-ocr",
+        "qianfan-ocr",
+        "chandra-ocr",
+        "qwen-vl-local",
+        "step-vl-local",
+        "penguin-vl-local",
+        "reka-edge-local",
+        "lfm-vl-local",
+        "music-flamingo-local",
+        "eureka-audio-local",
+        "acestep-transcriber-local",
+    }
+)
+_UV_TORCHVISION_EXTRAS = frozenset(
+    {
+        "translate",
+        "wdtagger",
+        "olmocr",
+        "deepseek-ocr",
+        "logics-ocr",
+        "hunyuan-ocr",
+        "glm-ocr",
+        "firered-ocr",
+        "lighton-ocr",
+        "dots-ocr",
+        "qianfan-ocr",
+        "chandra-ocr",
+        "qwen-vl-local",
+        "step-vl-local",
+        "penguin-vl-local",
+        "reka-edge-local",
+    }
+)
+_UV_TORCH_GROUPS = frozenset({"test"})
+_UV_TORCHVISION_GROUPS = frozenset()
 
 # 序列化 _patch_shared_environment，防止两个并发 Job 同时修改共享 .venv
 _uv_patch_lock: Optional[asyncio.Lock] = None
@@ -312,72 +356,18 @@ class ProcessRunner:
         return None
 
     @staticmethod
-    def _read_profile_requirements(work_dir: Path, extras: list[str], groups: list[str]) -> Optional[list[str]]:
-        pyproject = work_dir / "pyproject.toml"
-        if not pyproject.exists() or (not extras and not groups):
-            return None
-
-        try:
-            data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-        except (OSError, tomllib.TOMLDecodeError):
-            return None
-
-        optional_deps = data.get("project", {}).get("optional-dependencies", {})
-        dependency_groups = data.get("dependency-groups", {})
-        requirements: list[str] = []
-        seen: set[str] = set()
-
-        for extra in extras:
-            extra_requirements = optional_deps.get(extra)
-            if not extra_requirements:
-                return None
-
-            for requirement in extra_requirements:
-                text = str(requirement).strip()
-                if not text or text in seen:
-                    continue
-                seen.add(text)
-                requirements.append(text)
-
-        for group in groups:
-            group_requirements = dependency_groups.get(group)
-            if not group_requirements:
-                return None
-
-            for requirement in group_requirements:
-                text = str(requirement).strip()
-                if not text or text in seen:
-                    continue
-                seen.add(text)
-                requirements.append(text)
-
-        return requirements
-
-    @staticmethod
     def _needs_sync_patch(extras: list[str]) -> bool:
         return "paddleocr" in extras
 
     @staticmethod
-    def _requirements_include_torch(requirements: Optional[list[str]]) -> tuple[bool, bool]:
-        if not requirements:
-            return False, False
+    def _profile_uses_torch(extras: list[str], groups: list[str]) -> bool:
+        return any(extra in _UV_TORCH_EXTRAS for extra in extras) or any(group in _UV_TORCH_GROUPS for group in groups)
 
-        has_torch = False
-        has_torchvision = False
-        for raw_line in requirements:
-            line = raw_line.strip().lower()
-            if not line or line.startswith("#") or line.startswith("--"):
-                continue
-            requirement = line.split(";", 1)[0].strip()
-            if requirement.startswith("torch==") or requirement.startswith("torch @") or requirement == "torch":
-                has_torch = True
-            elif (
-                requirement.startswith("torchvision==")
-                or requirement.startswith("torchvision @")
-                or requirement == "torchvision"
-            ):
-                has_torchvision = True
-        return has_torch, has_torchvision
+    @staticmethod
+    def _profile_uses_torchvision(extras: list[str], groups: list[str]) -> bool:
+        return any(extra in _UV_TORCHVISION_EXTRAS for extra in extras) or any(
+            group in _UV_TORCHVISION_GROUPS for group in groups
+        )
 
     @staticmethod
     def _infer_uv_torch_backend(env: dict) -> Optional[str]:
@@ -612,7 +602,6 @@ class ProcessRunner:
         async with _get_uv_patch_lock():
             target_python = self._resolve_project_python(work_dir, env)
             profile_parts = self._profile_parts(extras, groups)
-            requirements = self._read_profile_requirements(work_dir, extras, groups)
 
             if self._needs_sync_patch(extras):
                 uninstall_cmd = [uv, "pip", "uninstall"]
@@ -637,7 +626,8 @@ class ProcessRunner:
             cmd.extend(["--index-strategy", self._uv_index_strategy(env)])
             if target_python:
                 cmd.extend(["--python", target_python])
-            has_torch, has_torchvision = self._requirements_include_torch(requirements)
+            has_torch = self._profile_uses_torch(extras, groups)
+            has_torchvision = self._profile_uses_torchvision(extras, groups)
             torch_backend = self._infer_uv_torch_backend(env) if has_torch else None
             if torch_backend:
                 cmd.extend(["--torch-backend", torch_backend])
