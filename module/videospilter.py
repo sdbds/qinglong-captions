@@ -18,7 +18,10 @@ from rich.progress import (
     TimeRemainingColumn,
     TransferSpeedColumn,
 )
-import torch
+try:
+    import torch
+except ImportError:
+    torch = None
 from scenedetect import (
     AdaptiveDetector,
     ContentDetector,
