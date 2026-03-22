@@ -39,6 +39,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+video-split = [
+    "numpy<2",
+]
 translate = [
     "docling",
     "markitdown[all]",

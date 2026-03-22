@@ -186,3 +186,32 @@ def test_patch_shared_environment_reads_requirements_directly_from_pyproject(tmp
     assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
     assert install_cmd[install_cmd.index("-r") + 1] == "pyproject.toml"
     assert install_cmd[install_cmd.index("--extra") + 1] == "music-flamingo-local"
+
+
+def test_video_split_uses_video_split_extra_by_default(monkeypatch):
+    runner = ProcessRunner()
+    captured: dict[str, list[str]] = {}
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
+    monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
+
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups):
+        captured["extras"] = list(extras)
+        captured["groups"] = list(groups)
+        return None
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_patch_shared_environment", fake_patch)
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+
+    result = asyncio.run(
+        runner.run_python_script("module.videospilter", ["./datasets"], native_console=False),
+    )
+
+    assert result.status.value == "成功"
+    assert captured == {"extras": ["video-split"], "groups": []}
+    assert commands == [["python", "./module/videospilter.py", "./datasets"]]

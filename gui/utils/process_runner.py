@@ -129,7 +129,7 @@ SCRIPT_REGISTRY = {
     # step 1 - 数据集导入
     "module.lanceImport": ("./module/lanceImport.py", None),
     # step 2 - 视频分割
-    "module.videospilter": ("./module/videospilter.py", None),
+    "module.videospilter": ("./module/videospilter.py", "video-split"),
     # step 3 - 打标
     "utils.wdtagger": ("./utils/wdtagger.py", "wdtagger"),
     # step 4 - 字幕生成

@@ -42,9 +42,83 @@ $Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
 $Env:UV_NO_BUILD_ISOLATION = "1"
 $Env:UV_NO_CACHE = "0"
 $Env:UV_LINK_MODE = "symlink"
+$Env:UV_INDEX_STRATEGY = "unsafe-best-match"
 #$Env:CUDA_VISIBLE_DEVICES = "1"  # 设置GPU id，0表示使用第一个GPU，-1表示不使用GPU
 
 $ExtArgs = [System.Collections.ArrayList]::new()
+
+function Get-UvEnvName {
+    if ($env:VIRTUAL_ENV) {
+        return Split-Path -Path $env:VIRTUAL_ENV -Leaf
+    }
+    if (Test-Path "./.venv") {
+        return ".venv"
+    }
+    if (Test-Path "./venv") {
+        return "venv"
+    }
+    return "uv-managed"
+}
+
+function Get-ProjectPython {
+    $Candidates = @(
+        "./.venv/Scripts/python.exe",
+        "./venv/Scripts/python.exe",
+        "./.venv/bin/python",
+        "./venv/bin/python"
+    )
+
+    foreach ($Candidate in $Candidates) {
+        if (Test-Path $Candidate) {
+            return (Resolve-Path $Candidate).Path
+        }
+    }
+
+    $PythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($PythonCommand) {
+        return $PythonCommand.Source
+    }
+
+    return $null
+}
+
+function Install-UvExtraPatch {
+    param (
+        [string[]]$Extras
+    )
+
+    if (-not $Extras -or $Extras.Count -eq 0) {
+        return
+    }
+
+    $PythonExe = Get-ProjectPython
+    $UvEnvName = Get-UvEnvName
+    $Profile = ($Extras | Select-Object -Unique | ForEach-Object { "extra:$_" }) -join ", "
+    Write-Output "使用共享 .venv 增量安装依赖补丁"
+    Write-Output "uv pip install target environment: $UvEnvName"
+    Write-Output "uv pip install dependency profile: $Profile"
+    Write-Output "直接使用 uv pip install -r pyproject.toml 安装当前依赖 profile"
+
+    $InstallArgs = [System.Collections.ArrayList]::new()
+    [void]$InstallArgs.Add("pip")
+    [void]$InstallArgs.Add("install")
+    [void]$InstallArgs.Add("--no-build-isolation")
+    if ($PythonExe) {
+        [void]$InstallArgs.Add("--python")
+        [void]$InstallArgs.Add($PythonExe)
+    }
+    [void]$InstallArgs.Add("-r")
+    [void]$InstallArgs.Add("pyproject.toml")
+    foreach ($Extra in ($Extras | Select-Object -Unique)) {
+        [void]$InstallArgs.Add("--extra")
+        [void]$InstallArgs.Add($Extra)
+    }
+
+    uv @InstallArgs
+    if (!($?)) {
+        throw "uv pip install failed"
+    }
+}
 
 # 添加配置参数
 if ($Config.output_dir) { [void]$ExtArgs.Add("--output_dir=$($Config.output_dir)") }
@@ -59,23 +133,12 @@ if ($Config.recursive) { [void]$ExtArgs.Add("--recursive") }
 
 #region Execute Scene Detection
 Write-Output "Starting scene detection..."
-if ($env:VIRTUAL_ENV) {
-    $UvEnvName = Split-Path -Path $env:VIRTUAL_ENV -Leaf
-}
-elseif (Test-Path "./.venv") {
-    $UvEnvName = ".venv"
-}
-elseif (Test-Path "./venv") {
-    $UvEnvName = "venv"
-}
-else {
-    $UvEnvName = "uv-managed"
-}
-Write-Output "uv run target environment: $UvEnvName"
-Write-Output "uv dependency profile: default"
+Install-UvExtraPatch @("video-split")
+Write-Output "runtime target environment: $(Get-UvEnvName)"
+Write-Output "runtime dependency profile: extra:video-split"
 
 # 运行场景检测程序
-uv run "./module/videospilter.py" `
+python "./module/videospilter.py" `
     $Config.input_video_dir `
     $ExtArgs
 
