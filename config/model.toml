@@ -297,3 +297,10 @@ top_k = 0
 
 [kimi_vl]
 thinking = "enabled"  # enabled | disabled
+
+[scene_detection]
+detector = "AdaptiveDetector"
+threshold = 0.0
+min_scene_len = 15
+luma_only = false
+detection_timeout = 30.0

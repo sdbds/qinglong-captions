@@ -86,20 +86,20 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
 
 ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
     "ocr_model": (
-        RouteSpec("chandra_ocr", "chandra_ocr"),
-        RouteSpec("dots_ocr", "dots_ocr"),
-        RouteSpec("lighton_ocr", "lighton_ocr"),
-        RouteSpec("logics_ocr", "logics_ocr"),
-        RouteSpec("olmocr", "olmocr"),
-        RouteSpec("paddle_ocr", "paddle_ocr"),
-        RouteSpec("qianfan_ocr", "qianfan_ocr"),
-        RouteSpec("deepseek_ocr", "deepseek_ocr"),
-        RouteSpec("glm_ocr", "glm_ocr"),
-        RouteSpec("firered_ocr", "firered_ocr"),
-        RouteSpec("nanonets_ocr", "nanonets_ocr"),
-        RouteSpec("mistral_ocr", "mistral_ocr", aliases=("pixtral_ocr", "pixtral"), requires_remote_config=True),
-        RouteSpec("hunyuan_ocr", "hunyuan_ocr"),
-        RouteSpec("moondream", "moondream"),
+        RouteSpec("chandra_ocr", "chandra_ocr"),   # #1, 85.9
+        RouteSpec("dots_ocr", "dots_ocr"),          # #2, 83.9
+        RouteSpec("lighton_ocr", "lighton_ocr"),    # #3, 83.2
+        RouteSpec("olmocr", "olmocr"),              # #6, 82.4
+        RouteSpec("paddle_ocr", "paddle_ocr"),      # #7, 80.0
+        RouteSpec("qianfan_ocr", "qianfan_ocr"),    # #8, 79.8
+        RouteSpec("deepseek_ocr", "deepseek_ocr"),  # #10, 76.3
+        RouteSpec("glm_ocr", "glm_ocr"),            # #14, 75.2
+        RouteSpec("firered_ocr", "firered_ocr"),    # #15, 70.2
+        RouteSpec("nanonets_ocr", "nanonets_ocr"),  # #16, 69.3
+        RouteSpec("logics_ocr", "logics_ocr"),      # unranked
+        RouteSpec("mistral_ocr", "mistral_ocr", aliases=("pixtral_ocr", "pixtral"), requires_remote_config=True),  # API, unranked
+        RouteSpec("hunyuan_ocr", "hunyuan_ocr"),    # unranked
+        RouteSpec("moondream", "moondream"),        # unranked
     ),
     "vlm_image_model": (
         RouteSpec("moondream", "moondream"),

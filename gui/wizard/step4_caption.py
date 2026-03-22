@@ -11,6 +11,16 @@ from gui.utils.i18n import t
 from module.providers.catalog import route_choices, route_requires_remote_config
 
 
+def _load_gemini_task_names() -> list[str]:
+    import toml
+    try:
+        cfg = toml.load(Path(__file__).resolve().parent.parent.parent / "config" / "prompts.toml")
+        tasks = cfg.get("prompts", {}).get("task", {})
+        return [k for k, v in tasks.items() if isinstance(v, str)]
+    except Exception:
+        return []
+
+
 class CaptionStep:
     """字幕生成页面"""
 
@@ -97,24 +107,28 @@ class CaptionStep:
         "MiniMax": {
             "key_name": "minimax_api_key",
             "models": [
+                "MiniMax-M2.7",
+                "MiniMax-M2.7-highspeed",
                 "MiniMax-M2.5",
                 "MiniMax-M2.5-highspeed",
                 "MiniMax-M2.1",
                 "MiniMax-M2.1-highspeed",
                 "MiniMax-M2",
             ],
-            "default_model": "MiniMax-M2.5",
+            "default_model": "MiniMax-M2.7",
             "supports_video": True,
             "supports_task": False,
         },
         "MiniMax-Code": {
             "key_name": "minimax_code_api_key",
             "models": [
+                "MiniMax-M2.7",
+                "MiniMax-M2.7-highspeed",
                 "MiniMax-M2.5",
                 "MiniMax-M2.5-highspeed",
                 "MiniMax-M2.1",
             ],
-            "default_model": "MiniMax-M2.5",
+            "default_model": "MiniMax-M2.7",
             "supports_video": True,
             "supports_task": False,
         },
@@ -152,15 +166,20 @@ class CaptionStep:
 
     MODES = ["long", "short", "all"]
 
-    SCENE_DETECTORS = [
-        "AdaptiveDetector",
-        "ContentDetector",
-        "HashDetector",
-        "HistogramDetector",
-        "ThresholdDetector",
-    ]
-
     OCR_MODELS = list(route_choices("ocr_model"))
+
+    OCR_LEADERBOARD_LABELS = {
+        "chandra_ocr": "#1 chandra_ocr (85.9)",
+        "dots_ocr": "#2 dots_ocr (83.9)",
+        "lighton_ocr": "#3 lighton_ocr (83.2)",
+        "olmocr": "#6 olmocr (82.4)",
+        "paddle_ocr": "#7 paddle_ocr (80.0)",
+        "qianfan_ocr": "#8 qianfan_ocr (79.8)",
+        "deepseek_ocr": "#10 deepseek_ocr (76.3)",
+        "glm_ocr": "#14 glm_ocr (75.2)",
+        "firered_ocr": "#15 firered_ocr (70.2)",
+        "nanonets_ocr": "#16 nanonets_ocr (-)",
+    }
 
     VLM_MODELS = list(route_choices("vlm_image_model"))
 
@@ -204,13 +223,9 @@ class CaptionStep:
             "max_retries": 100,
             "segment_time": 600,
             "segment_time_explicit": False,
-            "scene_detector": "AdaptiveDetector",
-            "scene_threshold": 0.0,
-            "scene_min_len": 15,
             "tags_highlightrate": 0.38,
             "dir_name": False,
             "not_clip_with_caption": True,
-            "scene_luma_only": False,
             "document_image": True,
             "mistral_ocr_mode": False,
         }
@@ -349,18 +364,6 @@ class CaptionStep:
         if self.config.get("segment_time_explicit"):
             args.append(f"--segment_time={self.config['segment_time']}")
 
-        if self.scene_detector.value != "AdaptiveDetector":
-            args.append(f"--scene_detector={self.scene_detector.value}")
-
-        if self.config["scene_threshold"] != 0.0:
-            args.append(f"--scene_threshold={self.config['scene_threshold']}")
-
-        if self.config["scene_min_len"] != 15:
-            args.append(f"--scene_min_len={self.config['scene_min_len']}")
-
-        if self.config["scene_luma_only"]:
-            args.append("--scene_luma_only")
-
         if self.config["tags_highlightrate"] != 0.38:
             args.append(f"--tags_highlightrate={self.config['tags_highlightrate']}")
 
@@ -411,7 +414,6 @@ class CaptionStep:
             with ui.tabs().classes("w-full") as tabs:
                 basic_tab = ui.tab(t("basic_settings"), icon="tune")
                 api_tab = ui.tab(t("api_configuration"), icon="key")
-                scene_tab = ui.tab(t("scene_detector"), icon="radar")
                 ocr_tab = ui.tab(t("local_model_routes"), icon="text_fields")
 
             with ui.tab_panels(tabs, value=basic_tab).classes("w-full"):
@@ -422,10 +424,6 @@ class CaptionStep:
                 # API 配置
                 with ui.tab_panel(api_tab):
                     self._render_api_settings()
-
-                # 场景检测
-                with ui.tab_panel(scene_tab):
-                    self._render_scene_settings()
 
                 # OCR/VLM
                 with ui.tab_panel(ocr_tab):
@@ -544,9 +542,17 @@ class CaptionStep:
 
                     # Gemini 特有：任务名称
                     if config["supports_task"]:
-                        task_input = ui.input(label=t("gemini_task"), placeholder=t("gemini_task_placeholder"))
-                        task_input.classes("modern-input w-full")
-                        setattr(self, f"{config['key_name']}_task", task_input)
+                        task_names = _load_gemini_task_names()
+                        task_options = {"": ""} | {n: n for n in task_names}
+                        task_select = styled_select(
+                            options=task_options,
+                            value="",
+                            label=t("gemini_task"),
+                            icon="task_alt",
+                            icon_color=COLORS["info"],
+                            new_value_mode="add-unique",
+                        )
+                        setattr(self, f"{config['key_name']}_task", task_select)
 
                     # Mistral 专有：OCR 模式开关
                     if api_name == "Mistral":
@@ -605,48 +611,6 @@ class CaptionStep:
             flex=1,
         )
 
-    def _render_scene_settings(self):
-        """渲染场景检测设置"""
-        with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
-            with ui.row().classes("w-full items-center gap-2 q-mb-md"):
-                ui.icon("radar", size="22px").style(f"color: {COLORS['warning']};")
-                ui.label(t("scene_detector")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
-
-            # 场景检测器 - 带图标的现代化下拉框
-            self.scene_detector = styled_select(
-                options=dict(zip(self.SCENE_DETECTORS, self.SCENE_DETECTORS)),
-                value="AdaptiveDetector",
-                label=t("scene_detector"),
-                icon="radar",
-                icon_color=COLORS["warning"],
-            )
-
-            # 数值设置 - 使用可编辑滑块
-            with ui.row().classes("w-full gap-4 q-mt-md"):
-                editable_slider(
-                    label_key="scene_threshold",
-                    value_ref=self.config,
-                    value_key="scene_threshold",
-                    min_val=0.0,
-                    max_val=100.0,
-                    step=0.1,
-                    decimals=1,
-                )
-
-                editable_slider(
-                    label_key="scene_min_len",
-                    value_ref=self.config,
-                    value_key="scene_min_len",
-                    min_val=1,
-                    max_val=1000,
-                    step=1,
-                    decimals=0,
-                )
-
-            # 开关选项
-            with ui.row().classes("w-full gap-4 q-mt-md"):
-                toggle_switch("scene_luma_only", self.config, "scene_luma_only")
-
     def _render_ocr_settings(self):
         """渲染 OCR/VLM/ALM 设置"""
         with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
@@ -656,7 +620,7 @@ class CaptionStep:
 
             # OCR 模型 - 带图标的现代化下拉框
             self.ocr_model = styled_select(
-                options=dict(zip(self.OCR_MODELS, self.OCR_MODELS)),
+                options={m: self.OCR_LEADERBOARD_LABELS.get(m, m) for m in self.OCR_MODELS},
                 value="",
                 label=t("ocr_model"),
                 icon="text_fields",
