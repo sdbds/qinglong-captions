@@ -543,6 +543,9 @@ if ($ocr_model) {
   elseif ($ocr_model -eq "deepseek_ocr") {
     Add-UvExtra "deepseek-ocr"
   }
+  elseif ($ocr_model -eq "logics_ocr") {
+    Add-UvExtra "logics-ocr"
+  }
   elseif ($ocr_model -eq "lighton_ocr") {
     Add-UvExtra "lighton-ocr"
   }
@@ -603,6 +606,12 @@ if ($alm_model) {
 
   if ($alm_model -eq "music_flamingo_local") {
     Add-UvExtra "music-flamingo-local"
+  }
+  elseif ($alm_model -eq "eureka_audio_local") {
+    Add-UvExtra "eureka-audio-local"
+  }
+  elseif ($alm_model -eq "acestep_transcriber_local") {
+    Add-UvExtra "acestep-transcriber-local"
   }
 }
 
