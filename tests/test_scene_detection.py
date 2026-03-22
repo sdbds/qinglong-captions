@@ -21,6 +21,7 @@ def _quiet_console():
 
 def _load_videospilter(monkeypatch):
     fake_scenedetect = types.ModuleType("scenedetect")
+    fake_torch = types.ModuleType("torch")
 
     class FakeDetector:
         def __init__(self, *args, **kwargs):
@@ -42,6 +43,7 @@ def _load_videospilter(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "scenedetect", fake_scenedetect)
     monkeypatch.setitem(sys.modules, "scenedetect.scene_manager", fake_scene_manager)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
     sys.modules.pop("module.videospilter", None)
     return importlib.import_module("module.videospilter")
 
@@ -95,6 +97,44 @@ def test_scene_detector_wait_for_detection_handles_async_failure(monkeypatch):
     assert detector.wait_for_detection(timeout=1) == []
     assert detector.is_detection_complete()
     assert detector.get_scene_list() == []
+
+
+def test_split_video_sanitizes_default_output_dir_and_creates_it(monkeypatch, tmp_path):
+    videospilter = _load_videospilter(monkeypatch)
+    detector = videospilter.SceneDetector(console=_quiet_console())
+
+    video_path = tmp_path / "SAM Audio, the first unified model .mp4"
+    video_path.write_bytes(b"video")
+
+    captured = {}
+
+    def fake_save_images(*, scene_list, video, output_dir, num_images):
+        images_dir = Path(output_dir)
+        captured["images_dir"] = images_dir
+        assert images_dir.parent.name == "SAM Audio, the first unified model"
+        assert images_dir.parent.exists()
+        return {}
+
+    def fake_write_scene_list_html(output_html_filename, scene_list, image_filenames=None, image_height=None, image_width=None):
+        html_output = Path(output_html_filename)
+        captured["html_output"] = html_output
+        assert html_output.parent.exists()
+
+    monkeypatch.setattr(videospilter, "save_images", fake_save_images)
+    monkeypatch.setattr(videospilter, "write_scene_list_html", fake_write_scene_list_html)
+
+    detector.split_video(
+        str(video_path),
+        scene_list=[("start", "end")],
+        output_dir=None,
+        save_html=True,
+        video2images_min_number=1,
+    )
+
+    expected_base_dir = tmp_path / "SAM Audio, the first unified model"
+    assert expected_base_dir.exists()
+    assert captured["images_dir"] == expected_base_dir / "images"
+    assert captured["html_output"] == expected_base_dir / "SAM Audio, the first unified model.html"
 
 
 def test_captioner_waits_for_scene_detection_before_aligning(monkeypatch, tmp_path):

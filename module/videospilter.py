@@ -36,6 +36,7 @@ from scenedetect.scene_manager import save_images, write_scene_list_html
 
 from config.config import BASE_VIDEO_EXTENSIONS
 from utils.console_util import print_exception
+from utils.path_safety import safe_child_path, safe_leaf_name
 
 
 # 辅助函数：在线程中运行异步任务
@@ -57,6 +58,22 @@ def run_async_in_thread(coroutine):
     thread = threading.Thread(target=run_in_thread, daemon=True)
     thread.start()
     return future
+
+
+def _resolve_split_output_dir(video_path, output_dir=None) -> Path:
+    """Resolve a writable output directory for scene split artifacts."""
+    video_path = Path(video_path)
+    if output_dir is None:
+        resolved = safe_child_path(video_path.parent, video_path.stem, default_name="video")
+    else:
+        resolved = Path(output_dir)
+        if resolved.exists() and not resolved.is_dir():
+            output_parent = resolved.parent
+            output_dir_name = safe_leaf_name(resolved.name, default_name="output")
+            resolved = output_parent / f"{output_dir_name}_dir"
+
+    resolved.mkdir(parents=True, exist_ok=True)
+    return resolved
 
 
 class SceneDetector:
@@ -267,19 +284,9 @@ class SceneDetector:
         Returns:
             list: 分割后的视频文件路径列表
         """
-        if output_dir is None:
-            output_dir = Path(video_path).parent / Path(video_path).stem
-        else:
-            # 确保输出目录存在并且是个目录而不是文件
-            output_dir = Path(output_dir)
-            if not output_dir.exists():
-                output_dir.mkdir(parents=True, exist_ok=True)
-            elif not output_dir.is_dir():
-                # 如果是文件，则创建同名目录
-                output_parent = output_dir.parent
-                output_dir_name = output_dir.name
-                output_dir = output_parent / f"{output_dir_name}_dir"
-                output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = _resolve_split_output_dir(video_path, output_dir)
+        images_output_dir = safe_child_path(output_dir, "images", default_name="images")
+        clips_output_dir = safe_child_path(output_dir, "clips", default_name="clips")
 
         scene_image_dict = None
         image_height = None
@@ -290,19 +297,18 @@ class SceneDetector:
                 scene_image_dict = save_images(
                     scene_list=scene_list,
                     video=open_video(video_path),
-                    output_dir=str(output_dir / "images"),
+                    output_dir=str(images_output_dir),
                     num_images=video2images_min_number,
                 )
             except Exception as e:
                 print_exception(self.console, e, prefix="can't save scene images")
 
         if save_html:
+            html_filename = safe_leaf_name(f"{output_dir.stem}.html", default_name="scene_report.html")
             # create HTML report file name
-            html_output = (
-                output_dir / "images" / (output_dir.stem + ".html")
-                if scene_image_dict
-                else output_dir / (output_dir.stem + ".html")
-            )
+            html_parent_dir = images_output_dir if scene_image_dict else output_dir
+            html_parent_dir.mkdir(parents=True, exist_ok=True)
+            html_output = safe_child_path(html_parent_dir, html_filename, default_name="scene_report.html")
             # get first image size from scene_image_dict and calculate height and width
             if scene_image_dict and len(scene_image_dict) > 0:
                 # 获取第一个场景的第一张图片
@@ -310,7 +316,7 @@ class SceneDetector:
                 first_scene_images = next(iter(scene_image_dict.values()), [])
                 if first_scene_images and len(first_scene_images) > 0:
                     try:
-                        first_image = Image.open(output_dir / "images" / Path(first_scene_images[0]).name)
+                        first_image = Image.open(images_output_dir / Path(first_scene_images[0]).name)
                         orig_width, orig_height = first_image.size
                         # 按比例缩放，确保最大边不超过512
                         max_dimension = max(orig_width, orig_height)
@@ -339,7 +345,7 @@ class SceneDetector:
             return split_video_ffmpeg(
                 video_path,
                 scene_list,
-                output_dir=str(output_dir / "clips"),
+                output_dir=str(clips_output_dir),
                 show_progress=True,
             )
         except Exception as e:

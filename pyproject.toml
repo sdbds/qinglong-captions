@@ -817,6 +817,19 @@ conflicts = [
         { extra = "hunyuan-ocr" },
         { extra = "glm-ocr" },
     ],
+    [
+        # AceStep also depends on the upstream Transformers >=4.57 stack and
+        # cannot share an environment with pinned older / forked variants below.
+        { extra = "acestep-transcriber-local" },
+        { extra = "music-flamingo-local" },
+        { extra = "translate" },
+        { extra = "deepseek-ocr" },
+        { extra = "dots-ocr" },
+        { extra = "penguin-vl-local" },
+        { extra = "qwen-vl-local" },
+        { extra = "hunyuan-ocr" },
+        { extra = "glm-ocr" },
+    ],
 ]
 
 [tool.uv.sources]
