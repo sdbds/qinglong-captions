@@ -3,9 +3,25 @@
 <details>
 <summary>中文说明（点击展开）</summary>
 
-# 青龙字幕工具 (4.1.0)
+# 青龙字幕工具 (4.2.0)
 
 ## 更新日志
+
+### 4.2 - ONNX Runtime 统一与音频工具
+
+1. 新增独立音频分轨工具链 `audio_separator.py` / `2.5.audio_separator.ps1`：
+   - 支持单文件、目录和 `.lance` 数据集输入
+   - 默认使用 BS-RoFormer ONNX 模型输出 6 stems
+   - 可选二次 harmony 分离，并已接入 GUI 工具箱
+2. 统一仓库内 ONNX Runtime 配置：
+   - 新增 `config/onnx.toml`
+   - `wdtagger`、`waterdetect` 与 `lfm_vl_local` 共享 runtime / session / cache 逻辑
+   - 补齐 artifact 下载日志与 legacy 配置兼容
+3. 新增本地 OCR `logics_ocr`：
+   - 默认模型：`Logics-MLLM/Logics-Parsing-v2`
+   - 支持图片与 PDF OCR
+   - 自动把结构化 HTML 输出规整为 Markdown
+4. GUI 工具箱补齐音频分轨与文本翻译入口，文档同步到当前脚本命名（`1.install-uv-qinglong.ps1`、`2.0.video_spliter.ps1`、`5.translate.ps1`）。
 
 ### 4.1 - 文档 / 纯文本翻译工具
 
@@ -18,7 +34,7 @@
    - 原始版本 tag：`raw.import.*`
    - 规范化版本 tag：`norm.docling.*`
    - 翻译版本 tag：`tr.<model>.<lang>.*`
-5. 新增 `5、translate.ps1`，翻译结果导出为语言后缀 Markdown，例如 `foo_zh_cn.md`，不会覆盖原文件。
+5. 新增 `5.translate.ps1`，翻译结果导出为语言后缀 Markdown，例如 `foo_zh_cn.md`，不会覆盖原文件。
 6. 新增本地 VLM `reka_edge_local`：
    - 默认模型：`RekaAI/reka-edge-2603`
    - 支持图像和视频输入
@@ -124,6 +140,8 @@
 - 保持原始目录结构
 - 通过 TOML 文件配置
 - 集成 Lance 数据库实现高效数据管理
+- 新增 ONNX 音频分轨工具，支持 6 stems 分离与 harmony 二次分离
+- 统一 ONNX runtime 配置，支持共享缓存和 provider 选项
 - 新增独立文本 / 文档翻译链路，支持 txt、md、json、pdf、doc/docx、xls/xlsx、ppt/pptx、rtf、epub
 ## 模块说明
 
@@ -153,9 +171,15 @@
 - 默认本地模型：`tencent/HY-MT1.5-7B`
 - 导出结果统一为 `*_lang.md`，避免覆盖原文件
 
-### 配置模块 (`config.py` & `config.toml`)
+### 音频分轨 (`audio_separator.py`)
+- 支持音频文件、目录与 `.lance` 数据集输入
+- 默认输出 6 stems，可选追加 harmony 二次分离
+- 支持 `wav` / `flac` / `mp3` 导出，适合伴奏、人声和和声拆分
+
+### 配置模块 (`config.py`、`config.toml` & `config/onnx.toml`)
 - API 配置管理
 - 可自定义批处理参数
+- 支持 ONNX runtime 默认值与按工具覆写
 - 默认结构包含文件路径和元数据
 
 ## 安装方法
@@ -163,7 +187,7 @@
 ### Windows 系统
 运行以下 PowerShell 脚本：
 ```powershell
-./1、install-uv-qinglong.ps1
+./1.install-uv-qinglong.ps1
 ```
 ### Linux 系统
 1. 首先安装 PowerShell：
@@ -172,7 +196,7 @@ sudo sh ./0、install pwsh.sh
 ```
 2. 然后使用 PowerShell 运行安装脚本：
 ```powershell
-pwsh ./1、install-uv-qinglong.ps1
+pwsh ./1.install-uv-qinglong.ps1
 ```
 ## 使用方法
 
@@ -197,10 +221,18 @@ pwsh ./1、install-uv-qinglong.ps1
 ```
 注意：使用自动字幕生成功能前，需要在 `run.ps1` 中配置 [Gemini API 密钥](https://aistudio.google.com/apikey)。
 
+### 音频分轨
+使用 PowerShell 脚本执行 ONNX 音频分轨：
+```powershell
+./2.5.audio_separator.ps1
+```
+
+支持单个音频文件、目录或 `.lance` 数据集输入；默认输出 6 stems，并可选开启 harmony 二次分离。
+
 ### 文本 / 文档翻译
 使用 PowerShell 脚本执行文档规范化和翻译：
 ```powershell
-./5、translate.ps1
+./5.translate.ps1
 ```
 
 当前翻译链路：
@@ -213,7 +245,7 @@ pwsh ./1、install-uv-qinglong.ps1
 - 如果仓库根目录缺少 `uv.lock`，`4、run.ps1` 和 CI 会默认执行 `uv lock --python 3.11 --index-strategy unsafe-best-match` 生成锁文件。
 - 这样做是为了避免可选依赖过多时，对 3.10/3.11/3.12 全矩阵同时求解导致锁文件生成过慢。
 
-如果只想重跑翻译模型而不重新做文档转换，可以把 `source_version` 指向已有的 `norm.*` tag，并在 `5、translate.ps1` 中打开 `skip_normalize`。
+如果只想重跑翻译模型而不重新做文档转换，可以把 `source_version` 指向已有的 `norm.*` tag，并在 `5.translate.ps1` 中打开 `skip_normalize`。
 [Pixtral API 秘钥](https://console.mistral.ai/api-keys/) 可选为图片打标。
 现在我们支持使用[阶跃星辰](https://platform.stepfun.com/)的视频模型进行视频标注。
 现在我们支持使用[通义千问VL](https://bailian.console.aliyun.com/#/model-market)的视频模型进行视频标注。
@@ -418,18 +450,34 @@ $document_image = $true
 
 </details>
 
-# qinglong-captioner (4.1.0)
+# qinglong-captioner (4.2.0)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changelog
+
+### 4.2 - Unified ONNX Runtime And Audio Tools
+
+1. Added a dedicated audio separation pipeline: `audio_separator.py` / `2.5.audio_separator.ps1`.
+   - Accepts a single file, a directory, or a `.lance` dataset
+   - Uses the BS-RoFormer ONNX export for 6-stem separation by default
+   - Can optionally run a second harmony split and is now exposed in the GUI toolbox
+2. Unified ONNX Runtime configuration across the repository.
+   - Added `config/onnx.toml`
+   - `wdtagger`, `waterdetect`, and `lfm_vl_local` now share runtime / session / cache logic
+   - Added artifact download logging and legacy config fallback
+3. Added local OCR `logics_ocr`.
+   - Default model: `Logics-MLLM/Logics-Parsing-v2`
+   - Supports image and PDF OCR
+   - Converts the model's structured HTML output into project-friendly Markdown
+4. The GUI toolbox now includes audio separation and text translation, and the docs were updated to match the current script names (`1.install-uv-qinglong.ps1`, `2.0.video_spliter.ps1`, `5.translate.ps1`).
 
 ### 4.1 - Text / Document Translation Tool
 
 1. Added a standalone `texttranslate.py` pipeline for text and document translation with local Hugging Face models.
 2. Lance datasets now carry a `chunk_offsets` column for reproducible markdown chunk boundaries.
 3. Standalone `.txt/.md` assets can be imported as primary assets, while `.txt/.md/.srt` still work as same-stem sidecars.
-4. Added `5、translate.ps1` and suffix-based markdown export such as `foo_zh_cn.md`.
+4. Added `5.translate.ps1` and suffix-based markdown export such as `foo_zh_cn.md`.
 5. Added local VLM `reka_edge_local`:
    - Default model: `RekaAI/reka-edge-2603`
    - Accepts both image and video inputs
@@ -739,6 +787,9 @@ At the same time, the millisecond-level alignment function has been updated. Aft
 - Maintains original directory structure
 - Configurable through TOML files
 - Lance database integration for efficient data management
+- ONNX audio separation with 6-stem export and optional harmony split
+- Shared ONNX runtime configuration with reusable cache and provider options
+- Standalone text / document translation for txt, md, json, pdf, doc/docx, xls/xlsx, ppt/pptx, rtf, and epub
 
 ## Modules
 
@@ -762,9 +813,22 @@ At the same time, the millisecond-level alignment function has been updated. Aft
 - Robust error handling and retry mechanisms
 - Progress tracking for batch operations
 
-### Configuration (`config.py` & `config.toml`)
+### Text / Document Translation (`texttranslate.py`)
+- Uses Lance version tags to store imported raw assets, normalized markdown, and translated output
+- Supports standalone `.txt/.md` assets as primary inputs
+- Normalizes documents into Markdown before chunked local-model translation
+- Default local model: `tencent/HY-MT1.5-7B`
+- Exports translated files as `*_lang.md` instead of overwriting the source
+
+### Audio Separation (`audio_separator.py`)
+- Accepts audio files, folders, and `.lance` datasets
+- Produces 6 stems by default, with optional harmony re-splitting
+- Supports `wav`, `flac`, and `mp3` export for vocal / backing-track workflows
+
+### Configuration (`config.py`, `config.toml` & `config/onnx.toml`)
 - API prompt configuration management
 - Customizable batch processing parameters
+- ONNX runtime defaults and per-tool overrides
 - Default schema includes file paths and metadata
 
 ## Installation
@@ -780,7 +844,7 @@ Give unrestricted script access to powershell so venv can work:
 ### Windows
 Run the following PowerShell script:
 ```powershell
-./1、install-uv-qinglong.ps1
+./1.install-uv-qinglong.ps1
 ```
 
 ### Linux
@@ -790,7 +854,7 @@ sudo sh ./0、install pwsh.sh
 ```
 2. Then run the installation script using PowerShell:
 ```powershell
-sudo pwsh ./1、install-uv-qinglong.ps1
+sudo pwsh ./1.install-uv-qinglong.ps1
 ```
 use sudo pwsh if you in Linux.
 
@@ -822,10 +886,10 @@ Use the PowerShell script to export data from Lance format:
 Use the PowerShell script to generate captions for your videos:
 
 ```powershell
-./run.ps1
+./4、run.ps1
 ```
 
-Note: You'll need to configure your [Gemini API key](https://aistudio.google.com/apikey) in `run.ps1` before using the auto-captioning feature.
+Note: You'll need to configure your [Gemini API key](https://aistudio.google.com/apikey) in `4、run.ps1` before using the auto-captioning feature.
 [Pixtral API key](https://console.mistral.ai/api-keys/) optional for image caption.
 
 Now we support [step-1.5v-mini](https://platform.stepfun.com/) optional for video captioner.
@@ -839,6 +903,24 @@ Now we support local [LightOnOCR-2-1B](https://huggingface.co/lightonai/LightOnO
 Now we support [GLM](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) series optional for video captioner.
 
 If `uv.lock` is missing, `4、run.ps1` and CI now generate it with `uv lock --python 3.11 --index-strategy unsafe-best-match` to keep lock generation practical with the project's optional dependency matrix.
+
+### Audio Separation
+Use the PowerShell script to split audio into stems:
+
+```powershell
+./2.5.audio_separator.ps1
+```
+
+It accepts a single audio file, a folder, or a `.lance` dataset, exports 6 stems by default, and can optionally run a second harmony split.
+
+### Text / Document Translation
+Use the translation pipeline for normalized document translation:
+
+```powershell
+./5.translate.ps1
+```
+
+It imports data into Lance, writes `raw.import.*` / `norm.docling.*` / `tr.*` tags, and exports translated markdown files such as `*_zh_cn.md`.
 
 ```
 $dataset_path = "./datasets"

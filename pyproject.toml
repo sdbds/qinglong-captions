@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qinglong-captions"
-version = "4.1.0"
+version = "4.2.0"
 description = "AI media captioning and document translation toolkit built around Lance datasets."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"

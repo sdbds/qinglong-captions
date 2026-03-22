@@ -9,6 +9,8 @@
 - 📊 **实时日志** - 查看命令输出和进度
 - 🖱️ **点击操作** - 无需记忆复杂的命令行参数
 - 📁 **路径选择** - 可视化的文件/文件夹选择器
+- 🎵 **音频分轨** - 在 GUI 工具箱中直接运行 ONNX 音频分离
+- 🌍 **文本翻译** - 在 GUI 工具箱中执行文档规范化与翻译
 
 ## 使用方法
 
@@ -79,6 +81,8 @@ python main.py
 - 水印检测
 - 图像预处理
 - 图像评分
+- 音频分轨
+- 文本翻译
 
 ## 项目结构
 
@@ -112,17 +116,19 @@ gui/
 | GUI 页面 | PowerShell 脚本 |
 |----------|----------------|
 | 数据导入 | `lanceImport.ps1` |
-| 视频分割 | `2、video_spliter.ps1` |
+| 视频分割 | `2.0.video_spliter.ps1` |
 | 标签生成 | `3、tagger.ps1` |
 | 字幕生成 | `4、run.ps1` |
 | 数据导出 | `lanceExport.ps1` |
-| 水印检测 | `2.1、image_watermark_detect.ps1` |
-| 图像预处理 | `2.2、preprocess_images.ps1` |
-| 图像评分 | `2.3、image_reward_model.ps1` |
+| 水印检测 | `2.1.image_watermark_detect.ps1` |
+| 图像预处理 | `2.2.preprocess_images.ps1` |
+| 图像评分 | `2.3.image_reward_model.ps1` |
+| 音频分轨 | `2.5.audio_separator.ps1` |
+| 文本翻译 | `5.translate.ps1` |
 
 ## 注意事项
 
-1. 使用 GUI 前请确保已运行 `1、install-uv-qinglong.ps1` 安装依赖
+1. 使用 GUI 前请确保已运行 `1.install-uv-qinglong.ps1` 安装依赖
 2. 某些功能需要配置 API 密钥
 3. 建议在虚拟环境中运行
 4. 首次运行可能需要下载模型文件
