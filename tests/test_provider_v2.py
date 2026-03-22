@@ -770,6 +770,87 @@ class TestKimiStructuredDisplay:
         assert mock_display.call_args.kwargs["long_description"] == "long text"
 
 
+class TestAPIRetryConfig:
+
+    @pytest.mark.parametrize(
+        ("module_name", "class_name", "arg_overrides"),
+        [
+            ("module.providers.cloud_vlm.ark", "ArkProvider", {"ark_api_key": "sk-test"}),
+            ("module.providers.cloud_vlm.glm", "GLMProvider", {"glm_api_key": "sk-test"}),
+            ("module.providers.cloud_vlm.kimi_code", "KimiCodeProvider", {"kimi_code_api_key": "sk-test"}),
+            ("module.providers.cloud_vlm.kimi_vl", "KimiVLProvider", {"kimi_api_key": "sk-test"}),
+            ("module.providers.cloud_vlm.minimax_api", "MiniMaxAPIProvider", {}),
+            ("module.providers.cloud_vlm.minimax_code", "MiniMaxCodeProvider", {}),
+            (
+                "module.providers.cloud_vlm.openai_compatible",
+                "OpenAICompatibleProvider",
+                {
+                    "openai_api_key": "sk-test",
+                    "openai_base_url": "http://localhost:1234/v1",
+                    "openai_model_name": "test-model",
+                },
+            ),
+            ("module.providers.cloud_vlm.qwenvl", "QwenVLProvider", {"qwenVL_api_key": "sk-test"}),
+            ("module.providers.cloud_vlm.stepfun", "StepfunProvider", {"step_api_key": "sk-test"}),
+            ("module.providers.vision_api.gemini", "GeminiProvider", {"gemini_api_key": "sk-test"}),
+            ("module.providers.vision_api.pixtral", "MistralOCRProvider", {"mistral_api_key": "sk-test"}),
+        ],
+    )
+    def test_remote_api_providers_retry_transport_errors_and_fast_fail_auth_or_param_errors(
+        self, module_name, class_name, arg_overrides
+    ):
+        from importlib import import_module
+
+        from rich.console import Console
+        from providers.base import ProviderContext
+        from tests.provider_v2_helpers import make_provider_args
+
+        provider_cls = getattr(import_module(module_name), class_name)
+        provider = provider_cls(
+            ProviderContext(
+                console=Console(file=io.StringIO()),
+                config={},
+                args=make_provider_args(
+                    max_retries=5,
+                    wait_time=0.5,
+                    **arg_overrides,
+                ),
+            )
+        )
+
+        cfg = provider.get_retry_config()
+
+        assert cfg.classify_error(Exception("RemoteProtocolError: incomplete chunked read")) is not None
+        assert cfg.classify_error(Exception("ReadTimeout: request timed out")) is not None
+        assert cfg.classify_error(Exception("ConnectError: connection reset by peer")) is not None
+        assert cfg.classify_error(Exception("unexpected boom")) is not None
+        assert cfg.classify_error(Exception("401 unauthorized")) is None
+        assert cfg.classify_error(Exception("403 forbidden")) is None
+        assert cfg.classify_error(Exception("400 Bad Request: invalid parameter")) is None
+
+    def test_gemini_fast_fails_unsupported_mime(self):
+        from rich.console import Console
+        from providers.base import ProviderContext
+        from module.providers.vision_api.gemini import GeminiProvider
+        from tests.provider_v2_helpers import make_provider_args
+
+        provider = GeminiProvider(
+            ProviderContext(
+                console=Console(file=io.StringIO()),
+                config={},
+                args=make_provider_args(
+                    gemini_api_key="sk-test",
+                    max_retries=5,
+                    wait_time=0.5,
+                ),
+            )
+        )
+
+        cfg = provider.get_retry_config()
+
+        assert cfg.classify_error(Exception("RETRY_UNSUPPORTED_MIME")) is None
+
+
 # ──────────────────────────────────────────────
 #  Provider 基类逻辑
 # ──────────────────────────────────────────────
@@ -926,7 +1007,7 @@ class TestOCRProviderBase:
         sys, usr = p.get_prompts("application/pdf")
         assert usr == "config prompt"
 
-    def test_retry_config_always_retries(self):
+    def test_retry_config_only_retries_transport_errors(self):
         from providers.base import ProviderContext
         from providers.ocr_base import OCRProvider
         from rich.console import Console
@@ -943,8 +1024,13 @@ class TestOCRProviderBase:
         )
         p = FakeOCR(ctx)
         cfg = p.get_retry_config()
-        # OCR retry 对任何异常都返回 base_wait
-        assert cfg.classify_error(Exception("any error")) == 0.5
+        assert cfg.classify_error(Exception("RemoteProtocolError: incomplete chunked read")) == 0.5
+        assert cfg.classify_error(Exception("ReadTimeout: request timed out")) == 0.5
+        assert cfg.classify_error(Exception("ConnectError: connection reset by peer")) == 0.5
+        assert cfg.classify_error(Exception("unexpected boom")) == 0.5
+        assert cfg.classify_error(Exception("401 unauthorized")) is None
+        assert cfg.classify_error(Exception("403 forbidden")) is None
+        assert cfg.classify_error(Exception("400 Bad Request: invalid parameter")) is None
 
     def test_get_model_config(self):
         from providers.base import ProviderContext

@@ -10,6 +10,7 @@ import base64
 import functools
 import io
 import random
+import re
 import time
 import traceback
 from pathlib import Path
@@ -158,6 +159,91 @@ def with_retry_impl(fn: Callable[[], Any], retry_config: Any, console: Optional[
 
             if remaining > 0:
                 time.sleep(remaining)
+
+
+def _contains_http_status(message: str, status: int) -> bool:
+    return re.search(rf"(?<!\d){status}(?!\d)", message) is not None
+
+
+def classify_remote_api_error(
+    error: Exception,
+    *,
+    base_wait: float,
+    rate_limit_wait: float = 59.0,
+    retry_http_statuses: tuple[int, ...] = (502,),
+    retry_markers: tuple[str, ...] = (),
+    transport_wait: Optional[float] = None,
+    fast_fail_http_statuses: tuple[int, ...] = (400, 401, 403),
+    fast_fail_markers: tuple[str, ...] = (),
+) -> Optional[float]:
+    """
+    统一判定远程 API 异常是否应重试。
+
+    规则：
+    - 429 / rate limit: 重试
+    - 传输层异常（连接断开、超时、协议截断等）: 重试
+    - provider 显式 RETRY_* 标记: 重试
+    - 400/401/403 与典型参数错误: 快速失败
+    - 其他错误: 默认重试
+    """
+    message = str(error)
+    lower = message.lower()
+
+    if _contains_http_status(message, 429) or "rate limit" in lower:
+        return rate_limit_wait
+
+    default_fast_fail_markers = (
+        "unauthorized",
+        "forbidden",
+        "invalid parameter",
+        "invalid parameters",
+        "invalid argument",
+        "invalid arguments",
+        "invalid_request_error",
+        "bad request",
+        "validation error",
+        "unsupported mime",
+        "unsupported_mime",
+        "malformed request",
+        "missing required",
+    )
+    if any(_contains_http_status(message, status) for status in fast_fail_http_statuses):
+        return None
+    if any(marker in lower for marker in default_fast_fail_markers):
+        return None
+    if any(marker.lower() in lower for marker in fast_fail_markers):
+        return None
+
+    if any(marker in message for marker in retry_markers):
+        return base_wait
+    if any(_contains_http_status(message, status) for status in retry_http_statuses):
+        return base_wait
+
+    transport_markers = (
+        "remoteprotocolerror",
+        "incomplete chunked read",
+        "peer closed connection",
+        "readtimeout",
+        "connecttimeout",
+        "timed out",
+        "timeout",
+        "connection reset",
+        "connection reset by peer",
+        "connection aborted",
+        "connection broken",
+        "connection refused",
+        "connectionerror",
+        "connecterror",
+        "server disconnected",
+        "broken pipe",
+        "socket hang up",
+        "eof occurred",
+        "unexpected eof",
+    )
+    if any(marker in lower for marker in transport_markers):
+        return transport_wait if transport_wait is not None else base_wait
+
+    return base_wait
 
 
 def build_vision_messages(

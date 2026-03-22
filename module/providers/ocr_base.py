@@ -236,10 +236,12 @@ class OCRProvider(Provider):
         """
         OCR 使用简单的重试配置
 
-        所有错误都重试，使用 base_wait
+        仅对传输层异常重试，认证/参数错误快速失败
         """
+        from .utils import classify_remote_api_error
+
         cfg = super().get_retry_config()
-        cfg.classify_error = lambda e: cfg.base_wait
+        cfg.classify_error = lambda e: classify_remote_api_error(e, base_wait=cfg.base_wait)
         return cfg
 
     @staticmethod

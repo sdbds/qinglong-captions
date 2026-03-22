@@ -308,15 +308,12 @@ class QwenVLProvider(CloudVLMProvider):
         return CaptionResult(raw=result, metadata={"provider": self.name})
 
     def get_retry_config(self):
+        from module.providers.utils import classify_remote_api_error
+
         cfg = super().get_retry_config()
-
-        def classify(e):
-            msg = str(e)
-            if "429" in msg:
-                return 59.0
-            if "502" in msg or "RETRY_EMPTY_CONTENT" in msg:
-                return cfg.base_wait
-            return None
-
-        cfg.classify_error = classify
+        cfg.classify_error = lambda e: classify_remote_api_error(
+            e,
+            base_wait=cfg.base_wait,
+            retry_markers=("RETRY_EMPTY_CONTENT",),
+        )
         return cfg

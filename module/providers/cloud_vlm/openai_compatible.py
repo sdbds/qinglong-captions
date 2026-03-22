@@ -183,20 +183,18 @@ class OpenAICompatibleProvider(CloudVLMProvider):
 
     def get_retry_config(self):
         """配置重试策略"""
+        from module.providers.utils import classify_remote_api_error
+
         cfg = super().get_retry_config()
 
         def classify(e):
-            msg = str(e).lower()
-            # 429 限流：等待较长时间
-            if "429" in msg or "rate limit" in msg:
-                return 10.0
-            # 连接错误：短等待
-            if "connection" in msg or "connect" in msg:
-                return 2.0
-            # 服务器错误：中等等待
-            if "500" in msg or "502" in msg or "503" in msg:
-                return 5.0
-            return cfg.base_wait
+            return classify_remote_api_error(
+                e,
+                base_wait=cfg.base_wait,
+                rate_limit_wait=10.0,
+                retry_http_statuses=(500, 502, 503),
+                transport_wait=2.0,
+            )
 
         cfg.classify_error = classify
         cfg.on_exhausted = lambda e: (

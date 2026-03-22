@@ -406,20 +406,14 @@ class MiniMaxAPIProvider(CloudVLMProvider):
 
     def get_retry_config(self):
         """获取重试配置"""
+        from module.providers.utils import classify_remote_api_error
+
         cfg = super().get_retry_config()
-
-        def classify(e):
-            msg = str(e)
-            # 429 限流错误，等待59秒
-            if "429" in msg:
-                return 59.0
-            # 502 错误或空内容，使用基础等待时间
-            if "502" in msg or "RETRY_EMPTY_CONTENT" in msg:
-                return cfg.base_wait
-            # 其他错误不重试
-            return None
-
-        cfg.classify_error = classify
+        cfg.classify_error = lambda e: classify_remote_api_error(
+            e,
+            base_wait=cfg.base_wait,
+            retry_markers=("RETRY_EMPTY_CONTENT",),
+        )
         cfg.on_exhausted = lambda e: (
             print_exception(self.ctx.console, e, prefix="MiniMax API retries exhausted", summary_style="yellow") or ""
         )
