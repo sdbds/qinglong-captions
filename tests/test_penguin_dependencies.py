@@ -155,9 +155,8 @@ def test_pyproject_declares_acestep_transcriber_local_extra():
     assert any(dep.startswith("transformers[serving]>=4.57.0") for dep in acestep_transcriber_deps)
     assert any(dep.startswith("huggingface_hub") for dep in acestep_transcriber_deps)
     assert any(dep.startswith("safetensors") for dep in acestep_transcriber_deps)
-    assert not any("hf_xet" in dep for dep in acestep_transcriber_deps)
-    assert not any(dep.startswith("flash-attn") for dep in acestep_transcriber_deps)
-    assert not any(dep.startswith("triton-windows") for dep in acestep_transcriber_deps)
+    assert any("hf_xet" in dep for dep in acestep_transcriber_deps)
+    assert any(dep.startswith("flash-attn") for dep in acestep_transcriber_deps)
 
 
 def test_caption_step_includes_penguin_extra():
@@ -387,8 +386,8 @@ def test_run_ps1_uses_generic_extra_fallback_for_music_flamingo():
     assert 'Add-UvExtra "music-flamingo-local"' in content
     assert "--alm_model=$alm_model" in content
     assert "if ($null -ne $segment_time)" in content
-    assert "Get-PyprojectExtraRequirements" in content
-    assert "uv.lock 未包含所选 extra，回退到 pyproject optional-dependencies 直接安装" in content
+    assert "Get-PyprojectProfileRequirements" not in content
+    assert "直接使用 uv pip install -r pyproject.toml 安装当前依赖 profile" in content
     assert 'if ($Extra -eq "music-flamingo-local")' not in content
     assert "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf" not in content
 
@@ -407,10 +406,12 @@ def test_run_ps1_mentions_acestep_transcriber_extra():
     assert 'Add-UvExtra "acestep-transcriber-local"' in content
 
 
-def test_run_ps1_locks_with_python_3_11_only():
+def test_run_ps1_does_not_lock_or_export_at_runtime():
     content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
 
-    assert 'uv lock --python 3.11 --index-strategy $IndexStrategy' in content
+    assert "Ensure-UvLockFile" not in content
+    assert "uv lock --python 3.11 --index-strategy $IndexStrategy" not in content
+    assert "uv export --frozen" not in content
 
 
 def test_config_declares_dots_ocr_defaults():

@@ -85,20 +85,6 @@ function Get-ProjectPython {
     return $null
 }
 
-function Ensure-UvLockFile {
-    $LockFile = Join-Path $PSScriptRoot "uv.lock"
-    if (Test-Path $LockFile) {
-        return
-    }
-
-    $IndexStrategy = if ([string]::IsNullOrWhiteSpace($Env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $Env:UV_INDEX_STRATEGY }
-    Write-Output "未找到 uv.lock，先生成锁文件 (index-strategy=$IndexStrategy)"
-    uv lock --index-strategy $IndexStrategy
-    if (!($?)) {
-        throw "uv lock failed"
-    }
-}
-
 function Install-UvExtraPatch {
     param (
         [string[]]$Extras
@@ -111,31 +97,29 @@ function Install-UvExtraPatch {
     $PythonExe = Get-ProjectPython
     $UvEnvName = Get-UvEnvName
     $Profile = ($Extras | Select-Object -Unique | ForEach-Object { "extra:$_" }) -join ", "
-    $ReqFile = Join-Path $env:TEMP "qinglong_uv_patch_$PID.txt"
-    Ensure-UvLockFile
-    uv export --frozen --no-emit-project --format requirements-txt --output-file $ReqFile --extra ($Extras | Select-Object -Unique)
-    if (!($?)) {
-        throw "uv export failed"
-    }
-
     Write-Output "使用共享 .venv 增量安装依赖补丁"
     Write-Output "uv pip install target environment: $UvEnvName"
     Write-Output "uv pip install dependency profile: $Profile"
+    Write-Output "直接使用 uv pip install -r pyproject.toml 安装当前依赖 profile"
 
-    try {
-        if ($PythonExe) {
-            uv pip install --no-build-isolation --python $PythonExe -r $ReqFile
-        }
-        else {
-            uv pip install --no-build-isolation -r $ReqFile
-        }
-
-        if (!($?)) {
-            throw "uv pip install failed"
-        }
+    $InstallArgs = [System.Collections.ArrayList]::new()
+    [void]$InstallArgs.Add("pip")
+    [void]$InstallArgs.Add("install")
+    [void]$InstallArgs.Add("--no-build-isolation")
+    if ($PythonExe) {
+        [void]$InstallArgs.Add("--python")
+        [void]$InstallArgs.Add($PythonExe)
     }
-    finally {
-        Remove-Item $ReqFile -ErrorAction SilentlyContinue
+    [void]$InstallArgs.Add("-r")
+    [void]$InstallArgs.Add("pyproject.toml")
+    foreach ($Extra in ($Extras | Select-Object -Unique)) {
+        [void]$InstallArgs.Add("--extra")
+        [void]$InstallArgs.Add($Extra)
+    }
+
+    uv @InstallArgs
+    if (!($?)) {
+        throw "uv pip install failed"
     }
 }
 #endregion

@@ -168,92 +168,28 @@ function Get-ProjectPython {
   return $null
 }
 
-function Ensure-UvLockFile {
-  $LockFile = Join-Path $PSScriptRoot "uv.lock"
-  if (Test-Path $LockFile) {
-    return
-  }
+function Uninstall-PaddleTorchStack {
+  param (
+    [string]$PythonExe
+  )
 
-  $IndexStrategy = if ([string]::IsNullOrWhiteSpace($Env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $Env:UV_INDEX_STRATEGY }
-  Write-Output "未找到 uv.lock，先生成锁文件 (index-strategy=$IndexStrategy)"
-  uv lock --python 3.11 --index-strategy $IndexStrategy
+  $UninstallArgs = [System.Collections.ArrayList]::new()
+  [void]$UninstallArgs.Add("pip")
+  [void]$UninstallArgs.Add("uninstall")
+  if ($PythonExe) {
+    [void]$UninstallArgs.Add("--python")
+    [void]$UninstallArgs.Add($PythonExe)
+  }
+  [void]$UninstallArgs.Add("-y")
+  [void]$UninstallArgs.Add("torch")
+  [void]$UninstallArgs.Add("torchvision")
+  [void]$UninstallArgs.Add("torchaudio")
+
+  Write-Output "检测到 paddleocr，先卸载共享环境中的 torch / torchvision / torchaudio"
+  uv @UninstallArgs
   if (!($?)) {
-    throw "uv lock failed"
+    Write-Warning "torch 栈卸载命令返回非零，继续安装 paddleocr 当前依赖"
   }
-}
-
-function Test-UvLockHasExtra {
-  param (
-    [string]$ExtraName
-  )
-
-  $LockFile = Join-Path $PSScriptRoot "uv.lock"
-  if ([string]::IsNullOrWhiteSpace($ExtraName) -or -not (Test-Path $LockFile)) {
-    return $false
-  }
-
-  $LockContent = Get-Content $LockFile -Raw
-  return $LockContent.Contains($ExtraName)
-}
-
-function Get-PyprojectExtraRequirements {
-  param (
-    [string[]]$Extras
-  )
-
-  $UniqueExtras = @($Extras | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
-  if ($UniqueExtras.Count -eq 0) {
-    return @()
-  }
-
-  $PyProject = Join-Path $PSScriptRoot "pyproject.toml"
-  if (-not (Test-Path $PyProject)) {
-    return $null
-  }
-
-  $PythonExe = Get-ProjectPython
-  if ([string]::IsNullOrWhiteSpace($PythonExe)) {
-    return $null
-  }
-
-  $ExtraJson = $UniqueExtras | ConvertTo-Json -Compress
-  $PythonScript = @'
-import json
-import pathlib
-import sys
-
-try:
-    import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib
-
-pyproject = pathlib.Path(sys.argv[1])
-extras = json.loads(sys.argv[2])
-data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-optional_deps = data.get("project", {}).get("optional-dependencies", {})
-requirements = []
-seen = set()
-
-for extra in extras:
-    extra_requirements = optional_deps.get(extra)
-    if not extra_requirements:
-        raise SystemExit(3)
-    for requirement in extra_requirements:
-        text = str(requirement).strip()
-        if text and text not in seen:
-            seen.add(text)
-            requirements.append(text)
-
-for requirement in requirements:
-    print(requirement)
-'@
-
-  $Output = & $PythonExe -c $PythonScript $PyProject $ExtraJson 2>$null
-  if ($LASTEXITCODE -ne 0) {
-    return $null
-  }
-
-  return @($Output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
 }
 
 function Install-UvDependencyPatch {
@@ -280,82 +216,13 @@ function Install-UvDependencyPatch {
     }
   }
 
-  Ensure-UvLockFile
-
-  if ($Extras -contains "paddleocr") {
-    Write-Output "检测到 paddleocr，使用 uv sync --inexact 处理冲突依赖"
-    Write-Output "uv sync target environment: $UvEnvName"
-    Write-Output "uv sync dependency profile: $Profile"
-    uv sync --active --frozen --inexact $ArgsList
-    if (!($?)) {
-      throw "uv sync failed"
-    }
-    return
-  }
-
   $UniqueExtras = @($Extras | Select-Object -Unique)
   $UniqueGroups = @($Groups | Select-Object -Unique)
   $PythonExe = Get-ProjectPython
-  $ReqFile = Join-Path $env:TEMP "qinglong_uv_patch_$PID.txt"
 
-  $FallbackExtras = [System.Collections.ArrayList]::new()
-  foreach ($Extra in $UniqueExtras) {
-    if (-not (Test-UvLockHasExtra $Extra)) {
-      [void]$FallbackExtras.Add($Extra)
-    }
+  if ($UniqueExtras -contains "paddleocr") {
+    Uninstall-PaddleTorchStack -PythonExe $PythonExe
   }
-
-  $Requirements = [System.Collections.Generic.List[string]]::new()
-  $FallbackRequirements = @()
-  if ($FallbackExtras.Count -gt 0) {
-    Write-Output "检测到 uv.lock 未包含所选 extra，回退到 pyproject optional-dependencies 直接安装"
-    $FallbackRequirements = Get-PyprojectExtraRequirements -Extras $FallbackExtras
-    if ($null -eq $FallbackRequirements -or $FallbackRequirements.Count -eq 0) {
-      throw "fallback requirements generation failed"
-    }
-  }
-
-  $ExportExtras = @($UniqueExtras | Where-Object { $FallbackExtras -notcontains $_ })
-  if ($ExportExtras.Count -gt 0 -or $UniqueGroups.Count -gt 0) {
-    $ExportArgs = [System.Collections.ArrayList]::new()
-    [void]$ExportArgs.Add("export")
-    [void]$ExportArgs.Add("--frozen")
-    [void]$ExportArgs.Add("--no-emit-project")
-    [void]$ExportArgs.Add("--format")
-    [void]$ExportArgs.Add("requirements-txt")
-    [void]$ExportArgs.Add("--output-file")
-    [void]$ExportArgs.Add($ReqFile)
-    foreach ($Extra in $ExportExtras) {
-      [void]$ExportArgs.Add("--extra")
-      [void]$ExportArgs.Add($Extra)
-    }
-    foreach ($Group in $UniqueGroups) {
-      [void]$ExportArgs.Add("--group")
-      [void]$ExportArgs.Add($Group)
-    }
-
-    Write-Output "导出当前功能所需依赖清单，避免构建本地项目包"
-    uv @ExportArgs
-    if (!($?)) {
-      throw "uv export failed"
-    }
-
-    foreach ($Line in (Get-Content $ReqFile)) {
-      [void]$Requirements.Add($Line)
-    }
-  }
-
-  if ($FallbackExtras.Count -gt 0) {
-    foreach ($Line in $FallbackRequirements) {
-      [void]$Requirements.Add($Line)
-    }
-  }
-
-  if ($Requirements.Count -eq 0) {
-    throw "no requirements generated for dependency patch"
-  }
-
-  $Requirements | Select-Object -Unique | Set-Content -Path $ReqFile -Encoding UTF8
 
   $InstallArgs = [System.Collections.ArrayList]::new()
   [void]$InstallArgs.Add("pip")
@@ -366,19 +233,23 @@ function Install-UvDependencyPatch {
     [void]$InstallArgs.Add($PythonExe)
   }
   [void]$InstallArgs.Add("-r")
-  [void]$InstallArgs.Add($ReqFile)
+  [void]$InstallArgs.Add("pyproject.toml")
+  foreach ($Extra in $UniqueExtras) {
+    [void]$InstallArgs.Add("--extra")
+    [void]$InstallArgs.Add($Extra)
+  }
+  foreach ($Group in $UniqueGroups) {
+    [void]$InstallArgs.Add("--group")
+    [void]$InstallArgs.Add($Group)
+  }
 
   Write-Output "使用共享 .venv 增量安装依赖补丁"
+  Write-Output "直接使用 uv pip install -r pyproject.toml 安装当前依赖 profile"
   Write-Output "uv pip install target environment: $UvEnvName"
   Write-Output "uv pip install dependency profile: $Profile"
-  try {
-    uv @InstallArgs
-    if (!($?)) {
-      throw "uv pip install failed"
-    }
-  }
-  finally {
-    Remove-Item $ReqFile -ErrorAction SilentlyContinue
+  uv @InstallArgs
+  if (!($?)) {
+    throw "uv pip install failed"
   }
 }
 

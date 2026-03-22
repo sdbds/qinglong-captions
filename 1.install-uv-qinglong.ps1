@@ -146,7 +146,7 @@ Write-Output "uv pip install dependency profile: base-only"
 
 $PythonExe = Get-ProjectPython
 
-Write-Output "基础安装直接使用 uv 解析 pyproject.toml，不启用任何 extra"
+Write-Output "基础安装直接使用 uv pip install -r pyproject.toml，不启用任何 extra"
 
 if ($PythonExe) {
     ~/.local/bin/uv pip install --no-build-isolation --python $PythonExe -r pyproject.toml

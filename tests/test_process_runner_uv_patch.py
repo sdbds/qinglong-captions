@@ -36,15 +36,13 @@ package = false
         (tmp_path / "uv.lock").write_text(lock_text or "version = 1\n", encoding="utf-8")
 
 
-def test_patch_shared_environment_generates_lock_before_export_without_lockfile(tmp_path, monkeypatch):
-    _write_project(tmp_path, with_lock=False)
+def test_patch_shared_environment_reads_pyproject_without_lockfile(tmp_path, monkeypatch):
+    _write_project(tmp_path, with_lock=False, optional_deps={"qwen-vl-local": ["torch==2.8.0", "accelerate"]})
     runner = ProcessRunner()
     commands: list[list[str]] = []
 
     async def fake_run(cmd, work_dir, env):
         commands.append(list(cmd))
-        if cmd[:2] == ["uv", "lock"]:
-            (tmp_path / "uv.lock").write_text("version = 1\n", encoding="utf-8")
         return 0
 
     monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
@@ -54,26 +52,21 @@ def test_patch_shared_environment_generates_lock_before_export_without_lockfile(
     )
 
     assert result is None
-    assert len(commands) == 3
+    assert len(commands) == 1
 
-    lock_cmd = commands[0]
-    assert lock_cmd[:4] == ["uv", "lock", "--index-strategy", "unsafe-best-match"]
-
-    export_cmd = commands[1]
-    assert export_cmd[:2] == ["uv", "export"]
-    assert "--frozen" in export_cmd
-    assert "--project" not in export_cmd
+    install_cmd = commands[0]
+    assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
+    assert install_cmd[install_cmd.index("-r") + 1] == "pyproject.toml"
+    assert install_cmd[install_cmd.index("--extra") + 1] == "qwen-vl-local"
 
 
-def test_patch_shared_environment_keeps_frozen_when_lockfile_exists(tmp_path, monkeypatch):
-    _write_project(tmp_path, with_lock=True)
+def test_patch_shared_environment_ignores_existing_lockfile_and_reads_pyproject(tmp_path, monkeypatch):
+    _write_project(tmp_path, with_lock=True, optional_deps={"qwen-vl-local": ["torch==2.8.0", "accelerate"]})
     runner = ProcessRunner()
     commands: list[list[str]] = []
 
     async def fake_run(cmd, work_dir, env):
         commands.append(list(cmd))
-        if cmd[:2] == ["uv", "lock"]:
-            (tmp_path / "uv.lock").write_text("version = 1\n", encoding="utf-8")
         return 0
 
     monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
@@ -83,23 +76,21 @@ def test_patch_shared_environment_keeps_frozen_when_lockfile_exists(tmp_path, mo
     )
 
     assert result is None
-    assert len(commands) == 2
+    assert len(commands) == 1
 
-    export_cmd = commands[0]
-    assert export_cmd[:2] == ["uv", "export"]
-    assert "--frozen" in export_cmd
-    assert "--project" not in export_cmd
+    install_cmd = commands[0]
+    assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
+    assert install_cmd[install_cmd.index("-r") + 1] == "pyproject.toml"
+    assert install_cmd[install_cmd.index("--extra") + 1] == "qwen-vl-local"
 
 
-def test_sync_patch_uses_temp_project_without_lockfile(tmp_path, monkeypatch):
-    _write_project(tmp_path, with_lock=False)
+def test_patch_shared_environment_uninstalls_torch_stack_for_paddleocr(tmp_path, monkeypatch):
+    _write_project(tmp_path, with_lock=False, optional_deps={"paddleocr": ["paddleocr[doc-parser]", "numpy"]})
     runner = ProcessRunner()
     commands: list[list[str]] = []
 
     async def fake_run(cmd, work_dir, env):
         commands.append(list(cmd))
-        if cmd[:2] == ["uv", "lock"]:
-            (tmp_path / "uv.lock").write_text("version = 1\n", encoding="utf-8")
         return 0
 
     monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
@@ -111,25 +102,26 @@ def test_sync_patch_uses_temp_project_without_lockfile(tmp_path, monkeypatch):
     assert result is None
     assert len(commands) == 2
 
-    lock_cmd = commands[0]
-    assert lock_cmd[:4] == ["uv", "lock", "--index-strategy", "unsafe-best-match"]
+    uninstall_cmd = commands[0]
+    assert uninstall_cmd[:3] == ["uv", "pip", "uninstall"]
+    assert "-y" in uninstall_cmd
+    assert "torch" in uninstall_cmd
+    assert "torchvision" in uninstall_cmd
+    assert "torchaudio" in uninstall_cmd
 
-    sync_cmd = commands[1]
-    assert sync_cmd[:2] == ["uv", "sync"]
-    assert "--frozen" in sync_cmd
-    assert "--project" not in sync_cmd
+    install_cmd = commands[1]
+    assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
+    assert install_cmd[install_cmd.index("-r") + 1] == "pyproject.toml"
+    assert install_cmd[install_cmd.index("--extra") + 1] == "paddleocr"
 
 
 def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_path, monkeypatch):
-    _write_project(tmp_path, with_lock=True)
+    _write_project(tmp_path, with_lock=True, optional_deps={"penguin-vl-local": ["torch==2.8.0", "torchvision==0.23.0"]})
     runner = ProcessRunner()
     commands: list[list[str]] = []
 
     async def fake_run(cmd, work_dir, env):
         commands.append(list(cmd))
-        if cmd[:2] == ["uv", "export"]:
-            req_path = Path(cmd[cmd.index("--output-file") + 1])
-            req_path.write_text("torch==2.8.0\ntorchvision==0.23.0\n", encoding="utf-8")
         return 0
 
     monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
@@ -147,9 +139,9 @@ def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_pat
     )
 
     assert result is None
-    assert len(commands) == 2
+    assert len(commands) == 1
 
-    install_cmd = commands[1]
+    install_cmd = commands[0]
     assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
     assert "--index-strategy" in install_cmd
     assert install_cmd[install_cmd.index("--index-strategy") + 1] == "unsafe-best-match"
@@ -159,9 +151,10 @@ def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_pat
     assert install_cmd[install_cmd.index("--reinstall-package") + 1] == "torch"
     second = install_cmd.index("--reinstall-package", install_cmd.index("--reinstall-package") + 1)
     assert install_cmd[second + 1] == "torchvision"
+    assert install_cmd[install_cmd.index("-r") + 1] == "pyproject.toml"
+    assert install_cmd[install_cmd.index("--extra") + 1] == "penguin-vl-local"
 
-
-def test_patch_shared_environment_falls_back_to_pyproject_extra_when_lock_is_missing_extra(tmp_path, monkeypatch):
+def test_patch_shared_environment_reads_requirements_directly_from_pyproject(tmp_path, monkeypatch):
     _write_project(
         tmp_path,
         with_lock=True,
@@ -175,14 +168,9 @@ def test_patch_shared_environment_falls_back_to_pyproject_extra_when_lock_is_mis
     )
     runner = ProcessRunner()
     commands: list[list[str]] = []
-    captured_requirements = ""
 
     async def fake_run(cmd, work_dir, env):
-        nonlocal captured_requirements
         commands.append(list(cmd))
-        if cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]:
-            req_path = Path(cmd[cmd.index("-r") + 1])
-            captured_requirements = req_path.read_text(encoding="utf-8")
         return 0
 
     monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
@@ -196,5 +184,5 @@ def test_patch_shared_environment_falls_back_to_pyproject_extra_when_lock_is_mis
 
     install_cmd = commands[0]
     assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
-    assert "torch==2.8.0" in captured_requirements
-    assert "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf" in captured_requirements
+    assert install_cmd[install_cmd.index("-r") + 1] == "pyproject.toml"
+    assert install_cmd[install_cmd.index("--extra") + 1] == "music-flamingo-local"

@@ -43,7 +43,7 @@
    - 默认模型：`lightonai/LightOnOCR-2-1B`
    - 支持图片与 PDF OCR
    - 依赖 `transformers>=5`
-8. `uv.lock` 缺失时默认使用 `uv lock --python 3.11` 生成锁文件，避免全 Python 版本矩阵解析过慢。
+8. 运行时脚本现在直接从 `pyproject.toml` 解析当前所选 `extra` / `group` 并增量安装，不再强依赖全局 `uv.lock`。
 9. 新增可选本地 ALM `eureka_audio_local`：
    - 默认模型：`cslys1999/Eureka-Audio-Instruct`
    - 支持 `audio/*` 输入
@@ -242,8 +242,8 @@ pwsh ./1.install-uv-qinglong.ps1
 4. 导出结果为 `*_zh_cn.md` 这类语言后缀文件
 
 补充说明：
-- 如果仓库根目录缺少 `uv.lock`，`4、run.ps1` 和 CI 会默认执行 `uv lock --python 3.11 --index-strategy unsafe-best-match` 生成锁文件。
-- 这样做是为了避免可选依赖过多时，对 3.10/3.11/3.12 全矩阵同时求解导致锁文件生成过慢。
+- 日常运行时会直接安装当前所选 profile；`uv.lock` 更适合留给 CI 或发版流程维护。
+- 这样可以避免 optional extras 互相冲突时，单个模型的启动被全局锁文件求解阻断。
 
 如果只想重跑翻译模型而不重新做文档转换，可以把 `source_version` 指向已有的 `norm.*` tag，并在 `5.translate.ps1` 中打开 `skip_normalize`。
 [Pixtral API 秘钥](https://console.mistral.ai/api-keys/) 可选为图片打标。
@@ -486,7 +486,7 @@ A Python toolkit for generating video captions using the Lance database format a
    - Default model: `lightonai/LightOnOCR-2-1B`
    - Supports image and PDF OCR
    - Requires `transformers>=5`
-7. When `uv.lock` is missing, the scripts now default to `uv lock --python 3.11` to avoid very slow full-matrix resolution.
+7. Runtime scripts now install only the selected `extra` / `group` directly from `pyproject.toml`, while `uv.lock` is reserved for CI or release workflows.
 8. Added optional local ALM `eureka_audio_local`:
    - Default model: `cslys1999/Eureka-Audio-Instruct`
    - Supports `audio/*` inputs
@@ -902,7 +902,7 @@ Now we support local [LightOnOCR-2-1B](https://huggingface.co/lightonai/LightOnO
 
 Now we support [GLM](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) series optional for video captioner.
 
-If `uv.lock` is missing, `4、run.ps1` and CI now generate it with `uv lock --python 3.11 --index-strategy unsafe-best-match` to keep lock generation practical with the project's optional dependency matrix.
+Daily runtime no longer depends on `uv.lock`; the scripts install only the selected profile directly from `pyproject.toml`, while `uv.lock` can be maintained separately in CI or release flows.
 
 ### Audio Separation
 Use the PowerShell script to split audio into stems:
