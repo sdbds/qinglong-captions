@@ -66,18 +66,6 @@ function Get-ProjectPython {
     return $null
 }
 
-function Ensure-UvLockFile {
-    $LockFile = Join-Path $PSScriptRoot "uv.lock"
-    if (Test-Path $LockFile) {
-        return
-    }
-
-    $IndexStrategy = if ([string]::IsNullOrWhiteSpace($Env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $Env:UV_INDEX_STRATEGY }
-    Write-Output "未找到 uv.lock，先生成锁文件 (index-strategy=$IndexStrategy)"
-    ~/.local/bin/uv lock --index-strategy $IndexStrategy
-    Check "uv lock failed"
-}
-
 try {
     ~/.local/bin/uv --version
     Write-Output "uv installed|UV模块已安装."
@@ -152,29 +140,21 @@ else {
     . ./.venv/bin/activate.ps1
 }
 
-Write-Output "Exporting project dependencies from pyproject.toml"
+Write-Output "Exporting base project dependencies from pyproject.toml"
 Write-Output "uv pip install target environment: $(Get-UvEnvName)"
-Write-Output "uv pip install dependency profile: default"
+Write-Output "uv pip install dependency profile: base-only"
 
 $PythonExe = Get-ProjectPython
-$ReqFile = Join-Path $env:TEMP "qinglong_uv_install_$PID.txt"
 
-try {
-    Ensure-UvLockFile
-    ~/.local/bin/uv export --frozen --no-emit-project --format requirements-txt --output-file $ReqFile
-    Check "Export main requirements failed"
+Write-Output "基础安装直接使用 uv 解析 pyproject.toml，不启用任何 extra"
 
-    if ($PythonExe) {
-        ~/.local/bin/uv pip install --no-build-isolation --python $PythonExe -r $ReqFile
-    }
-    else {
-        ~/.local/bin/uv pip install --no-build-isolation -r $ReqFile
-    }
-    Check "Install main requirements failed"
+if ($PythonExe) {
+    ~/.local/bin/uv pip install --no-build-isolation --python $PythonExe -r pyproject.toml
 }
-finally {
-    Remove-Item $ReqFile -ErrorAction SilentlyContinue
+else {
+    ~/.local/bin/uv pip install --no-build-isolation -r pyproject.toml
 }
+Check "Install base requirements failed"
 
 Write-Output "Install finished"
 Read-Host | Out-Null ;

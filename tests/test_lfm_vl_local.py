@@ -1,4 +1,6 @@
 import io
+import os
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -27,6 +29,27 @@ def test_lfm_model_config_defaults_match_vl_recommendations():
     assert lfm["min_image_tokens"] == 64
     assert lfm["max_image_tokens"] == 256
     assert lfm["do_image_splitting"] is True
+
+
+def test_lfm_provider_imports_with_repo_root_only_pythonpath():
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from module.providers.local_vlm.lfm_vl_local import LFMVLLocalProvider; print(LFMVLLocalProvider.name)",
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "lfm_vl_local"
 
 
 def test_lfm_provider_loads_expected_artifact_bundle(monkeypatch):

@@ -116,3 +116,7 @@ def test_eureka_audio_conflicts_with_known_transformers_incompatible_extras():
 
     for pair in expected_pairs:
         assert _has_extra_conflict(*pair)
+
+
+def test_acestep_transcriber_conflicts_with_translate():
+    assert _has_extra_conflict("acestep-transcriber-local", "translate")

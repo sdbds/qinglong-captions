@@ -505,6 +505,10 @@ conflicts = [
         { extra = "dots-ocr" },
     ],
     [
+        { extra = "translate" },
+        { extra = "acestep-transcriber-local" },
+    ],
+    [
         { extra = "wdtagger" },
         { extra = "dots-ocr" },
     ],
@@ -647,6 +651,10 @@ conflicts = [
     [
         { extra = "paddleocr" },
         { extra = "eureka-audio-local" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "acestep-transcriber-local" },
     ],
     [
         { group = "test" },

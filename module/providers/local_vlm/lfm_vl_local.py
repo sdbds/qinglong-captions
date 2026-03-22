@@ -8,9 +8,9 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from onnx_runtime.artifacts import build_component_filename, download_onnx_artifact_set
-from onnx_runtime.config import resolve_tool_runtime_config
-from onnx_runtime.session import load_session_bundle
+from module.onnx_runtime.artifacts import build_component_filename, download_onnx_artifact_set
+from module.onnx_runtime.config import resolve_tool_runtime_config
+from module.onnx_runtime.session import load_session_bundle
 from module.providers.base import CaptionResult, MediaContext, PromptContext, build_chat_text_message
 from module.providers.local_vlm_base import LocalVLMProvider
 from module.providers.registry import register_provider
