@@ -178,7 +178,7 @@ class CaptionStep:
         "deepseek_ocr": "#10 deepseek_ocr (76.3)",
         "glm_ocr": "#14 glm_ocr (75.2)",
         "firered_ocr": "#15 firered_ocr (70.2)",
-        "nanonets_ocr": "#16 nanonets_ocr (-)",
+        "nanonets_ocr": "#16 nanonets_ocr (69.5)",
     }
 
     VLM_MODELS = list(route_choices("vlm_image_model"))

@@ -95,7 +95,7 @@ ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
         RouteSpec("deepseek_ocr", "deepseek_ocr"),  # #10, 76.3
         RouteSpec("glm_ocr", "glm_ocr"),            # #14, 75.2
         RouteSpec("firered_ocr", "firered_ocr"),    # #15, 70.2
-        RouteSpec("nanonets_ocr", "nanonets_ocr"),  # #16, 69.3
+        RouteSpec("nanonets_ocr", "nanonets_ocr"),  # #16, 69.5
         RouteSpec("logics_ocr", "logics_ocr"),      # unranked
         RouteSpec("mistral_ocr", "mistral_ocr", aliases=("pixtral_ocr", "pixtral"), requires_remote_config=True),  # API, unranked
         RouteSpec("hunyuan_ocr", "hunyuan_ocr"),    # unranked
