@@ -67,7 +67,7 @@ jobs:
           Set-Location $env:GITHUB_WORKSPACE
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          python -m pip install --upgrade pip uv wheel_stub setuptools wheel
+          python -m pip install --upgrade pip uv wheel_stub setuptools wheel tomli
           if ($LASTEXITCODE -ne 0) { throw "install uv failed" }
           $RunnerPython = (Get-Command python).Source
           uv venv --python $RunnerPython
@@ -80,17 +80,23 @@ jobs:
           uv pip install --python $PythonExe setuptools wheel wheel_stub
           if ($LASTEXITCODE -ne 0) { throw "uv pip bootstrap failed" }
           $IndexStrategy = if ([string]::IsNullOrWhiteSpace($env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $env:UV_INDEX_STRATEGY }
-          if (-not (Test-Path "uv.lock")) {
-            uv lock --python $RunnerPython --index-strategy $IndexStrategy
-            if ($LASTEXITCODE -ne 0) { throw "uv lock failed" }
-            if (-not (Test-Path "uv.lock")) { throw "uv lock did not produce uv.lock" }
-          }
-          uv sync --frozen --group test
-          if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }
+          $UvExportProjectDir = Join-Path $env:RUNNER_TEMP "qinglong-ci-test-project"
+          Remove-Item $UvExportProjectDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $UvExportProjectDir | Out-Null
+          $CiPyproject = Join-Path $UvExportProjectDir "pyproject.toml"
+          python .github/scripts/render_ci_test_project.py --source pyproject.toml --output $CiPyproject
+          if ($LASTEXITCODE -ne 0) { throw "render ci test project failed" }
+          $RequirementsFile = Join-Path $env:RUNNER_TEMP "qinglong-ci-test-requirements.txt"
+          uv export --project $UvExportProjectDir --python $RunnerPython --index-strategy $IndexStrategy --group test --no-emit-project --format requirements-txt --output-file $RequirementsFile
+          if ($LASTEXITCODE -ne 0) { throw "uv export failed" }
+          uv pip install --python $PythonExe --index-strategy $IndexStrategy -r $RequirementsFile
+          if ($LASTEXITCODE -ne 0) { throw "uv pip install failed" }
+          "VENV_PYTHON=$PythonExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Run fast unit suite
+        shell: pwsh
         run: |
-          uv run --group test python -m pytest tests/test_provider_catalog.py tests/test_scene_detection.py tests/test_runtime_backends.py tests/test_tag_highlighting.py tests/test_process_runner_tail_parser.py tests/test_log_viewer_scroll_state.py tests/test_lance_blob.py tests/test_lance_utils.py tests/test_text_translation_pipeline.py tests/test_path_safety.py tests/test_output_writer.py tests/test_caption_pipeline.py tests/test_runtime_config.py tests/test_ocr_output_writer_adoption.py -q
+          & $env:VENV_PYTHON -m pytest tests/test_provider_catalog.py tests/test_scene_detection.py tests/test_runtime_backends.py tests/test_tag_highlighting.py tests/test_process_runner_tail_parser.py tests/test_log_viewer_scroll_state.py tests/test_lance_blob.py tests/test_lance_utils.py tests/test_text_translation_pipeline.py tests/test_path_safety.py tests/test_output_writer.py tests/test_caption_pipeline.py tests/test_runtime_config.py tests/test_ocr_output_writer_adoption.py -q
 
   provider-v2:
     runs-on: ${{ matrix.os }}
@@ -117,7 +123,7 @@ jobs:
           Set-Location $env:GITHUB_WORKSPACE
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          python -m pip install --upgrade pip uv wheel_stub setuptools wheel
+          python -m pip install --upgrade pip uv wheel_stub setuptools wheel tomli
           if ($LASTEXITCODE -ne 0) { throw "install uv failed" }
           $RunnerPython = (Get-Command python).Source
           uv venv --python $RunnerPython
@@ -130,18 +136,25 @@ jobs:
           uv pip install --python $PythonExe setuptools wheel wheel_stub
           if ($LASTEXITCODE -ne 0) { throw "uv pip bootstrap failed" }
           $IndexStrategy = if ([string]::IsNullOrWhiteSpace($env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $env:UV_INDEX_STRATEGY }
-          if (-not (Test-Path "uv.lock")) {
-            uv lock --python $RunnerPython --index-strategy $IndexStrategy
-            if ($LASTEXITCODE -ne 0) { throw "uv lock failed" }
-            if (-not (Test-Path "uv.lock")) { throw "uv lock did not produce uv.lock" }
-          }
-          uv sync --frozen --group test
-          if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }
+          $UvExportProjectDir = Join-Path $env:RUNNER_TEMP "qinglong-ci-test-project"
+          Remove-Item $UvExportProjectDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $UvExportProjectDir | Out-Null
+          $CiPyproject = Join-Path $UvExportProjectDir "pyproject.toml"
+          python .github/scripts/render_ci_test_project.py --source pyproject.toml --output $CiPyproject
+          if ($LASTEXITCODE -ne 0) { throw "render ci test project failed" }
+          $RequirementsFile = Join-Path $env:RUNNER_TEMP "qinglong-ci-test-requirements.txt"
+          uv export --project $UvExportProjectDir --python $RunnerPython --index-strategy $IndexStrategy --group test --no-emit-project --format requirements-txt --output-file $RequirementsFile
+          if ($LASTEXITCODE -ne 0) { throw "uv export failed" }
+          uv pip install --python $PythonExe --index-strategy $IndexStrategy -r $RequirementsFile
+          if ($LASTEXITCODE -ne 0) { throw "uv pip install failed" }
+          "VENV_PYTHON=$PythonExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Run strict provider discovery gate
+        shell: pwsh
         run: |
-          uv run --group test python -c "from providers.registry import get_registry; reg = get_registry(); reg.discover(strict=True)"
+          & $env:VENV_PYTHON -c "from providers.registry import get_registry; reg = get_registry(); reg.discover(strict=True)"
 
       - name: Run Provider V2 suite
+        shell: pwsh
         run: |
-          uv run --group test python -m pytest tests/test_provider_v2.py tests/test_provider_registry.py tests/test_provider_routes.py tests/test_api_handler_v2.py -q --durations=20
+          & $env:VENV_PYTHON -m pytest tests/test_provider_v2.py tests/test_provider_registry.py tests/test_provider_routes.py tests/test_api_handler_v2.py -q --durations=20

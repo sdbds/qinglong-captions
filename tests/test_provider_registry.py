@@ -27,7 +27,7 @@ class TestProviderRegistry:
         reg = get_registry()
         reg.discover()
         providers = reg.list_providers()
-        assert len(providers) >= 24
+        assert len(providers) >= 25
         expected = [
             "stepfun",
             "ark",
@@ -52,6 +52,7 @@ class TestProviderRegistry:
             "step_vl_local",
             "penguin_vl_local",
             "reka_edge_local",
+            "acestep_transcriber_local",
             "mistral_ocr",
             "gemini",
         ]
@@ -171,6 +172,47 @@ class TestProviderRegistry:
 
             assert provider is FakeProvider
             assert calls == [("eureka_audio_local", _PROVIDER_MODULES["eureka_audio_local"])]
+        finally:
+            reg._providers = original_providers
+            reg._discovered = original_discovered
+            reg._import_failures = original_failures
+
+    def test_find_provider_lazy_loads_explicit_acestep_audio_provider_before_full_discovery(self, monkeypatch):
+        from providers.registry import _PROVIDER_MODULES, get_registry
+
+        reg = get_registry()
+        original_providers = dict(reg._providers)
+        original_discovered = reg._discovered
+        original_failures = dict(getattr(reg, "_import_failures", {}))
+
+        class FakeProvider:
+            name = "acestep_transcriber_local"
+
+            @classmethod
+            def can_handle(cls, args, mime):
+                return getattr(args, "alm_model", "") == "acestep_transcriber_local" and mime.startswith("audio")
+
+        calls = []
+
+        def fake_discover_provider_module(provider_name, module_path):
+            calls.append((provider_name, module_path))
+            reg.register(provider_name, FakeProvider)
+
+        try:
+            reg._providers = {}
+            reg._discovered = False
+            reg._import_failures = {}
+            monkeypatch.setattr(reg, "_discover_provider_module", fake_discover_provider_module)
+            monkeypatch.setattr(
+                reg,
+                "discover",
+                lambda strict=False: (_ for _ in ()).throw(AssertionError("full discover should not run")),
+            )
+
+            provider = reg.find_provider(make_provider_args(alm_model="acestep_transcriber_local"), "audio/wav")
+
+            assert provider is FakeProvider
+            assert calls == [("acestep_transcriber_local", _PROVIDER_MODULES["acestep_transcriber_local"])]
         finally:
             reg._providers = original_providers
             reg._discovered = original_discovered

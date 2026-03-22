@@ -283,5 +283,17 @@ temperature = 0.0
 top_p = 0.0
 top_k = 0
 
+# ACE-Step Transcriber ALM configuration
+# Model: https://huggingface.co/ACE-Step/acestep-transcriber
+# Requires: uv sync --extra acestep-transcriber-local
+# Model card says usage follows Qwen2.5 Omni style audio chat format.
+[acestep_transcriber_local]
+model_id = "ACE-Step/acestep-transcriber"
+max_new_tokens = 1024
+do_sample = false
+temperature = 0.0
+top_p = 0.0
+top_k = 0
+
 [kimi_vl]
 thinking = "enabled"  # enabled | disabled

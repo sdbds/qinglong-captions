@@ -258,6 +258,22 @@ class TestFindProvider:
         provider = reg.find_provider(args, "image/jpeg")
         assert provider is None or provider.name != "music_flamingo_local"
 
+    def test_acestep_transcriber_local_audio(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(alm_model="acestep_transcriber_local")
+        provider = reg.find_provider(args, "audio/wav")
+        assert provider is not None and provider.name == "acestep_transcriber_local"
+
+    def test_acestep_transcriber_local_ignores_non_audio(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(alm_model="acestep_transcriber_local")
+        provider = reg.find_provider(args, "image/jpeg")
+        assert provider is None or provider.name != "acestep_transcriber_local"
+
     def test_all_ocr_providers(self):
         from providers.registry import get_registry
 

@@ -143,6 +143,23 @@ def test_pyproject_declares_eureka_audio_local_extra():
     assert any(dep.startswith("flash-attn") for dep in eureka_audio_deps)
 
 
+def test_pyproject_declares_acestep_transcriber_local_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "acestep-transcriber-local" in optional_deps
+    acestep_transcriber_deps = optional_deps["acestep-transcriber-local"]
+    assert any(dep.startswith("torch==2.8.0") for dep in acestep_transcriber_deps)
+    assert any(dep.startswith("torchaudio") for dep in acestep_transcriber_deps)
+    assert any(dep.startswith("accelerate") for dep in acestep_transcriber_deps)
+    assert any(dep.startswith("transformers[serving]>=4.57.0") for dep in acestep_transcriber_deps)
+    assert any(dep.startswith("huggingface_hub") for dep in acestep_transcriber_deps)
+    assert any(dep.startswith("safetensors") for dep in acestep_transcriber_deps)
+    assert not any("hf_xet" in dep for dep in acestep_transcriber_deps)
+    assert not any(dep.startswith("flash-attn") for dep in acestep_transcriber_deps)
+    assert not any(dep.startswith("triton-windows") for dep in acestep_transcriber_deps)
+
+
 def test_caption_step_includes_penguin_extra():
     CaptionStep = _load_caption_step("test_step4_caption")
 
@@ -228,6 +245,17 @@ def test_caption_step_includes_eureka_audio_extra():
     assert step._build_local_extra_args() == ["--extra", "eureka-audio-local"]
 
 
+def test_caption_step_includes_acestep_transcriber_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_acestep_transcriber")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="acestep_transcriber_local")
+
+    assert step._build_local_extra_args() == ["--extra", "acestep-transcriber-local"]
+
+
 def test_caption_step_treats_music_flamingo_as_local_route():
     CaptionStep = _load_caption_step("test_step4_caption_local_route")
 
@@ -246,6 +274,17 @@ def test_caption_step_treats_eureka_audio_as_local_route():
     step.ocr_model = SimpleNamespace(value="")
     step.vlm_image_model = SimpleNamespace(value="")
     step.alm_model = SimpleNamespace(value="eureka_audio_local")
+
+    assert step._has_local_route_config() is True
+
+
+def test_caption_step_treats_acestep_transcriber_as_local_route():
+    CaptionStep = _load_caption_step("test_step4_caption_local_route_acestep")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="acestep_transcriber_local")
 
     assert step._has_local_route_config() is True
 
@@ -359,6 +398,13 @@ def test_run_ps1_mentions_eureka_audio_extra():
 
     assert '"eureka_audio_local"' in content
     assert 'Add-UvExtra "eureka-audio-local"' in content
+
+
+def test_run_ps1_mentions_acestep_transcriber_extra():
+    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+
+    assert '"acestep_transcriber_local"' in content
+    assert 'Add-UvExtra "acestep-transcriber-local"' in content
 
 
 def test_run_ps1_locks_with_python_3_11_only():

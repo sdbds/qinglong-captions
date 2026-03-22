@@ -32,6 +32,10 @@
    - 默认模型：`cslys1999/Eureka-Audio-Instruct`
    - 支持 `audio/*` 输入
    - 基于官方 `AutoModelForCausalLM + AutoProcessor` 推理路径
+10. 新增可选本地 ALM `acestep_transcriber_local`：
+   - 默认模型：`ACE-Step/acestep-transcriber`
+   - 支持 `audio/*` 输入
+   - 默认输出结构化 `.txt` 转写文本
 
 ### 4.0 - Provider V2 架构重构
 
@@ -274,7 +278,7 @@ $document_image = $true
 $vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
 
 # ALM model configuration for audio tasks
-$alm_model = ""  # Options: "music_flamingo_local", "eureka_audio_local", ""
+$alm_model = ""  # Options: "music_flamingo_local", "eureka_audio_local", "acestep_transcriber_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
@@ -337,6 +341,23 @@ $alm_model = "eureka_audio_local"
 4. 项目默认提供 `eureka_audio_system_prompt` / `eureka_audio_prompt`，两者都与模型卡 quick start 保持一致：`Descript The audio.`。
 5. `segment_time` 留空时继续使用通用默认值 `600` 秒；只有 `music_flamingo_local` 保留 `1200` 秒特例。
 6. 这个 provider 目前也按“描述型音频理解”集成，后处理仍输出 `.txt` 描述摘要，不替代专门 ASR 流程。
+
+#### 本地 ACE-Step Transcriber ALM
+
+`acestep_transcriber_local` 默认对接的是 [`ACE-Step/acestep-transcriber`](https://huggingface.co/ACE-Step/acestep-transcriber)，同样走 `audio/*` 路由，但目标是输出结构化转写文本而不是摘要。
+
+1. 安装依赖：
+```powershell
+uv sync --extra acestep-transcriber-local
+```
+2. 启用本地音频模型：
+```powershell
+$alm_model = "acestep_transcriber_local"
+```
+3. 当前实现继续使用 `AutoModelForCausalLM` 与 `AutoProcessor`，并按模型卡说明走 `audio_url + text` 的 chat template 输入格式。
+4. 项目默认提供 `acestep_transcriber_audio_system_prompt` / `acestep_transcriber_audio_prompt`，两者都默认是模型卡建议的 `*Task* Transcribe this audio in detail`。
+5. `segment_time` 留空时继续使用通用默认值 `600` 秒。
+6. 这个 provider 输出 `.txt` 结构化转写文本，不会自动转换成 `.srt`。
 
 如果你走第 3 种方式，调用链会复用现有本地 OpenAI-compatible 多模态入口，配置方法和 Gemini / 其他 VLM provider 保持一致，只是后端换成你自己的本地服务。
 
@@ -422,6 +443,10 @@ A Python toolkit for generating video captions using the Lance database format a
    - Default model: `cslys1999/Eureka-Audio-Instruct`
    - Supports `audio/*` inputs
    - Uses the official `AutoModelForCausalLM + AutoProcessor` inference path
+9. Added optional local ALM `acestep_transcriber_local`:
+   - Default model: `ACE-Step/acestep-transcriber`
+   - Supports `audio/*` inputs
+   - Defaults to structured `.txt` transcript output
 
 ### 4.0 - Provider V2 Architecture Refactoring
 
@@ -871,7 +896,7 @@ $document_image = $true
 $vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
 
 # ALM model configuration for audio tasks
-$alm_model = ""  # Options: "music_flamingo_local", "eureka_audio_local", ""
+$alm_model = ""  # Options: "music_flamingo_local", "eureka_audio_local", "acestep_transcriber_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
@@ -934,6 +959,23 @@ $alm_model = "eureka_audio_local"
 4. The shipped `eureka_audio_system_prompt` and `eureka_audio_prompt` both default to the model-card quick-start prompt: `Descript The audio.`.
 5. Leave `segment_time` as `$null` to keep the generic `600` second default. Only `music_flamingo_local` keeps the special `1200` second default.
 6. This integration is currently wired as descriptive audio understanding and emits `.txt` summary output, not a dedicated ASR transcript.
+
+#### Local ACE-Step Transcriber ALM
+
+`acestep_transcriber_local` defaults to [`ACE-Step/acestep-transcriber`](https://huggingface.co/ACE-Step/acestep-transcriber). It uses the same `audio/*` route as the other local ALMs, but its goal is transcript-style output instead of audio summarization.
+
+1. Install the extra:
+```powershell
+uv sync --extra acestep-transcriber-local
+```
+2. Enable the local audio model:
+```powershell
+$alm_model = "acestep_transcriber_local"
+```
+3. The provider loads the model through `AutoModelForCausalLM` plus `AutoProcessor` with `trust_remote_code=True`, and sends messages in the model-card `audio_url + text` format.
+4. The shipped `acestep_transcriber_audio_system_prompt` and `acestep_transcriber_audio_prompt` both default to the recommended prompt: `*Task* Transcribe this audio in detail`.
+5. Leave `segment_time` as `$null` to keep the generic `600` second default.
+6. This provider emits structured `.txt` transcripts and does not automatically convert them to `.srt`.
 
 Server mode reuses the existing local OpenAI-compatible multimodal path, so the configuration pattern stays the same as other VLM backends.
 

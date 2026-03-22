@@ -203,6 +203,10 @@ eureka_audio_system_prompt = """Descript The audio."""
 
 eureka_audio_prompt = """Descript The audio."""
 
+acestep_transcriber_audio_system_prompt = """*Task* Transcribe this audio in detail"""
+
+acestep_transcriber_audio_prompt = """*Task* Transcribe this audio in detail"""
+
 mistral_ocr_image_system_prompt = """You are a professional image captioning assistant. Your task is to objectively generate accurate, detailed, and descriptive image captions based on the provided image.
 Create 1 detailed image description.
 These descriptions describe various aspects of the image, including characters, objects, actions, emotions, artistic styles, etc.

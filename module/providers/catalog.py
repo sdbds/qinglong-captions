@@ -77,6 +77,11 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
         config_sections=("eureka_audio_local", "eureka_audio"),
         prompt_prefixes=("eureka",),
     ),
+    "acestep_transcriber_local": ProviderSpec(
+        canonical_name="acestep_transcriber_local",
+        config_sections=("acestep_transcriber_local",),
+        prompt_prefixes=("acestep_transcriber",),
+    ),
 }
 
 ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
@@ -107,6 +112,7 @@ ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
     "alm_model": (
         RouteSpec("music_flamingo_local", "music_flamingo_local"),
         RouteSpec("eureka_audio_local", "eureka_audio_local"),
+        RouteSpec("acestep_transcriber_local", "acestep_transcriber_local"),
     ),
 }
 

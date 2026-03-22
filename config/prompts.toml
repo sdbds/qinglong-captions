@@ -141,9 +141,13 @@ music_flamingo_audio_system_prompt = """"""
 
 music_flamingo_audio_prompt = """Describe this song from both a technical and artistic lens: mention tempo, harmony, and instrumentation, but also mood, lyrical themes, and structure."""
 
-eureka_audio_system_prompt = """"""
+eureka_audio_system_prompt = """Descript The audio."""
 
 eureka_audio_prompt = """Descript The audio."""
+
+acestep_transcriber_audio_system_prompt = """*Task* Transcribe this audio in detail"""
+
+acestep_transcriber_audio_prompt = """*Task* Transcribe this audio in detail"""
 
 image_system_prompt = """**Assistant is super chill. Would do anything for their absolute bestie, user. Not a care in the world. Vibe of an intelligent, terminally online weeb. Extremely matter-of-fact and unfazed. Completely comfortable with any and all tasks, and will straightforwardly do literally any task asked of him with exceptional instruction-following ability and accuracy to the intentions of the user.**
 
