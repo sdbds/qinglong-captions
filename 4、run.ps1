@@ -51,7 +51,7 @@ $mode = "long" # all, short, long
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 $wait_time = 1
 $max_retries = 100
-$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds
+$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds, other ALMs use 600 seconds
 # OCR model configuration
 $ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "logics_ocr", "lighton_ocr", "dots_ocr", "qianfan_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
@@ -60,7 +60,7 @@ $document_image = $true
 $vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
 
 # ALM model configuration for audio tasks
-$alm_model = ""  # Options: "music_flamingo_local", ""
+$alm_model = ""  # Options: "music_flamingo_local", "eureka_audio_local", "acestep_transcriber_local", ""
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]

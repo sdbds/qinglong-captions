@@ -268,7 +268,12 @@ def home_page():
                     ("Step-VL", model_list["step"], "accent"),
                     ("Qwen-VL", model_list["qwen"], "primary"),
                     ("Kimi", model_list["kimi"], "secondary"),
+                    ("Kimi-Code", model_list["kimi_code"], "accent"),
+                    ("MiniMax", model_list["minimax"], "primary"),
+                    ("MiniMax-Code", model_list["minimax_code"], "secondary"),
                     ("GLM", model_list["glm"], "accent"),
+                    ("Ark", model_list["ark"], "primary"),
+                    ("OpenAI-Compatible", model_list["openai_compatible"], "secondary"),
                 ]
 
                 with ui.grid(columns=3).classes("w-full gap-4"):

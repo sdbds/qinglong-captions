@@ -5,6 +5,7 @@ Supports: English (en), Chinese (zh), Japanese (ja), Korean (ko)
 Default: English
 """
 
+import locale
 from typing import Dict, Any, Callable, List
 
 # Translation dictionary
@@ -78,6 +79,9 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
             "minimax": "MiniMax API for video/image",
             "minimax_code": "MiniMax Code for structured output",
             "glm": "Zhipu GLM for video/image",
+            "kimi_code": "Kimi Code for structured output",
+            "ark": "Volcengine Ark for video/image",
+            "openai_compatible": "OpenAI-Compatible API (vLLM, Ollama, etc.)",
         },
         "feature_list": {
             "import_desc": "Import videos/images to Lance database",
@@ -492,6 +496,9 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
             "minimax": "MiniMax API，支持视频/图像",
             "minimax_code": "MiniMax Code，结构化输出优化",
             "glm": "智谱 GLM，视频/图像",
+            "kimi_code": "Kimi Code，结构化输出",
+            "ark": "火山引擎 Ark，视频/图像",
+            "openai_compatible": "OpenAI 兼容接口 (vLLM, Ollama 等)",
         },
         "feature_list": {
             "import_desc": "将视频/图像导入 Lance 数据库",
@@ -898,6 +905,9 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
             "minimax": "MiniMax API",
             "minimax_code": "MiniMax Code",
             "glm": "Zhipu GLM",
+            "kimi_code": "Kimi Code（構造化出力）",
+            "ark": "Volcengine Ark",
+            "openai_compatible": "OpenAI互換API (vLLM, Ollama等)",
         },
         "feature_list": {
             "import_desc": "動画/画像を Lance DB にインポート",
@@ -1202,6 +1212,9 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
             "minimax": "MiniMax API",
             "minimax_code": "MiniMax Code",
             "glm": "Zhipu GLM",
+            "kimi_code": "Kimi Code (구조화 출력)",
+            "ark": "Volcengine Ark",
+            "openai_compatible": "OpenAI 호환 API (vLLM, Ollama 등)",
         },
         "feature_list": {
             "import_desc": "동영상/이미지를 Lance DB로 가져오기",
@@ -1448,11 +1461,29 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
 }
 
 
+def _detect_system_language() -> str:
+    """Detect system language, return matching i18n code or 'en'."""
+    try:
+        lang_code = locale.getdefaultlocale()[0] or ""
+    except Exception:
+        return "en"
+    lang_code = lang_code.lower()
+    if lang_code.startswith("zh"):
+        return "zh"
+    if lang_code.startswith("ja"):
+        return "ja"
+    if lang_code.startswith("ko"):
+        return "ko"
+    return "en"
+
+
 class I18n:
     """Internationalization class"""
 
-    def __init__(self, lang: str = "zh"):
-        self.lang = lang if lang in TRANSLATIONS else "zh"
+    def __init__(self, lang: str = None):
+        if lang is None:
+            lang = _detect_system_language()
+        self.lang = lang if lang in TRANSLATIONS else "en"
 
     def t(self, key: str, default: str = None):
         """Get translation for key"""

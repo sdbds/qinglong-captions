@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 from typing import Dict, Any
 
+from gui.utils.i18n import _detect_system_language
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "env_vars.json"
 
@@ -19,7 +21,7 @@ ENV_VAR_DEFINITIONS: list[dict] = [
     # ── Runtime ──
     {"key": "HF_HOME", "default": "huggingface", "group": "runtime",
      "desc_en": "HuggingFace cache directory", "desc_zh": "HuggingFace 缓存目录"},
-    {"key": "HF_ENDPOINT", "default": "https://hf-mirror.com", "group": "runtime",
+    {"key": "HF_ENDPOINT", "default": "", "group": "runtime",
      "desc_en": "HuggingFace mirror endpoint", "desc_zh": "HuggingFace 镜像地址"},
     {"key": "XFORMERS_FORCE_DISABLE_TRITON", "default": "1", "group": "runtime",
      "desc_en": "Disable Triton in xformers", "desc_zh": "禁用 xformers 中的 Triton"},
@@ -52,7 +54,13 @@ ENV_VAR_DEFINITIONS: list[dict] = [
 
 def _defaults() -> Dict[str, str]:
     """返回所有环境变量的默认值字典"""
-    return {d["key"]: d["default"] for d in ENV_VAR_DEFINITIONS}
+    d = {item["key"]: item["default"] for item in ENV_VAR_DEFINITIONS}
+    if _detect_system_language() == "zh":
+        if not d.get("HF_ENDPOINT"):
+            d["HF_ENDPOINT"] = "https://hf-mirror.com"
+        if not d.get("UV_INDEX_URL"):
+            d["UV_INDEX_URL"] = "https://pypi.tuna.tsinghua.edu.cn/simple/"
+    return d
 
 
 def load_env_config() -> Dict[str, str]:
