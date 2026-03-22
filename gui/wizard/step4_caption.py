@@ -21,6 +21,30 @@ def _load_gemini_task_names() -> list[str]:
         return []
 
 
+def _load_model_id_map() -> dict[str, str]:
+    """从 model.toml 读取各 section 的 model_id，返回 {section_name: model_id}。"""
+    import toml
+    try:
+        cfg = toml.load(Path(__file__).resolve().parent.parent.parent / "config" / "model.toml")
+    except Exception:
+        return {}
+    result: dict[str, str] = {}
+    for section, value in cfg.items():
+        if isinstance(value, dict):
+            mid = value.get("model_id")
+            if mid:
+                result[section] = mid
+    return result
+
+
+# 在模块加载时读取一次
+_MODEL_ID_MAP: dict[str, str] = _load_model_id_map()
+
+# penguin_vl_local 的 config section 名是 "penguin"
+_MODEL_ID_MAP.setdefault("penguin_vl_local", _MODEL_ID_MAP.get("penguin", "penguin_vl_local"))
+_MODEL_ID_MAP["paddle_ocr"] = "PaddleOCR-VL-1.5"
+
+
 class CaptionStep:
     """字幕生成页面"""
 
@@ -168,18 +192,38 @@ class CaptionStep:
 
     OCR_MODELS = list(route_choices("ocr_model"))
 
-    OCR_LEADERBOARD_LABELS = {
-        "chandra_ocr": "#1 chandra_ocr (85.9)",
-        "dots_ocr": "#2 dots_ocr (83.9)",
-        "lighton_ocr": "#3 lighton_ocr (83.2)",
-        "olmocr": "#6 olmocr (82.4)",
-        "paddle_ocr": "#7 paddle_ocr (80.0)",
-        "qianfan_ocr": "#8 qianfan_ocr (79.8)",
-        "deepseek_ocr": "#10 deepseek_ocr (76.3)",
-        "glm_ocr": "#14 glm_ocr (75.2)",
-        "firered_ocr": "#15 firered_ocr (70.2)",
-        "nanonets_ocr": "#16 nanonets_ocr (69.5)",
+    # OCR 榜单排名 + model_id 显示标签
+    _OCR_RANK_SCORES = {
+        "chandra_ocr": ("#1", "85.9"),
+        "dots_ocr": ("#2", "83.9"),
+        "lighton_ocr": ("#3", "83.2"),
+        "olmocr": ("#6", "82.4"),
+        "paddle_ocr": ("#7", "80.0"),
+        "qianfan_ocr": ("#8", "79.8"),
+        "deepseek_ocr": ("#10", "76.3"),
+        "glm_ocr": ("#14", "75.2"),
+        "firered_ocr": ("#15", "70.2"),
+        "nanonets_ocr": ("#16", "69.5"),
     }
+
+    @classmethod
+    def _build_ocr_labels(cls) -> dict[str, str]:
+        labels: dict[str, str] = {}
+        for m in cls.OCR_MODELS:
+            if not m:
+                labels[m] = m
+                continue
+            mid = _MODEL_ID_MAP.get(m, m)
+            if m in cls._OCR_RANK_SCORES:
+                rank, score = cls._OCR_RANK_SCORES[m]
+                labels[m] = f"{rank} {mid} ({score})"
+            else:
+                labels[m] = mid
+        return labels
+
+    @classmethod
+    def _build_route_labels(cls, models: list[str]) -> dict[str, str]:
+        return {m: (_MODEL_ID_MAP.get(m, m) if m else m) for m in models}
 
     VLM_MODELS = list(route_choices("vlm_image_model"))
 
@@ -620,7 +664,7 @@ class CaptionStep:
 
             # OCR 模型 - 带图标的现代化下拉框
             self.ocr_model = styled_select(
-                options={m: self.OCR_LEADERBOARD_LABELS.get(m, m) for m in self.OCR_MODELS},
+                options=self._build_ocr_labels(),
                 value="",
                 label=t("ocr_model"),
                 icon="text_fields",
@@ -637,7 +681,7 @@ class CaptionStep:
 
             # VLM 图像模型 - 带图标的现代化下拉框
             self.vlm_image_model = styled_select(
-                options=dict(zip(self.VLM_MODELS, self.VLM_MODELS)),
+                options=self._build_route_labels(self.VLM_MODELS),
                 value="",
                 label=t("vlm_image_model"),
                 icon="visibility",
@@ -649,7 +693,7 @@ class CaptionStep:
                 ui.label("ALM " + t("settings")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
 
             self.alm_model = styled_select(
-                options=dict(zip(self.ALM_MODELS, self.ALM_MODELS)),
+                options=self._build_route_labels(self.ALM_MODELS),
                 value="",
                 label=t("alm_model"),
                 icon="graphic_eq",
