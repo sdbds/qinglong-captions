@@ -25,6 +25,7 @@ $Config = @{
     recursive          = $true                            # Optional: Set to $true to recursively process subdirectories
     workers            = 8                                # Optional: Maximum number of worker threads for processing (e.g., 8)
     transform_type     = "auto"                           # Optional: Set to "auto" for automatic alignment, "none" for no alignment
+    matcher_backend    = "auto"                           # Optional: Set to "auto", "xfeat", "affine_steerers", or "orb"
     bg_color           = "255 255 255"                    # Optional: Background color for padding (e.g., 255 255 255 for white)
     crop_transparent   = $true                            # Optional: Set to $true to crop transparent borders from RGBA images
     python_script_path = ".\utils\preprocess_datasets.py" # Relative path to the Python script
@@ -70,6 +71,79 @@ $Env:UV_LINK_MODE = "symlink"
 #region Build Arguments
 $ExtArgs = [System.Collections.ArrayList]::new()
 
+function Get-UvEnvName {
+    if ($env:VIRTUAL_ENV) {
+        return Split-Path -Path $env:VIRTUAL_ENV -Leaf
+    }
+    if (Test-Path "./.venv") {
+        return ".venv"
+    }
+    if (Test-Path "./venv") {
+        return "venv"
+    }
+    return "uv-managed"
+}
+
+function Get-ProjectPython {
+    $Candidates = @(
+        "./.venv/Scripts/python.exe",
+        "./venv/Scripts/python.exe",
+        "./.venv/bin/python",
+        "./venv/bin/python"
+    )
+
+    foreach ($Candidate in $Candidates) {
+        if (Test-Path $Candidate) {
+            return (Resolve-Path $Candidate).Path
+        }
+    }
+
+    $PythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($PythonCommand) {
+        return $PythonCommand.Source
+    }
+
+    return $null
+}
+
+function Install-UvExtraPatch {
+    param (
+        [string[]]$Extras
+    )
+
+    if (-not $Extras -or $Extras.Count -eq 0) {
+        return
+    }
+
+    $PythonExe = Get-ProjectPython
+    $UvEnvName = Get-UvEnvName
+    $Profile = ($Extras | Select-Object -Unique | ForEach-Object { "extra:$_" }) -join ", "
+    Write-Output "使用共享 .venv 增量安装依赖补丁"
+    Write-Output "uv pip install target environment: $UvEnvName"
+    Write-Output "uv pip install dependency profile: $Profile"
+    Write-Output "直接使用 uv pip install -r pyproject.toml 安装当前依赖 profile"
+
+    $InstallArgs = [System.Collections.ArrayList]::new()
+    [void]$InstallArgs.Add("pip")
+    [void]$InstallArgs.Add("install")
+    [void]$InstallArgs.Add("--no-build-isolation")
+    if ($PythonExe) {
+        [void]$InstallArgs.Add("--python")
+        [void]$InstallArgs.Add($PythonExe)
+    }
+    [void]$InstallArgs.Add("-r")
+    [void]$InstallArgs.Add("pyproject.toml")
+    foreach ($Extra in ($Extras | Select-Object -Unique)) {
+        [void]$InstallArgs.Add("--extra")
+        [void]$InstallArgs.Add($Extra)
+    }
+
+    uv @InstallArgs
+    if (!($?)) {
+        throw "uv pip install failed"
+    }
+}
+
 # Add configuration arguments for preprocess_datasets.py
 if ($Config.input_dir) {
     [void]$ExtArgs.Add("--input=$($Config.input_dir)")
@@ -107,6 +181,10 @@ if ($Config.transform_type) {
     [void]$ExtArgs.Add("--transform-type=$($Config.transform_type)")
 }
 
+if ($Config.matcher_backend) {
+    [void]$ExtArgs.Add("--matcher-backend=$($Config.matcher_backend)")
+}
+
 if ($Config.bg_color) {
     [void]$ExtArgs.Add("--bg-color")
     $color_components = $Config.bg_color.Split(' ')
@@ -125,20 +203,10 @@ if ($Config.crop_transparent) {
 
 #region Execute Image Processing Script
 Write-Output "Starting Image Processing..."
-if ($env:VIRTUAL_ENV) {
-    $UvEnvName = Split-Path -Path $env:VIRTUAL_ENV -Leaf
-}
-elseif (Test-Path "./.venv") {
-    $UvEnvName = ".venv"
-}
-elseif (Test-Path "./venv") {
-    $UvEnvName = "venv"
-}
-else {
-    $UvEnvName = "uv-managed"
-}
+Install-UvExtraPatch @("image-align")
+$UvEnvName = Get-UvEnvName
 Write-Output "uv run target environment: $UvEnvName"
-Write-Output "uv dependency profile: default"
+Write-Output "runtime dependency profile: extra:image-align"
 
 # Execute the Python script
 uv run $Config.python_script_path `

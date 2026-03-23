@@ -175,7 +175,7 @@ data/
 huggingface/
 watermark_detection/
 audio_separator/
-.playwright-cli/
+vocal_midi/
 .claude/
 .agents/
 .worktrees/

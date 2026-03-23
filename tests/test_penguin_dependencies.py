@@ -159,6 +159,18 @@ def test_pyproject_declares_acestep_transcriber_local_extra():
     assert any(dep.startswith("flash-attn") for dep in acestep_transcriber_deps)
 
 
+def test_pyproject_declares_vocal_midi_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "vocal-midi" in optional_deps
+    vocal_midi_deps = optional_deps["vocal-midi"]
+    assert any(dep.startswith("onnxruntime-gpu") for dep in vocal_midi_deps)
+    assert any(dep.startswith("huggingface_hub") for dep in vocal_midi_deps)
+    assert any(dep.startswith("mido") for dep in vocal_midi_deps)
+    assert any(dep.startswith("numpy") for dep in vocal_midi_deps)
+
+
 def test_caption_step_includes_penguin_extra():
     CaptionStep = _load_caption_step("test_step4_caption")
 

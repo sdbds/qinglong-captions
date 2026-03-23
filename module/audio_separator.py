@@ -37,6 +37,20 @@ from module.audio_separator_core import (
     SUPPORTED_OUTPUT_FORMATS,
     AudioSeparator,
 )
+from module.vocal_midi import (
+    DEFAULT_GAME_MODEL_REPO_ID,
+    DEFAULT_VOCAL_MIDI_BATCH_SIZE,
+    DEFAULT_VOCAL_MIDI_EST_THRESHOLD,
+    DEFAULT_VOCAL_MIDI_MODEL_DIR,
+    DEFAULT_VOCAL_MIDI_OUTPUT_FORMATS,
+    DEFAULT_VOCAL_MIDI_NSTEPS,
+    DEFAULT_VOCAL_MIDI_SEG_RADIUS,
+    DEFAULT_VOCAL_MIDI_SEG_THRESHOLD,
+    DEFAULT_VOCAL_MIDI_T0,
+    GameOnnxTranscriber,
+    build_vocal_midi_output_dir,
+    parse_output_formats,
+)
 from utils.console_util import print_exception
 from utils.path_safety import safe_child_path, safe_leaf_name
 
@@ -51,6 +65,14 @@ class HarmonyCandidate:
     source_path: Path
     song_output_dir: Path
     vocal_path: Path
+    vocal_midi_candidate: "VocalMidiCandidate | None" = None
+
+
+@dataclass
+class VocalMidiCandidate:
+    source_path: Path
+    song_output_dir: Path
+    input_path: Path
 
 
 def select_vocal_stem(stems: Mapping[str, torch.Tensor]) -> tuple[str, torch.Tensor] | None:
@@ -269,6 +291,62 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_HARMONY_SEPARATOR_REPO_ID,
         help="Hugging Face repository containing the harmony-split ONNX model",
     )
+    parser.add_argument(
+        "--vocal_midi",
+        action="store_true",
+        help="After separation completes, extract singing melody to MIDI from dry_vocal, vocals, or the source audio",
+    )
+    parser.add_argument(
+        "--vocal_midi_repo_id",
+        default=DEFAULT_GAME_MODEL_REPO_ID,
+        help="Hugging Face repository containing the GAME ONNX bundle",
+    )
+    parser.add_argument(
+        "--vocal_midi_language",
+        default=None,
+        help="Optional language code for GAME segmentation, such as zh / ja / en / yue",
+    )
+    parser.add_argument(
+        "--vocal_midi_output_formats",
+        default=DEFAULT_VOCAL_MIDI_OUTPUT_FORMATS,
+        help="Comma-separated vocal MIDI output formats: mid,txt,csv",
+    )
+    parser.add_argument(
+        "--vocal_midi_batch_size",
+        type=int,
+        default=DEFAULT_VOCAL_MIDI_BATCH_SIZE,
+        help="GAME inference batch size",
+    )
+    parser.add_argument(
+        "--vocal_midi_seg_threshold",
+        type=float,
+        default=DEFAULT_VOCAL_MIDI_SEG_THRESHOLD,
+        help="Boundary decoding threshold for GAME segmentation",
+    )
+    parser.add_argument(
+        "--vocal_midi_seg_radius",
+        type=float,
+        default=DEFAULT_VOCAL_MIDI_SEG_RADIUS,
+        help="Boundary decoding radius in seconds for GAME segmentation",
+    )
+    parser.add_argument(
+        "--vocal_midi_t0",
+        type=float,
+        default=DEFAULT_VOCAL_MIDI_T0,
+        help="Starting t0 value for GAME D3PM sampling",
+    )
+    parser.add_argument(
+        "--vocal_midi_nsteps",
+        type=int,
+        default=DEFAULT_VOCAL_MIDI_NSTEPS,
+        help="Number of GAME D3PM sampling steps",
+    )
+    parser.add_argument(
+        "--vocal_midi_est_threshold",
+        type=float,
+        default=DEFAULT_VOCAL_MIDI_EST_THRESHOLD,
+        help="Note presence threshold for GAME estimation",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing song output directories")
     parser.add_argument("--force_download", action="store_true", help="Force re-download model artifacts")
     return parser
@@ -306,6 +384,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
     skipped = 0
     processed = 0
     harmony_candidates: list[HarmonyCandidate] = []
+    vocal_midi_candidates: list[VocalMidiCandidate] = []
 
     with Progress(
         "[progress.description]{task.description}",
@@ -346,8 +425,9 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                     batch_size=args.batch_size,
                 )
                 song_output_dir.mkdir(parents=True, exist_ok=True)
-                selected_vocal = select_vocal_stem(stems) if args.harmony_separation else None
+                selected_vocal = select_vocal_stem(stems) if (args.harmony_separation or args.vocal_midi) else None
                 vocal_output_path: Path | None = None
+                vocal_midi_candidate: VocalMidiCandidate | None = None
                 for stem_name, waveform in stems.items():
                     output_path = build_stem_output_path(
                         song_output_dir,
@@ -364,6 +444,14 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                     if selected_vocal is not None and stem_name == selected_vocal[0]:
                         vocal_output_path = output_path
 
+                if args.vocal_midi:
+                    vocal_midi_candidate = VocalMidiCandidate(
+                        source_path=source_path,
+                        song_output_dir=song_output_dir,
+                        input_path=vocal_output_path if vocal_output_path is not None else source_path,
+                    )
+                    vocal_midi_candidates.append(vocal_midi_candidate)
+
                 if selected_vocal is None and args.harmony_separation:
                     progress_console.print(f"[yellow]No vocal stem detected for harmony split:[/yellow] {source_path}")
                 elif selected_vocal is not None and vocal_output_path is not None:
@@ -372,6 +460,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                             source_path=source_path,
                             song_output_dir=song_output_dir,
                             vocal_path=vocal_output_path,
+                            vocal_midi_candidate=vocal_midi_candidate,
                         )
                     )
                 progress_console.print(f"[green]Saved stems to:[/green] {song_output_dir}")
@@ -417,6 +506,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
 
                 for candidate in harmony_candidates:
                     harmony_output_dir = build_harmony_output_dir(candidate.song_output_dir)
+                    dry_vocal_output_path: Path | None = None
                     progress_console.print(f"[magenta]Harmony split:[/magenta] {candidate.vocal_path}")
                     try:
                         harmony_stems = harmony_separator.separate_file(
@@ -448,6 +538,10 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                                 output_path,
                                 output_format=args.output_format,
                             )
+                            if stem_name == HARMONY_DRY_STEM_NAME:
+                                dry_vocal_output_path = output_path
+                        if dry_vocal_output_path is not None and candidate.vocal_midi_candidate is not None:
+                            candidate.vocal_midi_candidate.input_path = dry_vocal_output_path
                         harmony_processed += 1
                         progress_console.print(f"[green]Saved harmony stems to:[/green] {harmony_output_dir}")
                     except Exception as exc:  # pragma: no cover - exercised via CLI smoke or manual runs
@@ -456,9 +550,77 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                     finally:
                         progress.update(task, advance=1)
 
+    vocal_midi_processed = 0
+    vocal_midi_skipped = 0
+
+    if args.vocal_midi:
+        if not vocal_midi_candidates:
+            console.print("[yellow]Vocal MIDI enabled, but no songs completed primary separation.[/yellow]")
+        else:
+            output_formats = parse_output_formats(args.vocal_midi_output_formats)
+            vocal_midi = GameOnnxTranscriber(
+                repo_id=args.vocal_midi_repo_id,
+                model_dir=DEFAULT_VOCAL_MIDI_MODEL_DIR,
+                force_download=bool(args.force_download),
+                logger=console.print,
+            )
+            console.print("[cyan]Vocal MIDI Model:[/cyan] " f"{args.vocal_midi_repo_id}")
+            console.print("[cyan]Vocal MIDI Providers:[/cyan]")
+            console.print(Pretty(vocal_midi.providers, indent_guides=True, expand_all=True))
+
+            with Progress(
+                "[progress.description]{task.description}",
+                SpinnerColumn(spinner_name="dots"),
+                MofNCompleteColumn(separator="/"),
+                BarColumn(bar_width=40, complete_style="green", finished_style="bold green"),
+                TaskProgressColumn(),
+                TextColumn("|"),
+                TimeElapsedColumn(),
+                TextColumn("|"),
+                TimeRemainingColumn(),
+                console=console,
+                transient=False,
+            ) as progress:
+                progress_console = progress.console
+                task = progress.add_task("[bold green]Extracting vocal MIDI...", total=len(vocal_midi_candidates))
+
+                for candidate in vocal_midi_candidates:
+                    input_audio = candidate.input_path
+                    output_dir = build_vocal_midi_output_dir(candidate.song_output_dir, args.vocal_midi_repo_id)
+                    expected_outputs = [output_dir / f"{candidate.source_path.stem}.{fmt}" for fmt in output_formats]
+                    progress_console.print(f"[green]Vocal MIDI input:[/green] {input_audio}")
+                    if output_dir.exists() and not args.overwrite and all(path.exists() for path in expected_outputs):
+                        vocal_midi_skipped += 1
+                        progress_console.print(f"[yellow]Skipping existing vocal MIDI outputs:[/yellow] {output_dir}")
+                        progress.update(task, advance=1)
+                        continue
+
+                    try:
+                        vocal_midi.transcribe_file(
+                            input_audio,
+                            output_dir=output_dir,
+                            output_stem=candidate.source_path.stem,
+                            output_formats=output_formats,
+                            language=args.vocal_midi_language,
+                            batch_size=args.vocal_midi_batch_size,
+                            seg_threshold=args.vocal_midi_seg_threshold,
+                            seg_radius=args.vocal_midi_seg_radius,
+                            t0=args.vocal_midi_t0,
+                            nsteps=args.vocal_midi_nsteps,
+                            est_threshold=args.vocal_midi_est_threshold,
+                        )
+                        vocal_midi_processed += 1
+                    except Exception as exc:  # pragma: no cover - exercised via CLI smoke or manual runs
+                        failures += 1
+                        print_exception(progress_console, exc, prefix=f"Failed vocal MIDI extraction for {input_audio}")
+                    finally:
+                        progress.update(task, advance=1)
+
     console.print(
         f"[bold]Finished.[/bold] processed={processed} skipped={skipped} "
-        f"harmony_processed={harmony_processed} harmony_skipped={harmony_skipped} failed={failures}"
+        f"harmony_processed={harmony_processed} harmony_skipped={harmony_skipped} "
+        f"vocal_midi_processed={vocal_midi_processed} vocal_midi_skipped={vocal_midi_skipped} "
+        f"failed={failures}"
     )
     return 1 if failures else 0
 

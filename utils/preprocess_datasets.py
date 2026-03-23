@@ -16,7 +16,7 @@ import argparse
 import concurrent.futures
 import time
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Tuple
 
 import torch
 import cv2
@@ -40,6 +40,153 @@ from utils.stream_util import calculate_dimensions
 global_console = Console(color_system="truecolor", force_terminal=True)
 
 
+_MATCHER_BACKEND_ALIASES = {
+    "affine_steerers": "affine-steerers",
+    "affine-steerers": "affine-steerers",
+    "xfeat": "xfeat",
+    "orb": "orb",
+}
+
+
+def _has_cuda() -> bool:
+    cuda_module = getattr(cv2, "cuda", None)
+    if cuda_module is None or not hasattr(cuda_module, "getCudaEnabledDeviceCount"):
+        return False
+    return cuda_module.getCudaEnabledDeviceCount() > 0
+
+
+def _choose_matcher_backend(preferred: str) -> str:
+    normalized = (preferred or "auto").strip().lower()
+    if normalized == "auto":
+        return "affine-steerers" if _has_cuda() else "xfeat"
+    return _MATCHER_BACKEND_ALIASES.get(normalized, normalized)
+
+
+def _load_vismatch_matcher(name: str, device: str):
+    from vismatch import get_matcher
+
+    return get_matcher(name, device=device)
+
+
+def _build_matcher(preferred: str) -> dict[str, Any]:
+    name = _choose_matcher_backend(preferred)
+    if name == "orb":
+        return {"kind": "orb", "name": "orb", "matcher": None}
+
+    try:
+        device = "cuda" if _has_cuda() else "cpu"
+        return {
+            "kind": "vismatch",
+            "name": name,
+            "matcher": _load_vismatch_matcher(name, device=device),
+        }
+    except Exception:
+        return {"kind": "orb", "name": "orb", "matcher": None}
+
+
+def _extract_matched_points(result: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
+    src_pts = np.float32(result["matched_kpts0"]).reshape(-1, 1, 2)
+    dst_pts = np.float32(result["matched_kpts1"]).reshape(-1, 1, 2)
+    return src_pts, dst_pts
+
+
+def _to_vismatch_image(image: Any) -> Any:
+    if isinstance(image, Image.Image):
+        return image.convert("RGB")
+
+    if not isinstance(image, np.ndarray):
+        return image
+
+    array = image
+    if array.ndim != 3:
+        return image
+
+    if array.shape[-1] in (3, 4):
+        rgb_array = array[..., :3]
+    elif array.shape[0] in (3, 4):
+        rgb_array = np.moveaxis(array[:3], 0, -1)
+    else:
+        return image
+
+    if rgb_array.dtype != np.uint8:
+        max_value = float(np.max(rgb_array)) if rgb_array.size else 0.0
+        if max_value <= 1.0:
+            rgb_array = np.clip(rgb_array, 0.0, 1.0) * 255.0
+        else:
+            rgb_array = np.clip(rgb_array, 0.0, 255.0)
+        rgb_array = rgb_array.astype(np.uint8)
+
+    return Image.fromarray(np.ascontiguousarray(rgb_array), mode="RGB")
+
+
+def _match_points_with_backend(
+    source_rgb: np.ndarray,
+    reference_rgb: np.ndarray,
+    preferred: str,
+) -> tuple[np.ndarray | None, np.ndarray | None, str]:
+    matcher_info = _build_matcher(preferred)
+    if matcher_info["kind"] != "vismatch":
+        return None, None, matcher_info["name"]
+
+    result = matcher_info["matcher"](
+        _to_vismatch_image(source_rgb),
+        _to_vismatch_image(reference_rgb),
+    )
+    src_pts, dst_pts = _extract_matched_points(result)
+    return src_pts, dst_pts, matcher_info["name"]
+
+
+def _transform_candidates(transform_type: str) -> tuple[str, ...]:
+    normalized = (transform_type or "none").strip().lower()
+    if normalized == "none":
+        return ()
+    if normalized == "affine":
+        return ("affine_partial", "affine")
+    if normalized == "homography":
+        return ("homography",)
+    return ("affine_partial", "affine", "homography")
+
+
+def _estimate_transform_from_points(
+    src_pts: np.ndarray,
+    dst_pts: np.ndarray,
+    transform_type: str,
+) -> tuple[Any, str]:
+    num_points = 0 if src_pts is None else len(src_pts)
+    ransac_method = getattr(cv2, "RANSAC", 0)
+
+    for candidate in _transform_candidates(transform_type):
+        if candidate == "affine_partial":
+            if num_points < 3:
+                continue
+            M, _ = cv2.estimateAffinePartial2D(
+                src_pts,
+                dst_pts,
+                method=ransac_method,
+                ransacReprojThreshold=10.0,
+            )
+        elif candidate == "affine":
+            if num_points < 3:
+                continue
+            M, _ = cv2.estimateAffine2D(
+                src_pts,
+                dst_pts,
+                method=ransac_method,
+                ransacReprojThreshold=10.0,
+            )
+        elif candidate == "homography":
+            if num_points < 4:
+                continue
+            M, _ = cv2.findHomography(src_pts, dst_pts, ransac_method, 10.0)
+        else:
+            continue
+
+        if M is not None:
+            return M, candidate
+
+    return None, ""
+
+
 class ImageProcessor:
     """
     A class to handle batch image processing tasks such as resizing.
@@ -51,6 +198,7 @@ class ImageProcessor:
         max_workers: int = None,
         console: Console = None,
         transform_type: str = "auto",
+        matcher_backend: str = "auto",
         bg_color: Tuple[int, int, int] = (255, 255, 255),  # Default to white
         crop_transparent: bool = False,
     ):
@@ -62,6 +210,7 @@ class ImageProcessor:
             max_workers: The maximum number of worker threads for parallel processing.
             console: An optional Rich Console instance for output.
             transform_type: The type of transformation for alignment.
+            matcher_backend: The matcher backend preference for alignment.
             bg_color: RGB background color for padding.
             crop_transparent: Whether to crop transparent borders from RGBA images.
         """
@@ -70,6 +219,7 @@ class ImageProcessor:
         self.console = console if console else Console(color_system="truecolor", force_terminal=True)
         self.image_extensions = get_supported_extensions("image")
         self.transform_type = transform_type
+        self.matcher_backend = matcher_backend
         self.bg_color = bg_color
         self.crop_transparent = crop_transparent
 
@@ -514,16 +664,62 @@ class ImageProcessor:
 
         image_to_warp_pil_resized_to_ref_orig_size = image_to_warp_pil.resize((target_width, target_height), Image.LANCZOS)
 
+        color_image_to_warp_cv = np.array(image_to_warp_pil_resized_to_ref_orig_size.convert("RGB"))
+        reference_image_cv = np.array(reference_image_pil_resized_to_target.convert("RGB"))
+
         # Convert PIL images to OpenCV format (numpy arrays)
         # For image_to_warp, use the version resized to reference_image's original size for feature detection
         warped_cv_gray = cv2.cvtColor(
-            np.array(image_to_warp_pil_resized_to_ref_orig_size.convert("RGB")),
+            color_image_to_warp_cv,
             cv2.COLOR_RGB2GRAY,
         )
         reference_cv_gray = cv2.cvtColor(
-            np.array(reference_image_pil_resized_to_target.convert("RGB")),
+            reference_image_cv,
             cv2.COLOR_RGB2GRAY,
         )
+
+        vismatch_src_pts = None
+        vismatch_dst_pts = None
+        vismatch_backend_name = "orb"
+        if self.transform_type != "none":
+            try:
+                vismatch_src_pts, vismatch_dst_pts, vismatch_backend_name = _match_points_with_backend(
+                    color_image_to_warp_cv,
+                    reference_image_cv,
+                    self.matcher_backend,
+                )
+            except Exception as e:
+                print_exception(
+                    self.console,
+                    e,
+                    prefix="Matcher backend failed before ORB fallback",
+                    summary_style="yellow",
+                )
+                vismatch_src_pts = None
+                vismatch_dst_pts = None
+                vismatch_backend_name = "orb"
+
+        if vismatch_src_pts is not None and vismatch_dst_pts is not None:
+            M, transform_name = _estimate_transform_from_points(
+                vismatch_src_pts,
+                vismatch_dst_pts,
+                self.transform_type,
+            )
+            if M is not None:
+                self.console.print(
+                    f"[green]Using {vismatch_backend_name} backend with {transform_name} transform.[/green]"
+                )
+                warp_function = cv2.warpPerspective if transform_name == "homography" else cv2.warpAffine
+                h_target, w_target = reference_cv_gray.shape
+                aligned_image_cv = warp_function(
+                    color_image_to_warp_cv,
+                    M,
+                    (w_target, h_target),
+                    borderMode=cv2.BORDER_CONSTANT,
+                    borderValue=(255, 255, 255),
+                )
+                aligned_warped_image_pil = Image.fromarray(aligned_image_cv)
+                return aligned_warped_image_pil, reference_image_pil_resized_to_target
 
         if use_gpu:
             try:
@@ -591,31 +787,7 @@ class ImageProcessor:
                 src_pts = np.float32([keypoints_warped[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
                 dst_pts = np.float32([keypoints_ref[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
 
-                # --- NEW LOGIC based on similarity ---
-                similarity_threshold = 10  # Min good matches to attempt homography
-                M = None
-                warp_function = None
-
-                # Decide on transformation based on number of matches
-                if len(good_matches) >= similarity_threshold and self.transform_type != "affine":
-                    self.console.print(f"[green]High similarity ({len(good_matches)} matches), attempting homography.[/green]")
-                    M, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 10.0)
-                    if M is not None:
-                        warp_function = cv2.cuda.warpPerspective
-                        transform_type = "Homography"
-                    else:
-                        self.console.print("[yellow]Homography failed, will fall back to affine.[/yellow]")
-
-                # If homography was not attempted or failed, try affine
-                if M is None or self.transform_type == "affine":
-                    self.console.print(
-                        f"[yellow]Low similarity or homography failed ({len(good_matches)} matches), attempting affine transformation.[/yellow]"
-                    )
-                    M, _ = cv2.estimateAffine2D(src_pts, dst_pts, method=cv2.RANSAC, ransacReprojThreshold=10.0)
-                    if M is not None:
-                        warp_function = cv2.cuda.warpAffine
-                        transform_type = "Affine"
-
+                M, transform_name = _estimate_transform_from_points(src_pts, dst_pts, self.transform_type)
                 if M is None:
                     self.console.print("[yellow]Could not compute any transformation matrix. Returning unaligned.[/yellow]")
                     return (
@@ -623,17 +795,16 @@ class ImageProcessor:
                         reference_image_pil_resized_to_target,
                     )
 
-                self.console.print(f"[green]Successfully computed {transform_type} matrix.[/green]")
+                self.console.print(f"[green]Successfully computed {transform_name} matrix.[/green]")
 
                 # Prepare color image for warping on GPU
-                color_image_to_warp_cv_for_gpu_upload = np.array(image_to_warp_pil_resized_to_ref_orig_size.convert("RGB"))
                 gpu_color_image_to_warp = cv2.cuda.GpuMat()
-                gpu_color_image_to_warp.upload(color_image_to_warp_cv_for_gpu_upload)
+                gpu_color_image_to_warp.upload(color_image_to_warp_cv)
 
                 h_target, w_target = reference_cv_gray.shape
 
                 # Perform warping with the selected function
-                gpu_warped_with_borders = warp_function(
+                gpu_warped_with_borders = (cv2.cuda.warpPerspective if transform_name == "homography" else cv2.cuda.warpAffine)(
                     gpu_color_image_to_warp,
                     M,
                     (w_target, h_target),
@@ -699,32 +870,7 @@ class ImageProcessor:
             src_pts = np.float32([keypoints_warped[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
             dst_pts = np.float32([keypoints_ref[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
 
-            # --- NEW LOGIC based on similarity ---
-            similarity_threshold = 10  # Min good matches to attempt homography
-            M = None
-            warp_function = None
-            transform_type = ""
-
-            # Decide on transformation based on number of matches
-            if len(good_matches) >= similarity_threshold:
-                self.console.print(f"[green]High similarity ({len(good_matches)} matches), attempting homography.[/green]")
-                M, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 10.0)
-                if M is not None:
-                    warp_function = cv2.warpPerspective
-                    transform_type = "Homography"
-                else:
-                    self.console.print("[yellow]Homography failed, will fall back to affine.[/yellow]")
-
-            # If homography was not attempted or failed, try affine
-            if M is None:
-                self.console.print(
-                    f"[yellow]Low similarity or homography failed ({len(good_matches)} matches), attempting affine transformation.[/yellow]"
-                )
-                M, _ = cv2.estimateAffine2D(src_pts, dst_pts, method=cv2.RANSAC, ransacReprojThreshold=10.0)
-                if M is not None:
-                    warp_function = cv2.warpAffine
-                    transform_type = "Affine"
-
+            M, transform_name = _estimate_transform_from_points(src_pts, dst_pts, self.transform_type)
             if M is None:
                 self.console.print("[yellow]Could not compute any transformation matrix (CPU path). Returning unaligned.[/yellow]")
                 return (
@@ -732,15 +878,12 @@ class ImageProcessor:
                     reference_image_pil_resized_to_target,
                 )
 
-            self.console.print(f"[green]Successfully computed {transform_type} matrix on CPU.[/green]")
-
-            # Prepare color image for warping on CPU
-            color_image_to_warp_cv = np.array(image_to_warp_pil_resized_to_ref_orig_size.convert("RGB"))
+            self.console.print(f"[green]Successfully computed {transform_name} matrix on CPU.[/green]")
 
             h_target, w_target = reference_cv_gray.shape
 
             # Perform warp with the selected function
-            aligned_image_cv = warp_function(
+            aligned_image_cv = (cv2.warpPerspective if transform_name == "homography" else cv2.warpAffine)(
                 color_image_to_warp_cv,
                 M,
                 (w_target, h_target),
@@ -804,7 +947,14 @@ def main():
         type=str,
         default="none",
         choices=["auto", "affine", "homography", "none"],
-        help="Transformation type for alignment: auto (default), affine, homography, or none",
+        help="Transformation type for alignment: auto, affine, homography, or none (default: none)",
+    )
+    parser.add_argument(
+        "--matcher-backend",
+        type=str,
+        default="auto",
+        choices=["auto", "xfeat", "affine_steerers", "orb"],
+        help="Matcher backend: auto prefers affine_steerers on CUDA, xfeat otherwise, and falls back to ORB on failure.",
     )
     parser.add_argument(
         "-bc",
@@ -834,6 +984,7 @@ def main():
     global_console.print(f"Number of workers: {args.workers if args.workers is not None else 16}")
     if args.align_input:
         global_console.print(f"Alignment reference directory: {args.align_input}")
+    global_console.print(f"Matcher backend: {args.matcher_backend}")
     global_console.print(f"Crop transparent borders: {'Yes' if args.crop_transparent else 'No'}")
     global_console.print("[red bold]Warning: Original image files in the primary input directory will be overwritten![/red bold]")
 
@@ -843,6 +994,7 @@ def main():
         max_workers=args.workers,
         console=global_console,  # Pass the global console to the processor
         transform_type=args.transform_type,
+        matcher_backend=args.matcher_backend,
         bg_color=tuple(args.bg_color),
         crop_transparent=args.crop_transparent,
     )

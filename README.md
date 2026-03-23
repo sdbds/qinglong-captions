@@ -265,6 +265,7 @@ python -m gui.launch --native --port 7899
 ./lanceImport.ps1
 ./4、run.ps1
 ./lanceExport.ps1
+./2.2.preprocess_images.ps1
 ./2.5.audio_separator.ps1
 ./5.translate.ps1
 ```
@@ -272,6 +273,7 @@ python -m gui.launch --native --port 7899
 说明：
 
 - `4、run.ps1` 用于批量字幕生成
+- `2.2.preprocess_images.ps1` 用于图片预处理与可选图像对齐；`--matcher-backend=auto` 会在 CUDA 上优先 `affine_steerers`，否则优先 `xfeat`，失败时回退 ORB
 - `2.5.audio_separator.ps1` 用于 ONNX 音频分轨
 - `5.translate.ps1` 用于文档规范化和翻译，输出如 `*_zh_cn.md`
 - 日常运行会按当前所选 profile 增量安装依赖；`uv.lock` 主要留给 CI / 发版流程维护
@@ -753,6 +755,7 @@ If you already know the project and want direct scripting, these entry points ar
 ./lanceImport.ps1
 ./4、run.ps1
 ./lanceExport.ps1
+./2.2.preprocess_images.ps1
 ./2.5.audio_separator.ps1
 ./5.translate.ps1
 ```
@@ -760,6 +763,7 @@ If you already know the project and want direct scripting, these entry points ar
 Notes:
 
 - `4、run.ps1` runs batch captioning
+- `2.2.preprocess_images.ps1` handles image preprocessing and optional image alignment; `--matcher-backend=auto` prefers `affine_steerers` on CUDA and `xfeat` otherwise, then falls back to ORB
 - `2.5.audio_separator.ps1` runs the ONNX audio separator
 - `5.translate.ps1` normalizes and translates documents, exporting files such as `*_zh_cn.md`
 - Day-to-day runs install the selected dependency profile incrementally; `uv.lock` is mainly kept for CI / release maintenance

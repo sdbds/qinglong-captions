@@ -110,6 +110,51 @@ def test_select_execution_providers_prefers_cuda_and_falls_back_to_cpu():
     assert providers[-1] == "CPUExecutionProvider"
 
 
+def test_runtime_config_uses_native_tensorrt_option_names():
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+
+    runtime = OnnxRuntimeConfig()
+    cuda_options = runtime.provider_options["cuda"]
+    tensorrt_options = runtime.provider_options["tensorrt"]
+    nvtensorrtrtx_options = runtime.provider_options["nvtensorrtrtx"]
+    openvino_options = runtime.provider_options["openvino"]
+
+    assert cuda_options == {
+        "arena_extend_strategy": "kSameAsRequested",
+        "cudnn_conv_algo_search": "EXHAUSTIVE",
+        "do_copy_in_default_stream": True,
+        "cudnn_conv_use_max_workspace": "1",
+        "tunable_op_enable": True,
+        "tunable_op_tuning_enable": True,
+    }
+
+    assert tensorrt_options["trt_engine_cache_enable"] is True
+    assert tensorrt_options["trt_timing_cache_enable"] is True
+    assert tensorrt_options["trt_fp16_enable"] is True
+    assert tensorrt_options["trt_builder_optimization_level"] == 3
+    assert tensorrt_options["trt_max_partition_iterations"] == 1000
+    assert tensorrt_options["trt_engine_hw_compatible"] is True
+    assert tensorrt_options["trt_force_sequential_engine_build"] is False
+    assert tensorrt_options["trt_context_memory_sharing_enable"] is True
+    assert tensorrt_options["trt_sparsity_enable"] is True
+    assert tensorrt_options["trt_min_subgraph_size"] == 7
+    assert "fp16_enable" not in tensorrt_options
+    assert "force_sequential_engine_build" not in tensorrt_options
+
+    assert nvtensorrtrtx_options == {
+        "nv_dump_subgraphs": False,
+        "nv_detailed_build_log": True,
+        "enable_cuda_graph": True,
+        "nv_multi_profile_enable": False,
+        "nv_use_external_data_initializer": False,
+    }
+    assert "runtime_cache_path" not in nvtensorrtrtx_options
+
+    assert openvino_options == {
+        "device_type": "GPU_FP32",
+    }
+
+
 def test_load_session_bundle_caches_sessions(tmp_path):
     from module.onnx_runtime.config import OnnxRuntimeConfig
     from module.onnx_runtime.session import clear_session_bundle_cache, load_session_bundle
@@ -253,6 +298,109 @@ def test_load_session_bundle_uses_model_dir_for_tensorrt_cache_paths(tmp_path):
         "tunable_op_enable": True,
         "tunable_op_tuning_enable": True,
     }
+
+
+def test_load_session_bundle_passes_through_explicit_tensorrt_provider_options(tmp_path):
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.session import clear_session_bundle_cache, load_session_bundle
+
+    captured = {}
+
+    class FakeSession:
+        def __init__(self, path, sess_options=None, providers=None):
+            captured["providers"] = providers
+            self.path = path
+            self.providers = providers
+
+    clear_session_bundle_cache()
+
+    runtime = OnnxRuntimeConfig.from_mapping(
+        {
+            "execution_provider": "tensorrt",
+            "tensorrt": {
+                "trt_layer_norm_fp32_fallback": True,
+            },
+        }
+    )
+
+    load_session_bundle(
+        bundle_key="single:model",
+        session_paths={"model": tmp_path / "model.onnx"},
+        runtime_config=runtime,
+        available_providers=["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"],
+        session_factory=FakeSession,
+        session_options_factory=lambda: object(),
+    )
+
+    tensorrt_options = captured["providers"][0][1]
+    assert tensorrt_options["trt_layer_norm_fp32_fallback"] is True
+
+
+def test_load_session_bundle_passes_through_explicit_nvtensorrtrtx_provider_options(tmp_path):
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.session import clear_session_bundle_cache, load_session_bundle
+
+    captured = {}
+
+    class FakeSession:
+        def __init__(self, path, sess_options=None, providers=None):
+            captured["providers"] = providers
+            self.path = path
+            self.providers = providers
+
+    clear_session_bundle_cache()
+
+    runtime = OnnxRuntimeConfig.from_mapping(
+        {
+            "execution_provider": "nvtensorrtrtx",
+            "nvtensorrtrtx": {
+                "nv_runtime_cache_path": str(tmp_path / "custom_trt_cache"),
+                "enable_cuda_graph": False,
+            },
+        }
+    )
+
+    load_session_bundle(
+        bundle_key="single:model",
+        session_paths={"model": tmp_path / "model.onnx"},
+        runtime_config=runtime,
+        available_providers=["NvTensorRtRtxExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"],
+        session_factory=FakeSession,
+        session_options_factory=lambda: object(),
+    )
+
+    nvtensorrtrtx_options = captured["providers"][0][1]
+    assert nvtensorrtrtx_options["nv_runtime_cache_path"] == str(tmp_path / "custom_trt_cache")
+    assert nvtensorrtrtx_options["enable_cuda_graph"] is False
+
+
+def test_build_execution_providers_passes_openvino_options_verbatim():
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.session import build_execution_providers
+
+    runtime = OnnxRuntimeConfig.from_mapping(
+        {
+            "execution_provider": "openvino",
+            "openvino": {
+                "device_type": "CPU_FP32",
+                "enable_opencl_throttling": True,
+            },
+        }
+    )
+
+    providers = build_execution_providers(
+        runtime,
+        available_providers=["OpenVINOExecutionProvider", "CPUExecutionProvider"],
+    )
+
+    assert providers[0] == (
+        "OpenVINOExecutionProvider",
+        {
+            "device_type": "CPU_FP32",
+            "enable_opencl_throttling": True,
+        },
+    )
+    assert providers[1] == "CPUExecutionProvider"
 
 
 def test_load_session_bundle_uses_model_dir_for_nvtensorrtrtx_cache_paths(tmp_path):

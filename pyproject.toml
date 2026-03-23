@@ -42,6 +42,9 @@ dependencies = [
 video-split = [
     "numpy<2",
 ]
+image-align = [
+    "vismatch",
+]
 translate = [
     "docling",
     "markitdown[all]",
@@ -312,7 +315,7 @@ reka-edge-local = [
     "safetensors",
 ]
 lfm-vl-local = [
-    "onnxruntime-gpu==1.20.2; sys_platform == 'win32'",
+    "onnxruntime-gpu>=1.24.4; sys_platform == 'win32'",
     "onnxruntime-gpu>=1.20.2; sys_platform == 'linux'",
     "torch==2.8.0",
     "transformers[serving]>=4.56.0",
@@ -351,6 +354,13 @@ acestep-transcriber-local = [
     "huggingface_hub[hf_xet]>=0.35.2",
     "safetensors>=0.5.0",
     "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+]
+vocal-midi = [
+    "onnxruntime-gpu>=1.24.4; sys_platform == 'win32'",
+    "onnxruntime-gpu>=1.20.2; sys_platform == 'linux'",
+    "huggingface_hub[hf_xet]>=0.35.2",
+    "mido>=1.3.0",
+    "numpy>=1.26.0",
 ]
 
 [dependency-groups]

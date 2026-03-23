@@ -99,3 +99,74 @@ def test_load_single_model_bundle_forwards_logger_when_loader_supports_it(tmp_pa
     )
 
     assert callable(captured["download"][2]["logger"])
+
+
+def test_load_multi_model_bundle_downloads_artifacts_and_support_files(tmp_path):
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.multi_model import OnnxMultiModelSpec, load_multi_model_bundle
+
+    captured = {}
+
+    class FakeSession:
+        pass
+
+    def fake_artifact_loader(repo_id, artifacts, **kwargs):
+        captured["artifacts"] = (repo_id, dict(artifacts), kwargs)
+        resolved = {}
+        for name, filename in artifacts.items():
+            target = tmp_path / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(name, encoding="utf-8")
+            resolved[name] = target
+        return resolved
+
+    def fake_support_loader(repo_id, files, **kwargs):
+        captured["support"] = (repo_id, dict(files), kwargs)
+        resolved = {}
+        for name, filename in files.items():
+            target = tmp_path / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(name, encoding="utf-8")
+            resolved[name] = target
+        return resolved
+
+    def fake_load_session_bundle(**kwargs):
+        captured["bundle"] = kwargs
+        return SimpleNamespace(
+            sessions={"encoder": FakeSession(), "decoder": FakeSession()},
+            providers=("CPUExecutionProvider",),
+        )
+
+    spec = OnnxMultiModelSpec(
+        repo_id="repo/model",
+        artifacts={"encoder": "encoder.onnx", "decoder": "decoder.onnx"},
+        support_files={"config": "config.json"},
+        local_dir=tmp_path / "cache",
+        bundle_key="multi:model",
+    )
+    runtime = OnnxRuntimeConfig(execution_provider="cpu")
+
+    bundle = load_multi_model_bundle(
+        spec=spec,
+        runtime_config=runtime,
+        artifact_loader=fake_artifact_loader,
+        support_file_loader=fake_support_loader,
+        session_bundle_loader=fake_load_session_bundle,
+        logger=lambda message: None,
+    )
+
+    assert set(bundle.sessions) == {"encoder", "decoder"}
+    assert bundle.providers == ("CPUExecutionProvider",)
+    assert bundle.artifact_paths["encoder"] == tmp_path / "encoder.onnx"
+    assert bundle.support_paths["config"] == tmp_path / "config.json"
+    assert captured["artifacts"][0] == "repo/model"
+    assert captured["artifacts"][1] == {"encoder": "encoder.onnx", "decoder": "decoder.onnx"}
+    assert callable(captured["artifacts"][2]["logger"])
+    assert captured["support"][0] == "repo/model"
+    assert captured["support"][1] == {"config": "config.json"}
+    assert callable(captured["support"][2]["logger"])
+    assert captured["bundle"]["bundle_key"] == "multi:model"
+    assert captured["bundle"]["session_paths"] == {
+        "encoder": tmp_path / "encoder.onnx",
+        "decoder": tmp_path / "decoder.onnx",
+    }

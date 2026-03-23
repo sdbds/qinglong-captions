@@ -28,6 +28,10 @@ def _normalize_variant(variant: str) -> str:
     return value
 
 
+def build_local_model_dir(model_dir: str | Path, repo_id: str) -> Path:
+    return Path(model_dir) / repo_id.replace("/", "_")
+
+
 def build_component_filename(component: str, variant: str = "") -> str:
     normalized_variant = _normalize_variant(variant)
     suffix = f"_{normalized_variant}" if normalized_variant else ""
@@ -46,6 +50,63 @@ def collect_external_data_files(repo_files: Iterable[str], onnx_filename: str) -
 
 def list_required_artifact_files(repo_files: Iterable[str], onnx_filename: str) -> tuple[str, ...]:
     return (onnx_filename, *collect_external_data_files(repo_files, onnx_filename))
+
+
+def download_repo_file(
+    repo_id: str,
+    filename: str,
+    *,
+    local_dir: str | Path | None = None,
+    force_download: bool = False,
+    downloader: Callable[..., str] | None = None,
+    logger: Callable[..., Any] | None = None,
+) -> Path:
+    if downloader is None:
+        from huggingface_hub import hf_hub_download
+
+        downloader = hf_hub_download
+
+    download_dir = None if local_dir is None else str(Path(local_dir))
+    existing_target = Path(download_dir) / filename if download_dir is not None else None
+
+    if existing_target is not None and existing_target.exists() and not force_download:
+        _emit_log(logger, f"[green]Using existing repo file[/green] {existing_target}")
+        return existing_target
+
+    _emit_log(logger, f"[cyan]Downloading repo file[/cyan] {repo_id}:{filename}")
+    _maybe_enable_hf_progress_bars()
+    target = Path(
+        downloader(
+            repo_id=repo_id,
+            filename=filename,
+            local_dir=download_dir,
+            force_download=force_download,
+        )
+    )
+    _emit_log(logger, f"[green]Downloaded repo file[/green] {target}")
+    return target
+
+
+def download_repo_file_set(
+    repo_id: str,
+    files: Mapping[str, str],
+    *,
+    local_dir: str | Path | None = None,
+    force_download: bool = False,
+    downloader: Callable[..., str] | None = None,
+    logger: Callable[..., Any] | None = None,
+) -> dict[str, Path]:
+    return {
+        name: download_repo_file(
+            repo_id,
+            filename,
+            local_dir=local_dir,
+            force_download=force_download,
+            downloader=downloader,
+            logger=logger,
+        )
+        for name, filename in files.items()
+    }
 
 
 def download_onnx_artifact(

@@ -8,6 +8,17 @@ from components.path_selector import create_path_selector
 from components.advanced_inputs import editable_slider, toggle_switch, styled_select
 from components.execution_panel import ExecutionPanel
 from gui.utils.i18n import t
+from module.vocal_midi import (
+    DEFAULT_GAME_MODEL_REPO_ID,
+    DEFAULT_VOCAL_MIDI_BATCH_SIZE,
+    DEFAULT_VOCAL_MIDI_EST_THRESHOLD,
+    DEFAULT_VOCAL_MIDI_NSTEPS,
+    DEFAULT_VOCAL_MIDI_OUTPUT_FORMATS,
+    DEFAULT_VOCAL_MIDI_SEG_RADIUS,
+    DEFAULT_VOCAL_MIDI_SEG_THRESHOLD,
+    DEFAULT_VOCAL_MIDI_T0,
+    GAME_ONNX_MODEL_LABELS,
+)
 
 
 class ToolsStep:
@@ -55,6 +66,20 @@ class ToolsStep:
         "ru": "Russian",
     }
 
+    VOCAL_MIDI_MODELS = dict(GAME_ONNX_MODEL_LABELS)
+    VOCAL_MIDI_LANGUAGES = {
+        "auto": "Auto Detect",
+        "en": "English",
+        "ja": "Japanese",
+        "yue": "Cantonese",
+        "zh": "Chinese",
+    }
+    VOCAL_MIDI_OUTPUT_FORMATS = {
+        "mid": "MIDI (.mid)",
+        "txt": "Text (.txt)",
+        "csv": "CSV (.csv)",
+    }
+
     def __init__(self):
         self.config: Dict[str, Any] = {
             "watermark_batch_size": 12,
@@ -69,6 +94,13 @@ class ToolsStep:
             "audio_separator_batch_size": 1,
             "audio_separator_overwrite": False,
             "audio_separator_harmony_separation": False,
+            "audio_separator_vocal_midi": False,
+            "audio_separator_vocal_midi_batch_size": DEFAULT_VOCAL_MIDI_BATCH_SIZE,
+            "audio_separator_vocal_midi_seg_threshold": DEFAULT_VOCAL_MIDI_SEG_THRESHOLD,
+            "audio_separator_vocal_midi_seg_radius": DEFAULT_VOCAL_MIDI_SEG_RADIUS,
+            "audio_separator_vocal_midi_t0": DEFAULT_VOCAL_MIDI_T0,
+            "audio_separator_vocal_midi_nsteps": DEFAULT_VOCAL_MIDI_NSTEPS,
+            "audio_separator_vocal_midi_est_threshold": DEFAULT_VOCAL_MIDI_EST_THRESHOLD,
             "translate_max_chars": 2200,
             "translate_context_chars": 300,
             "translate_max_new_tokens": 2048,
@@ -373,6 +405,104 @@ class ToolsStep:
             with ui.row().classes("w-full gap-4 q-mt-md"):
                 toggle_switch("overwrite", self.config, "audio_separator_overwrite")
                 toggle_switch("harmony_separation", self.config, "audio_separator_harmony_separation")
+                toggle_switch("vocal_midi", self.config, "audio_separator_vocal_midi", on_change=self._on_audio_separator_vocal_midi_toggle)
+
+            self._audio_separator_vocal_midi_container = ui.column().classes("w-full q-mt-sm")
+            self._audio_separator_vocal_midi_container.set_visibility(self.config["audio_separator_vocal_midi"])
+            with self._audio_separator_vocal_midi_container:
+                with ui.card().classes("w-full q-pa-md").style("background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);"):
+                    with ui.row().classes("w-full items-center gap-2 q-mb-sm"):
+                        ui.icon("piano", size="18px").style(f"color: {COLORS['secondary']};")
+                        ui.label(t("vocal_midi_settings")).classes("text-body1 text-weight-medium").style("color: var(--color-text);")
+
+                    with ui.row().classes("w-full gap-4 q-mt-sm"):
+                        self.audio_separator_vocal_midi_model = styled_select(
+                            options=self.VOCAL_MIDI_MODELS,
+                            value=DEFAULT_GAME_MODEL_REPO_ID,
+                            label=t("vocal_midi_model"),
+                            icon="memory",
+                            icon_color=COLORS["secondary"],
+                            flex=1,
+                        )
+                        self.audio_separator_vocal_midi_language = styled_select(
+                            options=self.VOCAL_MIDI_LANGUAGES,
+                            value="auto",
+                            label=t("vocal_midi_language"),
+                            icon="language",
+                            icon_color=COLORS["info"],
+                            flex=1,
+                        )
+
+                    with ui.column().classes("w-full q-mt-sm"):
+                        with ui.row().classes("items-center gap-2 q-mb-xs"):
+                            ui.icon("queue_music", size="18px").style(f"color: {COLORS['secondary']};")
+                            ui.label(t("vocal_midi_output_formats")).classes("text-caption text-weight-medium").style("color: var(--color-text-secondary);")
+                        self.audio_separator_vocal_midi_output_formats = ui.select(
+                            options=self.VOCAL_MIDI_OUTPUT_FORMATS,
+                            value=[DEFAULT_VOCAL_MIDI_OUTPUT_FORMATS],
+                            multiple=True,
+                        ).classes("w-full modern-select force-light-bg")
+                        self.audio_separator_vocal_midi_output_formats.props('dense use-chips stack-label input-debounce="0"')
+
+                    with ui.row().classes("w-full gap-4 q-mt-md"):
+                        editable_slider(
+                            label_key="batch_size",
+                            value_ref=self.config,
+                            value_key="audio_separator_vocal_midi_batch_size",
+                            min_val=1,
+                            max_val=32,
+                            step=1,
+                            decimals=0,
+                        )
+                        editable_slider(
+                            label_key="seg_threshold",
+                            value_ref=self.config,
+                            value_key="audio_separator_vocal_midi_seg_threshold",
+                            min_val=0.05,
+                            max_val=0.95,
+                            step=0.05,
+                            decimals=2,
+                        )
+
+                    with ui.row().classes("w-full gap-4 q-mt-md"):
+                        editable_slider(
+                            label_key="seg_radius",
+                            value_ref=self.config,
+                            value_key="audio_separator_vocal_midi_seg_radius",
+                            min_val=0.01,
+                            max_val=0.20,
+                            step=0.01,
+                            decimals=2,
+                        )
+                        editable_slider(
+                            label_key="t0",
+                            value_ref=self.config,
+                            value_key="audio_separator_vocal_midi_t0",
+                            min_val=0.0,
+                            max_val=0.95,
+                            step=0.05,
+                            decimals=2,
+                        )
+
+                    with ui.row().classes("w-full gap-4 q-mt-md"):
+                        editable_slider(
+                            label_key="nsteps",
+                            value_ref=self.config,
+                            value_key="audio_separator_vocal_midi_nsteps",
+                            min_val=1,
+                            max_val=16,
+                            step=1,
+                            decimals=0,
+                        )
+                        editable_slider(
+                            label_key="est_threshold",
+                            value_ref=self.config,
+                            value_key="audio_separator_vocal_midi_est_threshold",
+                            min_val=0.05,
+                            max_val=0.95,
+                            step=0.05,
+                            decimals=2,
+                        )
 
             with ui.row().classes("w-full justify-end q-mt-md"):
                 start_btn = ui.button(t("start_audio_separator"), on_click=self._start_audio_separator, icon="play_arrow")
@@ -494,6 +624,10 @@ class ToolsStep:
                 start_btn = ui.button(t("start_translate"), on_click=self._start_translate, icon="play_arrow")
                 start_btn.classes("modern-btn-success").props('type="button"')
                 self._remember_tool_start_button(start_btn)
+
+    def _on_audio_separator_vocal_midi_toggle(self, enabled: bool) -> None:
+        if hasattr(self, "_audio_separator_vocal_midi_container"):
+            self._audio_separator_vocal_midi_container.set_visibility(enabled)
 
     async def _start_translate(self):
         """开始文本翻译"""
@@ -667,6 +801,21 @@ class ToolsStep:
             args.append("--overwrite")
         if self.config["audio_separator_harmony_separation"]:
             args.append("--harmony_separation")
+        runner_kwargs = {}
+        if self.config["audio_separator_vocal_midi"]:
+            selected_formats = self.audio_separator_vocal_midi_output_formats.value or ["mid"]
+            args.append("--vocal_midi")
+            args.append(f"--vocal_midi_repo_id={self.audio_separator_vocal_midi_model.value}")
+            if self.audio_separator_vocal_midi_language.value != "auto":
+                args.append(f"--vocal_midi_language={self.audio_separator_vocal_midi_language.value}")
+            args.append(f"--vocal_midi_output_formats={','.join(selected_formats)}")
+            args.append(f"--vocal_midi_batch_size={int(self.config['audio_separator_vocal_midi_batch_size'])}")
+            args.append(f"--vocal_midi_seg_threshold={self.config['audio_separator_vocal_midi_seg_threshold']}")
+            args.append(f"--vocal_midi_seg_radius={self.config['audio_separator_vocal_midi_seg_radius']}")
+            args.append(f"--vocal_midi_t0={self.config['audio_separator_vocal_midi_t0']}")
+            args.append(f"--vocal_midi_nsteps={int(self.config['audio_separator_vocal_midi_nsteps'])}")
+            args.append(f"--vocal_midi_est_threshold={self.config['audio_separator_vocal_midi_est_threshold']}")
+            runner_kwargs["uv_extra_args"] = ["--extra", "vocal-midi"]
 
         def pre_log(lv):
             lv.info(t("log_start_audio_separator"))
@@ -677,6 +826,7 @@ class ToolsStep:
             "module.audio_separator",
             args,
             name="Audio Separator",
+            runner_kwargs=runner_kwargs or None,
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("audio_separator_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("audio_separator_failed"), type="negative"),

@@ -49,8 +49,20 @@ def _provider_signature(provider: Any) -> tuple[str, str]:
     return (str(provider), "")
 
 
+def _provider_options(
+    runtime: OnnxRuntimeConfig,
+    provider_name: str,
+    *,
+    derived_defaults: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    options = dict(runtime.provider_options.get(provider_name, {}))
+    for key, value in (derived_defaults or {}).items():
+        options.setdefault(key, value)
+    return options
+
+
 def _cuda_provider(runtime: OnnxRuntimeConfig) -> tuple[str, dict[str, Any]]:
-    return ("CUDAExecutionProvider", dict(runtime.provider_options.get("cuda", {})))
+    return ("CUDAExecutionProvider", _provider_options(runtime, "cuda"))
 
 
 def _default_cache_root(session_paths: Mapping[str, str | Path] | None) -> Path | None:
@@ -87,28 +99,16 @@ def _tensorrt_provider(
     *,
     session_paths: Mapping[str, str | Path] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    raw = dict(runtime.provider_options.get("tensorrt", {}))
     cache_root = _provider_cache_root(runtime, session_paths)
-    options = {
-        "trt_engine_cache_enable": raw.get("engine_cache_enable", True),
-        "trt_timing_cache_enable": raw.get("timing_cache_enable", True),
-        "trt_fp16_enable": raw.get("fp16_enable", True),
-        "trt_builder_optimization_level": raw.get("builder_optimization_level", 3),
-        "trt_max_partition_iterations": raw.get("max_partition_iterations", 1000),
-        "trt_engine_hw_compatible": raw.get("engine_hw_compatible", True),
-        "trt_force_sequential_engine_build": raw.get("force_sequential_engine_build", False),
-        "trt_context_memory_sharing_enable": raw.get("context_memory_sharing_enable", True),
-        "trt_sparsity_enable": raw.get("sparsity_enable", True),
-        "trt_min_subgraph_size": raw.get("min_subgraph_size", 7),
-    }
-    if "detailed_build_log" in raw:
-        options["trt_detailed_build_log"] = raw["detailed_build_log"]
-    if "trt_detailed_build_log" in raw:
-        options["trt_detailed_build_log"] = raw["trt_detailed_build_log"]
-    if cache_root:
-        options["trt_engine_cache_path"] = raw.get("engine_cache_path", str(cache_root / "trt_engines"))
-        options["trt_timing_cache_path"] = raw.get("timing_cache_path", str(cache_root))
-    return ("TensorrtExecutionProvider", options)
+    derived_defaults = (
+        {
+            "trt_engine_cache_path": str(cache_root / "trt_engines"),
+            "trt_timing_cache_path": str(cache_root),
+        }
+        if cache_root
+        else None
+    )
+    return ("TensorrtExecutionProvider", _provider_options(runtime, "tensorrt", derived_defaults=derived_defaults))
 
 
 def _nvtensorrtrtx_provider(
@@ -116,20 +116,16 @@ def _nvtensorrtrtx_provider(
     *,
     session_paths: Mapping[str, str | Path] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    raw = dict(runtime.provider_options.get("nvtensorrtrtx", {}))
     cache_root = _provider_cache_root(runtime, session_paths)
-    options: dict[str, Any] = {}
-    if cache_root:
-        options["nv_runtime_cache_path"] = raw.get("runtime_cache_path", str(cache_root / "trt_engines"))
-    for key, value in raw.items():
-        if key == "runtime_cache_path":
-            continue
-        options[key] = value
-    return ("NvTensorRtRtxExecutionProvider", options)
+    derived_defaults = {"nv_runtime_cache_path": str(cache_root / "trt_engines")} if cache_root else None
+    return (
+        "NvTensorRtRtxExecutionProvider",
+        _provider_options(runtime, "nvtensorrtrtx", derived_defaults=derived_defaults),
+    )
 
 
 def _openvino_provider(runtime: OnnxRuntimeConfig) -> tuple[str, dict[str, Any]]:
-    return ("OpenVINOExecutionProvider", dict(runtime.provider_options.get("openvino", {})))
+    return ("OpenVINOExecutionProvider", _provider_options(runtime, "openvino"))
 
 
 def build_execution_providers(

@@ -14,7 +14,7 @@ from einops import rearrange
 from huggingface_hub import hf_hub_download
 
 from config.loader import load_config
-from module.onnx_runtime import OnnxModelSpec, OnnxRuntimeConfig, load_single_model_bundle, resolve_tool_runtime_config
+from module.onnx_runtime import OnnxModelSpec, OnnxRuntimeConfig, build_local_model_dir, load_single_model_bundle, resolve_tool_runtime_config
 
 DEFAULT_AUDIO_SEPARATOR_REPO_ID = "bdsqlsz/BS-ROFO-SW-Fixed-ONNX"
 DEFAULT_HARMONY_SEPARATOR_REPO_ID = "bdsqlsz/mel_band_roformer_karaoke_aufr33-ONNX"
@@ -127,10 +127,6 @@ def derive_model_tag(repo_id: str) -> str:
     if slug.lower().endswith("-onnx"):
         slug = slug[:-5]
     return slug or "model"
-
-
-def build_local_model_dir(model_dir: str | Path, repo_id: str) -> Path:
-    return Path(model_dir) / repo_id.replace("/", "_")
 
 
 def load_audio_separator_metadata_file(path: str | Path, *, repo_id: str) -> AudioSeparatorMetadata:
