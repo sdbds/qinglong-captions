@@ -68,6 +68,9 @@
    - 支持本地 GPU 部署（Qwen2-VL、LLaVA、MiniCPM-V 等）
    - 查看 [docs/openai_compatible.md](docs/openai_compatible.md) 获取详细使用指南
 
+<details>
+<summary>更早更新日志（&lt; 4.0）</summary>
+
 ### 3.9
 
 1. **新增 MiniMax API 支持** - 集成 MiniMax 开放平台多模态能力
@@ -128,12 +131,15 @@
 2. 新增 image_reward_model（imscore）脚本。
 3. 支持 nano banana 图片编辑/处理任务（多输入多输出）。
 
-基于 Lance 数据库格式的视频自动字幕生成工具，使用 Gemini API 进行场景描述生成。
+</details>
+
+基于 Lance 数据库的多模态数据处理与字幕工具，支持 GUI 驱动的视频 / 图像 / 音频描述、OCR、翻译、音频分轨，以及云端 / 本地 Provider 路由。
 
 ## 功能特点
 - **Provider V2 架构** - 模块化、可扩展的 Provider 系统，支持自动发现和统一接口
 - **OpenAI 兼容 API** - 通用接口支持 vLLM、SGLang、Ollama、LM Studio 本地 GPU 推理
-- 使用 Google Gemini API 进行视频场景自动字幕生成
+- **GUI 优先工作流** - NiceGUI 图形界面统一承载导入、分镜、打标、字幕、导出和工具箱
+- 支持使用云端或本地 Provider 进行视频 / 图像 / 音频理解
 - 导出 SRT 格式字幕文件
 - 支持多种视频格式
 - 批量处理并显示进度
@@ -158,7 +164,7 @@
 ### 自动字幕生成 (`captioner.py` & `api_handler_v2.py`)
 - **Provider V2 架构**，支持 20+ 种 Provider（Cloud VLM、Local VLM、OCR、Vision API）
 - **OpenAI 兼容 Provider**，支持本地推理（vLLM、SGLang、Ollama、LM Studio）
-- 使用 Gemini API 进行视频场景描述
+- 支持远程 API、本地 OCR / VLM / ALM 与 OpenAI-compatible 路由
 - 支持批量处理
 - 生成带时间戳的 SRT 格式字幕
 - 健壮的错误处理和重试机制
@@ -200,259 +206,81 @@ pwsh ./1.install-uv-qinglong.ps1
 ```
 ## 使用方法
 
-### 把媒体文件放到datasets文件夹下
+### 推荐流程：先用 GUI
 
-### 导入视频
-使用 PowerShell 脚本导入视频：
+1. 运行安装脚本：
+   ```powershell
+   ./1.install-uv-qinglong.ps1
+   ```
+2. 启动 GUI：
+   ```powershell
+   ./start_gui.ps1
+   ```
+3. 默认会在浏览器打开 `http://127.0.0.1:7899`。
+4. 进入 GUI 后，建议先打开 `Setup` 页面检查 Python / PyTorch / CUDA，然后按 `Import -> Split -> Tagger -> Caption -> Export / Tools` 的顺序使用。
+
+### GUI 启动方式
+
+#### 方式 1：推荐，使用项目脚本
+
+```powershell
+./start_gui.ps1
+```
+
+- 这个脚本会自动切到项目根目录，补齐 `PYTHONPATH`，优先复用 `.venv` / `venv`
+- 默认参数来自 `start_gui.ps1` 内的 `$Config`，当前默认地址是 `127.0.0.1:7899`
+- 默认以浏览器模式启动；如果端口占用，GUI 会自动尝试后续端口并打印实际 URL
+
+#### 方式 2：直接调用 Python 入口
+
+```powershell
+python -m gui.launch --port 7899
+```
+
+常用参数：
+
+```powershell
+python -m gui.launch --cloud --port 7899 --no-browser
+python -m gui.launch --native --port 7899
+```
+
+- `--cloud` 会绑定到 `0.0.0.0`
+- `--native` 会使用原生窗口模式（需要 `pywebview`）
+- `--no-browser` 不自动打开浏览器
+
+更多 GUI 页面说明可见 [gui/README.md](gui/README.md)。
+
+### GUI 下的模型 / Provider 使用说明
+
+- 远程 API、OCR、本地 VLM、本地 ALM 现在都统一从 GUI 配置
+- 在 `Caption` 页面选择本地 OCR / VLM / ALM 后，GUI 会根据所选路由自动补对应的 `uv extra`
+- 不再推荐手动执行一长串 `uv sync --extra xxx` 来安装不同本地 VLM / ALM
+- 如果你确实走脚本模式，再去修改对应 `.ps1` 或 `config/*.toml`
+
+### 脚本模式（高级 / 批处理）
+
+如果你已经熟悉当前工程，仍然可以直接运行脚本：
+
 ```powershell
 ./lanceImport.ps1
-```
-
-### 导出数据
-使用 PowerShell 脚本从 Lance 格式导出数据：
-```powershell
-./lanceExport.ps1
-```
-
-### 自动字幕生成
-使用 PowerShell 脚本为视频生成字幕：
-```powershell
 ./4、run.ps1
-```
-注意：使用自动字幕生成功能前，需要在 `run.ps1` 中配置 [Gemini API 密钥](https://aistudio.google.com/apikey)。
-
-### 音频分轨
-使用 PowerShell 脚本执行 ONNX 音频分轨：
-```powershell
+./lanceExport.ps1
 ./2.5.audio_separator.ps1
-```
-
-支持单个音频文件、目录或 `.lance` 数据集输入；默认输出 6 stems，并可选开启 harmony 二次分离。
-
-### 文本 / 文档翻译
-使用 PowerShell 脚本执行文档规范化和翻译：
-```powershell
 ./5.translate.ps1
 ```
 
-当前翻译链路：
-1. 将目录或现有 `.lance` 数据集加载到 Lance
-2. 写入 `raw.import.*` / `norm.docling.*` / `tr.*` 三类 tag
-3. 对 `.txt/.md/.pdf/.doc/.docx/.xls/.xlsx/.ppt/.pptx/.rtf/.epub` 做规范化与翻译
-4. 导出结果为 `*_zh_cn.md` 这类语言后缀文件
-
-补充说明：
-- 日常运行时会直接安装当前所选 profile；`uv.lock` 更适合留给 CI 或发版流程维护。
-- 这样可以避免 optional extras 互相冲突时，单个模型的启动被全局锁文件求解阻断。
-
-如果只想重跑翻译模型而不重新做文档转换，可以把 `source_version` 指向已有的 `norm.*` tag，并在 `5.translate.ps1` 中打开 `skip_normalize`。
-[Pixtral API 秘钥](https://console.mistral.ai/api-keys/) 可选为图片打标。
-现在我们支持使用[阶跃星辰](https://platform.stepfun.com/)的视频模型进行视频标注。
-现在我们支持使用[通义千问VL](https://bailian.console.aliyun.com/#/model-market)的视频模型进行视频标注。
-现在我们支持使用[Mistral OCR](https://console.mistral.ai/api-keys/)的OCR功能进行图片字幕生成。
-现在我们支持使用[智谱GLM](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys)的视频模型进行视频标注。
-config_prompt
-
-```
-$dataset_path = "./datasets"
-$pair_dir = ""
-$gemini_api_key = ""
-$gemini_model_path = "gemini-3-pro-preview"
-$gemini_task = ""
-$pixtral_api_key = ""
-$pixtral_model_path = "pixtral-large-2411"
-$step_api_key = ""
-$step_model_path = "step-1.5v-mini"
-$kimi_api_key = ""
-$kimi_model_path = "moonshotai/kimi-k2.5"
-$kimi_base_url = "https://integrate.api.nvidia.com/v1"
-$qwenVL_api_key = ""
-$qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
-$glm_api_key = ""
-$glm_model_path = "GLM-4V-Plus-0111"
-$ark_api_key = ""
-$ark_model_path = "doubao-seed-1-6"
-
-# MiniMax API 配置
-$minimax_api_key = ""              # MiniMax API 密钥 (从 platform.minimaxi.com 获取)
-$minimax_model_path = "MiniMax-M2.5"  # 可选: MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1, MiniMax-M2.1-highspeed, MiniMax-M2
-$minimax_api_base_url = "https://api.minimax.io/v1"
-
-# MiniMax Code API 配置 (针对代码和结构化输出优化)
-$minimax_code_api_key = ""         # MiniMax Code API 密钥
-$minimax_code_model_path = "MiniMax-M2"  # 默认使用 M2 模型，专为代码和Agent工作流优化
-$minimax_code_base_url = "https://api.minimax.io/v1"
-
-# OpenAI Compatible API 配置（支持 vLLM、SGLang、Ollama、LM Studio）
-# 当配置了 openai_base_url 时，会优先使用此接口进行本地 GPU 推理
-$openai_api_key = ""           # API 密钥（本地服务可填任意值）
-$openai_base_url = ""          # 服务器地址，如 http://localhost:8000/v1
-$openai_model_name = ""        # 模型名称，如 Qwen2-VL-7B-Instruct
-$openai_temperature = 0.7      # 生成温度
-$openai_max_tokens = 2048      # 最大 token 数
-$openai_json_mode = $true      # 是否使用 JSON 模式
-$local_runtime_backend = ""    # "", "direct", "openai"
-$local_runtime_model_id = ""   # 本地 provider 走 OpenAI-compatible server 时可单独覆盖模型名
-$local_runtime_temperature = $null
-$local_runtime_max_tokens = $null
-
-$dir_name = $false
-$mode = "long"
-$not_clip_with_caption = $true              # Not clip with caption | 不根据caption裁剪
-$wait_time = 1
-$max_retries = 10
-$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds, other ALMs use 600 seconds
-# OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "logics_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
-$document_image = $true
-
-# VLM model configuration for image/video tasks
-$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
-
-# ALM model configuration for audio tasks
-$alm_model = ""  # Options: "music_flamingo_local", "eureka_audio_local", "acestep_transcriber_local", ""
-
-$scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
-$scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
-$scene_min_len = 1
-$scene_luma_only = $false
-$tags_highlightrate = 0.3
-```
-
-#### 本地 Reka Edge VLM
-
-`reka_edge_local` 对接的是 [`RekaAI/reka-edge-2603`](https://huggingface.co/RekaAI/reka-edge-2603)，支持 `image/*` 和 `video/*` 输入。
-
-1. 安装依赖：
-```powershell
-uv sync --extra reka-edge-local
-```
-2. 直接本地推理：
-```powershell
-$vlm_image_model = "reka_edge_local"
-$local_runtime_backend = "direct"
-```
-3. 走 OpenAI-compatible 本地服务（例如 `vllm-reka`）：
-```powershell
-$vlm_image_model = "reka_edge_local"
-$local_runtime_backend = "openai"
-$openai_base_url = "http://localhost:8000/v1"
-$local_runtime_model_id = "RekaAI/reka-edge-2603"
-```
-
-#### 本地 Music Flamingo ALM
-
-`music_flamingo_local` 默认对接的是 [`henry1477/music-flamingo-2601-hf-fp8`](https://huggingface.co/henry1477/music-flamingo-2601-hf-fp8)，用于 `audio/*` 输入的描述型字幕生成。
-
-1. 安装依赖：
-```powershell
-uv sync --extra music-flamingo-local
-```
-   这组 extra 现在会一并安装 `kernels`；在 Windows 上还会补装 `triton-windows`，用于 FP8 / Triton kernel 路径。
-2. 启用本地音频模型：
-```powershell
-$alm_model = "music_flamingo_local"
-```
-3. 当前默认是 FP8 量化版。代码会在 CUDA 路径下把 `torch_dtype` 交给 Transformers 按模型仓库内的量化配置自动决定，并保留 `audio_tower / multi_modal_projector / lm_head` 的 bf16 行为。
-4. `segment_time` 留空时会使用模型卡默认上限 `1200` 秒；只有手动设置 `$segment_time = 90` 这类值时，才会显式覆盖。
-5. 这个模型默认做描述型音频 SRT，不是逐字 ASR；如果你要做歌词/语音转录，建议后续接独立 ASR 模型。
-
-#### 本地 Eureka Audio ALM
-
-`eureka_audio_local` 默认对接的是 [`cslys1999/Eureka-Audio-Instruct`](https://huggingface.co/cslys1999/Eureka-Audio-Instruct)，同样走 `audio/*` 路由，但加载方式更接近标准 Hugging Face 多模态模型。
-
-1. 安装依赖：
-```powershell
-uv sync --extra eureka-audio-local
-```
-2. 启用本地音频模型：
-```powershell
-$alm_model = "eureka_audio_local"
-```
-3. 当前实现使用官方推荐的 `AutoModelForCausalLM.from_pretrained(..., trust_remote_code=True)` 与 `AutoProcessor`，消息格式为 `audio_url + text`。
-4. 项目默认提供 `eureka_audio_system_prompt` / `eureka_audio_prompt`，两者都与模型卡 quick start 保持一致：`Descript The audio.`。
-5. `segment_time` 留空时继续使用通用默认值 `600` 秒；只有 `music_flamingo_local` 保留 `1200` 秒特例。
-6. 这个 provider 目前也按“描述型音频理解”集成，后处理仍输出 `.txt` 描述摘要，不替代专门 ASR 流程。
-
-#### 本地 ACE-Step Transcriber ALM
-
-`acestep_transcriber_local` 默认对接的是 [`ACE-Step/acestep-transcriber`](https://huggingface.co/ACE-Step/acestep-transcriber)，同样走 `audio/*` 路由，但目标是输出结构化转写文本而不是摘要。
-
-1. 安装依赖：
-```powershell
-uv sync --extra acestep-transcriber-local
-```
-2. 启用本地音频模型：
-```powershell
-$alm_model = "acestep_transcriber_local"
-```
-3. 当前实现继续使用 `AutoModelForCausalLM` 与 `AutoProcessor`，并按模型卡说明走 `audio_url + text` 的 chat template 输入格式。
-4. 项目默认提供 `acestep_transcriber_audio_system_prompt` / `acestep_transcriber_audio_prompt`，两者都默认是模型卡建议的 `*Task* Transcribe this audio in detail`。
-5. `segment_time` 留空时继续使用通用默认值 `600` 秒。
-6. 这个 provider 输出 `.txt` 结构化转写文本，不会自动转换成 `.srt`。
-
-如果你走第 3 种方式，调用链会复用现有本地 OpenAI-compatible 多模态入口，配置方法和 Gemini / 其他 VLM provider 保持一致，只是后端换成你自己的本地服务。
-
-#### 本地 Penguin-VL
-
-`penguin_vl_local` 对接的是 [`tencent/Penguin-VL-8B`](https://huggingface.co/tencent/Penguin-VL-8B)，当前项目里只走 `image/*` 路由。
-
-1. 安装依赖：
-```powershell
-uv sync --extra penguin-vl-local
-```
-2. 直接本地推理：
-```powershell
-$vlm_image_model = "penguin_vl_local"
-$local_runtime_backend = "direct"
-```
-
 说明：
-- Hugging Face 远程 processor 会导入 `decord`，所以这个 extra 会补上 `decord`。
-- 为了兼容 Penguin 官方 processor 的导入链，这个 extra 也会安装 `ffmpeg-python`。
-- `transformers` 会固定在 `4.51.3`，与 Penguin 模型卡保持一致。
 
-#### 本地 LightOn OCR
-
-`lighton_ocr` 对接的是 [`lightonai/LightOnOCR-2-1B`](https://huggingface.co/lightonai/LightOnOCR-2-1B)，支持 `image/*` 与 PDF OCR。
-
-1. 安装依赖：
-```powershell
-uv sync --extra lighton-ocr
-```
-2. 运行本地 OCR：
-```powershell
-$ocr_model = "lighton_ocr"
-$document_image = $true
-```
-
-说明：
-- 这个 extra 依赖 `transformers>=5`。
-- 默认 prompt 留空，直接使用模型默认 OCR 行为。
-
-#### 本地 Logics Parsing OCR
-
-`logics_ocr` 对接的是 [`Logics-MLLM/Logics-Parsing-v2`](https://huggingface.co/Logics-MLLM/Logics-Parsing-v2)，支持 `image/*` 与 PDF OCR。
-
-1. 安装依赖：
-```powershell
-uv sync --extra logics-ocr
-```
-2. 运行本地 OCR：
-```powershell
-$ocr_model = "logics_ocr"
-$document_image = $true
-```
-
-说明：
-- 默认 prompt 使用官方推荐的 `QwenVL HTML`。
-- 输出会自动把模型生成的结构化 HTML 转成更适合项目现有预览和导出的 Markdown。
+- `4、run.ps1` 用于批量字幕生成
+- `2.5.audio_separator.ps1` 用于 ONNX 音频分轨
+- `5.translate.ps1` 用于文档规范化和翻译，输出如 `*_zh_cn.md`
+- 日常运行会按当前所选 profile 增量安装依赖；`uv.lock` 主要留给 CI / 发版流程维护
 
 </details>
 
 # qinglong-captioner (4.2.0)
 
-A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
+A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation, audio separation, and cloud / local provider routing.
 
 ## Changelog
 
@@ -510,6 +338,9 @@ A Python toolkit for generating video captions using the Lance database format a
    - Auto-fallback: Automatically switches to text mode when JSON mode is unsupported
    - Support local GPU deployment (Qwen2-VL, LLaVA, MiniCPM-V, etc.)
    - See [docs/openai_compatible.md](docs/openai_compatible.md) for detailed usage guide
+
+<details>
+<summary>Older changelog (&lt; 4.0)</summary>
 
 ### 3.9
 
@@ -581,9 +412,6 @@ A Python toolkit for generating video captions using the Lance database format a
 
 If the prompt indicates outputting multiple images, they will also be saved separately and the corresponding text content will be saved.
 If you add pair-dir, you can input more images for multimodal context interleaving!
-
-<details>
-<summary>Older changelog (&lt; 3.0)</summary>
 
 ### 2.9
 
@@ -780,7 +608,8 @@ At the same time, the millisecond-level alignment function has been updated. Aft
 
 - **Provider V2 Architecture** - Modular, extensible provider system with auto-discovery and unified interfaces
 - **OpenAI Compatible API** - Universal interface supporting vLLM, SGLang, Ollama, LM Studio for local GPU inference
-- Automatic video/audio/image description using Google's Gemini API or only image with pixtral-large 124B
+- **GUI-first workflow** via NiceGUI for import, split, tag, caption, export, and toolbox tasks
+- Supports cloud APIs and local OCR / VLM / ALM providers through a unified routing layer
 - Export captions in SRT format
 - Support for multiple video formats
 - Batch processing with progress tracking
@@ -807,7 +636,7 @@ At the same time, the millisecond-level alignment function has been updated. Aft
 ### Auto Captioning (`captioner.py` & `api_handler_v2.py`)
 - **Provider V2 Architecture** with 20+ providers (Cloud VLM, Local VLM, OCR, Vision API)
 - **OpenAI Compatible Provider** for local inference (vLLM, SGLang, Ollama, LM Studio)
-- Automatic video scene description using Gemini API or Pixtral API
+- Remote APIs, local OCR / VLM / ALM, and OpenAI-compatible runtime routing
 - Batch processing support
 - SRT format output with timestamps
 - Robust error handling and retry mechanisms
@@ -865,235 +694,72 @@ Now we use 10.9 version
 
 ## Usage
 
-video example:
-https://files.catbox.moe/8fudnf.mp4
+### Recommended flow: use the GUI first
 
-### Just put Video or audio files into datasets folders
+1. Install dependencies:
+   ```powershell
+   ./1.install-uv-qinglong.ps1
+   ```
+2. Start the GUI:
+   ```powershell
+   ./start_gui.ps1
+   ```
+3. The browser will open `http://127.0.0.1:7899` by default.
+4. In the GUI, start with the `Setup` page to check Python / PyTorch / CUDA, then use `Import -> Split -> Tagger -> Caption -> Export / Tools`.
 
-### Importing Media
-Use the PowerShell script to import your videos:
+### GUI startup methods
+
+#### Method 1: recommended project wrapper
+
+```powershell
+./start_gui.ps1
+```
+
+- Switches to the project root, fixes `PYTHONPATH`, and reuses `.venv` / `venv` when present
+- Uses the `$Config` block in `start_gui.ps1`; the current default endpoint is `127.0.0.1:7899`
+- Starts in browser mode by default; if the port is busy, the launcher probes the next available ports and prints the actual URL
+
+#### Method 2: call the Python entrypoint directly
+
+```powershell
+python -m gui.launch --port 7899
+```
+
+Common variants:
+
+```powershell
+python -m gui.launch --cloud --port 7899 --no-browser
+python -m gui.launch --native --port 7899
+```
+
+- `--cloud` binds to `0.0.0.0`
+- `--native` uses native window mode (requires `pywebview`)
+- `--no-browser` keeps the browser closed
+
+See [gui/README.md](gui/README.md) for the page layout and GUI-specific notes.
+
+### Model / provider usage in the GUI
+
+- Remote APIs, OCR, local VLMs, and local ALMs are now configured from the GUI
+- When you select a local OCR / VLM / ALM route in the `Caption` page, the GUI automatically adds the matching `uv extra`
+- Manual `uv sync --extra xxx` steps for each local VLM / ALM are no longer the recommended workflow
+- If you intentionally stay on the script path, edit the corresponding `.ps1` file or `config/*.toml`
+
+### Script mode (advanced / batch workflows)
+
+If you already know the project and want direct scripting, these entry points are still available:
+
 ```powershell
 ./lanceImport.ps1
-```
-
-### Exporting Media
-Use the PowerShell script to export data from Lance format:
-```powershell
-./lanceExport.ps1
-```
-
-### Auto Captioning
-Use the PowerShell script to generate captions for your videos:
-
-```powershell
 ./4、run.ps1
-```
-
-Note: You'll need to configure your [Gemini API key](https://aistudio.google.com/apikey) in `4、run.ps1` before using the auto-captioning feature.
-[Pixtral API key](https://console.mistral.ai/api-keys/) optional for image caption.
-
-Now we support [step-1.5v-mini](https://platform.stepfun.com/) optional for video captioner.
-
-Now we support [qwen-VL](https://bailian.console.aliyun.com/#/model-market) series optional for video captioner.
-
-Now we support [Mistral OCR](https://console.mistral.ai/api-keys/) optional for PDF and image OCR.
-
-Now we support local [LightOnOCR-2-1B](https://huggingface.co/lightonai/LightOnOCR-2-1B) optional for image and PDF OCR.
-
-Now we support [GLM](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) series optional for video captioner.
-
-Daily runtime no longer depends on `uv.lock`; the scripts install only the selected profile directly from `pyproject.toml`, while `uv.lock` can be maintained separately in CI or release flows.
-
-### Audio Separation
-Use the PowerShell script to split audio into stems:
-
-```powershell
+./lanceExport.ps1
 ./2.5.audio_separator.ps1
-```
-
-It accepts a single audio file, a folder, or a `.lance` dataset, exports 6 stems by default, and can optionally run a second harmony split.
-
-### Text / Document Translation
-Use the translation pipeline for normalized document translation:
-
-```powershell
 ./5.translate.ps1
 ```
 
-It imports data into Lance, writes `raw.import.*` / `norm.docling.*` / `tr.*` tags, and exports translated markdown files such as `*_zh_cn.md`.
-
-```
-$dataset_path = "./datasets"
-$pair_dir = ""
-$gemini_api_key = ""
-$gemini_model_path = "gemini-3-pro-preview"
-$gemini_task = ""
-$pixtral_api_key = ""
-$pixtral_model_path = "pixtral-large-2411"
-$step_api_key = ""
-$step_model_path = "step-1.5v-mini"
-$kimi_api_key = ""
-$kimi_model_path = "moonshotai/kimi-k2.5"
-$kimi_base_url = "https://integrate.api.nvidia.com/v1"
-$qwenVL_api_key = ""
-$qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
-$glm_api_key = ""
-$glm_model_path = "GLM-4V-Plus-0111"
-$ark_api_key = ""
-$ark_model_path = "doubao-seed-1-6"
-
-# MiniMax API Configuration
-$minimax_api_key = ""              # MiniMax API key (from platform.minimaxi.com)
-$minimax_model_path = "MiniMax-M2.5"  # Options: MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1, MiniMax-M2.1-highspeed, MiniMax-M2
-$minimax_api_base_url = "https://api.minimax.io/v1"
-
-# MiniMax Code API Configuration (optimized for coding and structured output)
-$minimax_code_api_key = ""         # MiniMax Code API key
-$minimax_code_model_path = "MiniMax-M2"  # Default M2 model optimized for coding and Agent workflows
-$minimax_code_base_url = "https://api.minimax.io/v1"
-
-# OpenAI Compatible API Configuration (supports vLLM, SGLang, Ollama, LM Studio)
-$openai_api_key = ""           # API key (local services may use any placeholder)
-$openai_base_url = ""          # Server URL, e.g. http://localhost:8000/v1
-$openai_model_name = ""        # Shared model name for generic OpenAI-compatible provider
-$openai_temperature = 0.7
-$openai_max_tokens = 2048
-$openai_json_mode = $true
-$local_runtime_backend = ""    # "", "direct", "openai"
-$local_runtime_model_id = ""   # Optional override when a local provider uses server backend
-$local_runtime_temperature = $null
-$local_runtime_max_tokens = $null
-
-$dir_name = $false
-$mode = "long"
-$not_clip_with_caption = $true              # Not clip with caption | 不根据caption裁剪
-$wait_time = 1
-$max_retries = 10
-$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds, other ALMs use 600 seconds
-# OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "logics_ocr", "lighton_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
-$document_image = $true
-
-# VLM model configuration for image/video tasks
-$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
-
-# ALM model configuration for audio tasks
-$alm_model = ""  # Options: "music_flamingo_local", "eureka_audio_local", "acestep_transcriber_local", ""
-
-$scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
-$scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
-$scene_min_len = 1
-$scene_luma_only = $false
-$tags_highlightrate = 0.3
-```
-
-#### Local Reka Edge VLM
-
-`reka_edge_local` targets [`RekaAI/reka-edge-2603`](https://huggingface.co/RekaAI/reka-edge-2603) and accepts both `image/*` and `video/*` inputs.
-
-1. Install the extra:
-```powershell
-uv sync --extra reka-edge-local
-```
-2. Run with direct local Transformers inference:
-```powershell
-$vlm_image_model = "reka_edge_local"
-$local_runtime_backend = "direct"
-```
-3. Or reuse an OpenAI-compatible local server such as `vllm-reka`:
-```powershell
-$vlm_image_model = "reka_edge_local"
-$local_runtime_backend = "openai"
-$openai_base_url = "http://localhost:8000/v1"
-$local_runtime_model_id = "RekaAI/reka-edge-2603"
-```
-
-#### Local Music Flamingo ALM
-
-`music_flamingo_local` now defaults to [`henry1477/music-flamingo-2601-hf-fp8`](https://huggingface.co/henry1477/music-flamingo-2601-hf-fp8) for descriptive `audio/*` captioning.
-
-1. Install the extra:
-```powershell
-uv sync --extra music-flamingo-local
-```
-   This extra now installs `kernels`, and on Windows it also pulls in `triton-windows` for the FP8 / Triton kernel path.
-2. Enable the local audio model:
-```powershell
-$alm_model = "music_flamingo_local"
-```
-3. The default repo is the FP8 quantized build. On CUDA, this project now lets Transformers read the repo quantization config directly instead of forcing a runtime `torch_dtype`, while the audio tower / projector / LM head stay in bf16 as defined by the model repo.
-4. Leave `segment_time` as `$null` to use the model-card default limit of `1200` seconds. Set a numeric value only when you want to override it explicitly.
-5. This provider is aimed at descriptive audio SRT output, not word-for-word ASR. For transcription, keep a dedicated ASR model in a later stage.
-
-#### Local Eureka Audio ALM
-
-`eureka_audio_local` defaults to [`cslys1999/Eureka-Audio-Instruct`](https://huggingface.co/cslys1999/Eureka-Audio-Instruct). It uses the same `audio/*` route as Music Flamingo, but follows the model author's standard Hugging Face loading path.
-
-1. Install the extra:
-```powershell
-uv sync --extra eureka-audio-local
-```
-2. Enable the local audio model:
-```powershell
-$alm_model = "eureka_audio_local"
-```
-3. The provider loads the model through `AutoModelForCausalLM` plus `AutoProcessor` with `trust_remote_code=True`, and sends messages in the model's `audio_url + text` chat format.
-4. The shipped `eureka_audio_system_prompt` and `eureka_audio_prompt` both default to the model-card quick-start prompt: `Descript The audio.`.
-5. Leave `segment_time` as `$null` to keep the generic `600` second default. Only `music_flamingo_local` keeps the special `1200` second default.
-6. This integration is currently wired as descriptive audio understanding and emits `.txt` summary output, not a dedicated ASR transcript.
-
-#### Local ACE-Step Transcriber ALM
-
-`acestep_transcriber_local` defaults to [`ACE-Step/acestep-transcriber`](https://huggingface.co/ACE-Step/acestep-transcriber). It uses the same `audio/*` route as the other local ALMs, but its goal is transcript-style output instead of audio summarization.
-
-1. Install the extra:
-```powershell
-uv sync --extra acestep-transcriber-local
-```
-2. Enable the local audio model:
-```powershell
-$alm_model = "acestep_transcriber_local"
-```
-3. The provider loads the model through `AutoModelForCausalLM` plus `AutoProcessor` with `trust_remote_code=True`, and sends messages in the model-card `audio_url + text` format.
-4. The shipped `acestep_transcriber_audio_system_prompt` and `acestep_transcriber_audio_prompt` both default to the recommended prompt: `*Task* Transcribe this audio in detail`.
-5. Leave `segment_time` as `$null` to keep the generic `600` second default.
-6. This provider emits structured `.txt` transcripts and does not automatically convert them to `.srt`.
-
-Server mode reuses the existing local OpenAI-compatible multimodal path, so the configuration pattern stays the same as other VLM backends.
-
-#### Local Penguin-VL
-
-`penguin_vl_local` targets [`tencent/Penguin-VL-8B`](https://huggingface.co/tencent/Penguin-VL-8B) and is currently wired for `image/*` inputs in this project.
-
-1. Install the extra:
-```powershell
-uv sync --extra penguin-vl-local
-```
-2. Run with direct local Transformers inference:
-```powershell
-$vlm_image_model = "penguin_vl_local"
-$local_runtime_backend = "direct"
-```
-
 Notes:
-- The Hugging Face remote processor imports `decord`, so this extra includes `decord`.
-- This extra also installs `ffmpeg-python` to match Penguin's remote processor import chain.
-- `transformers` is pinned to `4.51.3` for Penguin compatibility.
 
-#### Local LightOn OCR
-
-`lighton_ocr` targets [`lightonai/LightOnOCR-2-1B`](https://huggingface.co/lightonai/LightOnOCR-2-1B) and supports `image/*` plus PDF OCR.
-
-1. Install the extra:
-```powershell
-uv sync --extra lighton-ocr
-```
-2. Run local OCR:
-```powershell
-$ocr_model = "lighton_ocr"
-$document_image = $true
-```
-
-Notes:
-- This extra requires `transformers>=5`.
-- The default prompt is intentionally empty, so the model runs with its default OCR behavior.
+- `4、run.ps1` runs batch captioning
+- `2.5.audio_separator.ps1` runs the ONNX audio separator
+- `5.translate.ps1` normalizes and translates documents, exporting files such as `*_zh_cn.md`
+- Day-to-day runs install the selected dependency profile incrementally; `uv.lock` is mainly kept for CI / release maintenance
