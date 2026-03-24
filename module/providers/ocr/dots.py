@@ -17,6 +17,7 @@ from typing import Optional
 
 from PIL import Image, ImageDraw
 
+from importlib import metadata as importlib_metadata
 from module.providers.backends import OpenAIChatRuntime, find_model_config_section, resolve_runtime_backend
 from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
 from module.providers.ocr_base import OCRProvider
@@ -51,11 +52,6 @@ class DotsInferenceArtifacts:
     input_image: Image.Image
 
 try:
-    import importlib.metadata as importlib_metadata
-except ImportError:  # pragma: no cover - Python < 3.8 fallback
-    import importlib_metadata  # type: ignore[no-redef]
-
-
 def _find_upstream_utils_file(relative_path: str) -> Path | None:
     """Locate a file inside the upstream dots_ocr package without importing its top-level package."""
     vendor_candidate = _vendor_dots_root() / Path(relative_path)

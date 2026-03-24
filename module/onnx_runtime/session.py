@@ -21,6 +21,15 @@ class OnnxSessionBundle:
     sessions: dict[str, Any]
     providers: tuple[Any, ...]
 
+    def close(self) -> None:
+        for session in self.sessions.values():
+            close_fn = getattr(session, "close", None)
+            if callable(close_fn):
+                try:
+                    close_fn()
+                except Exception:
+                    pass
+
 
 def _normalize_for_json(value: Any) -> Any:
     if isinstance(value, Path):
@@ -311,11 +320,18 @@ def load_session_bundle(
 
 
 def clear_session_bundle_cache(bundle_key_prefix: str | None = None) -> None:
+    if bundle_key_prefix is not None and not str(bundle_key_prefix):
+        bundle_key_prefix = None
+
     with _CACHE_LOCK:
         if not bundle_key_prefix:
+            bundles = list(_SESSION_BUNDLE_CACHE.values())
             _SESSION_BUNDLE_CACHE.clear()
-            return
+        else:
+            keys = [key for key in _SESSION_BUNDLE_CACHE if str(key[0]).startswith(bundle_key_prefix)]
+            bundles = [_SESSION_BUNDLE_CACHE.pop(key) for key in keys]
+            if not keys:
+                bundles = []
 
-        keys = [key for key in _SESSION_BUNDLE_CACHE if str(key[0]).startswith(bundle_key_prefix)]
-        for key in keys:
-            _SESSION_BUNDLE_CACHE.pop(key, None)
+    for bundle in bundles:
+        bundle.close()

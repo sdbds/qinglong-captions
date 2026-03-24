@@ -14,7 +14,14 @@ from einops import rearrange
 from huggingface_hub import hf_hub_download
 
 from config.loader import load_config
-from module.onnx_runtime import OnnxModelSpec, OnnxRuntimeConfig, build_local_model_dir, load_single_model_bundle, resolve_tool_runtime_config
+from module.onnx_runtime import (
+    OnnxModelSpec,
+    OnnxRuntimeConfig,
+    build_local_model_dir,
+    clear_session_bundle_cache,
+    load_single_model_bundle,
+    resolve_tool_runtime_config,
+)
 
 DEFAULT_AUDIO_SEPARATOR_REPO_ID = "bdsqlsz/BS-ROFO-SW-Fixed-ONNX"
 DEFAULT_HARMONY_SEPARATOR_REPO_ID = "bdsqlsz/mel_band_roformer_karaoke_aufr33-ONNX"
@@ -441,6 +448,7 @@ class AudioSeparator:
             force_download=force_download,
             config_dir=config_dir,
         )
+        self._closed = False
         self.metadata, self.metadata_path = download_audio_separator_metadata(
             repo_id,
             local_dir=self.model_dir,
@@ -469,6 +477,28 @@ class AudioSeparator:
         outputs = tuple(self.session.get_outputs()) if hasattr(self.session, "get_outputs") else ()
         self.output_name = outputs[0].name if outputs else self.metadata.output_name
         self._stft_window = torch.hann_window(self.metadata.win_length, dtype=torch.float32)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+
+        clear_session_bundle_cache(self.spec.bundle_key)
+        if hasattr(self, "bundle"):
+            try:
+                self.bundle.close()
+            except Exception:
+                pass
+        self.session = None
+        self.providers = tuple()
+        self.bundle = None
+        self._stft_window = None
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def read_audio(self, source_path: str | Path) -> torch.Tensor:
         return read_audio_via_ffmpeg(

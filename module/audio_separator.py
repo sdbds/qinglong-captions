@@ -353,6 +353,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_audio_separator(args: argparse.Namespace) -> int:
+    def _close_if_supported(value: object) -> None:
+        close_fn = getattr(value, "close", None)
+        if callable(close_fn):
+            close_fn()
+
     input_path = Path(args.input_path).expanduser()
     if not input_path.exists():
         console.print(f"[red]Input path does not exist:[/red] {input_path}")
@@ -363,22 +368,6 @@ def run_audio_separator(args: argparse.Namespace) -> int:
     if not audio_files:
         console.print(f"[yellow]No supported audio files found under:[/yellow] {input_path}")
         return 1
-
-    separator = AudioSeparator(
-        repo_id=args.repo_id,
-        model_dir=args.model_dir,
-        force_download=bool(args.force_download),
-        logger=console.print,
-    )
-    console.print("[cyan]Providers:[/cyan]")
-    console.print(Pretty(separator.providers, indent_guides=True, expand_all=True))
-    console.print(
-        f"[cyan]Model:[/cyan] {args.repo_id} | "
-        f"[cyan]Format:[/cyan] {args.output_format} | "
-        f"[cyan]Segment:[/cyan] {args.segment_size} | "
-        f"[cyan]Overlap:[/cyan] {args.overlap} | "
-        f"[cyan]Batch:[/cyan] {args.batch_size}"
-    )
 
     failures = 0
     skipped = 0
@@ -401,75 +390,94 @@ def run_audio_separator(args: argparse.Namespace) -> int:
     ) as progress:
         progress_console = progress.console
         task = progress.add_task("[bold cyan]Separating audio...", total=len(audio_files))
-
-        for source_path in audio_files:
-            current_output_root = output_root if input_root is not None else source_path.parent
-            song_output_dir = build_song_output_dir(
-                source_path,
-                output_root=current_output_root,
-                input_root=input_root,
+        separator = None
+        try:
+            separator = AudioSeparator(
+                repo_id=args.repo_id,
+                model_dir=args.model_dir,
+                force_download=bool(args.force_download),
+                logger=console.print,
             )
 
-            if song_output_dir.exists() and not args.overwrite:
-                progress_console.print(f"[yellow]Skipping existing song directory:[/yellow] {song_output_dir}")
-                skipped += 1
-                progress.update(task, advance=1)
-                continue
-
-            progress_console.print(f"[blue]Separating:[/blue] {source_path}")
-            try:
-                stems = separator.separate_file(
+            for source_path in audio_files:
+                current_output_root = output_root if input_root is not None else source_path.parent
+                song_output_dir = build_song_output_dir(
                     source_path,
-                    segment_size=args.segment_size,
-                    overlap=args.overlap,
-                    batch_size=args.batch_size,
+                    output_root=current_output_root,
+                    input_root=input_root,
                 )
-                song_output_dir.mkdir(parents=True, exist_ok=True)
-                selected_vocal = select_vocal_stem(stems) if (args.harmony_separation or args.vocal_midi) else None
-                vocal_output_path: Path | None = None
-                vocal_midi_candidate: VocalMidiCandidate | None = None
-                for stem_name, waveform in stems.items():
-                    output_path = build_stem_output_path(
-                        song_output_dir,
-                        source_path=source_path,
-                        stem_name=stem_name,
-                        model_tag=separator.model_tag,
-                        output_format=args.output_format,
-                    )
-                    separator.write_audio(
-                        waveform,
-                        output_path,
-                        output_format=args.output_format,
-                    )
-                    if selected_vocal is not None and stem_name == selected_vocal[0]:
-                        vocal_output_path = output_path
 
-                if args.vocal_midi:
-                    vocal_midi_candidate = VocalMidiCandidate(
-                        source_path=source_path,
-                        song_output_dir=song_output_dir,
-                        input_path=vocal_output_path if vocal_output_path is not None else source_path,
-                    )
-                    vocal_midi_candidates.append(vocal_midi_candidate)
+                if song_output_dir.exists() and not args.overwrite:
+                    progress_console.print(f"[yellow]Skipping existing song directory:[/yellow] {song_output_dir}")
+                    skipped += 1
+                    progress.update(task, advance=1)
+                    continue
 
-                if selected_vocal is None and args.harmony_separation:
-                    progress_console.print(f"[yellow]No vocal stem detected for harmony split:[/yellow] {source_path}")
-                elif selected_vocal is not None and vocal_output_path is not None:
-                    harmony_candidates.append(
-                        HarmonyCandidate(
+                progress_console.print(f"[blue]Separating:[/blue] {source_path}")
+                console.print("[cyan]Providers:[/cyan]")
+                console.print(Pretty(separator.providers, indent_guides=True, expand_all=True))
+                console.print(
+                    f"[cyan]Model:[/cyan] {args.repo_id} | "
+                    f"[cyan]Format:[/cyan] {args.output_format} | "
+                    f"[cyan]Segment:[/cyan] {args.segment_size} | "
+                    f"[cyan]Overlap:[/cyan] {args.overlap} | "
+                    f"[cyan]Batch:[/cyan] {args.batch_size}"
+                )
+                try:
+                    stems = separator.separate_file(
+                        source_path,
+                        segment_size=args.segment_size,
+                        overlap=args.overlap,
+                        batch_size=args.batch_size,
+                    )
+                    song_output_dir.mkdir(parents=True, exist_ok=True)
+                    selected_vocal = select_vocal_stem(stems) if (args.harmony_separation or args.vocal_midi) else None
+                    vocal_output_path: Path | None = None
+                    vocal_midi_candidate: VocalMidiCandidate | None = None
+                    for stem_name, waveform in stems.items():
+                        output_path = build_stem_output_path(
+                            song_output_dir,
+                            source_path=source_path,
+                            stem_name=stem_name,
+                            model_tag=separator.model_tag,
+                            output_format=args.output_format,
+                        )
+                        separator.write_audio(
+                            waveform,
+                            output_path,
+                            output_format=args.output_format,
+                        )
+                        if selected_vocal is not None and stem_name == selected_vocal[0]:
+                            vocal_output_path = output_path
+
+                    if args.vocal_midi:
+                        vocal_midi_candidate = VocalMidiCandidate(
                             source_path=source_path,
                             song_output_dir=song_output_dir,
-                            vocal_path=vocal_output_path,
-                            vocal_midi_candidate=vocal_midi_candidate,
+                            input_path=vocal_output_path if vocal_output_path is not None else source_path,
                         )
-                    )
-                progress_console.print(f"[green]Saved stems to:[/green] {song_output_dir}")
-                processed += 1
-            except Exception as exc:  # pragma: no cover - exercised via CLI smoke or manual runs
-                failures += 1
-                print_exception(progress_console, exc, prefix=f"Failed to separate {source_path}")
-            finally:
-                progress.update(task, advance=1)
+                        vocal_midi_candidates.append(vocal_midi_candidate)
+
+                    if selected_vocal is None and args.harmony_separation:
+                        progress_console.print(f"[yellow]No vocal stem detected for harmony split:[/yellow] {source_path}")
+                    elif selected_vocal is not None and vocal_output_path is not None:
+                        harmony_candidates.append(
+                            HarmonyCandidate(
+                                source_path=source_path,
+                                song_output_dir=song_output_dir,
+                                vocal_path=vocal_output_path,
+                                vocal_midi_candidate=vocal_midi_candidate,
+                            )
+                        )
+                    progress_console.print(f"[green]Saved stems to:[/green] {song_output_dir}")
+                    processed += 1
+                except Exception as exc:  # pragma: no cover - exercised via CLI smoke or manual runs
+                    failures += 1
+                    print_exception(progress_console, exc, prefix=f"Failed to separate {source_path}")
+                finally:
+                    progress.update(task, advance=1)
+        finally:
+            _close_if_supported(separator)
 
     harmony_processed = 0
     harmony_skipped = 0
@@ -478,16 +486,6 @@ def run_audio_separator(args: argparse.Namespace) -> int:
         if not harmony_candidates:
             console.print("[yellow]Harmony split enabled, but no vocal stems were found.[/yellow]")
         else:
-            harmony_separator = AudioSeparator(
-                repo_id=args.harmony_repo_id,
-                model_dir=args.model_dir,
-                force_download=bool(args.force_download),
-                logger=console.print,
-            )
-            console.print("[cyan]Harmony Model:[/cyan] " f"{args.harmony_repo_id}")
-            console.print("[cyan]Harmony Providers:[/cyan]")
-            console.print(Pretty(harmony_separator.providers, indent_guides=True, expand_all=True))
-
             with Progress(
                 "[progress.description]{task.description}",
                 SpinnerColumn(spinner_name="dots"),
@@ -505,10 +503,19 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                 task = progress.add_task("[bold magenta]Separating harmony...", total=len(harmony_candidates))
 
                 for candidate in harmony_candidates:
+                    harmony_separator = AudioSeparator(
+                        repo_id=args.harmony_repo_id,
+                        model_dir=args.model_dir,
+                        force_download=bool(args.force_download),
+                        logger=console.print,
+                    )
                     harmony_output_dir = build_harmony_output_dir(candidate.song_output_dir)
                     dry_vocal_output_path: Path | None = None
                     progress_console.print(f"[magenta]Harmony split:[/magenta] {candidate.vocal_path}")
                     try:
+                        console.print("[cyan]Harmony Model:[/cyan] " f"{args.harmony_repo_id}")
+                        console.print("[cyan]Harmony Providers:[/cyan]")
+                        console.print(Pretty(harmony_separator.providers, indent_guides=True, expand_all=True))
                         harmony_stems = harmony_separator.separate_file(
                             candidate.vocal_path,
                             segment_size=harmony_separator.metadata.default_segment_size,
@@ -548,6 +555,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                         failures += 1
                         print_exception(progress_console, exc, prefix=f"Failed harmony split for {candidate.vocal_path}")
                     finally:
+                        _close_if_supported(harmony_separator)
                         progress.update(task, advance=1)
 
     vocal_midi_processed = 0
