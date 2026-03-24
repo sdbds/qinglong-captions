@@ -263,14 +263,16 @@ class OCRProvider(Provider):
         image_ref = f"{image_uri_prefix}{image_path}" if image_uri_prefix else image_path
         messages: list = []
         if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({
-            "role": "user",
-            "content": [
-                {"type": "image", "image": image_ref},
-                {"type": "text", "text": prompt_text},
-            ],
-        })
+            messages.append(Provider.build_message("system", system_prompt))
+        messages.append(
+            Provider.build_message(
+                "user",
+                [
+                    Provider.build_image_part(image_ref),
+                    Provider.build_text_part(prompt_text),
+                ],
+            )
+        )
         return messages
 
     def _get_model_config(self, key: str, default: Any = None) -> Any:

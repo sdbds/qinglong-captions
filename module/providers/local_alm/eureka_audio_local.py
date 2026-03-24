@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from module.caption_pipeline.postprocess import strip_reasoning_sections
-from module.providers.base import CaptionResult, MediaContext, PromptContext, build_chat_text_message
+from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.providers.local_alm_base import LocalALMProvider
 from module.providers.registry import register_provider
 from utils.parse_display import extract_code_block_content
@@ -17,7 +16,7 @@ from utils.parse_display import extract_code_block_content
 @register_provider("eureka_audio_local")
 class EurekaAudioLocalProvider(LocalALMProvider):
     default_model_id = "cslys1999/Eureka-Audio-Instruct"
-    generate_config_keys = ("max_new_tokens", "do_sample", "temperature", "top_p", "top_k")
+    generate_config_keys = ("max_new_tokens", "do_sample", "temperature", "top_p", "top_k", "repetition_penalty")
     default_generate_kwargs = {
         "max_new_tokens": 512,
         "do_sample": False,
@@ -31,91 +30,60 @@ class EurekaAudioLocalProvider(LocalALMProvider):
         return getattr(args, "alm_model", "") == "eureka_audio_local" and mime.startswith("audio")
 
     def _load_model(self):
-        from transformers import AutoModelForCausalLM, AutoProcessor
-
-        from utils.transformer_loader import load_pretrained_component, resolve_device_dtype
-
-        model_id = self.model_id
-        device, dtype, attn_impl = resolve_device_dtype()
-        self.log(f"Loading Eureka Audio model: {model_id} (device={device}, dtype={dtype})", "blue")
-
-        processor = load_pretrained_component(
-            AutoProcessor,
-            model_id,
-            console=self.ctx.console,
-            component_name="processor",
-            trust_remote_code=True,
-        )
-
-        load_kwargs: dict[str, Any] = {
-            "trust_remote_code": True,
-            "torch_dtype": dtype,
-            "low_cpu_mem_usage": True,
-        }
-        if attn_impl:
-            load_kwargs["attn_implementation"] = attn_impl
-        if device == "cuda":
-            load_kwargs["device_map"] = "auto"
-
-        model = load_pretrained_component(
-            AutoModelForCausalLM,
-            model_id,
-            console=self.ctx.console,
-            component_name="model",
-            **load_kwargs,
-        )
         try:
-            model = model.eval()
-        except Exception:
-            pass
-        if device != "cuda" and hasattr(model, "to"):
-            model = model.to(device)
+            from eureka_infer.api import EurekaAudio
+        except ImportError as exc:
+            raise RuntimeError(
+                "Eureka-Audio is not installed. Run `uv sync --extra eureka-audio-local` to install the upstream wrapper."
+            ) from exc
 
-        return {"model": model, "processor": processor}
+        from utils.transformer_loader import resolve_device_dtype
+
+        resolved_device, _, _ = resolve_device_dtype()
+        device = self._resolve_runtime_device(resolved_device)
+        model_path = self.model_id
+        self.log(f"Loading Eureka Audio model: {model_path} (device={device})", "blue")
+        return {"model": EurekaAudio(model_path=model_path, device=device)}
+
+    def _resolve_runtime_device(self, resolved_device: str) -> str:
+        configured = str(self.model_config.get("device", "")).strip()
+        if configured:
+            return configured
+        if resolved_device.startswith("cuda"):
+            return "cuda:0"
+        return "cpu"
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         cached = self._get_or_load_model()
         model = cached["model"]
-        processor = cached["processor"]
+        messages = self._build_messages(media, prompts)
+        response = model.generate(messages, **self._resolve_generate_kwargs())
+        return CaptionResult(raw="" if response is None else str(response), metadata={"provider": self.name})
 
-        conversation = []
+    def _build_messages(self, media: MediaContext, prompts: PromptContext) -> list[dict[str, Any]]:
+        audio_path = str(Path(media.uri).resolve())
+        messages: list[dict[str, Any]] = []
         if prompts.system:
-            conversation.append(build_chat_text_message("system", prompts.system))
-        conversation.append(
-            {
-                "role": "user",
-                "content": [
-                    {"type": "audio_url", "audio_url": {"url": str(Path(media.uri).resolve())}},
-                    {"type": "text", "text": prompts.user},
+            messages.append(self.build_message("system", [self.build_text_part(prompts.system)]))
+        messages.append(
+            self.build_message(
+                "user",
+                [
+                    self._build_audio_url_part(audio_path),
+                    self.build_text_part(prompts.user),
                 ],
-            }
+            )
         )
+        return messages
 
-        inputs = processor.apply_chat_template(
-            conversation,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
-            return_tensors="pt",
-        )
-        if hasattr(inputs, "to"):
-            model_dtype = self._resolve_model_input_dtype(model)
-            if model_dtype is not None:
-                try:
-                    inputs = inputs.to(model.device, model_dtype)
-                except TypeError:
-                    inputs = inputs.to(model.device)
-            else:
-                inputs = inputs.to(model.device)
-        inputs = self._move_inputs_to_model(inputs, model)
-
-        generate_kwargs = self._apply_generate_length_cap(inputs, model, self._resolve_generate_kwargs())
-        output_ids = model.generate(**inputs, **generate_kwargs)
-
-        input_ids = inputs["input_ids"]
-        generated_ids = self._extract_generated_ids(output_ids, input_ids)
-        decoded = processor.batch_decode(generated_ids, skip_special_tokens=True)
-        return CaptionResult(raw=decoded[0] if decoded else "", metadata={"provider": self.name})
+    @staticmethod
+    def _build_audio_url_part(audio_path: str) -> dict[str, Any]:
+        return {
+            "type": "audio_url",
+            "audio_url": {
+                "url": audio_path,
+            },
+        }
 
     def _resolve_generate_kwargs(self) -> dict[str, Any]:
         generate_kwargs = dict(self.default_generate_kwargs)
@@ -133,79 +101,12 @@ class EurekaAudioLocalProvider(LocalALMProvider):
             generate_kwargs["max_new_tokens"] = int(generate_kwargs["max_new_tokens"])
         if "top_k" in generate_kwargs:
             generate_kwargs["top_k"] = int(generate_kwargs["top_k"])
+        if not bool(generate_kwargs.get("do_sample")):
+            generate_kwargs.pop("temperature", None)
+            generate_kwargs.pop("top_p", None)
+            generate_kwargs.pop("top_k", None)
 
         return generate_kwargs
-
-    def _apply_generate_length_cap(
-        self,
-        inputs: Mapping[str, Any] | dict[str, Any],
-        model: Any,
-        generate_kwargs: dict[str, Any],
-    ) -> dict[str, Any]:
-        input_ids = inputs.get("input_ids") if hasattr(inputs, "get") else None
-        input_length = self._sequence_length(input_ids)
-        model_max_length = self._resolve_model_max_length(model)
-        if input_length is None or model_max_length is None:
-            return generate_kwargs
-
-        requested_max_new_tokens = generate_kwargs.get("max_new_tokens")
-        if requested_max_new_tokens is None:
-            return generate_kwargs
-
-        available_new_tokens = model_max_length - input_length
-        if available_new_tokens < 1:
-            available_new_tokens = 1
-
-        if int(requested_max_new_tokens) <= available_new_tokens:
-            return generate_kwargs
-
-        capped_kwargs = dict(generate_kwargs)
-        capped_kwargs["max_new_tokens"] = available_new_tokens
-        self.log(
-            f"Capping max_new_tokens from {requested_max_new_tokens} to {available_new_tokens} to fit the model context window ({model_max_length}) with input length {input_length}.",
-            "yellow",
-        )
-        return capped_kwargs
-
-    @staticmethod
-    def _sequence_length(input_ids: Any) -> int | None:
-        shape = getattr(input_ids, "shape", None)
-        if not shape:
-            return None
-        try:
-            return int(shape[-1])
-        except (TypeError, ValueError, IndexError):
-            return None
-
-    @staticmethod
-    def _resolve_model_max_length(model: Any) -> int | None:
-        candidate_objects = [getattr(model, "config", None), getattr(getattr(model, "language_model", None), "config", None)]
-        for obj in candidate_objects:
-            if obj is None:
-                continue
-            for value in (
-                getattr(obj, "max_position_embeddings", None),
-                getattr(getattr(obj, "text_config", None), "max_position_embeddings", None),
-                getattr(obj, "max_length", None),
-                getattr(getattr(obj, "text_config", None), "max_length", None),
-            ):
-                if value is None:
-                    continue
-                try:
-                    return int(value)
-                except (TypeError, ValueError):
-                    continue
-        return None
-
-    @staticmethod
-    def _extract_generated_ids(output_ids: Any, input_ids: Any) -> Any:
-        input_length = EurekaAudioLocalProvider._sequence_length(input_ids)
-        output_length = EurekaAudioLocalProvider._sequence_length(output_ids)
-        if input_length is None or output_length is None:
-            return output_ids
-        if output_length <= input_length:
-            return output_ids
-        return output_ids[:, input_length:]
 
     def _normalize_summary_text(self, output: str) -> str:
         cleaned = strip_reasoning_sections(output)

@@ -274,7 +274,7 @@ top_p = 0.9
 # Eureka Audio ALM configuration
 # Model: https://huggingface.co/cslys1999/Eureka-Audio-Instruct
 # Requires: uv sync --extra eureka-audio-local
-# Official quick start uses AutoModelForCausalLM + AutoProcessor with trust_remote_code.
+# Provider calls the upstream EurekaAudio wrapper from https://github.com/sdbds/Eureka-Audio.
 [eureka_audio_local]
 model_id = "cslys1999/Eureka-Audio-Instruct"
 max_new_tokens = 512

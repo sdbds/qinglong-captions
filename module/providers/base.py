@@ -83,7 +83,7 @@ class PromptContext:
 
 def build_chat_text_message(role: str, text: str) -> Dict[str, Any]:
     """Build a text-only chat message compatible with multimodal chat templates."""
-    return {"role": role, "content": [{"type": "text", "text": text}]}
+    return Provider.build_message(role, [Provider.build_text_part(text)])
 
 
 @dataclass
@@ -160,6 +160,40 @@ class Provider(ABC):
     def __init__(self, context: ProviderContext):
         self.ctx = context
         self._prompt_resolver: Optional[Any] = None
+
+    @staticmethod
+    def build_message(role: str, content: Any) -> Dict[str, Any]:
+        """Build a chat message payload for provider-specific runtimes."""
+        return {"role": role, "content": content}
+
+    @staticmethod
+    def build_text_part(text: str) -> Dict[str, str]:
+        """Build a text content block for multimodal chat messages."""
+        return {"type": "text", "text": text}
+
+    @staticmethod
+    def build_image_part(value: Optional[str] = None, *, field_name: str = "image") -> Dict[str, Any]:
+        """Build an image content block, optionally omitting the reference for placeholder-only formats."""
+        part: Dict[str, Any] = {"type": "image"}
+        if value is not None:
+            part[field_name] = value
+        return part
+
+    @staticmethod
+    def build_video_part(value: Optional[str] = None, *, field_name: str = "video") -> Dict[str, Any]:
+        """Build a video content block, optionally omitting the reference for placeholder-only formats."""
+        part: Dict[str, Any] = {"type": "video"}
+        if value is not None:
+            part[field_name] = value
+        return part
+
+    @staticmethod
+    def build_audio_part(value: Optional[str] = None, *, field_name: str = "path") -> Dict[str, Any]:
+        """Build an audio content block with provider-specific reference field selection."""
+        part: Dict[str, Any] = {"type": "audio"}
+        if value is not None:
+            part[field_name] = value
+        return part
 
     @classmethod
     @abstractmethod

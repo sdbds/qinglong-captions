@@ -48,6 +48,7 @@
    - 默认模型：`cslys1999/Eureka-Audio-Instruct`
    - 支持 `audio/*` 输入
    - 基于官方 `AutoModelForCausalLM + AutoProcessor` 推理路径
+   - 当前 extra 固定依赖 `transformers==5.2.0`
 10. 新增可选本地 ALM `acestep_transcriber_local`：
    - 默认模型：`ACE-Step/acestep-transcriber`
    - 支持 `audio/*` 输入
@@ -321,6 +322,7 @@ A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation,
    - Default model: `cslys1999/Eureka-Audio-Instruct`
    - Supports `audio/*` inputs
    - Uses the official `AutoModelForCausalLM + AutoProcessor` inference path
+   - The current extra pins `transformers==5.2.0`
 9. Added optional local ALM `acestep_transcriber_local`:
    - Default model: `ACE-Step/acestep-transcriber`
    - Supports `audio/*` inputs

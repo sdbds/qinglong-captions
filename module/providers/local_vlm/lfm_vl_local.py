@@ -11,7 +11,7 @@ from PIL import Image
 from module.onnx_runtime.artifacts import build_component_filename, download_onnx_artifact_set
 from module.onnx_runtime.config import resolve_tool_runtime_config
 from module.onnx_runtime.session import load_session_bundle
-from module.providers.base import CaptionResult, MediaContext, PromptContext, build_chat_text_message
+from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.providers.local_vlm_base import LocalVLMProvider
 from module.providers.registry import register_provider
 
@@ -167,11 +167,11 @@ class LFMVLLocalProvider(LocalVLMProvider):
         return CaptionResult(raw=response_text, metadata={"provider": self.name, "model_id": self.model_id})
 
     def _build_messages(self, prompts: PromptContext, *, image_count: int) -> list[dict[str, Any]]:
-        user_content = [{"type": "image"} for _ in range(image_count)]
-        user_content.append({"type": "text", "text": prompts.user})
-        messages = [{"role": "user", "content": user_content}]
+        user_content = [self.build_image_part() for _ in range(image_count)]
+        user_content.append(self.build_text_part(prompts.user))
+        messages = [self.build_message("user", user_content)]
         if prompts.system:
-            messages.insert(0, build_chat_text_message("system", prompts.system))
+            messages.insert(0, self.build_message("system", [self.build_text_part(prompts.system)]))
         return messages
 
     def _load_images(self, media: MediaContext) -> list[Image.Image]:

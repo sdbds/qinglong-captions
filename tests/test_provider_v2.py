@@ -857,6 +857,40 @@ class TestAPIRetryConfig:
 
 class TestProviderBase:
 
+    def test_message_builder_static_helpers(self):
+        from providers.base import Provider, build_chat_text_message
+
+        assert Provider.build_text_part("describe") == {"type": "text", "text": "describe"}
+        assert Provider.build_image_part("C:/tmp/image.png") == {"type": "image", "image": "C:/tmp/image.png"}
+        assert Provider.build_image_part("file://C:/tmp/image.png", field_name="url") == {
+            "type": "image",
+            "url": "file://C:/tmp/image.png",
+        }
+        assert Provider.build_image_part() == {"type": "image"}
+        assert Provider.build_video_part("C:/tmp/video.mp4") == {"type": "video", "video": "C:/tmp/video.mp4"}
+        assert Provider.build_audio_part("C:/tmp/audio.wav") == {"type": "audio", "path": "C:/tmp/audio.wav"}
+        assert Provider.build_audio_part("file://C:/tmp/audio.wav", field_name="url") == {
+            "type": "audio",
+            "url": "file://C:/tmp/audio.wav",
+        }
+        assert Provider.build_message(
+            "user",
+            [
+                Provider.build_audio_part("C:/tmp/audio.wav"),
+                Provider.build_text_part("describe"),
+            ],
+        ) == {
+            "role": "user",
+            "content": [
+                {"type": "audio", "path": "C:/tmp/audio.wav"},
+                {"type": "text", "text": "describe"},
+            ],
+        }
+        assert build_chat_text_message("system", "sys") == {
+            "role": "system",
+            "content": [{"type": "text", "text": "sys"}],
+        }
+
     def test_get_retry_config_defaults(self):
         from providers.base import Provider, ProviderContext, CaptionResult, MediaContext, PromptContext
         from rich.console import Console

@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from module.providers.base import CaptionResult, MediaContext, PromptContext, build_chat_text_message
+from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.providers.capabilities import ProviderCapabilities
 from module.providers.local_vlm_base import LocalVLMProvider
 from module.providers.registry import register_provider
@@ -176,18 +176,18 @@ class RekaEdgeLocalProvider(LocalVLMProvider):
         user_content: list[dict[str, Any]] = []
 
         if media.mime.startswith("video"):
-            user_content.append({"type": "video", "video": str(Path(media.uri).resolve())})
+            user_content.append(self.build_video_part(str(Path(media.uri).resolve())))
         else:
-            user_content.append({"type": "image", "image": str(Path(media.uri).resolve())})
+            user_content.append(self.build_image_part(str(Path(media.uri).resolve())))
             pair_uri = media.extras.get("pair_uri")
             if pair_uri:
-                user_content.append({"type": "image", "image": str(Path(pair_uri).resolve())})
+                user_content.append(self.build_image_part(str(Path(pair_uri).resolve())))
 
-        user_content.append({"type": "text", "text": prompts.user})
+        user_content.append(self.build_text_part(prompts.user))
 
-        messages = [{"role": "user", "content": user_content}]
+        messages = [self.build_message("user", user_content)]
         if prompts.system:
-            messages.insert(0, build_chat_text_message("system", prompts.system))
+            messages.insert(0, self.build_message("system", [self.build_text_part(prompts.system)]))
         return messages
 
     def _move_inputs_to_device(self, inputs: Any, *, device: str, dtype: Any):

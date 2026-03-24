@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.progress import Progress
 from rich_pixels import Pixels
 
-from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.base import CaptionResult, MediaContext, PromptContext, Provider
 from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from utils.parse_display import display_markdown
@@ -87,13 +87,13 @@ def attempt_glm_ocr(
 
             # Process with GLM-OCR
             messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image", "url": str(page_img_path)},
-                        {"type": "text", "text": prompt_text},
+                Provider.build_message(
+                    "user",
+                    [
+                        Provider.build_image_part(str(page_img_path), field_name="url"),
+                        Provider.build_text_part(prompt_text),
                     ],
-                }
+                )
             ]
 
             inputs = processor.apply_chat_template(
@@ -142,13 +142,13 @@ def attempt_glm_ocr(
 
         # Load and process image
         messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image", "url": img_path},
-                    {"type": "text", "text": prompt_text},
+            Provider.build_message(
+                "user",
+                [
+                    Provider.build_image_part(img_path, field_name="url"),
+                    Provider.build_text_part(prompt_text),
                 ],
-            }
+            )
         ]
 
         inputs = processor.apply_chat_template(

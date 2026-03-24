@@ -106,8 +106,9 @@ Walking down the empty street tonight
     }
 
 
-def test_acestep_transcriber_attempt_builds_audio_url_conversation_and_decodes_new_tokens(monkeypatch, tmp_path):
+def test_acestep_transcriber_attempt_builds_audio_conversation_and_decodes_new_tokens(monkeypatch, tmp_path):
     import numpy as np
+    import torch
 
     from providers.base import PromptContext, ProviderContext
     from providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
@@ -197,13 +198,13 @@ def test_acestep_transcriber_attempt_builds_audio_url_conversation_and_decodes_n
         "content": [{"type": "text", "text": "system prompt"}],
     }
     assert captured["conversation"][1]["content"][0] == {
-        "type": "audio_url",
-        "audio_url": {"url": str(audio_path.resolve())},
+        "type": "audio",
+        "path": str(audio_path.resolve()),
     }
     assert captured["conversation"][1]["content"][1] == {"type": "text", "text": "transcribe this audio"}
     assert captured["template_kwargs"]["return_tensors"] == "pt"
-    assert captured["batch_to_args"] == ("cpu", "bfloat16")
-    assert captured["generate_kwargs"]["input_features"].dtype == "bfloat16"
+    assert captured["batch_to_args"] == ("cpu", torch.bfloat16)
+    assert captured["generate_kwargs"]["input_features"].dtype == str(torch.bfloat16)
     assert captured["generate_kwargs"]["max_new_tokens"] == 1024
     assert captured["generate_kwargs"]["do_sample"] is False
     assert captured["generate_kwargs"]["temperature"] == 0.0

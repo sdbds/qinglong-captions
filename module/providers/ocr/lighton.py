@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.progress import Progress
 from rich_pixels import Pixels
 
-from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.base import CaptionResult, MediaContext, PromptContext, Provider
 from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from utils.parse_display import display_markdown
@@ -24,10 +24,10 @@ _TRANS_LOADER: Optional[transformerLoader] = None
 
 
 def _build_messages(image_path: str, prompt_text: Optional[str]) -> list[dict[str, Any]]:
-    content: list[dict[str, str]] = [{"type": "image", "url": image_path}]
+    content: list[dict[str, Any]] = [Provider.build_image_part(image_path, field_name="url")]
     if prompt_text and prompt_text.strip():
-        content.append({"type": "text", "text": prompt_text})
-    return [{"role": "user", "content": content}]
+        content.append(Provider.build_text_part(prompt_text))
+    return [Provider.build_message("user", content)]
 
 
 def _move_inputs_to_device(inputs: Any, *, device: torch.device, dtype: torch.dtype) -> Any:

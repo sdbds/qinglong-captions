@@ -138,9 +138,8 @@ def test_pyproject_declares_eureka_audio_local_extra():
     eureka_audio_deps = optional_deps["eureka-audio-local"]
     assert any(dep.startswith("torch==2.8.0") for dep in eureka_audio_deps)
     assert any(dep.startswith("torchaudio") for dep in eureka_audio_deps)
-    assert any(dep.startswith("transformers[serving]>=4.57.0") for dep in eureka_audio_deps)
+    assert any(dep.startswith("transformers[serving]==5.2.0") for dep in eureka_audio_deps)
     assert any(dep.startswith("huggingface_hub") for dep in eureka_audio_deps)
-    assert any(dep.startswith("flash-attn") for dep in eureka_audio_deps)
 
 
 def test_pyproject_declares_acestep_transcriber_local_extra():

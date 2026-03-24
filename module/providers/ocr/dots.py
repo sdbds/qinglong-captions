@@ -51,7 +51,6 @@ class DotsInferenceArtifacts:
     origin_image: Image.Image
     input_image: Image.Image
 
-try:
 def _find_upstream_utils_file(relative_path: str) -> Path | None:
     """Locate a file inside the upstream dots_ocr package without importing its top-level package."""
     vendor_candidate = _vendor_dots_root() / Path(relative_path)
@@ -796,16 +795,15 @@ class DotsOCRProvider(OCRProvider):
             dpi=dpi,
             log=log,
         )
-        messages = [{
-            "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "image": input_image,
-                },
-                {"type": "text", "text": prompt_text},
-            ],
-        }]
+        messages = [
+            self.build_message(
+                "user",
+                [
+                    self.build_image_part(input_image),
+                    self.build_text_part(prompt_text),
+                ],
+            )
+        ]
         stage_timer = self._log_stage_start("apply_chat_template")
         text = processor.apply_chat_template(
             messages,

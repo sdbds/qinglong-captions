@@ -165,6 +165,7 @@ def test_music_flamingo_post_validate_raises_retry_on_empty_summary(tmp_path):
 
 def test_music_flamingo_attempt_builds_audio_conversation_and_decodes_new_tokens(monkeypatch, tmp_path):
     import numpy as np
+    import torch
 
     from providers.base import ProviderContext, PromptContext
     from providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
@@ -259,8 +260,8 @@ def test_music_flamingo_attempt_builds_audio_conversation_and_decodes_new_tokens
     }
     assert captured["conversation"][1]["content"][0]["type"] == "text"
     assert captured["conversation"][1]["content"][1] == {"type": "audio", "path": str(audio_path.resolve())}
-    assert captured["batch_to_args"] == ("cpu", "bfloat16")
-    assert captured["generate_kwargs"]["input_features"].dtype == "bfloat16"
+    assert captured["batch_to_args"] == ("cpu", torch.bfloat16)
+    assert captured["generate_kwargs"]["input_features"].dtype == str(torch.bfloat16)
     assert captured["generate_kwargs"]["max_new_tokens"] == 123
     assert captured["generate_kwargs"]["do_sample"] is True
     assert captured["generate_kwargs"]["temperature"] == 0.6

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from module.caption_pipeline.postprocess import strip_reasoning_sections
-from module.providers.base import CaptionResult, MediaContext, PromptContext, build_chat_text_message
+from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.providers.local_alm_base import LocalALMProvider
 from module.providers.registry import register_provider
 from utils.parse_display import extract_code_block_content
@@ -80,15 +80,15 @@ class AceStepTranscriberLocalProvider(LocalALMProvider):
 
         conversation = []
         if prompts.system:
-            conversation.append(build_chat_text_message("system", prompts.system))
+            conversation.append(self.build_message("system", [self.build_text_part(prompts.system)]))
         conversation.append(
-            {
-                "role": "user",
-                "content": [
-                    {"type": "audio_url", "audio_url": {"url": str(Path(media.uri).resolve())}},
-                    {"type": "text", "text": prompts.user},
+            self.build_message(
+                "user",
+                [
+                    self.build_audio_part(str(Path(media.uri).resolve())),
+                    self.build_text_part(prompts.user),
                 ],
-            }
+            )
         )
 
         inputs = processor.apply_chat_template(
