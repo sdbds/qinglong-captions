@@ -30,6 +30,7 @@ from module.audio_separator_core import (
     build_stft_features,
     compute_chunk_positions,
     download_audio_separator_metadata,
+    resolve_audio_separator_runtime_config,
     finalize_stem_outputs,
     load_audio_separator_metadata_file,
     mask_to_complex_tensor,
@@ -397,6 +398,13 @@ def test_vocal_midi_parser_defaults():
     assert args.t0 == 0.0
     assert args.nsteps == 8
     assert args.est_threshold == 0.2
+
+
+def test_resolve_audio_separator_runtime_config_enables_trt_layer_norm_fp32_fallback():
+    runtime = resolve_audio_separator_runtime_config()
+
+    assert runtime.provider_options["tensorrt"]["trt_layer_norm_fp32_fallback"] is True
+    assert runtime.provider_options["tensorrt"]["trt_fp16_enable"] is False
 
 
 def test_resolve_vocal_midi_runtime_config_enables_trt_layer_norm_fp32_fallback():

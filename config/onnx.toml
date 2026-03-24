@@ -19,6 +19,10 @@ trt_engine_cache_enable = true
 trt_timing_cache_enable = true
 trt_fp16_enable = true
 
+[onnx_runtime.audio_separator.tensorrt]
+trt_fp16_enable = false
+trt_layer_norm_fp32_fallback = true
+
 [onnx_runtime.wdtagger]
 
 [onnx_runtime.waterdetect]
