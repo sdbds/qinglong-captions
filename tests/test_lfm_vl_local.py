@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import numpy as np
 from rich.console import Console
+
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility

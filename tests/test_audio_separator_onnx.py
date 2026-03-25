@@ -556,6 +556,7 @@ def test_tools_step_audio_separator_maps_args(monkeypatch, tmp_path):
     assert "--batch_size=1" in captured["args"]
     assert "--overwrite" in captured["args"]
     assert "--harmony_separation" in captured["args"]
+    assert captured["kwargs"].get("runner_kwargs") is None
 
 
 def test_tools_step_exposes_full_game_model_labels():
@@ -620,7 +621,7 @@ def test_tools_step_audio_separator_maps_vocal_midi_args(monkeypatch, tmp_path):
     assert "--vocal_midi_t0=0.1" in captured["args"]
     assert "--vocal_midi_nsteps=10" in captured["args"]
     assert "--vocal_midi_est_threshold=0.4" in captured["args"]
-    assert captured["kwargs"]["runner_kwargs"]["uv_extra_args"] == ["--extra", "vocal-midi"]
+    assert captured["kwargs"].get("runner_kwargs") is None
 
 
 def test_tools_step_audio_separator_requires_existing_input(monkeypatch, tmp_path):

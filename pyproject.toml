@@ -46,6 +46,7 @@ torch-base = [
     "safetensors",
 ]
 onnx-base = [
+    "qinglong-captions[torch-base]",
     "onnxruntime-gpu>=1.24.4; sys_platform == 'win32'",
     "onnxruntime-gpu>=1.20.2; sys_platform == 'linux'",
 ]
@@ -73,11 +74,9 @@ translate = [
 ]
 wdtagger = [
     "pillow>=11.3",
-    "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.12.0.88/opencv_contrib_python-4.12.0.88-cp37-abi3-win_amd64.whl ; sys_platform == 'win32'",
+    "opencv-contrib-python; sys_platform == 'win32'",
     "opencv-contrib-python; sys_platform == 'linux'",
-    "qinglong-captions[torch-base]",
     "qinglong-captions[onnx-base]",
-    "transformers>=4.57",
 ]
 wdtagger-tensorrt = [
     "tensorrt==10.9.0.34",
@@ -259,10 +258,8 @@ reka-edge-local = [
     "einops",
 ]
 lfm-vl-local = [
-    "qinglong-captions[torch-base]",
     "qinglong-captions[onnx-base]",
     "transformers[serving]>=4.56.0",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "pillow",
 ]
 music-flamingo-local = [
@@ -315,10 +312,6 @@ conflicts = [
     ],
     [
         { extra = "deepseek-ocr" },
-        { extra = "wdtagger" },
-    ],
-    [
-        { extra = "deepseek-ocr" },
         { extra = "step-vl-local" },
     ],
     [
@@ -407,14 +400,6 @@ conflicts = [
     ],
     [
         { extra = "translate" },
-        { extra = "wdtagger" },
-    ],
-    [
-        { extra = "penguin-vl-local" },
-        { extra = "wdtagger" },
-    ],
-    [
-        { extra = "translate" },
         { extra = "hunyuan-ocr" },
     ],
     [
@@ -454,10 +439,6 @@ conflicts = [
         { extra = "acestep-transcriber-local" },
     ],
     [
-        { extra = "wdtagger" },
-        { extra = "dots-ocr" },
-    ],
-    [
         { extra = "penguin-vl-local" },
         { extra = "lfm-vl-local" },
     ],
@@ -476,10 +457,6 @@ conflicts = [
     [
         { extra = "olmocr" },
         { extra = "translate" },
-    ],
-    [
-        { extra = "olmocr" },
-        { extra = "wdtagger" },
     ],
     [
         { extra = "olmocr" },
@@ -527,6 +504,14 @@ conflicts = [
     ],
     [
         { extra = "paddleocr" },
+        { extra = "torch-base" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "onnx-base" },
+    ],
+    [
+        { extra = "paddleocr" },
         { extra = "wdtagger" },
     ],
     [
@@ -572,6 +557,10 @@ conflicts = [
     [
         { extra = "paddleocr" },
         { extra = "lfm-vl-local" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "vocal-midi" },
     ],
     [
         { extra = "paddleocr" },
@@ -712,10 +701,6 @@ conflicts = [
     [
         { extra = "music-flamingo-local" },
         { extra = "lighton-ocr" },
-    ],
-    [
-        { extra = "music-flamingo-local" },
-        { extra = "wdtagger" },
     ],
     [
         { extra = "music-flamingo-local" },

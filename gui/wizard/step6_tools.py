@@ -1,12 +1,14 @@
 """步骤 6: 实用工具 - 对应 watermark_detect, preprocess, reward_model 等脚本"""
 
-from nicegui import ui
 from pathlib import Path
-from typing import Dict, Any
-from theme import get_classes, COLORS
-from components.path_selector import create_path_selector
-from components.advanced_inputs import editable_slider, toggle_switch, styled_select
+from typing import Any, Dict
+
+from components.advanced_inputs import editable_slider, styled_select, toggle_switch
 from components.execution_panel import ExecutionPanel
+from components.path_selector import create_path_selector
+from nicegui import ui
+from theme import COLORS, get_classes
+
 from gui.utils.i18n import t
 from module.vocal_midi import (
     DEFAULT_GAME_MODEL_REPO_ID,
@@ -405,15 +407,28 @@ class ToolsStep:
             with ui.row().classes("w-full gap-4 q-mt-md"):
                 toggle_switch("overwrite", self.config, "audio_separator_overwrite")
                 toggle_switch("harmony_separation", self.config, "audio_separator_harmony_separation")
-                toggle_switch("vocal_midi", self.config, "audio_separator_vocal_midi", on_change=self._on_audio_separator_vocal_midi_toggle)
+                toggle_switch(
+                    "vocal_midi",
+                    self.config,
+                    "audio_separator_vocal_midi",
+                    on_change=self._on_audio_separator_vocal_midi_toggle,
+                )
 
             self._audio_separator_vocal_midi_container = ui.column().classes("w-full q-mt-sm")
             self._audio_separator_vocal_midi_container.set_visibility(self.config["audio_separator_vocal_midi"])
             with self._audio_separator_vocal_midi_container:
-                with ui.card().classes("w-full q-pa-md").style("background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);"):
+                with (
+                    ui.card()
+                    .classes("w-full q-pa-md")
+                    .style("background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);")
+                ):
                     with ui.row().classes("w-full items-center gap-2 q-mb-sm"):
                         ui.icon("piano", size="18px").style(f"color: {COLORS['secondary']};")
-                        ui.label(t("vocal_midi_settings")).classes("text-body1 text-weight-medium").style("color: var(--color-text);")
+                        (
+                            ui.label(t("vocal_midi_settings"))
+                            .classes("text-body1 text-weight-medium")
+                            .style("color: var(--color-text);")
+                        )
 
                     with ui.row().classes("w-full gap-4 q-mt-sm"):
                         self.audio_separator_vocal_midi_model = styled_select(
@@ -436,7 +451,11 @@ class ToolsStep:
                     with ui.column().classes("w-full q-mt-sm"):
                         with ui.row().classes("items-center gap-2 q-mb-xs"):
                             ui.icon("queue_music", size="18px").style(f"color: {COLORS['secondary']};")
-                            ui.label(t("vocal_midi_output_formats")).classes("text-caption text-weight-medium").style("color: var(--color-text-secondary);")
+                            (
+                                ui.label(t("vocal_midi_output_formats"))
+                                .classes("text-caption text-weight-medium")
+                                .style("color: var(--color-text-secondary);")
+                            )
                         self.audio_separator_vocal_midi_output_formats = ui.select(
                             options=self.VOCAL_MIDI_OUTPUT_FORMATS,
                             value=[DEFAULT_VOCAL_MIDI_OUTPUT_FORMATS],
@@ -801,7 +820,6 @@ class ToolsStep:
             args.append("--overwrite")
         if self.config["audio_separator_harmony_separation"]:
             args.append("--harmony_separation")
-        runner_kwargs = {}
         if self.config["audio_separator_vocal_midi"]:
             selected_formats = self.audio_separator_vocal_midi_output_formats.value or ["mid"]
             args.append("--vocal_midi")
@@ -815,7 +833,6 @@ class ToolsStep:
             args.append(f"--vocal_midi_t0={self.config['audio_separator_vocal_midi_t0']}")
             args.append(f"--vocal_midi_nsteps={int(self.config['audio_separator_vocal_midi_nsteps'])}")
             args.append(f"--vocal_midi_est_threshold={self.config['audio_separator_vocal_midi_est_threshold']}")
-            runner_kwargs["uv_extra_args"] = ["--extra", "vocal-midi"]
 
         def pre_log(lv):
             lv.info(t("log_start_audio_separator"))
@@ -826,7 +843,6 @@ class ToolsStep:
             "module.audio_separator",
             args,
             name="Audio Separator",
-            runner_kwargs=runner_kwargs or None,
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("audio_separator_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("audio_separator_failed"), type="negative"),

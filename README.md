@@ -22,6 +22,11 @@
    - 支持图片与 PDF OCR
    - 自动把结构化 HTML 输出规整为 Markdown
 4. GUI 工具箱补齐音频分轨与文本翻译入口，文档同步到当前脚本命名（`1.install-uv-qinglong.ps1`、`2.0.video_spliter.ps1`、`5.translate.ps1`）。
+5. 依赖 profile 做了一轮收敛：
+   - `onnx-base` 现在直接包含 `torch-base`，避免 ONNX GPU 路径单独漏装 `torch`
+   - `wdtagger` extra 去掉了未使用的 `transformers`，Windows 上的 OpenCV 轮子改为运行时判定
+   - `lfm-vl-local` 继续保留 `transformers`（当前 `AutoProcessor` 仍需要），但移除了额外的 Windows `flash-attn` 依赖
+   - `2.5.audio_separator.ps1` 与 GUI 工具箱现在统一走 `vocal-midi` dependency profile
 
 ### 4.1 - 文档 / 纯文本翻译工具
 
@@ -276,6 +281,7 @@ python -m gui.launch --native --port 7899
 - `4、run.ps1` 用于批量字幕生成
 - `2.2.preprocess_images.ps1` 用于图片预处理与可选图像对齐；`--matcher-backend=auto` 会在 CUDA 上优先 `affine_steerers`，否则优先 `xfeat`，失败时回退 ORB
 - `2.5.audio_separator.ps1` 用于 ONNX 音频分轨
+- `2.5.audio_separator.ps1` 默认会安装并复用 `vocal-midi` profile，不需要再手动补 `--extra vocal-midi`
 - `5.translate.ps1` 用于文档规范化和翻译，输出如 `*_zh_cn.md`
 - 日常运行会按当前所选 profile 增量安装依赖；`uv.lock` 主要留给 CI / 发版流程维护
 
@@ -302,6 +308,11 @@ A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation,
    - Supports image and PDF OCR
    - Converts the model's structured HTML output into project-friendly Markdown
 4. The GUI toolbox now includes audio separation and text translation, and the docs were updated to match the current script names (`1.install-uv-qinglong.ps1`, `2.0.video_spliter.ps1`, `5.translate.ps1`).
+5. Dependency profiles were tightened up:
+   - `onnx-base` now includes `torch-base`, so the ONNX GPU path no longer misses `torch`
+   - the `wdtagger` extra no longer pulls an unused `transformers` dependency, and Windows OpenCV selection is now resolved at runtime
+   - `lfm-vl-local` still keeps `transformers` because the current implementation uses `AutoProcessor`, but the extra Windows `flash-attn` wheel was removed
+   - `2.5.audio_separator.ps1` and the GUI toolbox now use the `vocal-midi` dependency profile by default
 
 ### 4.1 - Text / Document Translation Tool
 
@@ -767,5 +778,6 @@ Notes:
 - `4、run.ps1` runs batch captioning
 - `2.2.preprocess_images.ps1` handles image preprocessing and optional image alignment; `--matcher-backend=auto` prefers `affine_steerers` on CUDA and `xfeat` otherwise, then falls back to ORB
 - `2.5.audio_separator.ps1` runs the ONNX audio separator
+- `2.5.audio_separator.ps1` now installs and reuses the `vocal-midi` profile by default, so no extra manual `--extra vocal-midi` step is needed
 - `5.translate.ps1` normalizes and translates documents, exporting files such as `*_zh_cn.md`
 - Day-to-day runs install the selected dependency profile incrementally; `uv.lock` is mainly kept for CI / release maintenance

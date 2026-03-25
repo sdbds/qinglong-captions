@@ -11,23 +11,24 @@
 import asyncio
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
-import os
 import tempfile
-from pathlib import Path
-from typing import Callable, List, Optional
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+from typing import Callable, List, Optional
 
 from rich.console import Console
 
-from gui.utils.log_buffer import log_buffer as _global_log_buffer, LogBuffer
 from gui.utils.ansi_to_html import strip_ansi
+from gui.utils.log_buffer import LogBuffer
+from gui.utils.log_buffer import log_buffer as _global_log_buffer
 from utils.console_util import print_exception
-
+from utils.wdtagger_opencv import resolve_wdtagger_windows_opencv_requirement
 
 _TRANSIENT_SPINNER_FRAMES = frozenset("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 _PROGRESS_PERCENT_RE = re.compile(r"\d{1,3}%")
@@ -138,7 +139,7 @@ SCRIPT_REGISTRY = {
     "module.lanceexport": ("./module/lanceexport.py", None),
     # step 6 - 工具
     "module.waterdetect": ("./module/waterdetect.py", None),
-    "module.audio_separator": ("./module/audio_separator.py", None),
+    "module.audio_separator": ("./module/audio_separator.py", "vocal-midi"),
     "utils.preprocess_datasets": ("./utils/preprocess_datasets.py", None),
     "module.rewardmodel": ("./module/rewardmodel.py", None),
     "module.texttranslate": ("./module/texttranslate.py", "translate"),
@@ -661,6 +662,33 @@ class ProcessRunner:
                 self._notify_log(message)
                 return ProcessResult(ProcessStatus.ERROR, return_code, message)
 
+            if sys.platform == "win32" and "wdtagger" in extras:
+                opencv_selection = resolve_wdtagger_windows_opencv_requirement(env=env, platform=sys.platform)
+                opencv_cmd = [uv, "pip", "install", "--no-build-isolation"]
+                opencv_action = "uv pip install"
+                opencv_cmd.extend(["--index-strategy", self._uv_index_strategy(env)])
+                if target_python:
+                    opencv_cmd.extend(["--python", target_python])
+                opencv_cmd.extend(["--reinstall-package", "opencv-contrib-python", opencv_selection.package_spec])
+
+                self._notify_log(
+                    f"wdtagger OpenCV override: source={opencv_selection.source}, detail={opencv_selection.detail}"
+                )
+                if opencv_selection.cuda_tag:
+                    self._notify_log(f"wdtagger OpenCV detected CUDA toolkit: {opencv_selection.cuda_tag}")
+                self._notify_log(f"wdtagger OpenCV package spec: {opencv_selection.package_spec}")
+                self._notify_log(
+                    f"开始同步依赖: {' '.join(opencv_cmd[:15])}{'...' if len(opencv_cmd) > 15 else ''}"
+                )
+
+                opencv_return_code = await self._run_logged_subprocess(opencv_cmd, work_dir, env)
+                self.process = None
+
+                if opencv_return_code != 0:
+                    message = f"{opencv_action} wdtagger OpenCV 覆盖安装失败，返回码: {opencv_return_code}"
+                    self._notify_log(message)
+                    return ProcessResult(ProcessStatus.ERROR, opencv_return_code, message)
+
             return None
 
     # ------------------------------------------------------------------
@@ -735,8 +763,6 @@ class ProcessRunner:
         self.begin_task_log()
 
         use_native = native_console and sys.platform == "win32"
-        exit_file = ""
-        log_file = ""
 
         try:
             work_dir = Path(cwd) if cwd else Path(self.PROJECT_ROOT)

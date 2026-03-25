@@ -78,8 +78,6 @@ $Env:UV_INDEX_STRATEGY = "unsafe-best-match"
 
 #region Build Arguments
 $ExtArgs = [System.Collections.ArrayList]::new()
-$uv_args = [System.Collections.ArrayList]::new()
-[void]$uv_args.Add("--extra=wdtagger")
 
 function Get-UvEnvName {
     if ($env:VIRTUAL_ENV) {
@@ -185,6 +183,73 @@ if ($TagConfig.tag_replacement) { [void]$ExtArgs.Add("--tag_replacement=$($TagCo
 #region Execute Tagger
 Write-Output "Starting tagger..."
 Install-UvExtraPatch @("wdtagger")
+if ($env:OS -eq "Windows_NT") {
+    $PythonExe = Get-ProjectPython
+    if (-not $PythonExe) {
+        $PythonExe = "python"
+    }
+
+    $OpenCvPackageSpec = "opencv-contrib-python"
+    $OpenCvSource = "default"
+    $OpenCvDetail = "nvcc not detected; fallback to default opencv-contrib-python"
+    $CudaTag = $null
+    $NvccCommand = Get-Command nvcc -ErrorAction SilentlyContinue
+
+    if ($NvccCommand) {
+        Write-Output "Detecting CUDA toolkit via nvcc -V"
+        $NvccOutput = & $NvccCommand.Source -V 2>&1 | Out-String
+        if ($NvccOutput -match 'release\s+(\d+)\.(\d+)') {
+            $CudaTag = "cu$($Matches[1])$($Matches[2])"
+            switch ($CudaTag) {
+                "cu128" {
+                    $OpenCvPackageSpec = "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.11.0.20250124/opencv_contrib_python_rolling-4.12.0.86-cp37-abi3-win_amd64.whl"
+                    $OpenCvSource = "cuda-wheel"
+                    $OpenCvDetail = "detected CUDA toolkit cu128"
+                }
+                "cu129" {
+                    $OpenCvPackageSpec = "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.12.0.88/opencv_contrib_python-4.12.0.88-cp37-abi3-win_amd64.whl"
+                    $OpenCvSource = "cuda-wheel"
+                    $OpenCvDetail = "detected CUDA toolkit cu129"
+                }
+                "cu130" {
+                    $OpenCvPackageSpec = "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.13.0.20250811/opencv_contrib_python_rolling-4.13.0.20250812-cp37-abi3-win_amd64.whl"
+                    $OpenCvSource = "cuda-wheel"
+                    $OpenCvDetail = "detected CUDA toolkit cu130"
+                }
+                default {
+                    $OpenCvDetail = "unsupported CUDA toolkit $CudaTag; fallback to default opencv-contrib-python"
+                }
+            }
+        }
+    }
+
+    $OpenCvInstallArgs = [System.Collections.ArrayList]::new()
+    [void]$OpenCvInstallArgs.Add("pip")
+    [void]$OpenCvInstallArgs.Add("install")
+    [void]$OpenCvInstallArgs.Add("--no-build-isolation")
+    [void]$OpenCvInstallArgs.Add("--index-strategy")
+    [void]$OpenCvInstallArgs.Add($(if ($Env:UV_INDEX_STRATEGY) { $Env:UV_INDEX_STRATEGY } else { "unsafe-best-match" }))
+    if ($PythonExe) {
+        [void]$OpenCvInstallArgs.Add("--python")
+        [void]$OpenCvInstallArgs.Add($PythonExe)
+    }
+    [void]$OpenCvInstallArgs.Add("--reinstall-package")
+    [void]$OpenCvInstallArgs.Add("opencv-contrib-python")
+    [void]$OpenCvInstallArgs.Add($OpenCvPackageSpec)
+
+    Write-Output "uv pip install target package: opencv-contrib-python"
+    Write-Output "wdtagger OpenCV override source: $OpenCvSource"
+    if ($CudaTag) {
+        Write-Output "wdtagger OpenCV detected CUDA toolkit: $CudaTag"
+    }
+    Write-Output "wdtagger OpenCV selection detail: $OpenCvDetail"
+    Write-Output "wdtagger OpenCV package spec: $OpenCvPackageSpec"
+
+    uv @OpenCvInstallArgs
+    if (!($?)) {
+        throw "wdtagger OpenCV override install failed"
+    }
+}
 Write-Output "runtime target environment: $(Get-UvEnvName)"
 Write-Output "runtime dependency profile: extra:wdtagger"
 

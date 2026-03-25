@@ -57,7 +57,12 @@ def test_paddleocr_conflicts_with_all_torch_stack_extras():
     torch_extras = [
         name
         for name, deps in _load_optional_dependencies().items()
-        if name != "paddleocr" and any(dep.startswith(("torch", "torchvision", "torchaudio")) for dep in deps)
+        if name != "paddleocr"
+        and (
+            any(dep.startswith(("torch", "torchvision", "torchaudio")) for dep in deps)
+            or "qinglong-captions[torch-base]" in deps
+            or "qinglong-captions[onnx-base]" in deps
+        )
     ]
 
     for extra in torch_extras:
@@ -75,7 +80,6 @@ def test_lighton_ocr_conflicts_with_paddleocr():
 def test_dots_ocr_conflicts_with_known_transformers_incompatible_extras():
     expected_pairs = [
         ("dots-ocr", "translate"),
-        ("dots-ocr", "wdtagger"),
         ("dots-ocr", "deepseek-ocr"),
         ("dots-ocr", "penguin-vl-local"),
         ("dots-ocr", "lighton-ocr"),
@@ -87,6 +91,13 @@ def test_dots_ocr_conflicts_with_known_transformers_incompatible_extras():
 
     for pair in expected_pairs:
         assert _has_extra_conflict(*pair)
+
+
+def test_wdtagger_no_longer_conflicts_with_transformers_only_profiles():
+    assert not _has_extra_conflict("wdtagger", "translate")
+    assert not _has_extra_conflict("wdtagger", "dots-ocr")
+    assert not _has_extra_conflict("wdtagger", "olmocr")
+    assert not _has_extra_conflict("wdtagger", "music-flamingo-local")
 
 
 def test_logics_ocr_conflicts_with_known_transformers_incompatible_extras():

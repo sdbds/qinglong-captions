@@ -1,5 +1,5 @@
-import sys
 import importlib.util
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -55,9 +55,9 @@ def test_pyproject_declares_lfm_vl_local_extra():
 
     assert "lfm-vl-local" in optional_deps
     lfm_deps = optional_deps["lfm-vl-local"]
-    assert any(dep.startswith("onnxruntime-gpu") for dep in lfm_deps)
+    assert "qinglong-captions[onnx-base]" in lfm_deps
     assert any(dep.startswith("transformers") for dep in lfm_deps)
-    assert any(dep.startswith("huggingface_hub") for dep in lfm_deps)
+    assert not any("flash-attn" in dep for dep in lfm_deps)
 
 
 def test_pyproject_declares_lighton_ocr_extra():
@@ -66,9 +66,8 @@ def test_pyproject_declares_lighton_ocr_extra():
 
     assert "lighton-ocr" in optional_deps
     lighton_deps = optional_deps["lighton-ocr"]
-    assert any(dep.startswith("torch==2.8.0") for dep in lighton_deps)
+    assert "qinglong-captions[torch-base]" in lighton_deps
     assert any(dep.startswith("transformers[serving]>=5.0.0") for dep in lighton_deps)
-    assert any(dep.startswith("huggingface_hub") for dep in lighton_deps)
 
 
 def test_pyproject_declares_logics_ocr_extra():
@@ -77,9 +76,8 @@ def test_pyproject_declares_logics_ocr_extra():
 
     assert "logics-ocr" in optional_deps
     logics_deps = optional_deps["logics-ocr"]
-    assert any(dep.startswith("torch==2.8.0") for dep in logics_deps)
+    assert "qinglong-captions[torch-base]" in logics_deps
     assert any(dep.startswith("transformers[serving]>=4.57.0") for dep in logics_deps)
-    assert any(dep.startswith("huggingface_hub") for dep in logics_deps)
     assert "PyMuPDF" in logics_deps
     assert "img2pdf" in logics_deps
 
@@ -91,7 +89,7 @@ def test_pyproject_declares_dots_ocr_extra():
 
     assert "dots-ocr" in optional_deps
     dots_deps = optional_deps["dots-ocr"]
-    assert any(dep.startswith("torch==2.8.0") for dep in dots_deps)
+    assert "qinglong-captions[torch-base]" in dots_deps
     assert any(dep.startswith("transformers[serving]==4.56.1") for dep in dots_deps)
     assert any("qwen-vl-utils" in dep for dep in dots_deps)
     assert any(dep.startswith("triton-windows") for dep in dots_deps)
@@ -107,10 +105,8 @@ def test_pyproject_declares_qianfan_ocr_extra():
 
     assert "qianfan-ocr" in optional_deps
     qianfan_deps = optional_deps["qianfan-ocr"]
-    assert any(dep.startswith("torch==2.8.0") for dep in qianfan_deps)
-    assert any(dep == "torchvision" for dep in qianfan_deps)
+    assert "qinglong-captions[torch-base]" in qianfan_deps
     assert any(dep.startswith("transformers[serving]>=4.57.0") for dep in qianfan_deps)
-    assert any(dep.startswith("huggingface_hub") for dep in qianfan_deps)
     assert any(dep.startswith("timm") for dep in qianfan_deps)
     assert "PyMuPDF" in qianfan_deps
     assert "img2pdf" in qianfan_deps
@@ -122,12 +118,16 @@ def test_pyproject_declares_music_flamingo_local_extra():
 
     assert "music-flamingo-local" in optional_deps
     music_flamingo_deps = optional_deps["music-flamingo-local"]
-    assert any(dep.startswith("torch==2.8.0") for dep in music_flamingo_deps)
-    assert any(dep.startswith("accelerate") for dep in music_flamingo_deps)
+    assert "qinglong-captions[torch-base]" in music_flamingo_deps
     assert any(dep.startswith("kernels") for dep in music_flamingo_deps)
+    assert any(dep.startswith("torchaudio") for dep in music_flamingo_deps)
     assert any(dep.startswith("triton-windows") for dep in music_flamingo_deps)
-    assert any(dep.startswith("transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf") for dep in music_flamingo_deps)
-    assert any(dep.startswith("huggingface_hub") for dep in music_flamingo_deps)
+    assert any(
+        dep.startswith(
+            "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf"
+        )
+        for dep in music_flamingo_deps
+    )
 
 
 def test_pyproject_declares_eureka_audio_local_extra():
@@ -136,10 +136,9 @@ def test_pyproject_declares_eureka_audio_local_extra():
 
     assert "eureka-audio-local" in optional_deps
     eureka_audio_deps = optional_deps["eureka-audio-local"]
-    assert any(dep.startswith("torch==2.8.0") for dep in eureka_audio_deps)
-    assert any(dep.startswith("torchaudio") for dep in eureka_audio_deps)
-    assert any(dep.startswith("transformers[serving]==5.2.0") for dep in eureka_audio_deps)
-    assert any(dep.startswith("huggingface_hub") for dep in eureka_audio_deps)
+    assert "qinglong-captions[torch-base]" in eureka_audio_deps
+    assert any(dep.startswith("eureka-audio @ git+") for dep in eureka_audio_deps)
+    assert any(dep.startswith("transformers[serving]>=4.57.0,<5") for dep in eureka_audio_deps)
 
 
 def test_pyproject_declares_acestep_transcriber_local_extra():
@@ -148,13 +147,9 @@ def test_pyproject_declares_acestep_transcriber_local_extra():
 
     assert "acestep-transcriber-local" in optional_deps
     acestep_transcriber_deps = optional_deps["acestep-transcriber-local"]
-    assert any(dep.startswith("torch==2.8.0") for dep in acestep_transcriber_deps)
+    assert "qinglong-captions[torch-base]" in acestep_transcriber_deps
     assert any(dep.startswith("torchaudio") for dep in acestep_transcriber_deps)
-    assert any(dep.startswith("accelerate") for dep in acestep_transcriber_deps)
     assert any(dep.startswith("transformers[serving]>=4.57.0") for dep in acestep_transcriber_deps)
-    assert any(dep.startswith("huggingface_hub") for dep in acestep_transcriber_deps)
-    assert any(dep.startswith("safetensors") for dep in acestep_transcriber_deps)
-    assert any("hf_xet" in dep for dep in acestep_transcriber_deps)
     assert any(dep.startswith("flash-attn") for dep in acestep_transcriber_deps)
 
 
@@ -164,8 +159,7 @@ def test_pyproject_declares_vocal_midi_extra():
 
     assert "vocal-midi" in optional_deps
     vocal_midi_deps = optional_deps["vocal-midi"]
-    assert any(dep.startswith("onnxruntime-gpu") for dep in vocal_midi_deps)
-    assert any(dep.startswith("huggingface_hub") for dep in vocal_midi_deps)
+    assert "qinglong-captions[onnx-base]" in vocal_midi_deps
     assert any(dep.startswith("mido") for dep in vocal_midi_deps)
     assert any(dep.startswith("numpy") for dep in vocal_midi_deps)
 
@@ -450,7 +444,10 @@ def test_config_declares_dots_ocr_defaults():
     assert "dots_ocr_prompt" in prompts_toml
     assert "[prompts.task.dots_ocr]" in prompts_toml
     assert 'prompt_ocr = """Extract the text content from this image."""' in prompts_toml
-    assert 'prompt_image_to_svg = \'Please generate the SVG code based on the image.viewBox="0 0 {width} {height}"\'' in prompts_toml
+    assert (
+        'prompt_image_to_svg = \'Please generate the SVG code based on the '
+        'image.viewBox="0 0 {width} {height}"\''
+    ) in prompts_toml
 
 
 def test_config_declares_qianfan_ocr_defaults():
@@ -723,7 +720,7 @@ def test_penguin_attempt_preserves_non_tensor_outputs_and_casts_float_inputs(mon
     import torch
     from rich.console import Console
 
-    from providers.base import ProviderContext, PromptContext
+    from providers.base import PromptContext, ProviderContext
     from providers.local_vlm.penguin_vl_local import PenguinVLLocalProvider
 
     image_path = tmp_path / "sample.png"
@@ -759,7 +756,11 @@ def test_penguin_attempt_preserves_non_tensor_outputs_and_casts_float_inputs(mon
         args=SimpleNamespace(vlm_image_model="penguin_vl_local", pair_dir=""),
     )
     provider = PenguinVLLocalProvider(ctx)
-    monkeypatch.setattr(provider, "_get_or_load_model", lambda: {"model": FakeModel(), "processor": FakeProcessor(), "device": "cpu"})
+    monkeypatch.setattr(
+        provider,
+        "_get_or_load_model",
+        lambda: {"model": FakeModel(), "processor": FakeProcessor(), "device": "cpu"},
+    )
 
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
     result = provider.attempt(media, PromptContext(system="system", user="user"))
@@ -778,7 +779,7 @@ def test_penguin_attempt_keeps_generated_tokens_when_model_returns_new_tokens_on
     import torch
     from rich.console import Console
 
-    from providers.base import ProviderContext, PromptContext
+    from providers.base import PromptContext, ProviderContext
     from providers.local_vlm.penguin_vl_local import PenguinVLLocalProvider
 
     image_path = tmp_path / "sample.png"
@@ -812,7 +813,11 @@ def test_penguin_attempt_keeps_generated_tokens_when_model_returns_new_tokens_on
         args=SimpleNamespace(vlm_image_model="penguin_vl_local", pair_dir=""),
     )
     provider = PenguinVLLocalProvider(ctx)
-    monkeypatch.setattr(provider, "_get_or_load_model", lambda: {"model": FakeModel(), "processor": FakeProcessor(), "device": "cpu"})
+    monkeypatch.setattr(
+        provider,
+        "_get_or_load_model",
+        lambda: {"model": FakeModel(), "processor": FakeProcessor(), "device": "cpu"},
+    )
 
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
     result = provider.attempt(media, PromptContext(system="system", user="user"))

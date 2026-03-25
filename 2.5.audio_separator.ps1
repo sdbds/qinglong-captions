@@ -143,9 +143,9 @@ if ($Config.force_download) { [void]$ExtArgs.Add("--force_download") }
 
 #region Execute Audio Separator
 Write-Output "Starting Audio Separator..."
-Install-UvExtraPatch @("wdtagger")
+Install-UvExtraPatch @("vocal-midi")
 Write-Output "runtime target environment: $(Get-UvEnvName)"
-Write-Output "runtime dependency profile: extra:wdtagger"
+Write-Output "runtime dependency profile: extra:vocal-midi"
 python "./module/audio_separator.py" `
     $Config.input_path `
     $ExtArgs
