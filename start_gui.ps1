@@ -32,7 +32,7 @@ foreach ($Path in $VenvPaths) {
 $Env:HF_HOME = "huggingface"
 $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
 #$Env:HF_ENDPOINT = "https://hf-mirror.com"
-$Env:UV_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu130"
+$Env:UV_EXTRA_INDEX_URL = "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/ https://download.pytorch.org/whl/cu130"
 $Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
 $Env:UV_NO_BUILD_ISOLATION = "1"
 $Env:UV_NO_CACHE = "0"

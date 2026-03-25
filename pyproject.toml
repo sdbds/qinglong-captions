@@ -305,6 +305,10 @@ allow-direct-references = true
 
 [tool.uv]
 package = false
+extra-index-url = [
+    "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/",
+    "https://download.pytorch.org/whl/cu130",
+]
 conflicts = [
     [
         { extra = "deepseek-ocr" },

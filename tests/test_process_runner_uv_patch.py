@@ -131,7 +131,12 @@ def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_pat
         runner._patch_shared_environment(
             "uv",
             tmp_path,
-            {"UV_EXTRA_INDEX_URL": "https://download.pytorch.org/whl/cu130"},
+            {
+                "UV_EXTRA_INDEX_URL": (
+                    "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/ "
+                    "https://download.pytorch.org/whl/cu130"
+                )
+            },
             "test-env",
             ["penguin-vl-local"],
             [],
