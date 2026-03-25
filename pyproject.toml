@@ -39,7 +39,7 @@ dependencies = [
 
 [project.optional-dependencies]
 torch-base = [
-    "torch==2.8.0",
+    "torch==2.11.0",
     "torchvision",
     "accelerate",
     "huggingface_hub[hf_xet]>=0.35.2",
@@ -66,9 +66,9 @@ translate = [
     "einops",
     "addict",
     "easydict",
-    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
     "triton-windows; sys_platform == 'win32'",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
     "PyMuPDF",
     "img2pdf",
 ]
@@ -93,9 +93,9 @@ olmocr = [
     "accelerate>=0.34.0",
     "Pillow>=9.5.0",
     "sentencepiece>=0.1.99",
-    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
     "triton-windows; sys_platform == 'win32'",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
     "olmocr; python_version >= '3.11'",
     "PyMuPDF",
     "img2pdf",
@@ -126,16 +126,16 @@ deepseek-ocr = [
     "einops",
     "addict",
     "easydict",
-    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
     "triton-windows; sys_platform == 'win32'",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
     "PyMuPDF",
     "img2pdf",
 ]
 logics-ocr = [
     "qinglong-captions[torch-base]",
     "transformers[serving]>=4.57.0",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
     "Pillow>=12",
     "PyMuPDF",
     "img2pdf",
@@ -143,9 +143,9 @@ logics-ocr = [
 hunyuan-ocr = [
     "qinglong-captions[torch-base]",
     "transformers[serving] @ git+https://github.com/huggingface/transformers",
-    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
     "triton-windows; sys_platform == 'win32'",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
     "PyMuPDF",
     "img2pdf",
 ]
@@ -156,9 +156,9 @@ glm-ocr = [
     "einops",
     "addict",
     "easydict",
-    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
     "triton-windows; sys_platform == 'win32'",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
     "PyMuPDF",
     "img2pdf",
 ]
@@ -166,8 +166,8 @@ nanonets-ocr = [
     "qinglong-captions[torch-base]",
     "transformers[serving]>=4.45.0",
     "pillow",
-    "flash-attn>=2.0.0; sys_platform != 'darwin'",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+    "flash-attn>=2.8.4; sys_platform != 'darwin'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
 ]
 firered-ocr = [
     "qinglong-captions[torch-base]",
@@ -176,9 +176,9 @@ firered-ocr = [
     "einops",
     "addict",
     "easydict",
-    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
     "triton-windows; sys_platform == 'win32'",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
     "qwen-vl-utils",
     "PyMuPDF",
     "img2pdf",
@@ -186,7 +186,7 @@ firered-ocr = [
 lighton-ocr = [
     "qinglong-captions[torch-base]",
     "transformers[serving]>=5.0.0",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
     "Pillow>=12",
     "PyMuPDF",
     "img2pdf",
@@ -194,9 +194,9 @@ lighton-ocr = [
 dots-ocr = [
     "qinglong-captions[torch-base]",
     "transformers[serving]==4.56.1",
-    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
     "triton-windows; sys_platform == 'win32'",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "qwen-vl-utils",
     "PyMuPDF",
     "img2pdf",
@@ -206,7 +206,7 @@ qianfan-ocr = [
     "qinglong-captions[torch-base]",
     "transformers[serving]>=4.57.0",
     "timm>=1.0.0",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "Pillow>=12",
     "PyMuPDF",
     "img2pdf",
@@ -218,9 +218,9 @@ chandra-ocr = [
     "einops",
     "addict",
     "easydict",
-    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
     "triton-windows; sys_platform == 'win32'",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "chandra-ocr[hf]>=0.2.0",
     "PyMuPDF",
     "img2pdf",
@@ -232,20 +232,20 @@ qwen-vl-local = [
     "einops",
     "addict",
     "easydict",
-    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
     "triton-windows; sys_platform == 'win32'",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "qwen-vl-utils",
 ]
 step-vl-local = [
     "qinglong-captions[torch-base]",
     "transformers[serving]",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
 ]
 penguin-vl-local = [
     "qinglong-captions[torch-base]",
     "transformers[serving]==4.51.3",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "einops",
     "decord==0.6.0",
     "ffmpeg-python==0.2.0",
@@ -253,7 +253,7 @@ penguin-vl-local = [
 reka-edge-local = [
     "qinglong-captions[torch-base]",
     "transformers[serving]",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "tiktoken",
     "einops",
 ]
@@ -268,7 +268,7 @@ music-flamingo-local = [
     "kernels",
     "triton-windows ; sys_platform == 'win32'",
     "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
 ]
 eureka-audio-local = [
     "qinglong-captions[torch-base]",
@@ -276,15 +276,15 @@ eureka-audio-local = [
     # The upstream wrapper still imports Transformers directly and is not
     # compatible with Transformers v5 yet.
     "transformers[serving]>=4.57.0,<5",
-    "flash-attn==2.8.3; sys_platform == 'linux'",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
     "triton-windows; sys_platform == 'win32'",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
 ]
 acestep-transcriber-local = [
     "qinglong-captions[torch-base]",
     "torchaudio",
     "transformers[serving]>=4.57.0",
-    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.3/flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
 ]
 vocal-midi = [
     "qinglong-captions[onnx-base]",
@@ -296,7 +296,7 @@ vocal-midi = [
 test = [
     "pytest",
     "transformers>=4.57.0",
-    "torch>=2.8.0",
+    "torch==2.11.0",
     "scikit-learn>=1.4.0",
 ]
 

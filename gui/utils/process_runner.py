@@ -28,7 +28,9 @@ from gui.utils.ansi_to_html import strip_ansi
 from gui.utils.log_buffer import LogBuffer
 from gui.utils.log_buffer import log_buffer as _global_log_buffer
 from utils.console_util import print_exception
-from utils.wdtagger_opencv import resolve_wdtagger_windows_opencv_requirement
+from utils.wdtagger_opencv import (
+    build_wdtagger_opencv_install_plan,
+)
 
 _TRANSIENT_SPINNER_FRAMES = frozenset("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 _PROGRESS_PERCENT_RE = re.compile(r"\d{1,3}%")
@@ -433,6 +435,39 @@ class ProcessRunner:
                 return f"cu{digits}"
         return None
 
+    @staticmethod
+    def _inspect_cv2_runtime(python_path: Optional[str], env: dict) -> dict:
+        if not python_path:
+            return {"ok": False, "error": "Python executable not found for cv2 import probe"}
+        probe_script = str((Path(ProcessRunner.PROJECT_ROOT) / "utils" / "wdtagger_opencv.py").resolve())
+
+        try:
+            result = subprocess.run(
+                [python_path, probe_script, "--probe-cv2"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                check=False,
+            )
+        except OSError as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+        output_lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not output_lines:
+            stderr = result.stderr.strip()
+            return {"ok": False, "error": stderr or f"cv2 import probe exited with code {result.returncode}"}
+
+        try:
+            payload = json.loads(output_lines[-1])
+        except json.JSONDecodeError:
+            return {"ok": False, "error": output_lines[-1]}
+
+        if result.returncode != 0 and payload.get("ok") is not True:
+            payload.setdefault("error", f"cv2 import probe exited with code {result.returncode}")
+        return payload
+
     def _reset_tail_state(self):
         """重置原生控制台日志解析状态。"""
         self._tail_line = ""
@@ -608,7 +643,7 @@ class ProcessRunner:
                 uninstall_cmd = [uv, "pip", "uninstall"]
                 if target_python:
                     uninstall_cmd.extend(["--python", target_python])
-                uninstall_cmd.extend(["-y", "torch", "torchvision", "torchaudio"])
+                uninstall_cmd.extend(["torch", "torchvision", "torchaudio"])
                 uninstall_action = "uv pip uninstall"
                 self._notify_log("检测到 paddleocr，先卸载共享环境中的 torch / torchvision / torchaudio")
                 self._notify_log(f"{uninstall_action} target environment: {env_name}")
@@ -663,31 +698,68 @@ class ProcessRunner:
                 return ProcessResult(ProcessStatus.ERROR, return_code, message)
 
             if sys.platform == "win32" and "wdtagger" in extras:
-                opencv_selection = resolve_wdtagger_windows_opencv_requirement(env=env, platform=sys.platform)
-                opencv_cmd = [uv, "pip", "install", "--no-build-isolation"]
-                opencv_action = "uv pip install"
-                opencv_cmd.extend(["--index-strategy", self._uv_index_strategy(env)])
-                if target_python:
-                    opencv_cmd.extend(["--python", target_python])
-                opencv_cmd.extend(["--reinstall-package", "opencv-contrib-python", opencv_selection.package_spec])
+                opencv_plan = build_wdtagger_opencv_install_plan(env=env, platform=sys.platform)
 
-                self._notify_log(
-                    f"wdtagger OpenCV override: source={opencv_selection.source}, detail={opencv_selection.detail}"
-                )
-                if opencv_selection.cuda_tag:
-                    self._notify_log(f"wdtagger OpenCV detected CUDA toolkit: {opencv_selection.cuda_tag}")
-                self._notify_log(f"wdtagger OpenCV package spec: {opencv_selection.package_spec}")
-                self._notify_log(
-                    f"开始同步依赖: {' '.join(opencv_cmd[:15])}{'...' if len(opencv_cmd) > 15 else ''}"
-                )
+                for attempt_index, selection in enumerate(opencv_plan.attempts, start=1):
+                    cleanup_cmd = [uv, "pip", "uninstall"]
+                    if target_python:
+                        cleanup_cmd.extend(["--python", target_python])
+                    cleanup_cmd.extend(opencv_plan.cleanup_packages)
+                    self._notify_log(
+                        f"wdtagger OpenCV cleanup before attempt {attempt_index}: removing conflicting cv2 wheels"
+                    )
+                    self._notify_log(
+                        f"开始同步依赖: {' '.join(cleanup_cmd[:15])}{'...' if len(cleanup_cmd) > 15 else ''}"
+                    )
+                    cleanup_return_code = await self._run_logged_subprocess(cleanup_cmd, work_dir, env)
+                    self.process = None
+                    if cleanup_return_code != 0:
+                        self._notify_log("wdtagger OpenCV cleanup returned non-zero; continuing with selected reinstall")
 
-                opencv_return_code = await self._run_logged_subprocess(opencv_cmd, work_dir, env)
-                self.process = None
+                    opencv_cmd = [uv, "pip", "install", "--no-build-isolation"]
+                    opencv_action = "uv pip install"
+                    opencv_cmd.extend(["--index-strategy", self._uv_index_strategy(env)])
+                    if target_python:
+                        opencv_cmd.extend(["--python", target_python])
+                    opencv_cmd.extend(["--reinstall-package", selection.package_name, selection.package_spec])
 
-                if opencv_return_code != 0:
-                    message = f"{opencv_action} wdtagger OpenCV 覆盖安装失败，返回码: {opencv_return_code}"
-                    self._notify_log(message)
-                    return ProcessResult(ProcessStatus.ERROR, opencv_return_code, message)
+                    self._notify_log(f"wdtagger OpenCV override: source={selection.source}, detail={selection.detail}")
+                    if selection.cuda_tag:
+                        self._notify_log(f"wdtagger OpenCV detected CUDA toolkit: {selection.cuda_tag}")
+                    self._notify_log(f"wdtagger OpenCV target package: {selection.package_name}")
+                    self._notify_log(f"wdtagger OpenCV package spec: {selection.package_spec}")
+                    self._notify_log(
+                        f"开始同步依赖: {' '.join(opencv_cmd[:15])}{'...' if len(opencv_cmd) > 15 else ''}"
+                    )
+
+                    opencv_return_code = await self._run_logged_subprocess(opencv_cmd, work_dir, env)
+                    self.process = None
+
+                    if opencv_return_code != 0:
+                        message = f"{opencv_action} wdtagger OpenCV 覆盖安装失败，返回码: {opencv_return_code}"
+                        self._notify_log(message)
+                        return ProcessResult(ProcessStatus.ERROR, opencv_return_code, message)
+
+                    probe = self._inspect_cv2_runtime(target_python, env)
+                    if probe.get("ok"):
+                        probe_version = probe.get("version") or "unknown"
+                        probe_file = probe.get("file") or "unknown"
+                        cuda_suffix = ""
+                        if "cuda_count" in probe:
+                            cuda_suffix = f", cuda_count={probe['cuda_count']}"
+                        self._notify_log(
+                            f"wdtagger OpenCV import probe succeeded: version={probe_version}, file={probe_file}{cuda_suffix}"
+                        )
+                        break
+
+                    error = str(probe.get("error") or "unknown cv2 import failure")
+                    if selection.source == "cuda-wheel":
+                        self._notify_log(f"wdtagger OpenCV GPU import probe failed: {error}")
+                        self._notify_log("wdtagger OpenCV GPU wheel unavailable; retrying with default CPU package")
+                        continue
+
+                    self._notify_log(f"wdtagger OpenCV import probe failed after CPU fallback: {error}")
+                    return ProcessResult(ProcessStatus.ERROR, 1, f"wdtagger OpenCV 导入探测失败: {error}")
 
             return None
 

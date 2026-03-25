@@ -8,7 +8,7 @@
 #   "imageio-ffmpeg>=0.4.8",
 #   "toml",
 #   "huggingface_hub[hf_xet]>=0.35.2",
-#   "torch==2.8.0",
+#   "torch==2.11.0",
 #   "transformers>4.50",
 #   "torchvision",
 #   "scipy",

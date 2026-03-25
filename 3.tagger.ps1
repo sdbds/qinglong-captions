@@ -66,7 +66,7 @@ $Env:TF_TRT_ALLOW_ENGINE_NATIVE_SEGMENT_EXECUTION = "1"
 $Env:TF_CUDNN_USE_AUTOTUNE = "1"
 $Env:TF_TRT_ALLOW_TF32 = "1"
 #$Env:UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple/"
-$Env:UV_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
+$Env:UV_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu130"
 $Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
 $Env:UV_NO_BUILD_ISOLATION = "1"
 $Env:UV_NO_CACHE = "0"
@@ -152,6 +152,79 @@ function Install-UvExtraPatch {
     }
 }
 
+function Invoke-WdtaggerOpenCvCleanup {
+    param (
+        [string]$PythonExe,
+        [string[]]$Packages
+    )
+
+    $CleanupArgs = [System.Collections.ArrayList]::new()
+    [void]$CleanupArgs.Add("pip")
+    [void]$CleanupArgs.Add("uninstall")
+    if ($PythonExe) {
+        [void]$CleanupArgs.Add("--python")
+        [void]$CleanupArgs.Add($PythonExe)
+    }
+    foreach ($Package in $Packages) {
+        [void]$CleanupArgs.Add($Package)
+    }
+
+    Write-Output "wdtagger OpenCV cleanup: removing conflicting cv2 wheels"
+    Write-Output "uv pip uninstall target packages: $($Packages -join ', ')"
+    uv @CleanupArgs
+    return $LASTEXITCODE
+}
+
+function Get-WdtaggerOpenCvInstallPlan {
+    param (
+        [string]$PythonExe
+    )
+
+    $ProbeScript = Join-Path $PSScriptRoot "utils\wdtagger_opencv.py"
+    $RawOutput = (& $PythonExe $ProbeScript --plan-install --platform win32 2>&1 | Out-String).Trim()
+    $ExitCode = $LASTEXITCODE
+    if ($ExitCode -ne 0) {
+        throw "wdtagger OpenCV install plan resolution failed: $RawOutput"
+    }
+
+    $JsonLine = ($RawOutput -split "\r?\n" | Where-Object { $_.Trim() } | Select-Object -Last 1)
+
+    try {
+        return $JsonLine | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "wdtagger OpenCV install plan parse failed: $RawOutput"
+    }
+}
+
+function Test-WdtaggerOpenCvImport {
+    param (
+        [string]$PythonExe
+    )
+
+    $ProbeScript = Join-Path $PSScriptRoot "utils\wdtagger_opencv.py"
+    $RawOutput = (& $PythonExe $ProbeScript --probe-cv2 2>&1 | Out-String).Trim()
+    $ProbeExitCode = $LASTEXITCODE
+    $Payload = $null
+    $JsonLine = $null
+    if ($RawOutput) {
+        $JsonLine = ($RawOutput -split "\r?\n" | Where-Object { $_.Trim() } | Select-Object -Last 1)
+        try {
+            $Payload = $JsonLine | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            $Payload = $null
+        }
+    }
+
+    return [PSCustomObject]@{
+        Success = ($ProbeExitCode -eq 0 -and $Payload -and $Payload.ok)
+        ExitCode = $ProbeExitCode
+        RawOutput = $RawOutput
+        Payload = $Payload
+    }
+}
+
 # Add configuration arguments
 if ($Config.repo_id) { [void]$ExtArgs.Add("--repo_id=$($Config.repo_id)") }
 if ($Config.model_dir) { [void]$ExtArgs.Add("--model_dir=$($Config.model_dir)") }
@@ -188,66 +261,64 @@ if ($env:OS -eq "Windows_NT") {
     if (-not $PythonExe) {
         $PythonExe = "python"
     }
+    $OpenCvPlan = Get-WdtaggerOpenCvInstallPlan -PythonExe $PythonExe
 
-    $OpenCvPackageSpec = "opencv-contrib-python"
-    $OpenCvSource = "default"
-    $OpenCvDetail = "nvcc not detected; fallback to default opencv-contrib-python"
-    $CudaTag = $null
-    $NvccCommand = Get-Command nvcc -ErrorAction SilentlyContinue
-
-    if ($NvccCommand) {
-        Write-Output "Detecting CUDA toolkit via nvcc -V"
-        $NvccOutput = & $NvccCommand.Source -V 2>&1 | Out-String
-        if ($NvccOutput -match 'release\s+(\d+)\.(\d+)') {
-            $CudaTag = "cu$($Matches[1])$($Matches[2])"
-            switch ($CudaTag) {
-                "cu128" {
-                    $OpenCvPackageSpec = "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.11.0.20250124/opencv_contrib_python_rolling-4.12.0.86-cp37-abi3-win_amd64.whl"
-                    $OpenCvSource = "cuda-wheel"
-                    $OpenCvDetail = "detected CUDA toolkit cu128"
-                }
-                "cu129" {
-                    $OpenCvPackageSpec = "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.12.0.88/opencv_contrib_python-4.12.0.88-cp37-abi3-win_amd64.whl"
-                    $OpenCvSource = "cuda-wheel"
-                    $OpenCvDetail = "detected CUDA toolkit cu129"
-                }
-                "cu130" {
-                    $OpenCvPackageSpec = "opencv-contrib-python @ https://github.com/cudawarped/opencv-python-cuda-wheels/releases/download/4.13.0.20250811/opencv_contrib_python_rolling-4.13.0.20250812-cp37-abi3-win_amd64.whl"
-                    $OpenCvSource = "cuda-wheel"
-                    $OpenCvDetail = "detected CUDA toolkit cu130"
-                }
-                default {
-                    $OpenCvDetail = "unsupported CUDA toolkit $CudaTag; fallback to default opencv-contrib-python"
-                }
-            }
+    $OpenCvReady = $false
+    $AttemptNumber = 0
+    foreach ($Attempt in $OpenCvPlan.attempts) {
+        $AttemptNumber += 1
+        $CleanupExitCode = Invoke-WdtaggerOpenCvCleanup -PythonExe $PythonExe -Packages @($OpenCvPlan.cleanup_packages)
+        if ($CleanupExitCode -ne 0) {
+            Write-Output "wdtagger OpenCV cleanup returned non-zero; continuing with selected reinstall"
         }
+
+        $OpenCvInstallArgs = [System.Collections.ArrayList]::new()
+        [void]$OpenCvInstallArgs.Add("pip")
+        [void]$OpenCvInstallArgs.Add("install")
+        [void]$OpenCvInstallArgs.Add("--no-build-isolation")
+        [void]$OpenCvInstallArgs.Add("--index-strategy")
+        [void]$OpenCvInstallArgs.Add($(if ($Env:UV_INDEX_STRATEGY) { $Env:UV_INDEX_STRATEGY } else { "unsafe-best-match" }))
+        if ($PythonExe) {
+            [void]$OpenCvInstallArgs.Add("--python")
+            [void]$OpenCvInstallArgs.Add($PythonExe)
+        }
+        [void]$OpenCvInstallArgs.Add("--reinstall-package")
+        [void]$OpenCvInstallArgs.Add($Attempt.package_name)
+        [void]$OpenCvInstallArgs.Add($Attempt.package_spec)
+
+        Write-Output "wdtagger OpenCV attempt: $AttemptNumber"
+        Write-Output "uv pip install target package: $($Attempt.package_name)"
+        Write-Output "wdtagger OpenCV override source: $($Attempt.source)"
+        if ($Attempt.cuda_tag) {
+            Write-Output "wdtagger OpenCV detected CUDA toolkit: $($Attempt.cuda_tag)"
+        }
+        Write-Output "wdtagger OpenCV selection detail: $($Attempt.detail)"
+        Write-Output "wdtagger OpenCV package spec: $($Attempt.package_spec)"
+
+        uv @OpenCvInstallArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw "wdtagger OpenCV override install failed"
+        }
+
+        $ProbeResult = Test-WdtaggerOpenCvImport -PythonExe $PythonExe
+        if ($ProbeResult.Success) {
+            Write-Output "wdtagger OpenCV import probe succeeded: $($ProbeResult.RawOutput)"
+            $OpenCvReady = $true
+            break
+        }
+
+        if ($Attempt.source -eq "cuda-wheel") {
+            Write-Output "wdtagger OpenCV GPU import probe failed: $($ProbeResult.RawOutput)"
+            Write-Output "wdtagger OpenCV GPU wheel unavailable; retrying with default CPU package"
+            continue
+        }
+
+        Write-Output "wdtagger OpenCV import probe failed after CPU fallback: $($ProbeResult.RawOutput)"
+        throw "wdtagger OpenCV import probe failed"
     }
 
-    $OpenCvInstallArgs = [System.Collections.ArrayList]::new()
-    [void]$OpenCvInstallArgs.Add("pip")
-    [void]$OpenCvInstallArgs.Add("install")
-    [void]$OpenCvInstallArgs.Add("--no-build-isolation")
-    [void]$OpenCvInstallArgs.Add("--index-strategy")
-    [void]$OpenCvInstallArgs.Add($(if ($Env:UV_INDEX_STRATEGY) { $Env:UV_INDEX_STRATEGY } else { "unsafe-best-match" }))
-    if ($PythonExe) {
-        [void]$OpenCvInstallArgs.Add("--python")
-        [void]$OpenCvInstallArgs.Add($PythonExe)
-    }
-    [void]$OpenCvInstallArgs.Add("--reinstall-package")
-    [void]$OpenCvInstallArgs.Add("opencv-contrib-python")
-    [void]$OpenCvInstallArgs.Add($OpenCvPackageSpec)
-
-    Write-Output "uv pip install target package: opencv-contrib-python"
-    Write-Output "wdtagger OpenCV override source: $OpenCvSource"
-    if ($CudaTag) {
-        Write-Output "wdtagger OpenCV detected CUDA toolkit: $CudaTag"
-    }
-    Write-Output "wdtagger OpenCV selection detail: $OpenCvDetail"
-    Write-Output "wdtagger OpenCV package spec: $OpenCvPackageSpec"
-
-    uv @OpenCvInstallArgs
-    if (!($?)) {
-        throw "wdtagger OpenCV override install failed"
+    if (-not $OpenCvReady) {
+        throw "wdtagger OpenCV setup did not produce a working cv2 import"
     }
 }
 Write-Output "runtime target environment: $(Get-UvEnvName)"

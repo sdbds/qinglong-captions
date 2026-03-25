@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from gui.utils.process_runner import ProcessRunner
-from utils.wdtagger_opencv import WdtaggerOpenCvSelection
+from utils.wdtagger_opencv import WdtaggerOpenCvInstallPlan, WdtaggerOpenCvSelection
 
 
 def _write_project(
@@ -38,7 +38,7 @@ package = false
 
 
 def test_patch_shared_environment_reads_pyproject_without_lockfile(tmp_path, monkeypatch):
-    _write_project(tmp_path, with_lock=False, optional_deps={"qwen-vl-local": ["torch==2.8.0", "accelerate"]})
+    _write_project(tmp_path, with_lock=False, optional_deps={"qwen-vl-local": ["torch==2.11.0", "accelerate"]})
     runner = ProcessRunner()
     commands: list[list[str]] = []
 
@@ -62,7 +62,7 @@ def test_patch_shared_environment_reads_pyproject_without_lockfile(tmp_path, mon
 
 
 def test_patch_shared_environment_ignores_existing_lockfile_and_reads_pyproject(tmp_path, monkeypatch):
-    _write_project(tmp_path, with_lock=True, optional_deps={"qwen-vl-local": ["torch==2.8.0", "accelerate"]})
+    _write_project(tmp_path, with_lock=True, optional_deps={"qwen-vl-local": ["torch==2.11.0", "accelerate"]})
     runner = ProcessRunner()
     commands: list[list[str]] = []
 
@@ -105,7 +105,6 @@ def test_patch_shared_environment_uninstalls_torch_stack_for_paddleocr(tmp_path,
 
     uninstall_cmd = commands[0]
     assert uninstall_cmd[:3] == ["uv", "pip", "uninstall"]
-    assert "-y" in uninstall_cmd
     assert "torch" in uninstall_cmd
     assert "torchvision" in uninstall_cmd
     assert "torchaudio" in uninstall_cmd
@@ -117,7 +116,7 @@ def test_patch_shared_environment_uninstalls_torch_stack_for_paddleocr(tmp_path,
 
 
 def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_path, monkeypatch):
-    _write_project(tmp_path, with_lock=True, optional_deps={"penguin-vl-local": ["torch==2.8.0", "torchvision==0.23.0"]})
+    _write_project(tmp_path, with_lock=True, optional_deps={"penguin-vl-local": ["torch==2.11.0", "torchvision"]})
     runner = ProcessRunner()
     commands: list[list[str]] = []
 
@@ -132,7 +131,7 @@ def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_pat
         runner._patch_shared_environment(
             "uv",
             tmp_path,
-            {"UV_EXTRA_INDEX_URL": "https://download.pytorch.org/whl/cu128"},
+            {"UV_EXTRA_INDEX_URL": "https://download.pytorch.org/whl/cu130"},
             "test-env",
             ["penguin-vl-local"],
             [],
@@ -147,7 +146,7 @@ def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_pat
     assert "--index-strategy" in install_cmd
     assert install_cmd[install_cmd.index("--index-strategy") + 1] == "unsafe-best-match"
     assert "--torch-backend" in install_cmd
-    assert install_cmd[install_cmd.index("--torch-backend") + 1] == "cu128"
+    assert install_cmd[install_cmd.index("--torch-backend") + 1] == "cu130"
     assert install_cmd.count("--reinstall-package") == 2
     assert install_cmd[install_cmd.index("--reinstall-package") + 1] == "torch"
     second = install_cmd.index("--reinstall-package", install_cmd.index("--reinstall-package") + 1)
@@ -161,7 +160,7 @@ def test_patch_shared_environment_reads_requirements_directly_from_pyproject(tmp
         with_lock=True,
         optional_deps={
             "music-flamingo-local": [
-                "torch==2.8.0",
+                "torch==2.11.0",
                 "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf",
             ]
         },
@@ -190,7 +189,7 @@ def test_patch_shared_environment_reads_requirements_directly_from_pyproject(tmp
 
 
 def test_patch_shared_environment_overrides_wdtagger_opencv_on_windows(tmp_path, monkeypatch):
-    _write_project(tmp_path, with_lock=False, optional_deps={"wdtagger": ["opencv-contrib-python", "torch==2.8.0"]})
+    _write_project(tmp_path, with_lock=False, optional_deps={"wdtagger": ["opencv-contrib-python", "torch==2.11.0"]})
     runner = ProcessRunner()
     commands: list[list[str]] = []
 
@@ -200,14 +199,26 @@ def test_patch_shared_environment_overrides_wdtagger_opencv_on_windows(tmp_path,
 
     monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
     monkeypatch.setattr(runner, "_resolve_project_python", lambda work_dir, env: "python", raising=False)
+    monkeypatch.setattr(
+        runner,
+        "_inspect_cv2_runtime",
+        lambda python_path, env: {"ok": True, "version": "4.13.0", "file": "cv2.pyd", "cuda_count": 1},
+        raising=False,
+    )
     monkeypatch.setattr("gui.utils.process_runner.sys.platform", "win32")
     monkeypatch.setattr(
-        "gui.utils.process_runner.resolve_wdtagger_windows_opencv_requirement",
-        lambda env=None, platform=None: WdtaggerOpenCvSelection(
-            package_spec="opencv-contrib-python @ https://example.invalid/opencv-cu129.whl",
-            cuda_tag="cu129",
-            source="cuda-wheel",
-            detail="detected CUDA 12.9",
+        "gui.utils.process_runner.build_wdtagger_opencv_install_plan",
+        lambda env=None, platform=None: WdtaggerOpenCvInstallPlan(
+            cleanup_packages=("opencv-python", "opencv-contrib-python", "opencv-contrib-python-rolling"),
+            attempts=(
+                WdtaggerOpenCvSelection(
+                    package_name="opencv-contrib-python-rolling",
+                    package_spec="opencv-contrib-python-rolling @ https://example.invalid/opencv-cu130.whl",
+                    cuda_tag="cu130",
+                    source="cuda-wheel",
+                    detail="detected CUDA 13.0",
+                ),
+            ),
         ),
     )
 
@@ -216,20 +227,85 @@ def test_patch_shared_environment_overrides_wdtagger_opencv_on_windows(tmp_path,
     )
 
     assert result is None
-    assert len(commands) == 2
+    assert len(commands) == 3
 
     install_cmd = commands[0]
     assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
     assert install_cmd[install_cmd.index("-r") + 1] == "pyproject.toml"
     assert install_cmd[install_cmd.index("--extra") + 1] == "wdtagger"
 
-    opencv_cmd = commands[1]
+    cleanup_cmd = commands[1]
+    assert cleanup_cmd[:3] == ["uv", "pip", "uninstall"]
+    assert "opencv-python" in cleanup_cmd
+    assert "opencv-contrib-python" in cleanup_cmd
+    assert "opencv-contrib-python-rolling" in cleanup_cmd
+
+    opencv_cmd = commands[2]
     assert opencv_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
     assert "--python" in opencv_cmd
     assert opencv_cmd[opencv_cmd.index("--python") + 1] == "python"
     assert "--reinstall-package" in opencv_cmd
-    assert opencv_cmd[opencv_cmd.index("--reinstall-package") + 1] == "opencv-contrib-python"
-    assert opencv_cmd[-1] == "opencv-contrib-python @ https://example.invalid/opencv-cu129.whl"
+    assert opencv_cmd[opencv_cmd.index("--reinstall-package") + 1] == "opencv-contrib-python-rolling"
+    assert opencv_cmd[-1] == "opencv-contrib-python-rolling @ https://example.invalid/opencv-cu130.whl"
+
+
+def test_patch_shared_environment_falls_back_to_cpu_when_gpu_opencv_probe_fails(tmp_path, monkeypatch):
+    _write_project(tmp_path, with_lock=False, optional_deps={"wdtagger": ["opencv-contrib-python", "torch==2.11.0"]})
+    runner = ProcessRunner()
+    commands: list[list[str]] = []
+    logs: list[str] = []
+    probes = iter(
+        [
+            {"ok": False, "error": "ImportError: DLL load failed while importing cv2"},
+            {"ok": True, "version": "4.13.0.92", "file": "cv2.pyd", "cuda_count": 0},
+        ]
+    )
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+    monkeypatch.setattr(runner, "_resolve_project_python", lambda work_dir, env: "python", raising=False)
+    monkeypatch.setattr(runner, "_inspect_cv2_runtime", lambda python_path, env: next(probes), raising=False)
+    monkeypatch.setattr(runner, "_notify_log", logs.append, raising=False)
+    monkeypatch.setattr("gui.utils.process_runner.sys.platform", "win32")
+    monkeypatch.setattr(
+        "gui.utils.process_runner.build_wdtagger_opencv_install_plan",
+        lambda env=None, platform=None: WdtaggerOpenCvInstallPlan(
+            cleanup_packages=("opencv-python", "opencv-contrib-python", "opencv-contrib-python-rolling"),
+            attempts=(
+                WdtaggerOpenCvSelection(
+                    package_name="opencv-contrib-python-rolling",
+                    package_spec="opencv-contrib-python-rolling @ https://example.invalid/opencv-cu130.whl",
+                    cuda_tag="cu130",
+                    source="cuda-wheel",
+                    detail="detected CUDA 13.0",
+                ),
+                WdtaggerOpenCvSelection(
+                    package_name="opencv-contrib-python",
+                    package_spec="opencv-contrib-python",
+                    cuda_tag=None,
+                    source="cpu-fallback",
+                    detail="GPU OpenCV import probe failed; fallback to default opencv-contrib-python",
+                ),
+            ),
+        ),
+    )
+
+    result = asyncio.run(
+        runner._patch_shared_environment("uv", tmp_path, {}, "test-env", ["wdtagger"], []),
+    )
+
+    assert result is None
+    assert len(commands) == 5
+    assert commands[1][:3] == ["uv", "pip", "uninstall"]
+    assert commands[2][-1] == "opencv-contrib-python-rolling @ https://example.invalid/opencv-cu130.whl"
+    assert commands[3][:3] == ["uv", "pip", "uninstall"]
+    assert commands[4][commands[4].index("--reinstall-package") + 1] == "opencv-contrib-python"
+    assert commands[4][-1] == "opencv-contrib-python"
+    assert any("GPU import probe failed" in line for line in logs)
+    assert any("retrying with default CPU package" in line for line in logs)
 
 
 def test_video_split_uses_video_split_extra_by_default(monkeypatch):

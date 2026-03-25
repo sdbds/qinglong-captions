@@ -21,7 +21,7 @@ def test_test_workflow_uses_script_aligned_env_vars():
         "HF_HOME: huggingface",
         "HF_ENDPOINT: https://hf-mirror.com",
         'XFORMERS_FORCE_DISABLE_TRITON: "1"',
-        "UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cu128",
+        "UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cu130",
         'UV_NO_BUILD_ISOLATION: "1"',
         'UV_NO_CACHE: "0"',
         "UV_LINK_MODE: symlink",

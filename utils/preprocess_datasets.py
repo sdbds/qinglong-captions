@@ -8,7 +8,7 @@
 #   "imageio-ffmpeg>=0.4.8",
 #   "opencv-contrib-python; sys_platform == 'win32'",
 #   "opencv-contrib-python; sys_platform == 'linux'",
-#   "torch==2.8.0",
+#   "torch==2.11.0",
 #   "toml",
 # ]
 # ///

@@ -32,7 +32,7 @@ ENV_VAR_DEFINITIONS: list[dict] = [
     # ── UV Package Manager ──
     {"key": "UV_INDEX_URL", "default": "", "group": "uv",
      "desc_en": "UV primary index URL (PyPI mirror)", "desc_zh": "UV 主索引地址 (PyPI 镜像)"},
-    {"key": "UV_EXTRA_INDEX_URL", "default": "https://download.pytorch.org/whl/cu128", "group": "uv",
+    {"key": "UV_EXTRA_INDEX_URL", "default": "https://download.pytorch.org/whl/cu130", "group": "uv",
      "desc_en": "UV extra index URL (PyTorch wheels)", "desc_zh": "UV 额外索引地址 (PyTorch wheels)"},
     {"key": "UV_CACHE_DIR", "default": "", "group": "uv",
      "desc_en": "UV cache directory", "desc_zh": "UV 缓存目录"},
