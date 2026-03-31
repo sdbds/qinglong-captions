@@ -30,6 +30,44 @@ from utils.stream_util import sanitize_filename, split_name_series
 console = Console(color_system="truecolor", force_terminal=True)
 
 
+def _gemini_model_key(model_path: str) -> str:
+    return model_path.replace(".", "_")
+
+
+def _get_gemini_generation_config(config: Dict[str, Any], model_path: str) -> Dict[str, Any]:
+    generation_section = config.get("generation_config", {})
+    return generation_section.get(_gemini_model_key(model_path)) or generation_section["default"]
+
+
+def _is_gemini_quota_error(exc: Exception) -> bool:
+    message = str(exc)
+    upper_message = message.upper()
+    lower_message = message.lower()
+    return (
+        "RESOURCE_EXHAUSTED" in upper_message
+        or ("429" in message and "quota" in lower_message)
+        or ("429" in message and "rate limit" in lower_message)
+    )
+
+
+def _get_gemini_model_candidates(requested_model: str, mime: str, gemini_task: str) -> List[str]:
+    if gemini_task and mime.startswith("image"):
+        return ["gemini-2.5-flash-image-preview"]
+
+    candidates = [requested_model]
+
+    if requested_model.startswith("gemini-2.5-pro"):
+        candidates.extend(["gemini-2.5-flash", "gemini-2.5-flash-lite"])
+    elif requested_model.startswith("gemini-2.5-flash") and "image-preview" not in requested_model:
+        candidates.append("gemini-2.5-flash-lite")
+
+    deduped_candidates: List[str] = []
+    for candidate in candidates:
+        if candidate not in deduped_candidates:
+            deduped_candidates.append(candidate)
+    return deduped_candidates
+
+
 def api_process_batch(
     uri: str,
     mime: str,
@@ -978,14 +1016,10 @@ def api_process_batch(
         return result
 
     elif provider == "gemini":
-        generation_config = (
-            config["generation_config"][args.gemini_model_path.replace(".", "_")]
-            if config["generation_config"][args.gemini_model_path.replace(".", "_")]
-            else config["generation_config"]["default"]
-        )
+        requested_gemini_model = args.gemini_model_path
 
         if args.gemini_task and mime.startswith("image"):
-            args.gemini_model_path = "gemini-2.5-flash-image-preview"
+            requested_gemini_model = "gemini-2.5-flash-image-preview"
             # get_prompts already constructed the prompt for the task
             pass
         elif args.pair_dir and mime.startswith("image"):
@@ -1067,72 +1101,79 @@ def api_process_batch(
                 },
             )
 
-        genai_config = types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=generation_config["temperature"],
-            top_p=generation_config["top_p"],
-            top_k=generation_config["top_k"],
-            candidate_count=config["generation_config"]["candidate_count"],
-            max_output_tokens=generation_config["max_output_tokens"],
-            safety_settings=[
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                    threshold=types.HarmBlockThreshold.OFF,
+        def build_genai_config(model_path: str) -> types.GenerateContentConfig:
+            generation_config = _get_gemini_generation_config(config, model_path)
+            console.print(f"[blue]Gemini model:[/blue] {model_path}")
+            console.print(f"[blue]generation_config:[/blue] {generation_config}")
+            return types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=generation_config["temperature"],
+                top_p=generation_config["top_p"],
+                top_k=generation_config["top_k"],
+                candidate_count=config["generation_config"]["candidate_count"],
+                max_output_tokens=generation_config["max_output_tokens"],
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                        threshold=types.HarmBlockThreshold.OFF,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                        threshold=types.HarmBlockThreshold.OFF,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                        threshold=types.HarmBlockThreshold.OFF,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                        threshold=types.HarmBlockThreshold.OFF,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+                        threshold=types.HarmBlockThreshold.OFF,
+                    ),
+                    # types.SafetySetting(
+                    #     category=types.HarmCategory.HARM_CATEGORY_IMAGE_HATE,
+                    #     threshold=types.HarmBlockThreshold.OFF,
+                    # ),
+                    # types.SafetySetting(
+                    #     category=types.HarmCategory.HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT,
+                    #     threshold=types.HarmBlockThreshold.OFF,
+                    # ),
+                    # types.SafetySetting(
+                    #     category=types.HarmCategory.HARM_CATEGORY_IMAGE_HARASSMENT,
+                    #     threshold=types.HarmBlockThreshold.OFF,
+                    # ),
+                    # types.SafetySetting(
+                    #     category=types.HarmCategory.HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT,
+                    #     threshold=types.HarmBlockThreshold.OFF,
+                    # ),
+                ],
+                response_mime_type=(
+                    "application/json"
+                    if mime.startswith("image") and args.gemini_task == ""
+                    else generation_config["response_mime_type"]
                 ),
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                    threshold=types.HarmBlockThreshold.OFF,
-                ),
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                    threshold=types.HarmBlockThreshold.OFF,
-                ),
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                    threshold=types.HarmBlockThreshold.OFF,
-                ),
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
-                    threshold=types.HarmBlockThreshold.OFF,
-                ),
-                # types.SafetySetting(
-                #     category=types.HarmCategory.HARM_CATEGORY_IMAGE_HATE,
-                #     threshold=types.HarmBlockThreshold.OFF,
-                # ),
-                # types.SafetySetting(
-                #     category=types.HarmCategory.HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT,
-                #     threshold=types.HarmBlockThreshold.OFF,
-                # ),
-                # types.SafetySetting(
-                #     category=types.HarmCategory.HARM_CATEGORY_IMAGE_HARASSMENT,
-                #     threshold=types.HarmBlockThreshold.OFF,
-                # ),
-                # types.SafetySetting(
-                #     category=types.HarmCategory.HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT,
-                #     threshold=types.HarmBlockThreshold.OFF,
-                # ),
-            ],
-            response_mime_type=(
-                "application/json"
-                if mime.startswith("image") and args.gemini_task == ""
-                else generation_config["response_mime_type"]
-            ),
-            response_modalities=generation_config["response_modalities"],
-            response_schema=(image_response_schema if mime.startswith("image") and args.gemini_task == "" else None),
-            thinking_config=(
-                (
-                    types.ThinkingConfig(
-                        thinking_budget=(generation_config["thinking_budget"] if "thinking_budget" in generation_config else -1),
+                response_modalities=generation_config["response_modalities"],
+                response_schema=(image_response_schema if mime.startswith("image") and args.gemini_task == "" else None),
+                thinking_config=(
+                    (
+                        types.ThinkingConfig(
+                            thinking_budget=(generation_config["thinking_budget"] if "thinking_budget" in generation_config else -1),
+                        )
                     )
-                )
-                if args.gemini_task == ""
-                else None
-            ),
-        )
-
-        console.print(f"generation_config: {generation_config}")
+                    if args.gemini_task == ""
+                    else None
+                ),
+            )
 
         client = genai.Client(api_key=args.gemini_api_key)
+        gemini_model_candidates = _get_gemini_model_candidates(
+            requested_gemini_model,
+            mime,
+            getattr(args, "gemini_task", ""),
+        )
 
         pair_blob_list = []
 
@@ -1175,29 +1216,48 @@ def api_process_batch(
                 media_local = prepare_media(uri, mime, args, console)
                 audio_bytes = media_local.get("audio", {}).get("bytes") or None
 
-            return gemini_attempt(
-                client=client,
-                model_path=args.gemini_model_path,
-                mime=mime,
-                prompt=prompt,
-                console=console,
-                progress=progress,
-                task_id=task_id,
-                uri=uri,
-                genai_config=genai_config,
-                files=(
-                    files
-                    if (mime.startswith("video") or (mime.startswith("audio") and Path(uri).stat().st_size >= 20 * 1024 * 1024))
-                    else None
-                ),
-                audio_bytes=audio_bytes,
-                image_blob=(blob if mime.startswith("image") else None),
-                pixels=(pixels if mime.startswith("image") else None),
-                pair_blob=(pair_blob if (mime.startswith("image") and args.pair_dir != "") else None),
-                pair_pixels=(pair_pixels if (mime.startswith("image") and args.pair_dir != "") else None),
-                pair_blob_list=(pair_blob_list if mime.startswith("image") else None),
-                gemini_task=getattr(args, "gemini_task", ""),
-            )
+            last_error: Optional[Exception] = None
+            for index, model_path in enumerate(gemini_model_candidates):
+                try:
+                    return gemini_attempt(
+                        client=client,
+                        model_path=model_path,
+                        mime=mime,
+                        prompt=prompt,
+                        console=console,
+                        progress=progress,
+                        task_id=task_id,
+                        uri=uri,
+                        genai_config=build_genai_config(model_path),
+                        files=(
+                            files
+                            if (mime.startswith("video") or (mime.startswith("audio") and Path(uri).stat().st_size >= 20 * 1024 * 1024))
+                            else None
+                        ),
+                        audio_bytes=audio_bytes,
+                        image_blob=(blob if mime.startswith("image") else None),
+                        pixels=(pixels if mime.startswith("image") else None),
+                        pair_blob=(pair_blob if (mime.startswith("image") and args.pair_dir != "") else None),
+                        pair_pixels=(pair_pixels if (mime.startswith("image") and args.pair_dir != "") else None),
+                        pair_blob_list=(pair_blob_list if mime.startswith("image") else None),
+                        gemini_task=getattr(args, "gemini_task", ""),
+                    )
+                except Exception as exc:
+                    last_error = exc
+                    if index < len(gemini_model_candidates) - 1 and _is_gemini_quota_error(exc):
+                        fallback_model = gemini_model_candidates[index + 1]
+                        console.print(
+                            Text(
+                                f"Gemini model {model_path} quota exhausted, falling back to {fallback_model}.",
+                                style="yellow",
+                            )
+                        )
+                        continue
+                    raise
+
+            if last_error is not None:
+                raise last_error
+            raise Exception("RETRY_EMPTY_CONTENT")
 
         result = with_retry(
             _attempt_gemini,

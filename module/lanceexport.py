@@ -165,7 +165,8 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
                 # For MD files, preserve original markdown formatting
                 f.write("".join(caption_lines))
             else:
-                # For TXT files, strip empty lines and whitespace
+                # For TXT files (image captions), sanitize and write as single line
+                parts = []
                 for line in caption_lines:
                     if "<font color=" in line:
                         line = line.replace('<font color="green">', "").replace("<font color='green'>", "").replace("</font>", "")
@@ -178,14 +179,18 @@ def save_caption(caption_path: str, caption_lines: List[str], media_type: str) -
                             # Format JSON content with indentation for better readability
                             with open(caption_path.with_suffix(".json"), "w", encoding="utf-8") as j:
                                 json.dump(parsed_json, j, indent=2, ensure_ascii=False)
-                            f.write(parsed_json["description"])
+                            parts.append(parsed_json["description"])
                         except json.JSONDecodeError:
-                            # If not valid JSON, continue with normal text processing
                             if line and line.strip():
-                                f.write(line.strip() + "\n")
+                                parts.append(line.strip())
                     else:
                         if line and line.strip():
-                            f.write(line.strip() + "\n")
+                            parts.append(line.strip())
+                # Sanitize: remove control chars and collapse to single line
+                combined = " ".join(parts)
+                sanitized = "".join(ch for ch in combined if ord(ch) >= 32 or ch == "\t")
+                sanitized = " ".join(sanitized.split())
+                f.write(sanitized)
 
             console.print()
             console.print(f"[{CONSOLE_COLORS['text']}]text: {caption_path} saved successfully.[/{CONSOLE_COLORS['text']}]")

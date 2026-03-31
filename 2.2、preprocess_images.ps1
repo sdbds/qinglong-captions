@@ -17,7 +17,7 @@
 #region Configuration
 # Script settings - MODIFY THESE VALUES AS NEEDED
 $Config = @{
-    input_dir          = "./datasets"                     # REQUIRED: Input directory path for source images
+    input_dir          = "../train/task02_qversion/image"   # Task02 水墨Q版训练图片
     align_input_dir    = ""                               # Optional: Path to directory with reference images for alignment
     max_long_edge      = 2048                             # Optional: Maximum value for the longest edge of resized images (e.g., 1024)
     max_short_edge     = $null                            # Optional: Maximum value for the shortest edge of resized images (e.g., 1024)

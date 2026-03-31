@@ -7,6 +7,7 @@ Keeps behavior and logging identical.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any, Iterable, List, Optional
@@ -32,7 +33,18 @@ def _save_binary_file(file_name: Any, data: bytes) -> None:
         f.close()
 
 
-def _collect_stream_gemini(response: Iterable[Any], uri: str, console: Console) -> str:
+def _should_echo_gemini_stream(mime: str) -> bool:
+    force_stream = os.getenv("QINGLONG_DEBUG_GEMINI_STREAM", "").strip().lower() in {"1", "true", "yes", "on"}
+    if force_stream:
+        return True
+    # Windows terminals render Gemini's streamed JSON fragments very poorly.
+    # Keep the UI quiet by default and only show the structured result later.
+    if os.name == "nt":
+        return False
+    return not mime.startswith("image")
+
+
+def _collect_stream_gemini(response: Iterable[Any], uri: str, console: Console, *, echo_stream: bool) -> str:
     """Collect streamed text and inline_data from Gemini responses.
 
     - Accumulate chunk.text into final response_text (same as original)
@@ -47,18 +59,20 @@ def _collect_stream_gemini(response: Iterable[Any], uri: str, console: Console) 
             continue
         if getattr(chunk, "text", None):
             chunks.append(chunk.text)
-            console.print("")
-            try:
-                console.print(chunk.text, end="", overflow="ellipsis")
-            except Exception:
-                console.print(Text(chunk.text), end="", overflow="ellipsis")
-            finally:
-                console.file.flush()
+            if echo_stream:
+                console.print("")
+                try:
+                    console.print(chunk.text, end="", overflow="ellipsis")
+                except Exception:
+                    console.print(Text(chunk.text), end="", overflow="ellipsis")
+                finally:
+                    console.file.flush()
         for part in chunk.candidates[0].content.parts:
             if getattr(part, "text", None):
                 text_content = str(part.text)
                 if text_content:
-                    console.print(text_content)
+                    if echo_stream:
+                        console.print(text_content)
                     text_buffer.append(text_content)
             if getattr(part, "inline_data", None):
                 part_index += 1
@@ -71,7 +85,8 @@ def _collect_stream_gemini(response: Iterable[Any], uri: str, console: Console) 
                 _save_binary_file(image_path, part.inline_data.data)
                 console.print(f"[blue]File of mime type {part.inline_data.mime_type} saved to: {image_path.name}[/blue]")
                 text_buffer.clear()
-    console.print("\n")
+    if echo_stream:
+        console.print("\n")
     return "".join(chunks)
 
 
@@ -153,17 +168,23 @@ def attempt_gemini(
 
     if progress and task_id is not None:
         progress.update(task_id, description="Generating captions")
-    response_text = _collect_stream_gemini(response, uri, console)
+    response_text = _collect_stream_gemini(
+        response,
+        uri,
+        console,
+        echo_stream=_should_echo_gemini_stream(mime),
+    )
     if mime.startswith("image"):
         response_text = response_text.replace("*", "").strip()
 
     elapsed_time = time.time() - start_time
     console.print(f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds")
 
-    try:
-        console.print(response_text)
-    except Exception:
-        console.print(Text(response_text))
+    if not mime.startswith("image"):
+        try:
+            console.print(response_text)
+        except Exception:
+            console.print(Text(response_text))
 
     if mime.startswith("image"):
         if isinstance(response_text, str) and not gemini_task:

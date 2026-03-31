@@ -1,6 +1,6 @@
 $dataset_path = "./datasets"
 $pair_dir = ""
-$gemini_api_key = ""
+$gemini_api_key = "AIzaSyD6atolnPo48Ucg_GdG10Nrv7SUZ5oVcb8"
 $gemini_model_path = "gemini-2.5-pro"
 $gemini_task = ""
 $pixtral_api_key = ""
@@ -60,6 +60,7 @@ $Env:UV_NO_BUILD_ISOLATION = "1"
 $Env:UV_NO_CACHE = "0"
 $Env:UV_LINK_MODE = "symlink"
 $Env:UV_INDEX_STRATEGY = "unsafe-best-match"
+$Env:QINGLONG_DISPLAY_MODE = "rich"
 #$Env:CUDA_VISIBLE_DEVICES = "1"  # 设置GPU id，0表示使用第一个GPU，-1表示不使用GPU
 
 #$Env:HTTP_PROXY = "http://127.0.0.1:7890"

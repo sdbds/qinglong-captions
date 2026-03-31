@@ -43,6 +43,19 @@ Image.MAX_IMAGE_PIXELS = None  # Disable image size limit check
 console = Console(color_system="truecolor", force_terminal=True)
 
 
+def _serialize_caption_for_dataset(caption):
+    if isinstance(caption, list):
+        return "\n".join(caption).strip()
+    if isinstance(caption, dict):
+        description = caption.get("description")
+        if description is not None and not str(description).strip():
+            return ""
+        return json.dumps(caption, ensure_ascii=False).strip()
+    if caption is None:
+        return ""
+    return str(caption).strip()
+
+
 def process_batch(args, config):
     # Load the dataset
     if not isinstance(args.dataset_dir, lance.LanceDataset):
@@ -336,7 +349,10 @@ def process_batch(args, config):
                                 else:
                                     f.write("No description available")
                         else:
-                            caption_path.write_text(output, encoding="utf-8")
+                            # Sanitize caption: remove control chars and collapse to single line
+                            sanitized = "".join(ch for ch in output if ord(ch) >= 32 or ch in "\n\r\t")
+                            sanitized = " ".join(sanitized.split())
+                            caption_path.write_text(sanitized, encoding="utf-8")
                         console.print(f"[green]Saved captions to {caption_path}[/green]")
                     except Exception as e:
                         console.print(f"[red]Error saving TXT file: {e}[/red]")
@@ -348,35 +364,39 @@ def process_batch(args, config):
 
     # Update dataset with new captions
     if results:
-        # 确保每个caption都是单个字符串
-        processed_captions = []
-        for caption in results:
-            if isinstance(caption, list):
-                # 如果是列表，合并为单个字符串
-                processed_captions.append("\n".join(caption))
-            elif isinstance(caption, dict):
-                processed_captions.append(json.dumps(caption, ensure_ascii=False))
-            else:
-                processed_captions.append(caption)
+        nonempty_rows = []
+        for filepath, caption in zip(processed_filepaths, results):
+            serialized_caption = _serialize_caption_for_dataset(caption)
+            if serialized_caption:
+                nonempty_rows.append((filepath, serialized_caption))
 
-        table = pa.table(
-            {
-                "uris": pa.array(processed_filepaths, type=pa.string()),
-                "captions": pa.array(
-                    [[caption] for caption in processed_captions],
-                    type=pa.list_(pa.string()),
-                ),
-            }
-        )
+        empty_count = len(results) - len(nonempty_rows)
+        if empty_count > 0:
+            console.print(
+                f"[yellow]No usable caption content was generated for {empty_count}/{len(results)} files. Empty results were skipped.[/yellow]"
+            )
 
-        dataset.merge_insert(on="uris").when_matched_update_all().execute(table)
+        if nonempty_rows:
+            table = pa.table(
+                {
+                    "uris": pa.array([filepath for filepath, _ in nonempty_rows], type=pa.string()),
+                    "captions": pa.array(
+                        [[caption] for _, caption in nonempty_rows],
+                        type=pa.list_(pa.string()),
+                    ),
+                }
+            )
 
-        try:
-            dataset.tags.create("gemini", 1)
-        except Exception:
-            dataset.tags.update("gemini", 1)
+            dataset.merge_insert(on="uris").when_matched_update_all().execute(table)
 
-        console.print("[green]Successfully updated dataset with new captions[/green]")
+            try:
+                dataset.tags.create("gemini", 1)
+            except Exception:
+                dataset.tags.update("gemini", 1)
+
+            console.print(f"[green]Successfully updated dataset with {len(nonempty_rows)} non-empty captions[/green]")
+        else:
+            console.print("[yellow]No non-empty captions were generated, so the dataset was not updated.[/yellow]")
 
     extract_from_lance(dataset, args.dataset_dir, clip_with_caption=not args.not_clip_with_caption)
 

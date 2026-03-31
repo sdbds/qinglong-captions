@@ -108,7 +108,7 @@ Write-Output "Starting tagger..."
 # Get-ChildItem -Path $env:AGENT_TOOLSDIRECTORY -File -Include msvcp*.dll,concrt*.dll,vccorlib*.dll,vcruntime*.dll -Recurse | Remove-Item -Force -Verbose
 
 # Run tagger
-uv run "./utils/wdtagger.py" `
+python "./utils/wdtagger.py" `
     $Config.train_data_dir `
     --thresh=$($Config.thresh) `
     --caption_extension .txt `

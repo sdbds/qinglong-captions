@@ -5,6 +5,7 @@ All logs and comments are in English per project convention.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Optional, Tuple, List, Any
 
@@ -17,6 +18,36 @@ from utils.console_util import (
     MarkdownLayout,
     CaptionLayout,
 )
+
+
+def _display_mode() -> str:
+    mode = os.getenv("QINGLONG_DISPLAY_MODE", "").strip().lower()
+    if mode in {"none", "text", "rich"}:
+        return mode
+    return "text" if os.name == "nt" else "rich"
+
+
+def _terminal_supports_rich_layout(console: Console) -> bool:
+    mode = _display_mode()
+    if mode == "none":
+        return False
+    if mode == "rich":
+        return True
+
+    force_plain = os.getenv("QINGLONG_PLAIN_LAYOUT", "").strip().lower() in {"1", "true", "yes", "on"}
+    force_rich = os.getenv("QINGLONG_FORCE_RICH_LAYOUT", "").strip().lower() in {"1", "true", "yes", "on"}
+    if force_plain:
+        return False
+    if force_rich:
+        return True
+
+    return os.name != "nt"
+
+
+def _print_text_block(console: Console, title: str, body: str) -> None:
+    console.print()
+    console.print(f"[bold cyan]{title}[/bold cyan]")
+    console.print(body if body else "[dim](empty)[/dim]")
 
 
 def extract_code_block_content(response_text: str, code_type: Optional[str] = None, console: Optional[Console] = None) -> str:
@@ -65,6 +96,24 @@ def display_caption_and_rate(
     console: Console,
 ) -> None:
     """Display a caption card with rating list and average score."""
+    if _display_mode() == "none":
+        return
+
+    if not _terminal_supports_rich_layout(console):
+        rating_lines = []
+        if isinstance(rating, dict):
+            rating_lines = [f"{key}: {value}" for key, value in rating.items()]
+        elif isinstance(rating, list):
+            rating_lines = [str(item) for item in rating]
+        summary = [f"Average score: {average_score}"]
+        if rating_lines:
+            summary.extend(rating_lines)
+        if long_description:
+            summary.append("")
+            summary.append(long_description)
+        _print_text_block(console, title, "\n".join(summary))
+        return
+
     layout = CaptionAndRateLayout(
         tag_description=tag_description,
         rating=rating,
@@ -87,6 +136,13 @@ def display_pair_image_description(
     console: Console,
 ) -> None:
     """Display a two-image layout with a long text description."""
+    if _display_mode() == "none":
+        return
+
+    if not _terminal_supports_rich_layout(console):
+        _print_text_block(console, title, description)
+        return
+
     layout = CaptionPairImageLayout(
         description=description,
         pixels=pixels,
@@ -106,6 +162,13 @@ def display_markdown(
     console: Console,
 ) -> None:
     """Display markdown content, optionally with pixels on the side."""
+    if _display_mode() == "none":
+        return
+
+    if not _terminal_supports_rich_layout(console):
+        _print_text_block(console, title, markdown_content)
+        return
+
     layout = MarkdownLayout(
         pixels=pixels,
         markdown_content=markdown_content,
@@ -143,6 +206,21 @@ def display_caption_layout(
     console: Console,
 ) -> None:
     """Display a caption layout with short/long sections and highlight rates."""
+    if _display_mode() == "none":
+        return
+
+    if not _terminal_supports_rich_layout(console):
+        parts = []
+        if tag_description:
+            parts.append(f"Tags: {tag_description}")
+        if short_description:
+            parts.append(f"Short: {short_description}")
+        if long_description:
+            parts.append("")
+            parts.append(long_description)
+        _print_text_block(console, title, "\n".join(parts))
+        return
+
     layout = CaptionLayout(
         tag_description=tag_description,
         short_description=short_description,
