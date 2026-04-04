@@ -3,9 +3,23 @@
 <details>
 <summary>中文说明（点击展开）</summary>
 
-# 青龙字幕工具 (4.2.0)
+# 青龙字幕工具 (4.3.0)
 
 ## 更新日志
+
+### 4.3 - Image2PSD / See-through
+
+1. 新增 `see-through` / `image2psd` 工具链：
+   - 新增目录批处理 CLI `module/see_through/cli.py`
+   - 新增 PowerShell 入口 `2.6.image2psd.ps1`
+   - 主流程为 `LayerDiff 透明分层 -> Marigold 深度估计 -> PSD 导出`
+2. `see-through` 工具链补齐关键推理参数透传：
+   - `inference_steps_depth`
+   - `seed`
+   - GUI 工具箱和 CLI 现在都可直接配置
+3. README 补充上游仓库与引用说明：
+   - 新增 `see-through` 上游仓库说明与 `See-through` / `Marigold` cite
+   - 新增 `GAME` 仓库引用说明，用于 `vocal-midi` 路径的模型来源标注
 
 ### 4.2 - ONNX Runtime 统一与音频工具
 
@@ -58,6 +72,11 @@
    - 默认模型：`ACE-Step/acestep-transcriber`
    - 支持 `audio/*` 输入
    - 默认输出结构化 `.txt` 转写文本
+11. 新增可选本地 ALM `cohere_transcribe_local`：
+   - 默认模型：`CohereLabs/cohere-transcribe-03-2026`
+   - 支持 `audio/*` 输入
+   - 走官方 `AutoModelForSpeechSeq2Seq + model.transcribe()` 推理路径
+   - 需要先在 Hugging Face 接受 gated 模型条款，并在 `config/model.toml` 指定 `language`
 
 ### 4.0 - Provider V2 架构重构
 
@@ -188,6 +207,11 @@
 - 默认输出 6 stems，可选追加 harmony 二次分离
 - 支持 `wav` / `flac` / `mp3` 导出，适合伴奏、人声和和声拆分
 
+### Image2PSD / See-through (`module/see_through/cli.py`)
+- 将上游 `see-through` 推理链路抽取并适配为本仓库的目录批处理 CLI，脚本入口为 `./2.6.image2psd.ps1`
+- 主流程为 `LayerDiff 透明分层 -> Marigold 深度估计 -> PSD 导出`
+- 适合把单图或整目录角色立绘转换成可继续编辑的分层 PSD 结果
+
 ### 配置模块 (`config.py`、`config.toml` & `config/onnx.toml`)
 - API 配置管理
 - 可自定义批处理参数
@@ -210,6 +234,7 @@ sudo sh ./0、install pwsh.sh
 ```powershell
 pwsh ./1.install-uv-qinglong.ps1
 ```
+
 ## 使用方法
 
 ### 推荐流程：先用 GUI
@@ -273,6 +298,7 @@ python -m gui.launch --native --port 7899
 ./lanceExport.ps1
 ./2.2.preprocess_images.ps1
 ./2.5.audio_separator.ps1
+./2.6.image2psd.ps1
 ./5.translate.ps1
 ```
 
@@ -282,16 +308,63 @@ python -m gui.launch --native --port 7899
 - `2.2.preprocess_images.ps1` 用于图片预处理与可选图像对齐；`--matcher-backend=auto` 会在 CUDA 上优先 `affine_steerers`，否则优先 `xfeat`，失败时回退 ORB
 - `2.5.audio_separator.ps1` 用于 ONNX 音频分轨
 - `2.5.audio_separator.ps1` 默认会安装并复用 `vocal-midi` profile，不需要再手动补 `--extra vocal-midi`
+- `2.6.image2psd.ps1` 用于调用 see-through 批处理 CLI，把图片目录转换为分层 PSD；默认会安装并复用 `see-through` profile
 - `5.translate.ps1` 用于文档规范化和翻译，输出如 `*_zh_cn.md`
 - 日常运行会按当前所选 profile 增量安装依赖；`uv.lock` 主要留给 CI / 发版流程维护
 
+### 上游仓库 / 模型引用
+- `Image2PSD / see-through` 对接上游仓库：[`shitagaki-lab/see-through`](https://github.com/shitagaki-lab/see-through)
+- 当前仓库中的 [`module/see_through/`](module/see_through/) 是针对青龙工具链做的抽取与批处理适配，不是对上游仓库的逐文件镜像
+- `vocal-midi` 路径使用的音高与分段模型参考项目：[`openvpi/GAME`](https://github.com/openvpi/GAME)
+- `GAME` 仓库当前未在 README 中提供官方 BibTeX，下面给出的是仓库级引用；如果上游后续发布正式论文或 citation，请优先以上游为准
+
+```bibtex
+@article{lin2026seethrough,
+  title={See-through: Single-image Layer Decomposition for Anime Characters},
+  author={Lin, Jian and Li, Chengze and Qin, Haoyun and Chan, Kwun Wang and Jin, Yanghua and Liu, Hanyuan and Choy, Stephen Chun Wang and Liu, Xueting},
+  journal={arXiv preprint arXiv:2602.03749},
+  year={2026}
+}
+```
+
+```bibtex
+@InProceedings{ke2023repurposing,
+  title={Repurposing Diffusion-Based Image Generators for Monocular Depth Estimation},
+  author={Bingxin Ke and Anton Obukhov and Shengyu Huang and Nando Metzger and Rodrigo Caye Daudt and Konrad Schindler},
+  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year={2024}
+}
+```
+
+```bibtex
+@software{openvpi_game,
+  title={GAME: Generative Adaptive MIDI Extractor},
+  author={{OpenVPI}},
+  url={https://github.com/openvpi/GAME}
+}
+```
+
 </details>
 
-# qinglong-captioner (4.2.0)
+# qinglong-captioner (4.3.0)
 
 A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation, audio separation, and cloud / local provider routing.
 
 ## Changelog
+
+### 4.3 - Image2PSD / See-through
+
+1. Added the `see-through` / `image2psd` toolchain:
+   - added the batch CLI `module/see_through/cli.py`
+   - added the PowerShell entrypoint `2.6.image2psd.ps1`
+   - the main flow is `LayerDiff transparent layers -> Marigold depth estimation -> PSD export`
+2. Exposed key `see-through` inference controls end-to-end:
+   - `inference_steps_depth`
+   - `seed`
+   - both the GUI toolbox and the CLI now expose them directly
+3. Expanded the README upstream / citation notes:
+   - added upstream repository notes and cite blocks for `See-through` and `Marigold`
+   - added a repository-level reference entry for `GAME`, which backs the `vocal-midi` path
 
 ### 4.2 - Unified ONNX Runtime And Audio Tools
 
@@ -338,6 +411,11 @@ A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation,
    - Default model: `ACE-Step/acestep-transcriber`
    - Supports `audio/*` inputs
    - Defaults to structured `.txt` transcript output
+10. Added optional local ALM `cohere_transcribe_local`:
+   - Default model: `CohereLabs/cohere-transcribe-03-2026`
+   - Supports `audio/*` inputs
+   - Uses the official `AutoModelForSpeechSeq2Seq + model.transcribe()` inference path
+   - Requires accepting the gated Hugging Face model terms and setting `language` in `config/model.toml`
 
 ### 4.0 - Provider V2 Architecture Refactoring
 
@@ -669,6 +747,11 @@ At the same time, the millisecond-level alignment function has been updated. Aft
 - Produces 6 stems by default, with optional harmony re-splitting
 - Supports `wav`, `flac`, and `mp3` export for vocal / backing-track workflows
 
+### Image2PSD / See-through (`module/see_through/cli.py`)
+- Adapts the upstream `see-through` inference pipeline into a batch-oriented CLI for this repository, exposed as `./2.6.image2psd.ps1`
+- Runs `LayerDiff transparent layers -> Marigold depth estimation -> PSD export`
+- Intended for converting single illustrations or image folders into layered PSD artifacts for further editing
+
 ### Configuration (`config.py`, `config.toml` & `config/onnx.toml`)
 - API prompt configuration management
 - Customizable batch processing parameters
@@ -770,6 +853,7 @@ If you already know the project and want direct scripting, these entry points ar
 ./lanceExport.ps1
 ./2.2.preprocess_images.ps1
 ./2.5.audio_separator.ps1
+./2.6.image2psd.ps1
 ./5.translate.ps1
 ```
 
@@ -779,5 +863,38 @@ Notes:
 - `2.2.preprocess_images.ps1` handles image preprocessing and optional image alignment; `--matcher-backend=auto` prefers `affine_steerers` on CUDA and `xfeat` otherwise, then falls back to ORB
 - `2.5.audio_separator.ps1` runs the ONNX audio separator
 - `2.5.audio_separator.ps1` now installs and reuses the `vocal-midi` profile by default, so no extra manual `--extra vocal-midi` step is needed
+- `2.6.image2psd.ps1` runs the see-through batch CLI and converts image folders into layered PSD outputs; it installs and reuses the `see-through` profile by default
 - `5.translate.ps1` normalizes and translates documents, exporting files such as `*_zh_cn.md`
 - Day-to-day runs install the selected dependency profile incrementally; `uv.lock` is mainly kept for CI / release maintenance
+
+### Upstream Repositories And Citation
+- Upstream repository for `Image2PSD / see-through`: [`shitagaki-lab/see-through`](https://github.com/shitagaki-lab/see-through)
+- [`module/see_through/`](module/see_through/) in this repository is an extracted and workflow-adapted integration for qinglong-captions, not a file-by-file mirror of the upstream codebase
+- Reference project for the `vocal-midi` path: [`openvpi/GAME`](https://github.com/openvpi/GAME)
+- The `GAME` repository does not currently publish an official BibTeX entry in its README, so the entry below is a repository-level software citation; prefer the upstream citation if they publish one later
+
+```bibtex
+@article{lin2026seethrough,
+  title={See-through: Single-image Layer Decomposition for Anime Characters},
+  author={Lin, Jian and Li, Chengze and Qin, Haoyun and Chan, Kwun Wang and Jin, Yanghua and Liu, Hanyuan and Choy, Stephen Chun Wang and Liu, Xueting},
+  journal={arXiv preprint arXiv:2602.03749},
+  year={2026}
+}
+```
+
+```bibtex
+@InProceedings{ke2023repurposing,
+  title={Repurposing Diffusion-Based Image Generators for Monocular Depth Estimation},
+  author={Bingxin Ke and Anton Obukhov and Shengyu Huang and Nando Metzger and Rodrigo Caye Daudt and Konrad Schindler},
+  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year={2024}
+}
+```
+
+```bibtex
+@software{openvpi_game,
+  title={GAME: Generative Adaptive MIDI Extractor},
+  author={{OpenVPI}},
+  url={https://github.com/openvpi/GAME}
+}
+```

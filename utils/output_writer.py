@@ -40,6 +40,7 @@ def caption_output_path(source_path: Path, mime: str, output=None) -> Path:
 def _structured_description(payload: dict) -> str:
     return (
         payload.get("long_description")
+        or payload.get("transcript")
         or payload.get("description")
         or payload.get("short_description")
         or "No description available"

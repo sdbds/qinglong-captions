@@ -200,6 +200,25 @@ merge_pages = ""
 [ark]
 fps = 2
 
+[see_through]
+repo_id_layerdiff = "layerdifforg/seethroughv0.0.2_layerdiff3d"
+repo_id_depth = "24yearsold/seethroughv0.0.1_marigold"
+resolution = 1024
+resolution_depth = 720
+inference_steps_depth = -1
+seed = 42
+dtype = "bfloat16"
+quant_mode = "none"
+group_offload = false
+offload_policy = "delete"
+skip_completed = true
+continue_on_error = true
+save_to_psd = true
+tblr_split = false
+limit_images = 0
+force_eager_attention = false
+output_dir = "workspace/see_through_output"
+
 [moondream]
 model_id = "moondream/moondream3-preview"
 prompt = ""
@@ -294,6 +313,17 @@ do_sample = false
 temperature = 0.0
 top_p = 0.0
 top_k = 0
+
+# Cohere Transcribe ALM configuration
+# Model: https://huggingface.co/CohereLabs/cohere-transcribe-03-2026
+# Requires: accept the gated Hugging Face model terms, then run `uv sync --extra cohere-transcribe-local`
+# The upstream API requires an explicit ISO 639-1 language code and does not do language detection.
+[cohere_transcribe_local]
+model_id = "CohereLabs/cohere-transcribe-03-2026"
+language = "zh"
+punctuation = true
+compile = false
+pipeline_detokenization = false
 
 [kimi_vl]
 thinking = "enabled"  # enabled | disabled

@@ -159,6 +159,47 @@ def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_pat
     assert install_cmd[install_cmd.index("-r") + 1] == "pyproject.toml"
     assert install_cmd[install_cmd.index("--extra") + 1] == "penguin-vl-local"
 
+
+def test_patch_shared_environment_treats_cohere_transcribe_as_torch_profile(tmp_path, monkeypatch):
+    _write_project(tmp_path, with_lock=True, optional_deps={"cohere-transcribe-local": ["torch==2.11.0", "librosa"]})
+    runner = ProcessRunner()
+    commands: list[list[str]] = []
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+    monkeypatch.setattr(runner, "_inspect_installed_torch_backend", lambda python_path, env: "cpu", raising=False)
+
+    result = asyncio.run(
+        runner._patch_shared_environment(
+            "uv",
+            tmp_path,
+            {
+                "UV_EXTRA_INDEX_URL": (
+                    "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/ "
+                    "https://download.pytorch.org/whl/cu130"
+                )
+            },
+            "test-env",
+            ["cohere-transcribe-local"],
+            [],
+        ),
+    )
+
+    assert result is None
+    assert len(commands) == 1
+
+    install_cmd = commands[0]
+    assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
+    assert "--torch-backend" in install_cmd
+    assert install_cmd[install_cmd.index("--torch-backend") + 1] == "cu130"
+    assert install_cmd.count("--reinstall-package") == 1
+    assert install_cmd[install_cmd.index("--reinstall-package") + 1] == "torch"
+    assert install_cmd[install_cmd.index("--extra") + 1] == "cohere-transcribe-local"
+
+
 def test_patch_shared_environment_reads_requirements_directly_from_pyproject(tmp_path, monkeypatch):
     _write_project(
         tmp_path,
@@ -313,6 +354,94 @@ def test_patch_shared_environment_falls_back_to_cpu_when_gpu_opencv_probe_fails(
     assert any("retrying with default CPU package" in line for line in logs)
 
 
+def test_patch_shared_environment_cleans_contrib_opencv_for_see_through(tmp_path, monkeypatch):
+    _write_project(tmp_path, with_lock=False, optional_deps={"see-through": ["opencv-python", "numpy<2"]})
+    runner = ProcessRunner()
+    commands: list[list[str]] = []
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+    monkeypatch.setattr(runner, "_resolve_project_python", lambda work_dir, env: "python", raising=False)
+    monkeypatch.setattr(
+        runner,
+        "_inspect_see_through_cv_stack",
+        lambda python_path, env: {"ok": False, "reasons": ["forced mismatch for restore test"]},
+        raising=False,
+    )
+
+    result = asyncio.run(
+        runner._patch_shared_environment("uv", tmp_path, {}, "test-env", ["see-through"], []),
+    )
+
+    assert result is None
+    assert len(commands) == 3
+
+    install_cmd = commands[0]
+    assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
+    assert install_cmd[install_cmd.index("--python") + 1] == "python"
+    assert install_cmd[install_cmd.index("-r") + 1] == "pyproject.toml"
+    assert install_cmd[install_cmd.index("--extra") + 1] == "see-through"
+
+    cleanup_cmd = commands[1]
+    assert cleanup_cmd[:3] == ["uv", "pip", "uninstall"]
+    assert cleanup_cmd[cleanup_cmd.index("--python") + 1] == "python"
+    assert "opencv-python" in cleanup_cmd
+    assert "opencv-python-headless" in cleanup_cmd
+    assert "opencv-contrib-python" in cleanup_cmd
+    assert "opencv-contrib-python-headless" in cleanup_cmd
+    assert "opencv-contrib-python-rolling" in cleanup_cmd
+
+    restore_cmd = commands[2]
+    assert restore_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
+    assert restore_cmd[restore_cmd.index("--python") + 1] == "python"
+    assert restore_cmd[restore_cmd.index("-r") + 1] == "pyproject.toml"
+    extra_index = restore_cmd.index("--extra")
+    assert restore_cmd[extra_index + 1] == "see-through"
+    reinstall_indices = [i for i, value in enumerate(restore_cmd) if value == "--reinstall-package"]
+    assert [restore_cmd[i + 1] for i in reinstall_indices] == ["numpy", "opencv-python"]
+
+
+def test_patch_shared_environment_skips_see_through_restore_when_stack_matches(tmp_path, monkeypatch):
+    _write_project(tmp_path, with_lock=False, optional_deps={"see-through": ["opencv-python", "numpy<2"]})
+    runner = ProcessRunner()
+    commands: list[list[str]] = []
+    logs: list[str] = []
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+    monkeypatch.setattr(runner, "_resolve_project_python", lambda work_dir, env: "python", raising=False)
+    monkeypatch.setattr(
+        runner,
+        "_inspect_see_through_cv_stack",
+        lambda python_path, env: {
+            "ok": True,
+            "numpy_version": "1.26.4",
+            "opencv_python_version": "4.11.0.86",
+            "cv2_version": "4.11.0.86",
+            "cv2_file": "cv2.pyd",
+        },
+        raising=False,
+    )
+    monkeypatch.setattr(runner, "_notify_log", logs.append, raising=False)
+
+    result = asyncio.run(
+        runner._patch_shared_environment("uv", tmp_path, {}, "test-env", ["see-through"], []),
+    )
+
+    assert result is None
+    assert len(commands) == 1
+    install_cmd = commands[0]
+    assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
+    assert install_cmd[install_cmd.index("--extra") + 1] == "see-through"
+    assert any("see-through OpenCV restore skipped" in line for line in logs)
+
+
 def test_video_split_uses_video_split_extra_by_default(monkeypatch):
     runner = ProcessRunner()
     captured: dict[str, list[str]] = {}
@@ -369,3 +498,32 @@ def test_audio_separator_uses_vocal_midi_extra_by_default(monkeypatch):
     assert result.status.value == "成功"
     assert captured == {"extras": ["vocal-midi"], "groups": []}
     assert commands == [["python", "./module/audio_separator.py", "./datasets"]]
+
+
+def test_see_through_uses_dedicated_uv_extra_by_default(monkeypatch):
+    runner = ProcessRunner()
+    captured: dict[str, list[str]] = {}
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
+    monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
+
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups):
+        captured["extras"] = list(extras)
+        captured["groups"] = list(groups)
+        return None
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_patch_shared_environment", fake_patch)
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+
+    result = asyncio.run(
+        runner.run_python_script("module.see_through.cli", ["--help"], native_console=False),
+    )
+
+    assert result.status.value == "成功"
+    assert captured == {"extras": ["see-through"], "groups": []}
+    assert commands == [["python", "./module/see_through/cli.py", "--help"]]

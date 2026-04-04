@@ -66,6 +66,11 @@ class TestCaptionResult:
         r = CaptionResult(raw="raw", parsed={"description": "desc"})
         assert r.description == "desc"
 
+    def test_structured_transcript_fallback(self):
+        from providers.base import CaptionResult
+        r = CaptionResult(raw="raw", parsed={"task_kind": "transcribe", "transcript": "verbatim"})
+        assert r.description == "verbatim"
+
     def test_structured_short_description_fallback(self):
         from providers.base import CaptionResult
         r = CaptionResult(raw="raw", parsed={"short_description": "short"})
@@ -81,6 +86,38 @@ class TestCaptionResult:
         r = CaptionResult(raw="")
         assert r.description == ""
         assert not r.is_structured
+
+    def test_local_alm_provider_can_skip_prompt_resolution_via_task_contract(self, monkeypatch, tmp_path):
+        from providers.base import CaptionResult, ProviderContext
+        from providers.local_alm_base import ALMTaskContract, LocalALMProvider
+
+        audio_path = tmp_path / "sample.wav"
+        audio_path.write_bytes(b"fake")
+
+        class FakeNoPromptALM(LocalALMProvider):
+            name = "fake_no_prompt_alm"
+            task_contract = ALMTaskContract(task_kind="transcribe", consumes_prompts=False)
+
+            @classmethod
+            def can_handle(cls, args, mime):
+                return True
+
+            def _load_model(self):
+                return {}
+
+            def attempt(self, media, prompts):
+                assert prompts.system == ""
+                assert prompts.user == ""
+                return CaptionResult(raw="ok")
+
+        ctx = ProviderContext(console=MagicMock(), config={}, args=SimpleNamespace(wait_time=1, max_retries=1))
+        provider = FakeNoPromptALM(ctx)
+
+        monkeypatch.setattr(provider, "resolve_prompts", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should skip prompts")))
+
+        result = provider.execute(str(audio_path), "audio/wav", "hash")
+
+        assert result.raw == "ok"
 
     def test_metadata(self):
         from providers.base import CaptionResult
@@ -768,6 +805,57 @@ class TestKimiStructuredDisplay:
         assert json.loads(returned) == {"long_description": "long text"}
         assert mock_display.call_args.kwargs["short_description"] == "short text"
         assert mock_display.call_args.kwargs["long_description"] == "long text"
+
+
+class TestKimiFolderNameLogging:
+
+    @pytest.mark.parametrize(
+        ("provider_name", "provider_args"),
+        [
+            ("kimi_code", {"kimi_code_api_key": "test-key"}),
+            ("kimi_vl", {"kimi_api_key": "test-key"}),
+        ],
+    )
+    def test_kimi_logs_folder_input_name_when_dir_name_enabled(self, tmp_path, provider_name, provider_args):
+        from providers.base import CaptionResult, MediaContext, MediaModality, ProviderContext
+        from providers.registry import get_registry
+        from rich.console import Console
+
+        folder = tmp_path / "Alice (Wonderland)"
+        image_path = folder / "sample.jpg"
+        log_output = io.StringIO()
+        ctx = ProviderContext(
+            console=Console(file=log_output, force_terminal=False, color_system=None),
+            config={"prompts": {}},
+            args=SimpleNamespace(
+                dir_name=True,
+                pair_dir="",
+                max_retries=1,
+                wait_time=0.01,
+                **provider_args,
+            ),
+        )
+        provider_cls = get_registry().get_provider(provider_name)
+        provider = provider_cls(ctx)
+        media = MediaContext(
+            uri=str(image_path),
+            mime="image/jpeg",
+            sha256hash="",
+            modality=MediaModality.IMAGE,
+            blob="base64data",
+        )
+
+        with (
+            patch.object(provider, "prepare_media", return_value=media),
+            patch.object(provider, "attempt", return_value=CaptionResult(raw="ok")),
+        ):
+            result = provider.execute(str(image_path), "image/jpeg", "hash")
+
+        assert result.raw == "ok"
+        rendered_log = log_output.getvalue()
+        assert "Kimi 文件夹输入名确认" in rendered_log
+        assert "Alice (Wonderland)" in rendered_log
+        assert "<Alice> from (Wonderland)" in rendered_log
 
 
 class TestAPIRetryConfig:

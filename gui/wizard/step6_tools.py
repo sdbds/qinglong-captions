@@ -3,13 +3,21 @@
 from pathlib import Path
 from typing import Any, Dict
 
-from components.advanced_inputs import editable_slider, styled_select, toggle_switch
+from components.advanced_inputs import editable_slider, styled_input, styled_select, toggle_switch
 from components.execution_panel import ExecutionPanel
 from components.path_selector import create_path_selector
 from nicegui import ui
 from theme import COLORS, get_classes
 
 from gui.utils.i18n import t
+from module.gpu_profile import format_gpu_summary, get_cached_gpu_probe
+from module.see_through.see_through_profile import (
+    DEFAULT_DEPTH_INFERENCE_STEPS,
+    DEFAULT_SEED,
+    SEE_THROUGH_REPO_MAP,
+    recommend_see_through_config,
+    resolve_see_through_repo_ids,
+)
 from module.vocal_midi import (
     DEFAULT_GAME_MODEL_REPO_ID,
     DEFAULT_VOCAL_MIDI_BATCH_SIZE,
@@ -25,6 +33,39 @@ from module.vocal_midi import (
 
 class ToolsStep:
     """工具页面"""
+
+    SEE_THROUGH_LAYERDIFF_DEFAULT = SEE_THROUGH_REPO_MAP["none"]["layerdiff"]
+    SEE_THROUGH_LAYERDIFF_NF4 = SEE_THROUGH_REPO_MAP["nf4"]["layerdiff"]
+    SEE_THROUGH_DEPTH_DEFAULT = SEE_THROUGH_REPO_MAP["none"]["depth"]
+    SEE_THROUGH_DEPTH_NF4 = SEE_THROUGH_REPO_MAP["nf4"]["depth"]
+    SEE_THROUGH_LAYERDIFF_REPOS = {
+        SEE_THROUGH_LAYERDIFF_DEFAULT: SEE_THROUGH_LAYERDIFF_DEFAULT,
+        SEE_THROUGH_LAYERDIFF_NF4: SEE_THROUGH_LAYERDIFF_NF4,
+    }
+    SEE_THROUGH_DEPTH_REPOS = {
+        SEE_THROUGH_DEPTH_DEFAULT: SEE_THROUGH_DEPTH_DEFAULT,
+        SEE_THROUGH_DEPTH_NF4: SEE_THROUGH_DEPTH_NF4,
+    }
+    SEE_THROUGH_DTYPES = {
+        "bfloat16": "BF16",
+        "float16": "FP16",
+        "float32": "FP32",
+    }
+    SEE_THROUGH_QUANT_MODES = {
+        "none": "Standard",
+        "nf4": "NF4 (4-bit)",
+    }
+    SEE_THROUGH_DEPTH_RESOLUTIONS = {
+        "720": "720 px",
+        "768": "768 px",
+        "1024": "1024 px",
+        "1280": "1280 px",
+        "-1": "Match layerdiff",
+    }
+    SEE_THROUGH_OFFLOAD_POLICIES = {
+        "delete": "Delete",
+        "cpu": "CPU",
+    }
 
     # 水印检测模型
     WATERMARK_MODELS = [
@@ -83,6 +124,8 @@ class ToolsStep:
     }
 
     def __init__(self):
+        self.gpu_probe = get_cached_gpu_probe()
+        self.see_through_recommendation = recommend_see_through_config(self.gpu_probe)
         self.config: Dict[str, Any] = {
             "watermark_batch_size": 12,
             "watermark_thresh": 1.0,
@@ -111,9 +154,37 @@ class ToolsStep:
             "translate_normalize_only": False,
             "translate_no_export": False,
             "translate_force_reimport": False,
+            "see_through_resolution": self.see_through_recommendation.resolution,
+            "see_through_resolution_depth": self.see_through_recommendation.resolution_depth,
+            "see_through_inference_steps_depth": DEFAULT_DEPTH_INFERENCE_STEPS,
+            "see_through_seed": DEFAULT_SEED,
+            "see_through_dtype": self.see_through_recommendation.dtype,
+            "see_through_quant_mode": self.see_through_recommendation.quant_mode,
+            "see_through_group_offload": self.see_through_recommendation.group_offload,
+            "see_through_offload_policy": self.see_through_recommendation.offload_policy,
+            "see_through_limit_images": 0,
+            "see_through_skip_completed": True,
+            "see_through_continue_on_error": True,
+            "see_through_save_to_psd": True,
+            "see_through_tblr_split": False,
+            "see_through_force_eager_attention": False,
         }
         self.panel: ExecutionPanel = None
         self._tool_start_buttons = []
+
+    def _on_see_through_quant_mode_change(self, quant_mode: str) -> None:
+        self.config["see_through_quant_mode"] = quant_mode
+        resolved_repos = resolve_see_through_repo_ids(quant_mode=quant_mode)
+        if hasattr(self, "see_through_repo_id_layerdiff"):
+            self.see_through_repo_id_layerdiff.value = resolved_repos.repo_id_layerdiff
+        if hasattr(self, "see_through_repo_id_depth"):
+            self.see_through_repo_id_depth.value = resolved_repos.repo_id_depth
+
+    def _on_see_through_seed_change(self, value: str) -> None:
+        try:
+            self.config["see_through_seed"] = int(value)
+        except (TypeError, ValueError):
+            return
 
     def render(self):
         """渲染页面"""
@@ -132,6 +203,7 @@ class ToolsStep:
                 reward_tab = ui.tab(t("reward_model"), icon="stars")
                 audio_separator_tab = ui.tab(t("audio_separator"), icon="graphic_eq")
                 translate_tab = ui.tab(t("translate"), icon="translate")
+                see_through_tab = ui.tab(t("see_through"), icon="layers")
 
             with ui.tab_panels(tabs, value=watermark_tab).classes("w-full"):
                 # 水印检测
@@ -153,6 +225,10 @@ class ToolsStep:
                 # 文本翻译
                 with ui.tab_panel(translate_tab):
                     self._render_translate_tool()
+
+                # See-through
+                with ui.tab_panel(see_through_tab):
+                    self._render_see_through_tool()
 
             # 共享执行面板（show_start=False：每个 tab 有自己的 Start 按钮）
             self.panel = ExecutionPanel(show_start=False)
@@ -644,9 +720,212 @@ class ToolsStep:
                 start_btn.classes("modern-btn-success").props('type="button"')
                 self._remember_tool_start_button(start_btn)
 
+    def _render_see_through_tool(self):
+        """渲染 see-through 工具"""
+        with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
+            with ui.row().classes("w-full items-center gap-2 q-mb-md"):
+                ui.icon("layers", size="22px").style(f"color: {COLORS['secondary']};")
+                ui.label(t("see_through")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
+
+            ui.label(t("see_through_desc")).classes("text-body2 q-mb-md").style("color: var(--color-text-secondary);")
+
+            self.see_through_input = create_path_selector(
+                label=t("input_path"),
+                selection_type="dir",
+                placeholder=t("input_path_placeholder"),
+            )
+            self.see_through_output = create_path_selector(
+                label=t("output_dir"),
+                selection_type="dir",
+                placeholder=t("path_placeholder"),
+            )
+
+            with ui.row().classes("w-full items-center gap-2 q-mt-sm q-mb-sm"):
+                ui.icon("memory", size="18px").style(f"color: {COLORS['info']};")
+                summary = (
+                    f"{t('gpu')}: {format_gpu_summary(self.gpu_probe)} | "
+                    f"{t('recommended_profile')}: {self.see_through_recommendation.tier_label} -> "
+                    f"{self.see_through_recommendation.resolution}px / "
+                    f"depth {self.see_through_recommendation.resolution_depth}px / "
+                    f"{self.SEE_THROUGH_QUANT_MODES.get(self.see_through_recommendation.quant_mode, self.see_through_recommendation.quant_mode)} / "
+                    f"{t('group_offload')}={'on' if self.see_through_recommendation.group_offload else 'off'} / "
+                    f"{self.SEE_THROUGH_DTYPES.get(self.see_through_recommendation.dtype, self.see_through_recommendation.dtype)}"
+                )
+                ui.label(summary).classes("text-caption").style("color: var(--color-text-secondary);")
+
+            if self.see_through_recommendation.note:
+                ui.label(self.see_through_recommendation.note).classes("text-caption").style(
+                    f"color: {COLORS['warning']};"
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                self.see_through_repo_id_layerdiff = styled_select(
+                    options=self.SEE_THROUGH_LAYERDIFF_REPOS,
+                    value=self.see_through_recommendation.repo_id_layerdiff,
+                    label=t("repo_id_layerdiff"),
+                    icon="layers",
+                    icon_color=COLORS["secondary"],
+                    new_value_mode="add-unique",
+                    flex=1,
+                )
+                self.see_through_repo_id_depth = styled_select(
+                    options=self.SEE_THROUGH_DEPTH_REPOS,
+                    value=self.see_through_recommendation.repo_id_depth,
+                    label=t("repo_id_depth"),
+                    icon="blur_on",
+                    icon_color=COLORS["info"],
+                    new_value_mode="add-unique",
+                    flex=1,
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                editable_slider(
+                    label_key="resolution",
+                    value_ref=self.config,
+                    value_key="see_through_resolution",
+                    min_val=768,
+                    max_val=1280,
+                    step=64,
+                    decimals=0,
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                self.see_through_resolution_depth = styled_select(
+                    options=self.SEE_THROUGH_DEPTH_RESOLUTIONS,
+                    value=str(self.config["see_through_resolution_depth"]),
+                    label=t("resolution_depth"),
+                    icon="straighten",
+                    icon_color=COLORS["info"],
+                    new_value_mode="add-unique",
+                    flex=1,
+                )
+                self.see_through_quant_mode = styled_select(
+                    options=self.SEE_THROUGH_QUANT_MODES,
+                    value=self.config["see_through_quant_mode"],
+                    label=t("quant_mode"),
+                    icon="tune",
+                    icon_color=COLORS["secondary"],
+                    on_change=self._on_see_through_quant_mode_change,
+                    flex=1,
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                editable_slider(
+                    label_key="inference_steps_depth",
+                    label_default="Depth Steps",
+                    value_ref=self.config,
+                    value_key="see_through_inference_steps_depth",
+                    min_val=-1,
+                    max_val=20,
+                    step=1,
+                    decimals=0,
+                )
+                self.see_through_seed = styled_input(
+                    value=str(self.config["see_through_seed"]),
+                    label=t("seed", "Seed"),
+                    icon="casino",
+                    icon_color=COLORS["warning"],
+                    on_change=self._on_see_through_seed_change,
+                    flex=1,
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                self.see_through_dtype = styled_select(
+                    options=self.SEE_THROUGH_DTYPES,
+                    value=self.config["see_through_dtype"],
+                    label=t("dtype"),
+                    icon="data_object",
+                    icon_color=COLORS["primary"],
+                    flex=1,
+                )
+                self.see_through_offload_policy = styled_select(
+                    options=self.SEE_THROUGH_OFFLOAD_POLICIES,
+                    value=self.config["see_through_offload_policy"],
+                    label=t("offload_policy"),
+                    icon="memory",
+                    icon_color=COLORS["primary"],
+                    flex=1,
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                toggle_switch("group_offload", self.config, "see_through_group_offload")
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                toggle_switch("skip_completed", self.config, "see_through_skip_completed")
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                toggle_switch("save_to_psd", self.config, "see_through_save_to_psd")
+                toggle_switch("tblr_split", self.config, "see_through_tblr_split")
+
+            with ui.row().classes("w-full justify-end q-mt-md"):
+                start_btn = ui.button(t("start_see_through"), on_click=self._start_see_through, icon="play_arrow")
+                start_btn.classes("modern-btn-success").props('type="button"')
+                self._remember_tool_start_button(start_btn)
+
     def _on_audio_separator_vocal_midi_toggle(self, enabled: bool) -> None:
         if hasattr(self, "_audio_separator_vocal_midi_container"):
             self._audio_separator_vocal_midi_container.set_visibility(enabled)
+
+    async def _start_see_through(self):
+        """开始 see-through 批处理"""
+        input_path = self.see_through_input.value
+        output_path = self.see_through_output.value
+        resolution_depth_value = getattr(
+            getattr(self, "see_through_resolution_depth", None),
+            "value",
+            str(self.config["see_through_resolution_depth"]),
+        )
+        quant_mode_value = getattr(
+            getattr(self, "see_through_quant_mode", None),
+            "value",
+            self.config["see_through_quant_mode"],
+        )
+        dtype_value = getattr(getattr(self, "see_through_dtype", None), "value", self.config["see_through_dtype"])
+        seed_value = getattr(getattr(self, "see_through_seed", None), "value", str(self.config["see_through_seed"]))
+        offload_policy_value = getattr(
+            getattr(self, "see_through_offload_policy", None),
+            "value",
+            self.config["see_through_offload_policy"],
+        )
+        if not input_path or not Path(input_path).exists():
+            ui.notify(t("select_valid_input"), type="warning")
+            return
+        if not output_path:
+            output_path = input_path
+
+        args = [
+            f"--input_dir={input_path}",
+            f"--output_dir={output_path}",
+            f"--repo_id_layerdiff={self.see_through_repo_id_layerdiff.value}",
+            f"--repo_id_depth={self.see_through_repo_id_depth.value}",
+            f"--resolution={int(self.config['see_through_resolution'])}",
+            f"--resolution_depth={int(resolution_depth_value)}",
+            f"--inference_steps_depth={int(self.config['see_through_inference_steps_depth'])}",
+            f"--seed={int(seed_value)}",
+            f"--dtype={dtype_value}",
+            f"--quant_mode={quant_mode_value}",
+            f"--offload_policy={offload_policy_value}",
+        ]
+
+        args.append("--group_offload" if self.config["see_through_group_offload"] else "--no-group_offload")
+        args.append("--skip_completed" if self.config["see_through_skip_completed"] else "--no-skip_completed")
+        args.append("--save_to_psd" if self.config["see_through_save_to_psd"] else "--no-save_to_psd")
+        args.append("--tblr_split" if self.config["see_through_tblr_split"] else "--no-tblr_split")
+
+        def pre_log(lv):
+            lv.info(t("log_start_see_through"))
+            lv.info(f"{t('log_input_path')}: {input_path}")
+            lv.info(f"{t('log_output_dir')}: {output_path}")
+            lv.info(f"{t('log_params')}: {args}")
+
+        await self.panel.run_job(
+            "module.see_through.cli",
+            args,
+            name="See-through",
+            pre_log=pre_log,
+            on_success=lambda r: ui.notify(t("see_through_success"), type="positive"),
+            on_failure=lambda r: ui.notify(t("see_through_failed"), type="negative"),
+        )
 
     async def _start_translate(self):
         """开始文本翻译"""

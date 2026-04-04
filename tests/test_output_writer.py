@@ -63,3 +63,20 @@ def test_write_caption_output_honors_structured_caption_extension_for_audio(tmp_
     assert text_path.suffix == ".txt"
     assert text_path.read_text(encoding="utf-8") == "Warm synth-pop summary"
     assert json.loads(json_path.read_text(encoding="utf-8"))["caption_extension"] == "txt"
+
+
+def test_write_caption_output_prefers_transcript_field_for_structured_audio(tmp_path):
+    from utils.output_writer import write_caption_output
+
+    source = tmp_path / "speech.wav"
+    source.write_bytes(b"audio")
+
+    text_path, json_path = write_caption_output(
+        source,
+        {"task_kind": "transcribe", "transcript": "hello transcript", "caption_extension": ".txt"},
+        mime="audio/wav",
+    )
+
+    assert text_path.suffix == ".txt"
+    assert text_path.read_text(encoding="utf-8") == "hello transcript"
+    assert json.loads(json_path.read_text(encoding="utf-8"))["transcript"] == "hello transcript"

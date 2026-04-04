@@ -9,16 +9,9 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import torch
 from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    DownloadColumn,
-    Progress,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-    TransferSpeedColumn,
-)
+from rich.progress import Progress
+
+from utils.rich_progress import create_download_progress, resolve_rich_console
 
 if TYPE_CHECKING:
     from transformers import AutoModel, AutoProcessor
@@ -38,12 +31,7 @@ def _default_auto_processor():
 
 @lru_cache(maxsize=1)
 def _default_console() -> Console:
-    try:
-        from utils.console_util import console as shared_console
-
-        return shared_console
-    except Exception:
-        return Console(color_system="truecolor", force_terminal=True)
+    return resolve_rich_console()
 
 
 def _resolve_console(console: Optional[Any]) -> Console:
@@ -113,16 +101,10 @@ def hf_download_reporting(console: Optional[Any] = None):
         enable_progress_bars()
         if _HF_PROGRESS_PATCH_DEPTH == 0:
             _HF_PROGRESS_PATCH_ORIGINAL = file_download._get_progress_bar_context
-            _HF_PROGRESS_PATCH_PROGRESS = Progress(
-                TextColumn("{task.description}", justify="right"),
-                BarColumn(bar_width=28),
-                TaskProgressColumn(),
-                DownloadColumn(binary_units=True),
-                TransferSpeedColumn(),
-                TimeElapsedColumn(),
-                TimeRemainingColumn(),
-                console=resolved_console,
-                transient=True,
+            _HF_PROGRESS_PATCH_PROGRESS = create_download_progress(
+                resolved_console,
+                transient=False,
+                expand=True,
             )
             _HF_PROGRESS_PATCH_PROGRESS.start()
 

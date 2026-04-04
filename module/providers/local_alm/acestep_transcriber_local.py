@@ -9,7 +9,7 @@ from typing import Any
 
 from module.caption_pipeline.postprocess import strip_reasoning_sections
 from module.providers.base import CaptionResult, MediaContext, PromptContext
-from module.providers.local_alm_base import LocalALMProvider
+from module.providers.local_alm_base import ALMTaskContract, LocalALMProvider
 from module.providers.registry import register_provider
 from utils.parse_display import extract_code_block_content
 
@@ -17,6 +17,12 @@ from utils.parse_display import extract_code_block_content
 @register_provider("acestep_transcriber_local")
 class AceStepTranscriberLocalProvider(LocalALMProvider):
     default_model_id = "ACE-Step/acestep-transcriber"
+    task_contract = ALMTaskContract(
+        task_kind="transcribe",
+        consumes_prompts=True,
+        requires_language=False,
+        default_caption_extension=".txt",
+    )
     generate_config_keys = ("max_new_tokens", "do_sample", "temperature", "top_p", "top_k")
     default_generate_kwargs = {
         "max_new_tokens": 1024,
@@ -226,8 +232,9 @@ class AceStepTranscriberLocalProvider(LocalALMProvider):
             if not result.raw:
                 raise ValueError("EMPTY_TRANSCRIPT_OUTPUT")
             result.parsed = {
-                "description": result.raw,
-                "caption_extension": ".txt",
+                "task_kind": self.task_contract.task_kind,
+                "transcript": result.raw,
+                "caption_extension": self.task_contract.default_caption_extension,
                 "provider": self.name,
             }
         except Exception as exc:

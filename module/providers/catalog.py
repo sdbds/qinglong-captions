@@ -82,6 +82,10 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
         config_sections=("acestep_transcriber_local",),
         prompt_prefixes=("acestep_transcriber",),
     ),
+    "cohere_transcribe_local": ProviderSpec(
+        canonical_name="cohere_transcribe_local",
+        config_sections=("cohere_transcribe_local",),
+    ),
 }
 
 ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
@@ -113,6 +117,7 @@ ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
         RouteSpec("music_flamingo_local", "music_flamingo_local"),
         RouteSpec("eureka_audio_local", "eureka_audio_local"),
         RouteSpec("acestep_transcriber_local", "acestep_transcriber_local"),
+        RouteSpec("cohere_transcribe_local", "cohere_transcribe_local"),
     ),
 }
 
@@ -211,7 +216,7 @@ def get_first_attr(obj: Any, *names: str, default: Any = "") -> Any:
     return default
 
 
-def _resolve_effective_segment_time(args: Any) -> int:
+def _resolve_effective_segment_time(args: Any) -> int | None:
     raw_segment_time = getattr(args, "segment_time", None)
     explicit = raw_segment_time not in (None, "")
     setattr(args, "segment_time_explicit", explicit)
@@ -220,6 +225,8 @@ def _resolve_effective_segment_time(args: Any) -> int:
         effective = int(raw_segment_time)
     elif getattr(args, "alm_model", "") == "music_flamingo_local":
         effective = 1200
+    elif getattr(args, "alm_model", "") == "cohere_transcribe_local":
+        effective = None
     else:
         effective = 600
 

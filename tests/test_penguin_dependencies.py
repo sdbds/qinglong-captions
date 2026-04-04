@@ -153,6 +153,20 @@ def test_pyproject_declares_acestep_transcriber_local_extra():
     assert any(dep.startswith("flash-attn") for dep in acestep_transcriber_deps)
 
 
+def test_pyproject_declares_cohere_transcribe_local_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "cohere-transcribe-local" in optional_deps
+    cohere_transcribe_deps = optional_deps["cohere-transcribe-local"]
+    assert "qinglong-captions[torch-base]" in cohere_transcribe_deps
+    assert any(dep.startswith("transformers[serving]>=4.56,<5.3") for dep in cohere_transcribe_deps)
+    assert "soundfile" in cohere_transcribe_deps
+    assert "librosa" in cohere_transcribe_deps
+    assert "sentencepiece" in cohere_transcribe_deps
+    assert "protobuf" in cohere_transcribe_deps
+
+
 def test_pyproject_declares_vocal_midi_extra():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     optional_deps = pyproject["project"]["optional-dependencies"]
@@ -260,6 +274,17 @@ def test_caption_step_includes_acestep_transcriber_extra():
     assert step._build_local_extra_args() == ["--extra", "acestep-transcriber-local"]
 
 
+def test_caption_step_includes_cohere_transcribe_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_cohere_transcribe")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="cohere_transcribe_local")
+
+    assert step._build_local_extra_args() == ["--extra", "cohere-transcribe-local"]
+
+
 def test_caption_step_treats_music_flamingo_as_local_route():
     CaptionStep = _load_caption_step("test_step4_caption_local_route")
 
@@ -293,6 +318,17 @@ def test_caption_step_treats_acestep_transcriber_as_local_route():
     assert step._has_local_route_config() is True
 
 
+def test_caption_step_treats_cohere_transcribe_as_local_route():
+    CaptionStep = _load_caption_step("test_step4_caption_local_route_cohere")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="cohere_transcribe_local")
+
+    assert step._has_local_route_config() is True
+
+
 def test_caption_step_builds_alm_args_without_default_segment_override():
     CaptionStep = _load_caption_step("test_step4_caption_build_args")
 
@@ -309,6 +345,98 @@ def test_caption_step_builds_alm_args_without_default_segment_override():
 
     assert "--alm_model=music_flamingo_local" in args
     assert not any(arg.startswith("--segment_time=") for arg in args)
+
+
+def test_caption_step_builds_alm_language_arg_for_transcribe_models():
+    CaptionStep = _load_caption_step("test_step4_caption_alm_language")
+
+    step = CaptionStep()
+    step.api_keys = {}
+    step.mode = SimpleNamespace(value="all")
+    step.pair_dir = SimpleNamespace(value="")
+    step.scene_detector = SimpleNamespace(value="AdaptiveDetector")
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="cohere_transcribe_local")
+    step.alm_language = SimpleNamespace(value="ja")
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--alm_model=cohere_transcribe_local" in args
+    assert "--alm_language=ja" in args
+
+
+def test_caption_step_lists_supported_cohere_transcription_languages():
+    CaptionStep = _load_caption_step("test_step4_caption_alm_language_options")
+
+    step = CaptionStep()
+    step.alm_model = SimpleNamespace(value="cohere_transcribe_local")
+
+    options = step._alm_language_options()
+
+    assert len(options) == 14
+    assert options["en"] == "English (en)"
+    assert options["zh"] == "Chinese (zh)"
+    assert options["ja"] == "Japanese (ja)"
+    assert options["ko"] == "Korean (ko)"
+
+
+def test_caption_step_uses_selected_alm_model_value_when_refreshing_dependent_controls():
+    CaptionStep = _load_caption_step("test_step4_caption_alm_model_change")
+
+    class FakeSelect:
+        def __init__(self):
+            self.value = None
+            self.options = {}
+
+        def set_options(self, options, *, value=None):
+            self.options = dict(options)
+            self.value = value
+
+    class FakeSlider:
+        def __init__(self):
+            self.value = None
+
+        def set_value(self, value):
+            self.value = value
+
+    step = CaptionStep()
+    step.config["segment_time_explicit"] = False
+    step.alm_model = SimpleNamespace(value="")
+    step.alm_language = FakeSelect()
+    step.segment_time_slider = FakeSlider()
+
+    step._handle_alm_model_change("cohere_transcribe_local")
+
+    assert len(step.alm_language.options) == 14
+    assert step.alm_language.options["ja"] == "Japanese (ja)"
+    assert step.config["segment_time"] == 600
+    assert step.segment_time_slider.value == 600
+
+    step._handle_alm_model_change("music_flamingo_local")
+
+    assert step.alm_language.options == {}
+    assert step.config["segment_time"] == 1200
+    assert step.segment_time_slider.value == 1200
+
+
+def test_caption_step_ignores_alm_language_for_caption_models():
+    CaptionStep = _load_caption_step("test_step4_caption_alm_language_ignored")
+
+    step = CaptionStep()
+    step.api_keys = {}
+    step.mode = SimpleNamespace(value="all")
+    step.pair_dir = SimpleNamespace(value="")
+    step.scene_detector = SimpleNamespace(value="AdaptiveDetector")
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="music_flamingo_local")
+    step.alm_language = SimpleNamespace(value="ja")
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--alm_model=music_flamingo_local" in args
+    assert "--alm_language=ja" not in args
 
 
 def test_caption_step_builds_explicit_segment_time_override():
@@ -409,6 +537,20 @@ def test_run_ps1_mentions_acestep_transcriber_extra():
 
     assert '"acestep_transcriber_local"' in content
     assert 'Add-UvExtra "acestep-transcriber-local"' in content
+
+
+def test_run_ps1_mentions_cohere_transcribe_extra():
+    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+
+    assert '"cohere_transcribe_local"' in content
+    assert 'Add-UvExtra "cohere-transcribe-local"' in content
+
+
+def test_run_ps1_mentions_alm_language_passthrough():
+    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+
+    assert "alm_language" in content
+    assert "--alm_language=$alm_language" in content
 
 
 def test_run_ps1_does_not_lock_or_export_at_runtime():

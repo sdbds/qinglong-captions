@@ -118,6 +118,7 @@ class CaptionResult:
         if self.parsed:
             return (
                 self.parsed.get("long_description")
+                or self.parsed.get("transcript")
                 or self.parsed.get("description")
                 or self.parsed.get("short_description")
                 or self.raw
@@ -268,7 +269,11 @@ class Provider(ABC):
             media = replace(media, sha256hash=sha256hash)
 
         # 获取 prompts
-        prompts = self.resolve_prompts(uri, mime)
+        task_contract = getattr(self, "task_contract", None)
+        if task_contract is not None and getattr(task_contract, "consumes_prompts", True) is False:
+            prompts = PromptContext(system="", user="")
+        else:
+            prompts = self.resolve_prompts(uri, mime)
 
         # 执行（带重试）
         retry_cfg = self.get_retry_config()

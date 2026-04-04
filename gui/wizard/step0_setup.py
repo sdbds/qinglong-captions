@@ -8,6 +8,7 @@ import subprocess
 from typing import Optional
 from theme import get_classes, COLORS
 from gui.utils.i18n import t
+from module.gpu_profile import format_gpu_summary, get_cached_gpu_probe
 
 
 class SetupStep:
@@ -16,6 +17,7 @@ class SetupStep:
     def __init__(self, on_complete: Optional[callable] = None):
         self.on_complete = on_complete
         self.check_results = {}
+        self.gpu_probe = get_cached_gpu_probe()
 
     def render(self):
         """渲染页面"""
@@ -47,6 +49,14 @@ class SetupStep:
                     with ui.column().classes("gap-1"):
                         ui.label(t("working_dir")).classes("text-caption").style("color: var(--color-text-secondary);")
                         ui.label(f"{Path.cwd().absolute()}").classes("text-body2").style("color: var(--color-text);")
+
+                    with ui.column().classes("gap-1"):
+                        ui.label(t("gpu")).classes("text-caption").style("color: var(--color-text-secondary);")
+                        ui.label(format_gpu_summary(self.gpu_probe)).classes("text-body2").style("color: var(--color-text);")
+
+                    with ui.column().classes("gap-1"):
+                        ui.label(t("vram_tier")).classes("text-caption").style("color: var(--color-text-secondary);")
+                        ui.label(self.gpu_probe.tier_label).classes("text-body2").style("color: var(--color-text);")
 
             # 环境检查列表
             with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
@@ -145,8 +155,7 @@ class SetupStep:
             # 检查 CUDA
             if torch.cuda.is_available():
                 cuda_version = torch.version.cuda
-                gpu_name = torch.cuda.get_device_name(0)
-                self.cuda_label.text = f"✅ {cuda_version} ({gpu_name})"
+                self.cuda_label.text = f"✅ {cuda_version} ({format_gpu_summary(self.gpu_probe)})"
                 self.cuda_label.style(f"color: {COLORS['success']};")
                 self.check_results["cuda"] = True
             else:

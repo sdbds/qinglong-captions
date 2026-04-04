@@ -85,6 +85,7 @@ _PROVIDER_MODULES: Dict[str, str] = {
     "music_flamingo_local": "module.providers.local_alm.music_flamingo_local",
     "eureka_audio_local": "module.providers.local_alm.eureka_audio_local",
     "acestep_transcriber_local": "module.providers.local_alm.acestep_transcriber_local",
+    "cohere_transcribe_local": "module.providers.local_alm.cohere_transcribe_local",
     "mistral_ocr": "module.providers.vision_api.pixtral",
     "gemini": "module.providers.vision_api.gemini",
 }
@@ -157,6 +158,7 @@ class ProviderRegistry:
                 "music_flamingo_local",
                 "eureka_audio_local",
                 "acestep_transcriber_local",
+                "cohere_transcribe_local",
                 # Vision API
                 "mistral_ocr",
                 "gemini",

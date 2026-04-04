@@ -19,6 +19,14 @@ def test_captioner_parser_leaves_segment_time_unset_by_default():
     assert args.segment_time is None
 
 
+def test_captioner_parser_leaves_alm_language_unset_by_default():
+    from module.captioner import setup_parser
+
+    args = setup_parser().parse_args(["datasets"])
+
+    assert args.alm_language is None
+
+
 def test_captioner_parser_rejects_legacy_config_flag():
     from module.captioner import setup_parser
 
@@ -92,6 +100,23 @@ def test_acestep_transcriber_keeps_generic_default_segment_time():
     assert args.segment_time_explicit is False
     assert args.effective_segment_time == 600
     assert args.segment_time == 600
+
+
+def test_cohere_transcribe_keeps_generic_default_segment_time():
+    from providers.catalog import normalize_runtime_args
+
+    args = SimpleNamespace(
+        segment_time=None,
+        alm_model="cohere_transcribe_local",
+        ocr_model="",
+        vlm_image_model="",
+    )
+
+    normalize_runtime_args(args)
+
+    assert args.segment_time_explicit is False
+    assert args.effective_segment_time is None
+    assert args.segment_time is None
 
 
 def test_explicit_segment_time_overrides_music_flamingo_default():

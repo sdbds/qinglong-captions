@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from rich.console import Console
 
 try:
@@ -100,10 +101,18 @@ Walking down the empty street tonight
 
     assert result.raw == "# Languages\nen\n\n# Lyrics\n[Verse 1]\nWalking down the empty street tonight"
     assert result.parsed == {
-        "description": "# Languages\nen\n\n# Lyrics\n[Verse 1]\nWalking down the empty street tonight",
+        "task_kind": "transcribe",
+        "transcript": "# Languages\nen\n\n# Lyrics\n[Verse 1]\nWalking down the empty street tonight",
         "caption_extension": ".txt",
         "provider": "acestep_transcriber_local",
     }
+
+
+def test_acestep_transcriber_declares_transcribe_task_contract():
+    from providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
+
+    assert AceStepTranscriberLocalProvider.task_contract.task_kind == "transcribe"
+    assert AceStepTranscriberLocalProvider.task_contract.consumes_prompts is True
 
 
 def test_acestep_transcriber_attempt_builds_audio_conversation_and_decodes_new_tokens(monkeypatch, tmp_path):

@@ -331,6 +331,12 @@ def setup_parser() -> argparse.ArgumentParser:
         default="",
         help="Audio language model to use for local audio captioning (default: empty)",
     )
+    parser.add_argument(
+        "--alm_language",
+        type=str,
+        default=None,
+        help="Language code hint for ALM transcription tasks (for example: zh, en, ja)",
+    )
 
     parser.add_argument(
         "--document_image",

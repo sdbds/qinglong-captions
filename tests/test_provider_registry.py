@@ -53,6 +53,7 @@ class TestProviderRegistry:
             "penguin_vl_local",
             "reka_edge_local",
             "acestep_transcriber_local",
+            "cohere_transcribe_local",
             "mistral_ocr",
             "gemini",
         ]
@@ -213,6 +214,47 @@ class TestProviderRegistry:
 
             assert provider is FakeProvider
             assert calls == [("acestep_transcriber_local", _PROVIDER_MODULES["acestep_transcriber_local"])]
+        finally:
+            reg._providers = original_providers
+            reg._discovered = original_discovered
+            reg._import_failures = original_failures
+
+    def test_find_provider_lazy_loads_explicit_cohere_audio_provider_before_full_discovery(self, monkeypatch):
+        from providers.registry import _PROVIDER_MODULES, get_registry
+
+        reg = get_registry()
+        original_providers = dict(reg._providers)
+        original_discovered = reg._discovered
+        original_failures = dict(getattr(reg, "_import_failures", {}))
+
+        class FakeProvider:
+            name = "cohere_transcribe_local"
+
+            @classmethod
+            def can_handle(cls, args, mime):
+                return getattr(args, "alm_model", "") == "cohere_transcribe_local" and mime.startswith("audio")
+
+        calls = []
+
+        def fake_discover_provider_module(provider_name, module_path):
+            calls.append((provider_name, module_path))
+            reg.register(provider_name, FakeProvider)
+
+        try:
+            reg._providers = {}
+            reg._discovered = False
+            reg._import_failures = {}
+            monkeypatch.setattr(reg, "_discover_provider_module", fake_discover_provider_module)
+            monkeypatch.setattr(
+                reg,
+                "discover",
+                lambda strict=False: (_ for _ in ()).throw(AssertionError("full discover should not run")),
+            )
+
+            provider = reg.find_provider(make_provider_args(alm_model="cohere_transcribe_local"), "audio/wav")
+
+            assert provider is FakeProvider
+            assert calls == [("cohere_transcribe_local", _PROVIDER_MODULES["cohere_transcribe_local"])]
         finally:
             reg._providers = original_providers
             reg._discovered = original_discovered

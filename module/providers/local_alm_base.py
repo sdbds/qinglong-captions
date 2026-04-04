@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Dict
 
@@ -19,6 +20,14 @@ _global_model_cache: Dict[str, Any] = {}
 _global_cache_lock = threading.Lock()
 
 
+@dataclass(frozen=True)
+class ALMTaskContract:
+    task_kind: str = "caption"
+    consumes_prompts: bool = True
+    requires_language: bool = False
+    default_caption_extension: str = ".md"
+
+
 class LocalALMProvider(Provider):
     provider_type = ProviderType.LOCAL_ALM
     capabilities = ProviderCapabilities(
@@ -27,6 +36,7 @@ class LocalALMProvider(Provider):
     )
 
     default_model_id: ClassVar[str] = ""
+    task_contract: ClassVar[ALMTaskContract] = ALMTaskContract()
 
     @property
     def model_id(self) -> str:

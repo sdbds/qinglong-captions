@@ -29,6 +29,7 @@ from gui.utils.log_buffer import LogBuffer
 from gui.utils.log_buffer import log_buffer as _global_log_buffer
 from utils.console_util import print_exception
 from utils.wdtagger_opencv import (
+    OPENCV_DISTRIBUTION_PACKAGES,
     build_wdtagger_opencv_install_plan,
 )
 
@@ -59,6 +60,7 @@ _UV_TORCH_EXTRAS = frozenset(
         "dots-ocr",
         "qianfan-ocr",
         "chandra-ocr",
+        "see-through",
         "qwen-vl-local",
         "step-vl-local",
         "penguin-vl-local",
@@ -67,6 +69,7 @@ _UV_TORCH_EXTRAS = frozenset(
         "music-flamingo-local",
         "eureka-audio-local",
         "acestep-transcriber-local",
+        "cohere-transcribe-local",
     }
 )
 _UV_TORCHVISION_EXTRAS = frozenset(
@@ -83,6 +86,7 @@ _UV_TORCHVISION_EXTRAS = frozenset(
         "dots-ocr",
         "qianfan-ocr",
         "chandra-ocr",
+        "see-through",
         "qwen-vl-local",
         "step-vl-local",
         "penguin-vl-local",
@@ -91,6 +95,7 @@ _UV_TORCHVISION_EXTRAS = frozenset(
 )
 _UV_TORCH_GROUPS = frozenset({"test"})
 _UV_TORCHVISION_GROUPS = frozenset()
+_SEE_THROUGH_OPENCV_CLEANUP_PACKAGES = OPENCV_DISTRIBUTION_PACKAGES
 
 # 序列化 _patch_shared_environment，防止两个并发 Job 同时修改共享 .venv
 _uv_patch_lock: Optional[asyncio.Lock] = None
@@ -142,6 +147,7 @@ SCRIPT_REGISTRY = {
     # step 6 - 工具
     "module.waterdetect": ("./module/waterdetect.py", None),
     "module.audio_separator": ("./module/audio_separator.py", "vocal-midi"),
+    "module.see_through.cli": ("./module/see_through/cli.py", "see-through"),
     "utils.preprocess_datasets": ("./utils/preprocess_datasets.py", None),
     "module.rewardmodel": ("./module/rewardmodel.py", None),
     "module.texttranslate": ("./module/texttranslate.py", "translate"),
@@ -468,6 +474,109 @@ class ProcessRunner:
             payload.setdefault("error", f"cv2 import probe exited with code {result.returncode}")
         return payload
 
+    @staticmethod
+    def _inspect_installed_package_versions(python_path: Optional[str], env: dict, package_names: list[str]) -> dict:
+        if not python_path:
+            return {"ok": False, "error": "Python executable not found for package probe"}
+
+        probe_script = "\n".join(
+            [
+                "import importlib.metadata as md",
+                "import json",
+                f"names = {json.dumps(package_names, ensure_ascii=False)}",
+                "payload = {}",
+                "for name in names:",
+                "    try:",
+                "        payload[name] = md.version(name)",
+                "    except md.PackageNotFoundError:",
+                "        payload[name] = None",
+                "print(json.dumps(payload, ensure_ascii=False))",
+            ]
+        )
+
+        try:
+            result = subprocess.run(
+                [python_path, "-c", probe_script],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                check=False,
+            )
+        except OSError as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+        output_lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not output_lines:
+            stderr = result.stderr.strip()
+            return {"ok": False, "error": stderr or f"package probe exited with code {result.returncode}"}
+
+        try:
+            payload = json.loads(output_lines[-1])
+        except json.JSONDecodeError:
+            return {"ok": False, "error": output_lines[-1]}
+
+        if not isinstance(payload, dict):
+            return {"ok": False, "error": "package probe returned non-object payload"}
+
+        return {"ok": result.returncode == 0, "packages": payload}
+
+    @classmethod
+    def _inspect_see_through_cv_stack(cls, python_path: Optional[str], env: dict) -> dict:
+        package_probe = cls._inspect_installed_package_versions(
+            python_path,
+            env,
+            list(_SEE_THROUGH_OPENCV_CLEANUP_PACKAGES) + ["numpy"],
+        )
+        cv2_probe = cls._inspect_cv2_runtime(python_path, env)
+
+        packages = package_probe.get("packages") if isinstance(package_probe.get("packages"), dict) else {}
+        numpy_version = str(packages.get("numpy") or "").strip()
+        opencv_python_version = str(packages.get("opencv-python") or "").strip()
+        cv2_version = str(cv2_probe.get("version") or "").strip()
+
+        reasons: list[str] = []
+        if package_probe.get("ok") is not True:
+            reasons.append(str(package_probe.get("error") or "package probe failed"))
+
+        if not numpy_version:
+            reasons.append("numpy not installed")
+        else:
+            major_match = re.match(r"(\d+)", numpy_version)
+            if not major_match:
+                reasons.append(f"unable to parse numpy version {numpy_version}")
+            elif int(major_match.group(1)) >= 2:
+                reasons.append(f"numpy {numpy_version} does not satisfy see-through profile")
+
+        if not opencv_python_version:
+            reasons.append("opencv-python not installed")
+
+        conflicting_packages = {
+            name: version
+            for name, version in packages.items()
+            if name not in {"numpy", "opencv-python"} and version
+        }
+        if conflicting_packages:
+            formatted = ", ".join(f"{name}={version}" for name, version in sorted(conflicting_packages.items()))
+            reasons.append(f"conflicting cv2 wheels installed: {formatted}")
+
+        if cv2_probe.get("ok") is not True:
+            reasons.append(str(cv2_probe.get("error") or "cv2 import probe failed"))
+        elif cv2_version and opencv_python_version and not opencv_python_version.startswith(cv2_version):
+            reasons.append(
+                f"cv2 runtime {cv2_version} does not match installed opencv-python {opencv_python_version}"
+            )
+
+        return {
+            "ok": not reasons,
+            "numpy_version": numpy_version or None,
+            "opencv_python_version": opencv_python_version or None,
+            "cv2_version": cv2_version or None,
+            "cv2_file": cv2_probe.get("file"),
+            "reasons": reasons,
+        }
+
     def _reset_tail_state(self):
         """重置原生控制台日志解析状态。"""
         self._tail_line = ""
@@ -696,6 +805,56 @@ class ProcessRunner:
                 message = f"{action} 失败，返回码: {return_code}"
                 self._notify_log(message)
                 return ProcessResult(ProcessStatus.ERROR, return_code, message)
+
+            if "see-through" in extras:
+                stack_probe = self._inspect_see_through_cv_stack(target_python, env)
+                if stack_probe.get("ok"):
+                    numpy_version = stack_probe.get("numpy_version") or "unknown"
+                    opencv_python_version = stack_probe.get("opencv_python_version") or "unknown"
+                    cv2_version = stack_probe.get("cv2_version") or "unknown"
+                    self._notify_log(
+                        "see-through OpenCV restore skipped: current numpy/opencv stack already matches profile "
+                        f"(numpy={numpy_version}, opencv-python={opencv_python_version}, cv2={cv2_version})"
+                    )
+                else:
+                    reasons = stack_probe.get("reasons") or ["unknown mismatch"]
+                    self._notify_log(
+                        "see-through OpenCV restore required: " + "; ".join(str(reason) for reason in reasons)
+                    )
+
+                    cleanup_cmd = [uv, "pip", "uninstall"]
+                    if target_python:
+                        cleanup_cmd.extend(["--python", target_python])
+                    cleanup_cmd.extend(_SEE_THROUGH_OPENCV_CLEANUP_PACKAGES)
+                    self._notify_log("see-through OpenCV cleanup: removing incompatible contrib/headless cv2 wheels")
+                    self._notify_log(
+                        f"开始同步依赖: {' '.join(cleanup_cmd[:15])}{'...' if len(cleanup_cmd) > 15 else ''}"
+                    )
+                    cleanup_return_code = await self._run_logged_subprocess(cleanup_cmd, work_dir, env)
+                    self.process = None
+                    if cleanup_return_code != 0:
+                        self._notify_log(
+                            "see-through OpenCV cleanup returned non-zero; continuing with standard opencv-python"
+                        )
+
+                    opencv_cmd = [uv, "pip", "install", "--no-build-isolation"]
+                    opencv_cmd.extend(["--index-strategy", self._uv_index_strategy(env)])
+                    if target_python:
+                        opencv_cmd.extend(["--python", target_python])
+                    opencv_cmd.extend(["-r", "pyproject.toml", "--extra", "see-through"])
+                    opencv_cmd.extend(["--reinstall-package", "numpy", "--reinstall-package", "opencv-python"])
+                    self._notify_log(
+                        "see-through OpenCV restore: reinstalling constrained numpy/opencv-python from profile"
+                    )
+                    self._notify_log(
+                        f"开始同步依赖: {' '.join(opencv_cmd[:15])}{'...' if len(opencv_cmd) > 15 else ''}"
+                    )
+                    opencv_return_code = await self._run_logged_subprocess(opencv_cmd, work_dir, env)
+                    self.process = None
+                    if opencv_return_code != 0:
+                        message = f"uv pip install see-through OpenCV 恢复失败，返回码: {opencv_return_code}"
+                        self._notify_log(message)
+                        return ProcessResult(ProcessStatus.ERROR, opencv_return_code, message)
 
             if sys.platform == "win32" and "wdtagger" in extras:
                 opencv_plan = build_wdtagger_opencv_install_plan(env=env, platform=sys.platform)

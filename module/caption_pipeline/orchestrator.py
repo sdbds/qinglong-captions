@@ -5,15 +5,7 @@ from pathlib import Path
 import lance
 import pysrt
 from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
     Progress,
-    SpinnerColumn,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-    TransferSpeedColumn,
 )
 
 from config.config import APPLICATION_EXTENSIONS_SET, AUDIO_EXTENSIONS_SET, VIDEO_EXTENSIONS_SET
@@ -21,6 +13,7 @@ from module.caption_pipeline.dataset_sync import update_dataset_captions
 from module.caption_pipeline.postprocess import postprocess_caption_content
 from module.caption_pipeline.scene_alignment import align_subtitles_with_scenes, create_scene_detector
 from utils.output_writer import write_caption_output
+from utils.rich_progress import create_caption_progress
 from utils.stream_util import (
     get_video_duration,
     split_media_stream_clips,
@@ -45,6 +38,7 @@ def _serialize_subtitles(subs: pysrt.SubRipFile) -> str:
 def _structured_description(payload: dict) -> str:
     return str(
         payload.get("long_description")
+        or payload.get("transcript")
         or payload.get("description")
         or payload.get("short_description")
         or ""
@@ -68,6 +62,20 @@ def _build_segment_summary_payload(segment_outputs: list[dict]) -> dict:
 
     merged = {
         "description": "\n\n".join(description_parts).strip(),
+        "caption_extension": ".txt",
+        "segments": segment_outputs,
+    }
+    provider = next((segment.get("provider") for segment in segment_outputs if segment.get("provider")), None)
+    if provider:
+        merged["provider"] = provider
+    return merged
+
+
+def _build_segment_transcript_payload(segment_outputs: list[dict]) -> dict:
+    transcript_parts = [segment["text"] for segment in segment_outputs if segment.get("text")]
+    merged = {
+        "task_kind": "transcribe",
+        "transcript": "\n\n".join(transcript_parts).strip(),
         "caption_extension": ".txt",
         "segments": segment_outputs,
     }
@@ -117,6 +125,7 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
     merged_subs = pysrt.SubRipFile()
     segment_outputs: list[dict] = []
     subtitle_mode: bool | None = None
+    structured_task_kind: str | None = None
     total_duration = 0
     clip_task = progress.add_task("[cyan]Processing clips...", total=num_chunks)
 
@@ -138,14 +147,16 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
         if isinstance(chunk_output, dict):
             if subtitle_mode is None:
                 subtitle_mode = False
-            description = _structured_description(chunk_output)
-            if description:
+            task_kind = str(chunk_output.get("task_kind") or "caption").strip().lower()
+            structured_task_kind = structured_task_kind or task_kind
+            text = _structured_description(chunk_output)
+            if text:
                 segment_outputs.append(
                     {
                         "index": index + 1,
                         "start_seconds": start_time,
                         "end_seconds": end_time,
-                        "description": description,
+                        "text": text,
                         "provider": chunk_output.get("provider"),
                     }
                 )
@@ -179,6 +190,10 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
     if segment_outputs:
         for file in files:
             file.unlink(missing_ok=True)
+        if structured_task_kind == "transcribe":
+            return _build_segment_transcript_payload(segment_outputs)
+        for segment in segment_outputs:
+            segment["description"] = segment.pop("text")
         return _build_segment_summary_payload(segment_outputs)
 
     merged_subs.clean_indexes()
@@ -206,21 +221,7 @@ def process_batch(
         batch_size=1,
     )
 
-    with Progress(
-        "[progress.description]{task.description}",
-        SpinnerColumn(spinner_name="dots"),
-        MofNCompleteColumn(separator="/"),
-        BarColumn(bar_width=40, complete_style="green", finished_style="bold green"),
-        TextColumn("•"),
-        TaskProgressColumn(),
-        TextColumn("•"),
-        TransferSpeedColumn(),
-        TextColumn("•"),
-        TimeElapsedColumn(),
-        TextColumn("•"),
-        TimeRemainingColumn(),
-        expand=True,
-    ) as progress:
+    with create_caption_progress(console_obj) as progress:
         task = progress.add_task("[bold cyan]Processing media...", total=dataset.count_rows())
         results = []
         processed_filepaths = []
@@ -236,7 +237,8 @@ def process_batch(
                 if scene_detector is not None:
                     scene_detector.start_async_detection(filepath)
 
-                if mime.startswith("image") or duration <= (args.segment_time + 1) * 1000:
+                segment_time = getattr(args, "segment_time", None)
+                if mime.startswith("image") or segment_time is None or duration <= (segment_time + 1) * 1000:
                     output = api_process_batch_fn(
                         uri=filepath,
                         mime=mime,

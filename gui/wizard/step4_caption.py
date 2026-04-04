@@ -228,6 +228,24 @@ class CaptionStep:
     VLM_MODELS = list(route_choices("vlm_image_model"))
 
     ALM_MODELS = list(route_choices("alm_model"))
+    ALM_LANGUAGE_OPTIONS = {
+        "cohere_transcribe_local": {
+            "en": "English — English",
+            "de": "Deutsch — German",
+            "fr": "Français — French",
+            "it": "Italiano — Italian",
+            "es": "Español — Spanish",
+            "pt": "Português — Portuguese",
+            "el": "Ελληνικά — Greek",
+            "nl": "Nederlands — Dutch",
+            "pl": "Polski — Polish",
+            "ar": "العربية — Arabic",
+            "vi": "Tiếng Việt — Vietnamese",
+            "zh": "中文 — Chinese",
+            "ja": "日本語 — Japanese",
+            "ko": "한국어 — Korean",
+        }
+    }
 
     OCR_EXTRA_MAP = {
         "paddle_ocr": "paddleocr",
@@ -258,6 +276,7 @@ class CaptionStep:
         "music_flamingo_local": "music-flamingo-local",
         "eureka_audio_local": "eureka-audio-local",
         "acestep_transcriber_local": "acestep-transcriber-local",
+        "cohere_transcribe_local": "cohere-transcribe-local",
     }
 
     def __init__(self):
@@ -285,10 +304,34 @@ class CaptionStep:
         alm_model = getattr(self, "alm_model", None)
         return getattr(alm_model, "value", "") or ""
 
-    def _default_segment_time(self) -> int:
-        if self._current_alm_model() == "music_flamingo_local":
+    def _default_segment_time(self, alm_model: Optional[str] = None) -> int:
+        model_name = alm_model if alm_model is not None else self._current_alm_model()
+        if model_name == "music_flamingo_local":
             return 1200
         return 600
+
+    def _alm_requires_language(self, alm_model: Optional[str] = None) -> bool:
+        model_name = alm_model if alm_model is not None else self._current_alm_model()
+        return model_name in self.ALM_LANGUAGE_OPTIONS
+
+    def _alm_language_options(self, alm_model: Optional[str] = None) -> dict[str, str]:
+        model_name = alm_model if alm_model is not None else self._current_alm_model()
+        return dict(self.ALM_LANGUAGE_OPTIONS.get(model_name, {}))
+
+    def _sync_alm_language_options(self, alm_model: Optional[str] = None) -> None:
+        alm_language = getattr(self, "alm_language", None)
+        if alm_language is None:
+            return
+
+        options = self._alm_language_options(alm_model)
+        current_value = getattr(alm_language, "value", None)
+        next_value = current_value if current_value in options else None
+        alm_language.set_options(options, value=next_value)
+
+        # Hide the container when no language options are available
+        container = getattr(self, "_alm_language_container", None)
+        if container is not None:
+            container.set_visibility(bool(options))
 
     @staticmethod
     def _format_args_for_log(args: list[str]) -> str:
@@ -309,11 +352,11 @@ class CaptionStep:
         if not self._syncing_segment_time:
             self.config["segment_time_explicit"] = True
 
-    def _sync_segment_time_default(self) -> None:
+    def _sync_segment_time_default(self, alm_model: Optional[str] = None) -> None:
         if self.config.get("segment_time_explicit"):
             return
 
-        default_value = self._default_segment_time()
+        default_value = self._default_segment_time(alm_model)
         self.config["segment_time"] = default_value
 
         slider = getattr(self, "segment_time_slider", None)
@@ -323,6 +366,10 @@ class CaptionStep:
                 slider.set_value(default_value)
             finally:
                 self._syncing_segment_time = False
+
+    def _handle_alm_model_change(self, selected_model: Optional[str]) -> None:
+        self._sync_segment_time_default(selected_model)
+        self._sync_alm_language_options(selected_model)
 
     def _has_remote_provider_config(self) -> bool:
         has_api = any(self._has_text(getattr(key_input, "value", "")) for key_input in self.api_keys.values())
@@ -423,6 +470,9 @@ class CaptionStep:
 
         if self._current_alm_model():
             args.append(f"--alm_model={self._current_alm_model()}")
+            alm_language = getattr(getattr(self, "alm_language", None), "value", "")
+            if self._alm_requires_language() and self._has_text(alm_language):
+                args.append(f"--alm_language={alm_language}")
 
         return args
 
@@ -698,10 +748,24 @@ class CaptionStep:
                 label=t("alm_model"),
                 icon="graphic_eq",
                 icon_color=COLORS["primary"],
-                on_change=lambda _value: self._sync_segment_time_default(),
+                on_change=self._handle_alm_model_change,
+                searchable=False,
             )
 
+            with ui.column().classes("w-full") as self._alm_language_container:
+                self.alm_language = styled_select(
+                    options=self._alm_language_options(),
+                    value=None,
+                    label=t("alm_language"),
+                    icon="translate",
+                    icon_color=COLORS["primary"],
+                    placeholder="Select transcription language",
+                    searchable=False,
+                )
+            self._alm_language_container.set_visibility(False)
+
             self._sync_segment_time_default()
+            self._sync_alm_language_options()
 
     async def _start_caption(self):
         """开始字幕生成"""
