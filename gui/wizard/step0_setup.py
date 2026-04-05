@@ -8,7 +8,7 @@ import subprocess
 from typing import Optional
 from theme import get_classes, COLORS
 from gui.utils.i18n import t
-from module.gpu_profile import format_gpu_summary, get_cached_gpu_probe
+from module.gpu_profile import format_gpu_device_lines, format_gpu_summary, get_cached_gpu_probe
 
 
 class SetupStep:
@@ -57,6 +57,12 @@ class SetupStep:
                     with ui.column().classes("gap-1"):
                         ui.label(t("vram_tier")).classes("text-caption").style("color: var(--color-text-secondary);")
                         ui.label(self.gpu_probe.tier_label).classes("text-body2").style("color: var(--color-text);")
+
+                if self.gpu_probe.device_count > 1:
+                    with ui.column().classes("w-full gap-1 q-mt-md"):
+                        ui.label("Detected GPUs").classes("text-caption").style("color: var(--color-text-secondary);")
+                        for line in format_gpu_device_lines(self.gpu_probe):
+                            ui.label(line).classes("text-body2").style("color: var(--color-text);")
 
             # 环境检查列表
             with ui.card().classes(get_classes("card") + " w-full q-pa-md"):

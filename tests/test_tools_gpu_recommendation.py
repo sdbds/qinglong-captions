@@ -37,6 +37,42 @@ def _make_probe(total_vram_gb: float, *, bf16_supported: bool = True) -> GPUProb
     )
 
 
+def _make_multi_probe() -> GPUProbeResult:
+    total_vram_bytes = 24 * 1024**3
+    tier = classify_vram_tier(total_vram_bytes, cuda_available=True)
+    return GPUProbeResult(
+        torch_available=True,
+        cuda_available=True,
+        cuda_version="12.8",
+        device_count=2,
+        current_device_index=1,
+        devices=(
+            GPUDeviceInfo(
+                index=0,
+                name="GPU Zero",
+                capability=(8, 9),
+                capability_label="8.9",
+                sm="sm89",
+                total_vram_bytes=total_vram_bytes,
+                total_vram_gb=24.0,
+                bf16_supported=False,
+            ),
+            GPUDeviceInfo(
+                index=1,
+                name="GPU One",
+                capability=(8, 9),
+                capability_label="8.9",
+                sm="sm89",
+                total_vram_bytes=total_vram_bytes,
+                total_vram_gb=24.0,
+                bf16_supported=True,
+            ),
+        ),
+        tier=tier,
+        tier_label=tier_label(tier),
+    )
+
+
 def test_tools_step_init_keeps_conservative_defaults_before_gpu_probe(monkeypatch):
     monkeypatch.setattr(
         step6_tools,
@@ -158,6 +194,18 @@ def test_format_gpu_summary_uses_formatter_for_real_probe(monkeypatch):
     monkeypatch.setitem(sys.modules, "module.gpu_profile", _FakeGpuProfileModule())
 
     assert step6_tools._format_gpu_summary(probe) == "RTX 4090 / 24GB"
+
+
+def test_tools_step_see_through_summary_mentions_multi_gpu_probe():
+    step = step6_tools.ToolsStep()
+    step.gpu_probe = _make_multi_probe()
+    step.see_through_recommendation = recommend_see_through_config(_make_probe(24.0))
+
+    summary = step._build_see_through_summary()
+
+    assert "cuda:1" in summary
+    assert "GPU One" in summary
+    assert "2 GPUs" in summary
 
 
 def test_tools_step_only_requests_gpu_probe_when_see_through_panel_renders(monkeypatch):

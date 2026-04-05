@@ -72,6 +72,10 @@ def tier_label(tier: str) -> str:
     }.get(tier, tier)
 
 
+def _cuda_device_label(index: int) -> str:
+    return "cuda" if int(index) <= 0 else f"cuda:{int(index)}"
+
+
 _GPU_PROBE_SCRIPT = textwrap.dedent(
     """
     import json
@@ -354,6 +358,24 @@ def recommend_see_through_config(probe: GPUProbeResult) -> "SeeThroughRecommenda
     return _recommend_see_through_config(probe)
 
 
+def format_gpu_device_lines(probe: GPUProbeResult) -> tuple[str, ...]:
+    if not probe.devices:
+        return ()
+
+    lines: list[str] = []
+    for device in probe.devices:
+        parts = [_cuda_device_label(device.index), device.name]
+        if device.sm:
+            parts.append(device.sm)
+        parts.append(f"{device.total_vram_gb:.1f} GB")
+        if probe.cuda_version:
+            parts.append(f"CUDA {probe.cuda_version}")
+        if probe.current_device_index == device.index and probe.device_count > 1:
+            parts.append("active")
+        lines.append(" | ".join(parts))
+    return tuple(lines)
+
+
 def format_gpu_summary(probe: GPUProbeResult) -> str:
     primary_device = probe.primary_device
     if primary_device is None:
@@ -361,11 +383,13 @@ def format_gpu_summary(probe: GPUProbeResult) -> str:
 
     parts: list[str] = []
     if probe.current_device_index is not None:
-        parts.append("cuda" if probe.current_device_index <= 0 else f"cuda:{probe.current_device_index}")
+        parts.append(_cuda_device_label(probe.current_device_index))
     parts.append(primary_device.name)
     if primary_device.sm:
         parts.append(primary_device.sm)
     parts.append(f"{primary_device.total_vram_gb:.1f} GB")
     if probe.cuda_version:
         parts.append(f"CUDA {probe.cuda_version}")
+    if probe.device_count > 1:
+        parts.append(f"{probe.device_count} GPUs")
     return " | ".join(parts)

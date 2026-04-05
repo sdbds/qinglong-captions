@@ -167,13 +167,14 @@ def test_pyproject_declares_cohere_transcribe_local_extra():
     assert "protobuf" in cohere_transcribe_deps
 
 
-def test_pyproject_declares_bitsandbytes_runtime_extra():
+def test_pyproject_declares_quantized_runtime_extra():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     optional_deps = pyproject["project"]["optional-dependencies"]
 
-    assert "bitsandbytes-runtime" in optional_deps
-    bitsandbytes_runtime_deps = optional_deps["bitsandbytes-runtime"]
-    assert any(dep.startswith("bitsandbytes") for dep in bitsandbytes_runtime_deps)
+    assert "quantized-runtime" in optional_deps
+    quantized_runtime_deps = optional_deps["quantized-runtime"]
+    assert any(dep.startswith("bitsandbytes") for dep in quantized_runtime_deps)
+    assert any(dep.startswith("compressed-tensors") for dep in quantized_runtime_deps)
 
 
 def test_pyproject_declares_vocal_midi_extra():
@@ -492,16 +493,16 @@ def test_caption_step_adds_bitsandbytes_extra_for_quantized_repo_ids():
 
     extra_args = step._build_local_extra_args()
 
-    assert extra_args == ["--extra", "gemma4-local", "--extra", "bitsandbytes-runtime"]
+    assert extra_args == ["--extra", "gemma4-local", "--extra", "quantized-runtime"]
 
 
-def test_caption_step_detects_bitsandbytes_quantized_repo_markers():
+def test_caption_step_detects_quantized_runtime_repo_markers():
     CaptionStep = _load_caption_step("test_step4_caption_bitsandbytes_repo_markers")
 
-    assert CaptionStep._repo_id_requires_bitsandbytes("livadies/gemma-4-31B-Ghetto-NF4") is True
-    assert CaptionStep._repo_id_requires_bitsandbytes("custom/model-bnb-4bit") is True
-    assert CaptionStep._repo_id_requires_bitsandbytes("google/gemma-4-31B-it") is False
-    assert CaptionStep._repo_id_requires_bitsandbytes("protoLabsAI/gemma-4-E4B-it-FP8") is False
+    assert CaptionStep._repo_id_requires_quantized_runtime("livadies/gemma-4-31B-Ghetto-NF4") is True
+    assert CaptionStep._repo_id_requires_quantized_runtime("custom/model-bnb-4bit") is True
+    assert CaptionStep._repo_id_requires_quantized_runtime("google/gemma-4-31B-it") is False
+    assert CaptionStep._repo_id_requires_quantized_runtime("protoLabsAI/gemma-4-E4B-it-FP8") is False
 
 
 def test_caption_step_keeps_audio_task_value_empty_until_gemma4_is_selected():
@@ -568,11 +569,11 @@ def test_run_ps1_mentions_gemma4_local_extra():
     assert 'Add-UvExtra "gemma4-local"' in content
 
 
-def test_run_ps1_mentions_bitsandbytes_runtime_extra_for_quantized_repo_ids():
+def test_run_ps1_mentions_quantized_runtime_extra_for_quantized_repo_ids():
     content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
 
-    assert 'function Test-BitsAndBytesQuantizedRepoId' in content
-    assert 'Add-UvExtra "bitsandbytes-runtime"' in content
+    assert 'function Test-QuantizedRepoIdRuntimeDeps' in content
+    assert 'Add-UvExtra "quantized-runtime"' in content
     assert 'function Get-ModelConfigRouteModelId' in content
 
 

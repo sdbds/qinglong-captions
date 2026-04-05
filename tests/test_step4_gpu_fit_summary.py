@@ -59,6 +59,44 @@ def _make_probe(total_vram_gb: float, *, bf16_supported: bool = True):
     )
 
 
+def _make_multi_probe() -> object:
+    from module.gpu_profile import GPUDeviceInfo, GPUProbeResult, classify_vram_tier, tier_label
+
+    total_vram_bytes = 24 * 1024**3
+    tier = classify_vram_tier(total_vram_bytes, cuda_available=True)
+    return GPUProbeResult(
+        torch_available=True,
+        cuda_available=True,
+        cuda_version="12.8",
+        device_count=2,
+        current_device_index=1,
+        devices=(
+            GPUDeviceInfo(
+                index=0,
+                name="GPU Zero",
+                capability=(8, 9),
+                capability_label="8.9",
+                sm="sm89",
+                total_vram_bytes=total_vram_bytes,
+                total_vram_gb=24.0,
+                bf16_supported=False,
+            ),
+            GPUDeviceInfo(
+                index=1,
+                name="GPU One",
+                capability=(8, 9),
+                capability_label="8.9",
+                sm="sm89",
+                total_vram_bytes=total_vram_bytes,
+                total_vram_gb=24.0,
+                bf16_supported=True,
+            ),
+        ),
+        tier=tier,
+        tier_label=tier_label(tier),
+    )
+
+
 def test_caption_step_builds_local_model_fit_entries_from_gpu_probe():
     step4 = _load_step4_module("test_step4_gpu_fit_entries")
     step4._load_current_route_model_ids = lambda: {
@@ -116,6 +154,19 @@ def test_caption_step_formats_gpu_fit_header_from_cached_probe():
     assert "Fake GPU" in header
     assert "24.0 GB" in header
     assert ">16 GB" in header
+
+
+def test_caption_step_formats_gpu_fit_header_for_multi_gpu_probe():
+    step4 = _load_step4_module("test_step4_gpu_fit_multi_gpu_header")
+
+    step = step4.CaptionStep()
+    step.gpu_probe = _make_multi_probe()
+
+    header = step._local_model_fit_header()
+
+    assert "cuda:1" in header
+    assert "GPU One" in header
+    assert "2 GPUs" in header
 
 
 def test_caption_step_uses_fresh_model_id_map_for_gpu_fit_entries():

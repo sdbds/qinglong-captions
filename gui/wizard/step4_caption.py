@@ -72,7 +72,7 @@ def _load_model_config_panel_cls():
     return ModelConfigPanel
 
 class CaptionStep:
-    BITSANDBYTES_EXTRA = "bitsandbytes-runtime"
+    QUANTIZED_RUNTIME_EXTRA = "quantized-runtime"
     _BITSANDBYTES_REPO_PATTERN = re.compile(
         r"(?:^|[-_./])(?:nf4|bnb|bitsandbytes|4bit|8bit|int4|int8)(?:$|[-_./])"
     )
@@ -677,7 +677,7 @@ class CaptionStep:
         extra_args.extend(["--extra", extra_name])
 
     @classmethod
-    def _repo_id_requires_bitsandbytes(cls, repo_id: Optional[str]) -> bool:
+    def _repo_id_requires_quantized_runtime(cls, repo_id: Optional[str]) -> bool:
         return bool(repo_id and cls._BITSANDBYTES_REPO_PATTERN.search(repo_id.lower()))
 
     def _selected_local_route_model_ids(self) -> tuple[str, ...]:
@@ -696,8 +696,10 @@ class CaptionStep:
         self._append_extra(extra_args, seen, self.OCR_EXTRA_MAP.get(self.ocr_model.value or ""))
         self._append_extra(extra_args, seen, self.VLM_EXTRA_MAP.get(self.vlm_image_model.value or ""))
         self._append_extra(extra_args, seen, self.ALM_EXTRA_MAP.get(self._current_alm_model()))
-        if any(self._repo_id_requires_bitsandbytes(model_id) for model_id in self._selected_local_route_model_ids()):
-            self._append_extra(extra_args, seen, self.BITSANDBYTES_EXTRA)
+        if any(
+            self._repo_id_requires_quantized_runtime(model_id) for model_id in self._selected_local_route_model_ids()
+        ):
+            self._append_extra(extra_args, seen, self.QUANTIZED_RUNTIME_EXTRA)
 
         return extra_args
 

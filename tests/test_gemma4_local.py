@@ -131,10 +131,10 @@ def test_gemma4_model_toml_lists_large_variants():
     assert model_list["Gemma 4 31B it"]["model_id"] == "google/gemma-4-31B-it"
     assert model_list["Gemma 4 31B it"]["meta"]["min_vram_gb"] == 64
     assert (
-        model_list["Gemma 4 31B Ghetto NF4 (24GB)"]["model_id"]
-        == "livadies/gemma-4-31B-Ghetto-NF4"
+        model_list["Gemma 4 31B it FP8 Block"]["model_id"]
+        == "RedHatAI/gemma-4-31B-it-FP8-block"
     )
-    assert model_list["Gemma 4 31B Ghetto NF4 (24GB)"]["meta"]["min_vram_gb"] == 24
+    assert model_list["Gemma 4 31B it FP8 Block"]["meta"]["min_vram_gb"] == 32
 
 
 def test_gemma4_attempt_delegates_input_preparation_to_common_helper(tmp_path, monkeypatch):

@@ -287,8 +287,9 @@ gemma4-local = [
     "librosa",
     "triton-windows; sys_platform == 'win32'",
 ]
-bitsandbytes-runtime = [
+quantized-runtime = [
     "bitsandbytes>=0.49",
+    "compressed-tensors>=0.14.0",
 ]
 lfm-vl-local = [
     "qinglong-captions[onnx-base]",
