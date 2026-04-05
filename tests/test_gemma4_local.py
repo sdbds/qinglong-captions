@@ -135,6 +135,11 @@ def test_gemma4_model_toml_lists_large_variants():
         == "RedHatAI/gemma-4-31B-it-FP8-block"
     )
     assert model_list["Gemma 4 31B it FP8 Block"]["meta"]["min_vram_gb"] == 32
+    assert (
+        model_list["Gemma 4 31B IT NVFP4"]["model_id"]
+        == "nvidia/Gemma-4-31B-IT-NVFP4"
+    )
+    assert model_list["Gemma 4 31B IT NVFP4"]["meta"]["min_vram_gb"] == 64
 
 
 def test_gemma4_attempt_delegates_input_preparation_to_common_helper(tmp_path, monkeypatch):
@@ -452,6 +457,15 @@ def test_gemma4_load_model_prefers_sdpa_when_cuda_resolves_flash_attention(monke
     assert captured["model via object_kwargs"]["attn_implementation"] == "sdpa"
 
 
+def test_gemma4_rejects_modelopt_nvfp4_direct_runtime():
+    provider = _make_provider(
+        config={"gemma4_local": {"model_id": "nvidia/Gemma-4-31B-IT-NVFP4"}},
+    )
+
+    with pytest.raises(RuntimeError, match="ModelOpt/NVFP4"):
+        provider._load_model()
+
+
 def test_gemma4_audio_prompt_uses_task_specific_keys(tmp_path):
     audio_path = tmp_path / "clip.wav"
     audio_path.write_bytes(b"audio")
@@ -493,6 +507,7 @@ def test_gemma4_prepare_media_rejects_audio_over_limit(tmp_path, monkeypatch):
         "google/gemma-4-26B-A4B-it",
         "google/gemma-4-31B-it",
         "livadies/gemma-4-31B-Ghetto-NF4",
+        "nvidia/Gemma-4-31B-IT-NVFP4",
     ],
 )
 def test_gemma4_prepare_media_rejects_audio_for_non_audio_variants(tmp_path, model_id):

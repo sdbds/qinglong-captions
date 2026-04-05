@@ -318,6 +318,9 @@ model_list."Gemma 4 E4B it FP8" = { model_id = "protoLabsAI/gemma-4-E4B-it-FP8",
 model_list."Gemma 4 26B A4B it" = { model_id = "google/gemma-4-26B-A4B-it", meta = { min_vram_gb = 48 } }
 model_list."Gemma 4 31B it" = { model_id = "google/gemma-4-31B-it", meta = { min_vram_gb = 64 } }
 model_list."Gemma 4 31B it FP8 Block" = { model_id = "RedHatAI/gemma-4-31B-it-FP8-block", meta = { min_vram_gb = 32 } }
+# NVIDIA ModelOpt NVFP4 checkpoint is documented for vLLM on Linux/Blackwell.
+# Keep the local fit hint conservative so single-32GB direct loads are not implied to be safe.
+model_list."Gemma 4 31B IT NVFP4" = { model_id = "nvidia/Gemma-4-31B-IT-NVFP4", meta = { min_vram_gb = 64 } }
 # Note: Gemma 4 26B/31B variants are text-image only. Audio stays on E2B/E4B variants.
 model_id = "google/gemma-4-E4B-it"
 audio_task = "asr"

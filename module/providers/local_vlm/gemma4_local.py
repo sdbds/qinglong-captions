@@ -84,6 +84,11 @@ def _resolve_model_load_dtype(device: Any, runtime_dtype: Any) -> Any:
     return runtime_dtype
 
 
+def _looks_like_modelopt_nvfp4_repo(model_id: str | None) -> bool:
+    normalized = str(model_id or "").strip().casefold().replace("_", "-")
+    return "nvfp4" in normalized or normalized.startswith("nvidia/gemma-4-")
+
+
 def _image_score_lookup_key(label: str) -> str:
     simplified = str(label or "").replace("\\", " ").replace("*", "").replace("_", " ")
     simplified = re.sub(r"\s+", " ", simplified).strip().casefold()
@@ -487,6 +492,13 @@ class Gemma4LocalProvider(LocalVLMProvider):
         import torch
 
         model_id = self.model_id
+        if _looks_like_modelopt_nvfp4_repo(model_id):
+            raise RuntimeError(
+                "GEMMA4_LOCAL_MODEL_LOAD_FAILED: "
+                f"model_id={model_id!r} looks like an NVIDIA ModelOpt NVFP4 checkpoint. "
+                "The current gemma4_local direct Transformers loader does not support ModelOpt/NVFP4 weights. "
+                "Use an OpenAI-compatible vLLM runtime for this model instead of runtime_backend=direct."
+            )
         try:
             device, dtype, attn_impl = resolve_device_dtype(
                 supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False))
