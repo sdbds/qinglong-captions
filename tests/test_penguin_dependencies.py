@@ -501,8 +501,10 @@ def test_caption_step_detects_quantized_runtime_repo_markers():
 
     assert CaptionStep._repo_id_requires_quantized_runtime("livadies/gemma-4-31B-Ghetto-NF4") is True
     assert CaptionStep._repo_id_requires_quantized_runtime("custom/model-bnb-4bit") is True
-    assert CaptionStep._repo_id_requires_quantized_runtime("google/gemma-4-31B-it") is False
+    assert CaptionStep._repo_id_requires_quantized_runtime("RedHatAI/gemma-4-31B-it-FP8-block") is True
     assert CaptionStep._repo_id_requires_quantized_runtime("protoLabsAI/gemma-4-E4B-it-FP8") is False
+    assert CaptionStep._repo_id_requires_quantized_runtime("henry1477/music-flamingo-2601-hf-fp8") is False
+    assert CaptionStep._repo_id_requires_quantized_runtime("google/gemma-4-31B-it") is False
 
 
 def test_caption_step_keeps_audio_task_value_empty_until_gemma4_is_selected():

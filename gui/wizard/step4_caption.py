@@ -74,7 +74,7 @@ def _load_model_config_panel_cls():
 class CaptionStep:
     QUANTIZED_RUNTIME_EXTRA = "quantized-runtime"
     _BITSANDBYTES_REPO_PATTERN = re.compile(
-        r"(?:^|[-_./])(?:nf4|bnb|bitsandbytes|4bit|8bit|int4|int8)(?:$|[-_./])"
+        r"(?:^|[-_./])(?:nf4|fp8-block|bnb|bitsandbytes|4bit|8bit|int4|int8)(?:$|[-_./])"
     )
 
     """字幕生成页面"""
