@@ -9,12 +9,11 @@ if str(ROOT / "gui") not in sys.path:
     sys.path.insert(1, str(ROOT / "gui"))
 
 
-from module.gpu_profile import GPUDeviceInfo, GPUProbeResult, classify_vram_tier, tier_label
+from module.gpu_profile import GPUDeviceInfo, GPUProbeResult
 
 
 def _make_probe(total_vram_gb: float, *, bf16_supported: bool = True) -> GPUProbeResult:
     total_vram_bytes = int(total_vram_gb * 1024**3)
-    tier = classify_vram_tier(total_vram_bytes, cuda_available=True)
     return GPUProbeResult(
         torch_available=True,
         cuda_available=True,
@@ -33,8 +32,6 @@ def _make_probe(total_vram_gb: float, *, bf16_supported: bool = True) -> GPUProb
                 bf16_supported=bf16_supported,
             ),
         ),
-        tier=tier,
-        tier_label=tier_label(tier),
     )
 
 
@@ -109,10 +106,10 @@ model_id = "Qwen/Qwen3.5-9B"
     assert fit is not None
     assert fit.status == "warning"
     assert fit.source == "model_list"
-    assert "needs >= 12 GB" in fit.status_label
+    assert "Needs >= 12 GB VRAM" in fit.status_label
 
 
-def test_assess_current_model_fit_falls_back_to_formula_for_custom_model_ids(tmp_path):
+def test_assess_current_model_fit_requires_model_list_min_vram_metadata_for_custom_model_ids(tmp_path):
     from gui.utils.toml_helpers import assess_current_model_fit
 
     config_path = tmp_path / "model.toml"
@@ -134,8 +131,8 @@ model_id = "Qwen/Qwen3.5-9B"
 
     assert fit is not None
     assert fit.status == "unknown"
-    assert fit.source == "heuristic"
-    assert "12 GB" in fit.status_label
+    assert fit.source == "unknown"
+    assert "min_vram_gb metadata" in fit.status_label
 
 
 def test_load_current_route_model_ids_uses_provider_section_aliases(tmp_path):

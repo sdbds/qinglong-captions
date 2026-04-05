@@ -49,8 +49,7 @@ SEE_THROUGH_REPO_MAP = {
 
 @dataclass(frozen=True)
 class _SeeThroughRecommendation:
-    tier: str
-    tier_label: str
+    min_vram_gb: float | None
     resolution: int
     resolution_depth: int
     dtype: str
@@ -93,8 +92,7 @@ def _resolve_see_through_repo_ids(
 def _default_see_through_recommendation() -> _SeeThroughRecommendation:
     repo_id_layerdiff, repo_id_depth = _resolve_see_through_repo_ids(quant_mode="none")
     return _SeeThroughRecommendation(
-        tier="pending",
-        tier_label="Pending",
+        min_vram_gb=None,
         resolution=768,
         resolution_depth=DEFAULT_DEPTH_RESOLUTION,
         dtype="float32",
@@ -112,7 +110,7 @@ def _probe_see_through_defaults() -> tuple[Any | None, Any]:
         from module.gpu_profile import get_cached_gpu_probe
         from module.see_through.see_through_profile import recommend_see_through_config
 
-        probe = get_cached_gpu_probe()
+        probe = get_cached_gpu_probe(refresh=True)
         return probe, recommend_see_through_config(probe)
     except Exception:
         return None, _default_see_through_recommendation()
@@ -128,6 +126,18 @@ def _format_gpu_summary(probe: Any | None) -> str:
         return format_gpu_summary(probe)
     except Exception:
         return "--"
+
+
+def _format_gpu_device_lines(probe: Any | None) -> tuple[str, ...]:
+    if probe is None:
+        return ()
+
+    try:
+        from module.gpu_profile import format_gpu_device_lines
+
+        return format_gpu_device_lines(probe)
+    except Exception:
+        return ()
 
 
 def _load_execution_panel_cls():
@@ -294,6 +304,9 @@ class ToolsStep:
         self._see_through_user_edited = False
         self._see_through_summary_label = None
         self._see_through_note_label = None
+        self._see_through_summary_meta_container = None
+        self._see_through_gpu_details_container = None
+        self._see_through_gpu_details_open = False
         self._audio_separator_vocal_midi_container = None
 
     def _get_tool_renderer(self, tab_key: str):
@@ -343,14 +356,22 @@ class ToolsStep:
 
     def _build_see_through_summary(self) -> str:
         recommendation = self.see_through_recommendation
+        minimum_text = (
+            "CPU fallback"
+            if recommendation.min_vram_gb is None
+            else f">= {recommendation.min_vram_gb:.0f} GB"
+        )
         return (
             f"{t('gpu')}: {_format_gpu_summary(self.gpu_probe)} | "
-            f"{t('recommended_profile')}: {recommendation.tier_label} -> "
+            f"{t('recommended_profile')}: {minimum_text} -> "
             f"{recommendation.resolution}px / depth {recommendation.resolution_depth}px / "
             f"{self.SEE_THROUGH_QUANT_MODES.get(recommendation.quant_mode, recommendation.quant_mode)} / "
             f"{t('group_offload')}={'on' if recommendation.group_offload else 'off'} / "
             f"{self.SEE_THROUGH_DTYPES.get(recommendation.dtype, recommendation.dtype)}"
         )
+
+    def _gpu_detail_lines(self) -> tuple[str, ...]:
+        return _format_gpu_device_lines(self.gpu_probe)
 
     def _refresh_see_through_summary(self) -> None:
         if self._see_through_summary_label is not None:
@@ -359,6 +380,47 @@ class ToolsStep:
             note = self.see_through_recommendation.note or ""
             self._see_through_note_label.set_text(note)
             self._see_through_note_label.set_visibility(bool(note))
+        self._refresh_see_through_gpu_details()
+
+    def _toggle_see_through_gpu_details(self) -> None:
+        self._see_through_gpu_details_open = not self._see_through_gpu_details_open
+        self._refresh_see_through_gpu_details()
+
+    def _refresh_see_through_gpu_details(self) -> None:
+        header_container = self._see_through_summary_meta_container
+        details_container = self._see_through_gpu_details_container
+        if header_container is None or details_container is None:
+            return
+
+        lines = self._gpu_detail_lines()
+        header_container.clear()
+        details_container.clear()
+
+        if not lines:
+            header_container.set_visibility(False)
+            details_container.set_visibility(False)
+            return
+
+        header_container.set_visibility(True)
+        with header_container:
+            with ui.row().classes("w-full items-center gap-2"):
+                ui.icon("dns", size="16px").style(f"color: {COLORS['info']};")
+                ui.label(f"Detected GPU details ({len(lines)})").classes("text-caption").style(
+                    "color: var(--color-text-secondary);"
+                )
+                ui.button(
+                    "Toggle",
+                    on_click=self._toggle_see_through_gpu_details,
+                    icon="unfold_more",
+                ).props('flat dense type="button"')
+
+        details_container.set_visibility(self._see_through_gpu_details_open)
+        if not self._see_through_gpu_details_open:
+            return
+
+        with details_container:
+            for line in lines:
+                ui.label(line).classes("text-caption").style("color: var(--color-text-secondary);")
 
     def _set_control_value(self, control: Any, value: Any) -> None:
         if control is None:
@@ -981,6 +1043,9 @@ class ToolsStep:
                 .style(f"color: {COLORS['warning']};")
             )
             self._see_through_note_label.set_visibility(bool(self.see_through_recommendation.note))
+            self._see_through_summary_meta_container = ui.column().classes("w-full gap-1")
+            self._see_through_gpu_details_container = ui.column().classes("w-full gap-1")
+            self._refresh_see_through_gpu_details()
 
             with ui.row().classes("w-full gap-4 q-mt-md"):
                 self.see_through_repo_id_layerdiff = styled_select(

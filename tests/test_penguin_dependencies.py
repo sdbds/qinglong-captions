@@ -167,6 +167,20 @@ def test_pyproject_declares_cohere_transcribe_local_extra():
     assert "protobuf" in cohere_transcribe_deps
 
 
+def test_pyproject_declares_gemma4_local_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "gemma4-local" in optional_deps
+    gemma4_deps = optional_deps["gemma4-local"]
+    assert "qinglong-captions[torch-base]" in gemma4_deps
+    assert any(dep.startswith("torchaudio") for dep in gemma4_deps)
+    assert any(dep.startswith("transformers[serving]>=5.5.0") for dep in gemma4_deps)
+    assert "sentencepiece" in gemma4_deps
+    assert "soundfile" in gemma4_deps
+    assert "librosa" in gemma4_deps
+
+
 def test_pyproject_declares_quantized_runtime_extra():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     optional_deps = pyproject["project"]["optional-dependencies"]

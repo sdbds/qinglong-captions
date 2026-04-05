@@ -7,13 +7,12 @@ sys.path.insert(1, str(ROOT / "gui"))
 sys.path.insert(2, str(ROOT / "gui" / "wizard"))
 
 from gui.wizard import step6_tools
-from module.gpu_profile import GPUDeviceInfo, GPUProbeResult, classify_vram_tier, tier_label
+from module.gpu_profile import GPUDeviceInfo, GPUProbeResult
 from module.see_through.see_through_profile import recommend_see_through_config
 
 
 def _make_probe(total_vram_gb: float, *, bf16_supported: bool = True) -> GPUProbeResult:
     total_vram_bytes = int(total_vram_gb * 1024**3)
-    tier = classify_vram_tier(total_vram_bytes, cuda_available=True)
     return GPUProbeResult(
         torch_available=True,
         cuda_available=True,
@@ -32,14 +31,11 @@ def _make_probe(total_vram_gb: float, *, bf16_supported: bool = True) -> GPUProb
                 bf16_supported=bf16_supported,
             ),
         ),
-        tier=tier,
-        tier_label=tier_label(tier),
     )
 
 
 def _make_multi_probe() -> GPUProbeResult:
     total_vram_bytes = 24 * 1024**3
-    tier = classify_vram_tier(total_vram_bytes, cuda_available=True)
     return GPUProbeResult(
         torch_available=True,
         cuda_available=True,
@@ -68,8 +64,6 @@ def _make_multi_probe() -> GPUProbeResult:
                 bf16_supported=True,
             ),
         ),
-        tier=tier,
-        tier_label=tier_label(tier),
     )
 
 
@@ -100,6 +94,7 @@ def test_tools_step_applies_low_vram_probe_recommendation():
     assert step.config["see_through_dtype"] == "float16"
     assert step.config["see_through_quant_mode"] == "none"
     assert step.config["see_through_group_offload"] is True
+    assert recommendation.min_vram_gb == 8.0
 
 
 def test_tools_step_applies_high_vram_probe_recommendation():
@@ -109,9 +104,10 @@ def test_tools_step_applies_high_vram_probe_recommendation():
     step._apply_see_through_recommendation(recommendation)
 
     assert step.config["see_through_resolution"] == 1280
-    assert step.config["see_through_dtype"] == "bfloat16"
+    assert step.config["see_through_dtype"] == "float16"
     assert step.config["see_through_quant_mode"] == "none"
     assert step.config["see_through_group_offload"] is False
+    assert recommendation.min_vram_gb == 16.0
 
 
 class _DummyContainer:
@@ -203,9 +199,21 @@ def test_tools_step_see_through_summary_mentions_multi_gpu_probe():
 
     summary = step._build_see_through_summary()
 
-    assert "cuda:1" in summary
-    assert "GPU One" in summary
+    assert "GPU Zero" in summary
     assert "2 GPUs" in summary
+    assert ">= 16 GB" in summary
+
+
+def test_tools_step_exposes_gpu_detail_lines_for_multi_gpu_probe():
+    step = step6_tools.ToolsStep()
+    step.gpu_probe = _make_multi_probe()
+
+    lines = step._gpu_detail_lines()
+
+    assert lines == (
+        "GPU 0 | GPU Zero | sm89 | 24.0 GB",
+        "GPU 1 | GPU One | sm89 | 24.0 GB",
+    )
 
 
 def test_tools_step_only_requests_gpu_probe_when_see_through_panel_renders(monkeypatch):

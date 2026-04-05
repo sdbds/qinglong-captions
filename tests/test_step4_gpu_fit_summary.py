@@ -32,10 +32,9 @@ def _load_step4_module(module_name: str):
 
 
 def _make_probe(total_vram_gb: float, *, bf16_supported: bool = True):
-    from module.gpu_profile import GPUDeviceInfo, GPUProbeResult, classify_vram_tier, tier_label
+    from module.gpu_profile import GPUDeviceInfo, GPUProbeResult
 
     total_vram_bytes = int(total_vram_gb * 1024**3)
-    tier = classify_vram_tier(total_vram_bytes, cuda_available=True)
     return GPUProbeResult(
         torch_available=True,
         cuda_available=True,
@@ -54,16 +53,13 @@ def _make_probe(total_vram_gb: float, *, bf16_supported: bool = True):
                 bf16_supported=bf16_supported,
             ),
         ),
-        tier=tier,
-        tier_label=tier_label(tier),
     )
 
 
 def _make_multi_probe() -> object:
-    from module.gpu_profile import GPUDeviceInfo, GPUProbeResult, classify_vram_tier, tier_label
+    from module.gpu_profile import GPUDeviceInfo, GPUProbeResult
 
     total_vram_bytes = 24 * 1024**3
-    tier = classify_vram_tier(total_vram_bytes, cuda_available=True)
     return GPUProbeResult(
         torch_available=True,
         cuda_available=True,
@@ -92,8 +88,6 @@ def _make_multi_probe() -> object:
                 bf16_supported=True,
             ),
         ),
-        tier=tier,
-        tier_label=tier_label(tier),
     )
 
 
@@ -123,7 +117,7 @@ def test_caption_step_builds_local_model_fit_entries_from_gpu_probe():
     assert vlm_entry["route_name"] == "qwen_vl_local"
     assert vlm_entry["current_model_id"] == "Qwen/Qwen3.5-9B"
     assert vlm_entry["status"] == "warning"
-    assert "May exceed" in vlm_entry["status_label"]
+    assert "Needs >= 12 GB VRAM" in vlm_entry["status_label"]
 
     alm_entry = next(entry for entry in entries if entry["family"] == "ALM")
     assert alm_entry["status"] == "ok"
@@ -153,7 +147,7 @@ def test_caption_step_formats_gpu_fit_header_from_cached_probe():
 
     assert "Fake GPU" in header
     assert "24.0 GB" in header
-    assert ">16 GB" in header
+    assert "VRAM" not in header
 
 
 def test_caption_step_formats_gpu_fit_header_for_multi_gpu_probe():
@@ -164,9 +158,22 @@ def test_caption_step_formats_gpu_fit_header_for_multi_gpu_probe():
 
     header = step._local_model_fit_header()
 
-    assert "cuda:1" in header
-    assert "GPU One" in header
+    assert "GPU Zero" in header
     assert "2 GPUs" in header
+
+
+def test_caption_step_exposes_gpu_detail_lines_for_multi_gpu_probe():
+    step4 = _load_step4_module("test_step4_gpu_fit_multi_gpu_lines")
+
+    step = step4.CaptionStep()
+    step.gpu_probe = _make_multi_probe()
+
+    lines = step._gpu_detail_lines()
+
+    assert lines == (
+        "GPU 0 | GPU Zero | sm89 | 24.0 GB",
+        "GPU 1 | GPU One | sm89 | 24.0 GB",
+    )
 
 
 def test_caption_step_uses_fresh_model_id_map_for_gpu_fit_entries():
@@ -209,5 +216,5 @@ def test_caption_step_warns_for_large_custom_model_ids_from_name():
     entries = step._build_local_model_fit_entries()
 
     assert len(entries) == 1
-    assert entries[0]["status"] == "warning"
-    assert "31B" in entries[0]["status_label"]
+    assert entries[0]["status"] == "unknown"
+    assert "min_vram_gb metadata" in entries[0]["status_label"]

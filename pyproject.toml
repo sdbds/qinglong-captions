@@ -281,7 +281,7 @@ reka-edge-local = [
 gemma4-local = [
     "qinglong-captions[torch-base]",
     "torchaudio",
-    "transformers[serving]>=4.56.0",
+    "transformers[serving]>=5.5.0",
     "sentencepiece",
     "soundfile",
     "librosa",

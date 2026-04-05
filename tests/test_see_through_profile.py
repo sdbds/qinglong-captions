@@ -45,12 +45,11 @@ def test_recommend_see_through_config_exposes_nf4_profile_for_lt8gb():
                 bf16_supported=False,
             ),
         ),
-        tier="lt8gb",
-        tier_label="<8 GB",
     )
 
     recommendation = recommend_see_through_config(probe)
 
     assert recommendation.quant_mode == "nf4"
     assert recommendation.group_offload is True
+    assert recommendation.min_vram_gb == 0.0
     assert recommendation.repo_id_layerdiff == SEE_THROUGH_REPO_MAP["nf4"]["layerdiff"]

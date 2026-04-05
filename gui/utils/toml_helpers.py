@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import re
 import toml
+from typing import TYPE_CHECKING
 
-from module.gpu_profile import GPUProbeResult
 from module.providers.catalog import provider_config_sections
+
+if TYPE_CHECKING:
+    from module.gpu_profile import GPUProbeResult
 
 
 _MODEL_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "model.toml"
-_PARAM_COUNT_RE = re.compile(r"(?<!\d)(\d+(?:\.\d+)?)\s*[bB](?![a-zA-Z])")
 
 
 @dataclass(frozen=True)
@@ -22,7 +23,6 @@ class CurrentModelFitAssessment:
     status_label: str
     source: str
     min_vram_gb: float | None = None
-    estimated_vram_gb: float | None = None
 
 
 @dataclass(frozen=True)
@@ -165,36 +165,6 @@ def _available_vram_gb(probe: GPUProbeResult | None) -> float:
     return float(probe.primary_device.total_vram_gb)
 
 
-def _estimate_param_count_from_model_id(model_id: str) -> float | None:
-    matches = list(_PARAM_COUNT_RE.finditer(str(model_id or "")))
-    if not matches:
-        return None
-    try:
-        return max(float(match.group(1)) for match in matches)
-    except ValueError:
-        return None
-
-
-def _estimate_bytes_per_param(model_id: str) -> tuple[float, str]:
-    normalized = str(model_id or "").lower()
-
-    if any(token in normalized for token in ("awq", "gptq", "int4", "4bit", "4-bit", "q4", "nf4")):
-        return 0.50, "4-bit estimate"
-    if any(token in normalized for token in ("fp8", "int8", "8bit", "8-bit", "q8")):
-        return 1.00, "8-bit estimate"
-    return 2.00, "16-bit estimate"
-
-
-def _estimate_vram_from_model_id(model_id: str) -> tuple[float, str] | None:
-    param_count_b = _estimate_param_count_from_model_id(model_id)
-    if param_count_b is None:
-        return None
-
-    bytes_per_param, estimate_label = _estimate_bytes_per_param(model_id)
-    estimated_vram_gb = param_count_b * bytes_per_param
-    return estimated_vram_gb, estimate_label
-
-
 def assess_current_model_fit(
     route_name: str,
     *,
@@ -211,48 +181,31 @@ def assess_current_model_fit(
         if entry.model_id != normalized_model_id:
             continue
         if entry.min_vram_gb is None:
-            break
+            return CurrentModelFitAssessment(
+                model_id=normalized_model_id,
+                status="unknown",
+                status_label="Current model_id is in model_list but missing min_vram_gb metadata",
+                source="missing_meta",
+            )
         if available_vram < entry.min_vram_gb:
             return CurrentModelFitAssessment(
                 model_id=normalized_model_id,
                 status="warning",
-                status_label=f"May exceed {available_vram:.1f} GB VRAM (needs >= {entry.min_vram_gb:.0f} GB)",
+                status_label=f"Needs >= {entry.min_vram_gb:.0f} GB VRAM, available {available_vram:.1f} GB",
                 source="model_list",
                 min_vram_gb=entry.min_vram_gb,
             )
         return CurrentModelFitAssessment(
             model_id=normalized_model_id,
             status="ok",
-            status_label=f"Fits within {available_vram:.1f} GB VRAM",
+            status_label=f"Needs >= {entry.min_vram_gb:.0f} GB VRAM, available {available_vram:.1f} GB",
             source="model_list",
             min_vram_gb=entry.min_vram_gb,
-        )
-
-    estimated = _estimate_vram_from_model_id(normalized_model_id)
-    if estimated is not None:
-        estimated_vram_gb, estimate_label = estimated
-        if available_vram < estimated_vram_gb:
-            return CurrentModelFitAssessment(
-                model_id=normalized_model_id,
-                status="warning",
-                status_label=(
-                    f"May exceed {available_vram:.1f} GB VRAM "
-                    f"({normalized_model_id} estimates about {estimated_vram_gb:.0f} GB, {estimate_label})"
-                ),
-                source="heuristic",
-                estimated_vram_gb=estimated_vram_gb,
-            )
-        return CurrentModelFitAssessment(
-            model_id=normalized_model_id,
-            status="unknown",
-            status_label=f"Estimated around {estimated_vram_gb:.0f} GB from model name ({estimate_label}); not model_list-verified",
-            source="heuristic",
-            estimated_vram_gb=estimated_vram_gb,
         )
 
     return CurrentModelFitAssessment(
         model_id=normalized_model_id,
         status="unknown",
-        status_label="Current model_id is not in model_list and cannot be estimated from its name",
+        status_label="Current model_id is not in model_list and has no min_vram_gb metadata",
         source="unknown",
     )

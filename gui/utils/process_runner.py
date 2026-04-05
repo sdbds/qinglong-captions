@@ -28,6 +28,7 @@ from gui.utils.ansi_to_html import strip_ansi
 from gui.utils.log_buffer import LogBuffer
 from gui.utils.log_buffer import log_buffer as _global_log_buffer
 from utils.console_util import print_exception
+from utils.runtime_env import build_runtime_env, resolve_runtime_python
 from utils.wdtagger_opencv import (
     OPENCV_DISTRIBUTION_PACKAGES,
     build_wdtagger_opencv_install_plan,
@@ -231,23 +232,7 @@ class ProcessRunner:
 
         优先级: env_vars 参数 > env_config (GUI 配置) > 系统环境
         """
-        from gui.utils.env_config import get_env_for_subprocess
-
-        env = os.environ.copy()
-
-        # 注入 GUI 环境变量配置（来自 config/env_vars.json）
-        env.update(get_env_for_subprocess())
-
-        # 调用方传入的 env_vars 优先级最高
-        if env_vars:
-            env.update(env_vars)
-
-        # PYTHONPATH
-        existing = env.get("PYTHONPATH", "")
-        if self.PROJECT_ROOT not in existing:
-            env["PYTHONPATH"] = self.PROJECT_ROOT + os.pathsep + existing if existing else self.PROJECT_ROOT
-
-        return env
+        return build_runtime_env(self.PROJECT_ROOT, env_overrides=env_vars)
 
     @staticmethod
     def _normalize_console_color_system(color_system: Optional[str]) -> Optional[str]:
@@ -342,30 +327,7 @@ class ProcessRunner:
 
     @staticmethod
     def _resolve_project_python(work_dir: Path, env: dict) -> Optional[str]:
-        candidates: list[Path] = []
-
-        for name in (".venv", "venv"):
-            base = work_dir / name
-            if sys.platform == "win32":
-                python_path = base / "Scripts" / "python.exe"
-            else:
-                python_path = base / "bin" / "python"
-            candidates.append(python_path)
-
-        venv_path = env.get("VIRTUAL_ENV")
-        if venv_path:
-            venv_base = Path(venv_path)
-            if sys.platform == "win32":
-                candidates.append(venv_base / "Scripts" / "python.exe")
-            else:
-                candidates.append(venv_base / "bin" / "python")
-
-        candidates.append(Path(sys.executable))
-
-        for candidate in candidates:
-            if candidate.exists():
-                return str(candidate)
-        return None
+        return resolve_runtime_python(work_dir, env)
 
     @staticmethod
     def _needs_sync_patch(extras: list[str]) -> bool:

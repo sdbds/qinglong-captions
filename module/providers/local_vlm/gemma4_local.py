@@ -78,6 +78,12 @@ def _resolve_pretrained_device_map(device: Any, device_map: Any) -> Any:
     return {"": text}
 
 
+def _resolve_model_load_dtype(device: Any, runtime_dtype: Any) -> Any:
+    if _is_cuda_device(device):
+        return "auto"
+    return runtime_dtype
+
+
 def _image_score_lookup_key(label: str) -> str:
     simplified = str(label or "").replace("\\", " ").replace("*", "").replace("_", " ")
     simplified = re.sub(r"\s+", " ", simplified).strip().casefold()
@@ -488,8 +494,9 @@ class Gemma4LocalProvider(LocalVLMProvider):
         except TypeError:
             device, dtype, attn_impl = resolve_device_dtype()
         attn_impl = self._resolve_attention_impl(torch, device, attn_impl)
+        load_dtype = _resolve_model_load_dtype(device, dtype)
         self.log(
-            f"Loading Gemma 4 model: {model_id} (device={device}, dtype={dtype}, attn={attn_impl})",
+            f"Loading Gemma 4 model: {model_id} (device={device}, dtype={load_dtype}, attn={attn_impl})",
             "blue",
         )
 
@@ -517,7 +524,7 @@ class Gemma4LocalProvider(LocalVLMProvider):
         for model_cls in candidate_classes:
             load_kwargs: dict[str, Any] = {
                 "trust_remote_code": True,
-                "torch_dtype": dtype,
+                "torch_dtype": load_dtype,
             }
             if _is_cuda_device(device):
                 load_kwargs["device_map"] = _resolve_pretrained_device_map(device, "auto")

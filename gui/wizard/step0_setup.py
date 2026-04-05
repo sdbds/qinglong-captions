@@ -1,10 +1,10 @@
 """步骤 0: 环境检查和初始设置 - 现代化样式"""
 
+from importlib import metadata
 from nicegui import ui
 from pathlib import Path
 import sys
 import platform
-import subprocess
 from typing import Optional
 from theme import get_classes, COLORS
 from gui.utils.i18n import t
@@ -18,6 +18,8 @@ class SetupStep:
         self.on_complete = on_complete
         self.check_results = {}
         self.gpu_probe = get_cached_gpu_probe()
+        self.gpu_summary_label = None
+        self.gpu_detail_section = None
 
     def render(self):
         """渲染页面"""
@@ -52,17 +54,13 @@ class SetupStep:
 
                     with ui.column().classes("gap-1"):
                         ui.label(t("gpu")).classes("text-caption").style("color: var(--color-text-secondary);")
-                        ui.label(format_gpu_summary(self.gpu_probe)).classes("text-body2").style("color: var(--color-text);")
-
-                    with ui.column().classes("gap-1"):
-                        ui.label(t("vram_tier")).classes("text-caption").style("color: var(--color-text-secondary);")
-                        ui.label(self.gpu_probe.tier_label).classes("text-body2").style("color: var(--color-text);")
-
-                if self.gpu_probe.device_count > 1:
-                    with ui.column().classes("w-full gap-1 q-mt-md"):
-                        ui.label("Detected GPUs").classes("text-caption").style("color: var(--color-text-secondary);")
-                        for line in format_gpu_device_lines(self.gpu_probe):
-                            ui.label(line).classes("text-body2").style("color: var(--color-text);")
+                        self.gpu_summary_label = (
+                            ui.label(format_gpu_summary(self.gpu_probe))
+                            .classes("text-body2")
+                            .style("color: var(--color-text);")
+                        )
+                self.gpu_detail_section = ui.column().classes("w-full gap-1 q-mt-md")
+                self._refresh_gpu_probe_ui()
 
             # 环境检查列表
             with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
@@ -106,7 +104,7 @@ class SetupStep:
                     self.torch_label = ui.label(t("checking")).classes("text-caption").style("color: var(--color-text-secondary);")
                     self.check_items.append(("torch", torch_row))
 
-                # CUDA 检查
+                # GPU 检查
                 with (
                     ui.row()
                     .classes("w-full items-center justify-between q-pa-sm q-mt-sm")
@@ -118,7 +116,7 @@ class SetupStep:
                 ):
                     with ui.row().classes("items-center gap-2"):
                         ui.icon("memory", size="20px").style(f"color: {COLORS['success']};")
-                        ui.label("CUDA").classes("text-body2").style("color: var(--color-text);")
+                        ui.label(t("gpu")).classes("text-body2").style("color: var(--color-text);")
                     self.cuda_label = ui.label(t("checking")).classes("text-caption").style("color: var(--color-text-secondary);")
                     self.check_items.append(("cuda", cuda_row))
 
@@ -139,6 +137,9 @@ class SetupStep:
 
     def _run_checks(self):
         """运行环境检查"""
+        self.gpu_probe = get_cached_gpu_probe(refresh=True)
+        self._refresh_gpu_probe_ui()
+
         # 检查 Python 版本
         py_version = sys.version_info
         if py_version >= (3, 8):
@@ -150,30 +151,22 @@ class SetupStep:
             self.python_status.style(f"color: {COLORS['error']};")
             self.check_results["python"] = False
 
-        # 检查 PyTorch
         try:
-            import torch
-
-            self.torch_label.text = f"✅ {torch.__version__}"
+            self.torch_label.text = f"✅ {metadata.version('torch')}"
             self.torch_label.style(f"color: {COLORS['success']};")
             self.check_results["torch"] = True
-
-            # 检查 CUDA
-            if torch.cuda.is_available():
-                cuda_version = torch.version.cuda
-                self.cuda_label.text = f"✅ {cuda_version} ({format_gpu_summary(self.gpu_probe)})"
-                self.cuda_label.style(f"color: {COLORS['success']};")
-                self.check_results["cuda"] = True
-            else:
-                self.cuda_label.text = f"⚠️ {t('not_detected_cpu_mode')}"
-                self.cuda_label.style(f"color: {COLORS['warning']};")
-                self.check_results["cuda"] = False
-        except ImportError:
+        except metadata.PackageNotFoundError:
             self.torch_label.text = f"❌ {t('not_installed')}"
             self.torch_label.style(f"color: {COLORS['error']};")
             self.check_results["torch"] = False
-            self.cuda_label.text = f"❌ {t('pytorch_not_installed')}"
-            self.cuda_label.style(f"color: {COLORS['error']};")
+
+        if self.gpu_probe.cuda_available:
+            self.cuda_label.text = f"✅ {format_gpu_summary(self.gpu_probe)}"
+            self.cuda_label.style(f"color: {COLORS['success']};")
+            self.check_results["cuda"] = True
+        else:
+            self.cuda_label.text = f"⚠️ {t('not_detected_cpu_mode')}"
+            self.cuda_label.style(f"color: {COLORS['warning']};")
             self.check_results["cuda"] = False
 
     def _on_continue(self):
@@ -182,6 +175,21 @@ class SetupStep:
             self.on_complete()
         else:
             ui.navigate.to("/")
+
+    def _refresh_gpu_probe_ui(self) -> None:
+        if self.gpu_summary_label is not None:
+            self.gpu_summary_label.text = format_gpu_summary(self.gpu_probe)
+        if self.gpu_detail_section is None:
+            return
+
+        self.gpu_detail_section.clear()
+        if self.gpu_probe.device_count <= 1:
+            return
+
+        with self.gpu_detail_section:
+            ui.label("Detected GPUs").classes("text-caption").style("color: var(--color-text-secondary);")
+            for line in format_gpu_device_lines(self.gpu_probe):
+                ui.label(line).classes("text-body2").style("color: var(--color-text);")
 
 
 def render_setup_step():

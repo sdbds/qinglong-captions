@@ -44,16 +44,22 @@ def _load_current_route_model_ids() -> dict[str, str]:
     return load_current_route_model_ids_from_toml(route_names)
 
 
-def get_cached_gpu_probe():
+def get_cached_gpu_probe(*, refresh: bool = False):
     from module.gpu_profile import get_cached_gpu_probe as _get_cached_gpu_probe
 
-    return _get_cached_gpu_probe()
+    return _get_cached_gpu_probe(refresh=refresh)
 
 
 def format_gpu_summary(probe) -> str:
     from module.gpu_profile import format_gpu_summary as _format_gpu_summary
 
     return _format_gpu_summary(probe)
+
+
+def format_gpu_device_lines(probe) -> tuple[str, ...]:
+    from module.gpu_profile import format_gpu_device_lines as _format_gpu_device_lines
+
+    return _format_gpu_device_lines(probe)
 
 
 def assess_current_model_fit(route_name: str, *, current_model_id: str, probe=None):
@@ -356,8 +362,38 @@ class CaptionStep:
 
     def _local_model_fit_header(self) -> str:
         if self.gpu_probe is None:
-            return f"{t('gpu')}: {t('checking')} | {t('vram_tier')}: {t('checking')}"
-        return f"{format_gpu_summary(self.gpu_probe)} | {t('vram_tier')}: {self.gpu_probe.tier_label}"
+            return f"{t('gpu')}: {t('checking')}"
+        return format_gpu_summary(self.gpu_probe)
+
+    def _gpu_detail_lines(self) -> tuple[str, ...]:
+        if self.gpu_probe is None:
+            return ()
+        return format_gpu_device_lines(self.gpu_probe)
+
+    def _render_gpu_details_toggle(self) -> None:
+        lines = self._gpu_detail_lines()
+        if not lines:
+            return
+
+        details_open = {"value": False}
+
+        with ui.row().classes("w-full items-center gap-2 q-mt-xs"):
+            ui.icon("dns", size="16px").style(f"color: {COLORS['info']};")
+            ui.label(f"Detected GPU details ({len(lines)})").classes("text-caption").style(
+                "color: var(--color-text-secondary);"
+            )
+
+            def _toggle_gpu_details() -> None:
+                details_open["value"] = not details_open["value"]
+                details_container.set_visibility(details_open["value"])
+
+            ui.button("Toggle", on_click=_toggle_gpu_details, icon="unfold_more").props('flat dense type="button"')
+
+        details_container = ui.column().classes("w-full gap-1 q-mt-xs")
+        details_container.set_visibility(False)
+        with details_container:
+            for line in lines:
+                ui.label(line).classes("text-caption").style("color: var(--color-text-secondary);")
 
     def _build_local_model_fit_entries(self) -> tuple[dict[str, str], ...]:
         if self.gpu_probe is None:
@@ -411,7 +447,7 @@ class CaptionStep:
 
     async def _load_gpu_probe_async(self) -> None:
         try:
-            probe = await asyncio.to_thread(get_cached_gpu_probe)
+            probe = await asyncio.to_thread(get_cached_gpu_probe, refresh=True)
         except Exception:
             return
 
@@ -456,6 +492,8 @@ class CaptionStep:
                         "color: var(--color-text-secondary);"
                     )
 
+                self._render_gpu_details_toggle()
+
                 if self.gpu_probe is None:
                     ui.label("Detecting GPU capability for current local model checks...").classes(
                         "text-caption q-mt-sm"
@@ -487,7 +525,7 @@ class CaptionStep:
                     return
 
                 if unknown_entries:
-                    ui.label("Current model_id values are not verified by model_list metadata.").classes(
+                    ui.label("Current model_id values are missing min_vram_gb metadata in model_list.").classes(
                         "text-caption q-mt-sm"
                     ).style("color: var(--color-text-secondary);")
                     for entry in unknown_entries:

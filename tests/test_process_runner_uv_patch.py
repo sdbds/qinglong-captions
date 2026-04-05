@@ -238,6 +238,51 @@ def test_patch_shared_environment_treats_gemma4_local_as_torch_vision_profile(tm
     assert install_cmd[install_cmd.index("--extra") + 1] == "gemma4-local"
 
 
+def test_patch_shared_environment_installs_multiple_extras_in_one_uv_command(tmp_path, monkeypatch):
+    _write_project(
+        tmp_path,
+        with_lock=True,
+        optional_deps={
+            "gemma4-local": ["torch==2.11.0", "torchvision", "torchaudio"],
+            "quantized-runtime": ["bitsandbytes>=0.49", "compressed-tensors>=0.14.0"],
+        },
+    )
+    runner = ProcessRunner()
+    commands: list[list[str]] = []
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+    monkeypatch.setattr(runner, "_inspect_installed_torch_backend", lambda python_path, env: "cpu", raising=False)
+
+    result = asyncio.run(
+        runner._patch_shared_environment(
+            "uv",
+            tmp_path,
+            {
+                "UV_EXTRA_INDEX_URL": (
+                    "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/ "
+                    "https://download.pytorch.org/whl/cu130"
+                )
+            },
+            "test-env",
+            ["gemma4-local", "quantized-runtime"],
+            [],
+        ),
+    )
+
+    assert result is None
+    assert len(commands) == 1
+
+    install_cmd = commands[0]
+    extra_positions = [index for index, token in enumerate(install_cmd) if token == "--extra"]
+    assert len(extra_positions) == 2
+    assert install_cmd[extra_positions[0] + 1] == "gemma4-local"
+    assert install_cmd[extra_positions[1] + 1] == "quantized-runtime"
+
+
 def test_patch_shared_environment_reads_requirements_directly_from_pyproject(tmp_path, monkeypatch):
     _write_project(
         tmp_path,

@@ -447,6 +447,7 @@ def test_gemma4_load_model_prefers_sdpa_when_cuda_resolves_flash_attention(monke
 
     assert isinstance(cached["processor"], FakeProcessor)
     assert isinstance(cached["model"], FakeModel)
+    assert captured["model via object_kwargs"]["torch_dtype"] == "auto"
     assert captured["model via object_kwargs"]["device_map"] == "auto"
     assert captured["model via object_kwargs"]["attn_implementation"] == "sdpa"
 

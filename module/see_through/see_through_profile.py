@@ -30,8 +30,7 @@ class ResolvedSeeThroughRepos:
 
 @dataclass(frozen=True)
 class SeeThroughRecommendation:
-    tier: str
-    tier_label: str
+    min_vram_gb: float | None
     resolution: int
     resolution_depth: int
     dtype: str
@@ -41,6 +40,60 @@ class SeeThroughRecommendation:
     repo_id_layerdiff: str
     repo_id_depth: str
     note: str | None = None
+
+
+@dataclass(frozen=True)
+class _SeeThroughProfile:
+    min_vram_gb: float
+    resolution: int
+    resolution_depth: int
+    dtype: str
+    offload_policy: str
+    group_offload: bool
+    quant_mode: str
+    note: str | None = None
+
+
+SEE_THROUGH_PROFILES = (
+    _SeeThroughProfile(
+        min_vram_gb=16.0,
+        resolution=1280,
+        resolution_depth=DEFAULT_DEPTH_RESOLUTION,
+        dtype="float16",
+        offload_policy="delete",
+        group_offload=False,
+        quant_mode="none",
+    ),
+    _SeeThroughProfile(
+        min_vram_gb=12.0,
+        resolution=1280,
+        resolution_depth=DEFAULT_DEPTH_RESOLUTION,
+        dtype="float16",
+        offload_policy="delete",
+        group_offload=True,
+        quant_mode="none",
+    ),
+    _SeeThroughProfile(
+        min_vram_gb=8.0,
+        resolution=1024,
+        resolution_depth=DEFAULT_DEPTH_RESOLUTION,
+        dtype="float16",
+        offload_policy="delete",
+        group_offload=True,
+        quant_mode="none",
+        note="Requires at least 8 GB VRAM; switch to NF4 if you still hit OOM.",
+    ),
+    _SeeThroughProfile(
+        min_vram_gb=0.0,
+        resolution=768,
+        resolution_depth=DEFAULT_DEPTH_RESOLUTION,
+        dtype="float16",
+        offload_policy="delete",
+        group_offload=True,
+        quant_mode="nf4",
+        note="Below 8 GB VRAM is still tight; start from NF4 plus group offload.",
+    ),
+)
 
 
 def normalize_quant_mode(quant_mode: str | None) -> str:
@@ -87,8 +140,7 @@ def recommend_see_through_config(probe: GPUProbeResult) -> SeeThroughRecommendat
     repos_none = resolve_see_through_repo_ids(quant_mode="none")
     if not probe.cuda_available or probe.primary_device is None:
         return SeeThroughRecommendation(
-            tier=probe.tier,
-            tier_label=probe.tier_label,
+            min_vram_gb=None,
             resolution=768,
             resolution_depth=DEFAULT_DEPTH_RESOLUTION,
             dtype="float32",
@@ -100,63 +152,20 @@ def recommend_see_through_config(probe: GPUProbeResult) -> SeeThroughRecommendat
             note="CUDA unavailable; keep the profile conservative.",
         )
 
-    primary_device = probe.primary_device
-    preferred_half = "bfloat16" if primary_device.bf16_supported else "float16"
-
-    if probe.tier == "lt8gb":
-        repos_nf4 = resolve_see_through_repo_ids(quant_mode="nf4")
-        return SeeThroughRecommendation(
-            tier=probe.tier,
-            tier_label=probe.tier_label,
-            resolution=768,
-            resolution_depth=DEFAULT_DEPTH_RESOLUTION,
-            dtype=preferred_half,
-            offload_policy="delete",
-            group_offload=True,
-            quant_mode="nf4",
-            repo_id_layerdiff=repos_nf4.repo_id_layerdiff,
-            repo_id_depth=repos_nf4.repo_id_depth,
-            note="Below 8 GB VRAM is still tight; start from NF4 plus group offload.",
-        )
-
-    if probe.tier == "8_to_12gb":
-        return SeeThroughRecommendation(
-            tier=probe.tier,
-            tier_label=probe.tier_label,
-            resolution=1024,
-            resolution_depth=DEFAULT_DEPTH_RESOLUTION,
-            dtype=preferred_half,
-            offload_policy="delete",
-            group_offload=True,
-            quant_mode="none",
-            repo_id_layerdiff=repos_none.repo_id_layerdiff,
-            repo_id_depth=repos_none.repo_id_depth,
-            note="8-12 GB keeps the standard repo with group offload; switch to NF4 if you still hit OOM.",
-        )
-
-    if probe.tier == "12_to_16gb":
-        return SeeThroughRecommendation(
-            tier=probe.tier,
-            tier_label=probe.tier_label,
-            resolution=1280,
-            resolution_depth=DEFAULT_DEPTH_RESOLUTION,
-            dtype=preferred_half,
-            offload_policy="delete",
-            group_offload=True,
-            quant_mode="none",
-            repo_id_layerdiff=repos_none.repo_id_layerdiff,
-            repo_id_depth=repos_none.repo_id_depth,
-        )
-
+    profile = next(
+        (candidate for candidate in SEE_THROUGH_PROFILES if probe.available_vram_gb >= candidate.min_vram_gb),
+        SEE_THROUGH_PROFILES[-1],
+    )
+    repos = resolve_see_through_repo_ids(quant_mode=profile.quant_mode)
     return SeeThroughRecommendation(
-        tier=probe.tier,
-        tier_label=probe.tier_label,
-        resolution=1280,
-        resolution_depth=DEFAULT_DEPTH_RESOLUTION,
-        dtype=preferred_half,
-        offload_policy="delete",
-        group_offload=False,
-        quant_mode="none",
-        repo_id_layerdiff=repos_none.repo_id_layerdiff,
-        repo_id_depth=repos_none.repo_id_depth,
+        min_vram_gb=profile.min_vram_gb,
+        resolution=profile.resolution,
+        resolution_depth=profile.resolution_depth,
+        dtype=profile.dtype,
+        offload_policy=profile.offload_policy,
+        group_offload=profile.group_offload,
+        quant_mode=profile.quant_mode,
+        repo_id_layerdiff=repos.repo_id_layerdiff,
+        repo_id_depth=repos.repo_id_depth,
+        note=profile.note,
     )
