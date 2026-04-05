@@ -36,6 +36,9 @@ def _serialize_subtitles(subs: pysrt.SubRipFile) -> str:
 
 
 def _structured_description(payload: dict) -> str:
+    task_kind = str(payload.get("task_kind") or "").strip().lower()
+    if task_kind == "ast":
+        return str(payload.get("translation_srt") or payload.get("transcript") or "").strip()
     return str(
         payload.get("long_description")
         or payload.get("transcript")
@@ -83,6 +86,29 @@ def _build_segment_transcript_payload(segment_outputs: list[dict]) -> dict:
     if provider:
         merged["provider"] = provider
     return merged
+
+
+def _build_segment_ast_payload(segment_outputs: list[dict]) -> dict:
+    translation_parts = [str(segment["text"]).strip() for segment in segment_outputs if str(segment.get("text", "")).strip()]
+    merged = {
+        "task_kind": "ast",
+        "translation_srt": "\n\n".join(translation_parts),
+        "caption_extension": ".srt",
+        "subtitle_format": "srt",
+        "segments": segment_outputs,
+    }
+    provider = next((segment.get("provider") for segment in segment_outputs if segment.get("provider")), None)
+    if provider:
+        merged["provider"] = provider
+    return merged
+
+
+def _should_bypass_segmentation(args, mime: str) -> bool:
+    if mime.startswith("video"):
+        return getattr(args, "vlm_image_model", "") == "gemma4_local"
+    if mime.startswith("audio"):
+        return getattr(args, "alm_model", "") == "gemma4_local"
+    return False
 
 
 def _process_segmented_media(filepath, mime, duration, sha256hash, args, config, progress, task_id, api_process_batch_fn, console):
@@ -149,8 +175,11 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
                 subtitle_mode = False
             task_kind = str(chunk_output.get("task_kind") or "caption").strip().lower()
             structured_task_kind = structured_task_kind or task_kind
-            text = _structured_description(chunk_output)
-            if text:
+            if task_kind == "ast":
+                text = str(chunk_output.get("translation_srt") or chunk_output.get("transcript") or "")
+            else:
+                text = _structured_description(chunk_output)
+            if str(text).strip():
                 segment_outputs.append(
                     {
                         "index": index + 1,
@@ -192,6 +221,8 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
             file.unlink(missing_ok=True)
         if structured_task_kind == "transcribe":
             return _build_segment_transcript_payload(segment_outputs)
+        if structured_task_kind == "ast":
+            return _build_segment_ast_payload(segment_outputs)
         for segment in segment_outputs:
             segment["description"] = segment.pop("text")
         return _build_segment_summary_payload(segment_outputs)
@@ -238,7 +269,12 @@ def process_batch(
                     scene_detector.start_async_detection(filepath)
 
                 segment_time = getattr(args, "segment_time", None)
-                if mime.startswith("image") or segment_time is None or duration <= (segment_time + 1) * 1000:
+                if (
+                    mime.startswith("image")
+                    or _should_bypass_segmentation(args, mime)
+                    or segment_time is None
+                    or duration <= (segment_time + 1) * 1000
+                ):
                     output = api_process_batch_fn(
                         uri=filepath,
                         mime=mime,

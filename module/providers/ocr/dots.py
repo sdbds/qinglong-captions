@@ -473,7 +473,7 @@ class DotsOCRProvider(OCRProvider):
         self._log_stage_done("prepare_media", timer)
         return media
 
-    def resolve_prompts(self, uri: str, mime: str) -> PromptContext:
+    def resolve_prompts(self, uri: str, mime: str, media: MediaContext | None = None) -> PromptContext:
         _, prompt_text = self._resolve_prompt_mode_and_prompt()
         char_name, char_prompt = self._get_character_prompt(uri)
         return PromptContext(
@@ -756,7 +756,11 @@ class DotsOCRProvider(OCRProvider):
         _, dtype, attn_impl = resolve_device_dtype()
         global _TRANS_LOADER
         if _TRANS_LOADER is None:
-            _TRANS_LOADER = transformerLoader(attn_kw="attn_implementation", device_map="auto")
+            _TRANS_LOADER = transformerLoader(
+                attn_kw="attn_implementation",
+                device_map="auto",
+                supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
+            )
 
         stage_timer = self._log_stage_start("resolve_model_source", f"model_id={model_id}")
         load_source = _resolve_model_source(model_id)

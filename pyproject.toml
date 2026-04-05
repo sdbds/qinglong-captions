@@ -79,6 +79,7 @@ see-through = [
     "qinglong-captions[psdexport]",
     "diffusers>=0.35.1",
     "transformers[serving]>=4.56.0",
+    "bitsandbytes>=0.43.2",
     "opencv-python",
     "PyYAML",
     "scikit-learn",
@@ -276,6 +277,15 @@ reka-edge-local = [
     "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32'",
     "tiktoken",
     "einops",
+]
+gemma4-local = [
+    "qinglong-captions[torch-base]",
+    "torchaudio",
+    "transformers[serving]>=4.56.0",
+    "sentencepiece",
+    "soundfile",
+    "librosa",
+    "triton-windows; sys_platform == 'win32'",
 ]
 lfm-vl-local = [
     "qinglong-captions[onnx-base]",

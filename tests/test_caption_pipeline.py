@@ -241,6 +241,71 @@ def test_process_segmented_media_merges_transcripts_without_segment_headers(tmp_
     assert "Segment 1" not in merged["transcript"]
 
 
+def test_process_segmented_media_merges_ast_chunks_into_srt_payload(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from module.caption_pipeline.orchestrator import _process_segmented_media
+
+    audio_path = tmp_path / "ast.wav"
+    audio_path.write_bytes(b"audio")
+
+    clip_dir = tmp_path / "ast_clip"
+    clip_dir.mkdir()
+    for index in range(2):
+        (clip_dir / f"ast_{index}.wav").write_bytes(b"chunk")
+
+    class DummyProgress:
+        def add_task(self, *_args, **_kwargs):
+            return "task"
+
+        def update(self, *_args, **_kwargs):
+            return None
+
+    def fake_api_process_batch_fn(**kwargs):
+        uri = Path(kwargs["uri"])
+        if uri.name == "ast_0.wav":
+            return {
+                "task_kind": "ast",
+                "translation_srt": "1\n00:00:00,000 --> 00:00:10,000\n你好\n",
+                "caption_extension": ".srt",
+                "subtitle_format": "srt",
+                "provider": "gemma4_local",
+            }
+        return {
+            "task_kind": "ast",
+            "translation_srt": "1\n00:00:10,000 --> 00:00:20,000\n世界\n",
+            "caption_extension": ".srt",
+            "subtitle_format": "srt",
+            "provider": "gemma4_local",
+        }
+
+    args = SimpleNamespace(segment_time=10)
+
+    with patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", lambda *a, **k: None):
+        merged = _process_segmented_media(
+            str(audio_path),
+            "audio/wav",
+            20000,
+            "hash",
+            args,
+            {},
+            DummyProgress(),
+            "task",
+            fake_api_process_batch_fn,
+            _quiet_console(),
+        )
+
+    assert merged["task_kind"] == "ast"
+    assert merged["caption_extension"] == ".srt"
+    assert merged["subtitle_format"] == "srt"
+    assert merged["provider"] == "gemma4_local"
+    assert merged["translation_srt"] == (
+        "1\n00:00:00,000 --> 00:00:10,000\n你好\n\n"
+        "1\n00:00:10,000 --> 00:00:20,000\n世界"
+    )
+
+
 def test_process_batch_skips_segmentation_when_segment_time_is_none(tmp_path):
     from types import SimpleNamespace
     from unittest.mock import patch
@@ -318,6 +383,77 @@ def test_process_batch_skips_segmentation_when_segment_time_is_none(tmp_path):
         }
     ]
     assert extract_calls and extract_calls[0][0][1] == "ignored"
+
+
+def test_process_batch_bypasses_segmentation_for_gemma4_audio(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from module.caption_pipeline.orchestrator import process_batch
+
+    audio_path = tmp_path / "speech.wav"
+    audio_path.write_bytes(b"audio")
+
+    class FakeScanner:
+        def to_batches(self):
+            return [
+                {
+                    "uris": pa.array([str(audio_path)]),
+                    "mime": pa.array(["audio/wav"]),
+                    "duration": pa.array([120_000]),
+                    "hash": pa.array(["hash"]),
+                }
+            ]
+
+    class FakeDataset:
+        def scanner(self, **_kwargs):
+            return FakeScanner()
+
+        def count_rows(self):
+            return 1
+
+    api_calls = []
+
+    def fake_api_process_batch_fn(**kwargs):
+        api_calls.append(kwargs["uri"])
+        return {
+            "task_kind": "transcribe",
+            "transcript": "single pass gemma4 transcript",
+            "caption_extension": ".txt",
+            "provider": "gemma4_local",
+        }
+
+    args = SimpleNamespace(
+        dataset_dir="ignored",
+        gemini_api_key="",
+        mistral_api_key="",
+        not_clip_with_caption=True,
+        merge_batch_size=1000,
+        segment_time=10,
+        scene_detection_timeout=None,
+        alm_model="gemma4_local",
+        vlm_image_model="",
+    )
+
+    with (
+        patch("module.caption_pipeline.orchestrator._resolve_dataset", return_value=FakeDataset()),
+        patch("module.caption_pipeline.orchestrator.create_scene_detector", return_value=None),
+        patch("module.caption_pipeline.orchestrator.postprocess_caption_content", side_effect=lambda output, *_args, **_kwargs: output),
+        patch("module.caption_pipeline.orchestrator._process_segmented_media", side_effect=AssertionError("should bypass segmentation for gemma4_local")),
+        patch("module.caption_pipeline.orchestrator.write_caption_output", return_value=(audio_path.with_suffix(".txt"), None)),
+        patch("module.caption_pipeline.orchestrator.update_dataset_captions") as update_mock,
+    ):
+        process_batch(
+            args,
+            {},
+            api_process_batch_fn=fake_api_process_batch_fn,
+            transform2lance_fn=lambda **_kwargs: None,
+            extract_from_lance_fn=lambda *_args, **_kwargs: None,
+            console_obj=_quiet_console(),
+        )
+
+    assert api_calls == [str(audio_path)]
+    update_mock.assert_called_once()
 
 
 def test_normalize_subtitle_timestamps_preserves_existing_hours():

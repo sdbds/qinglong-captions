@@ -12,10 +12,12 @@ Provider 抽象基类
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from rich.console import Console
 from rich.progress import Progress
+from utils.parse_display import display_caption_and_rate
 
 
 class MediaModality(Enum):
@@ -148,6 +150,55 @@ class ProviderContext:
     args: Any = None
 
 
+def _structured_image_display_payload(media: MediaContext, result: CaptionResult) -> Optional[Dict[str, Any]]:
+    """Extract a safe shared display payload for structured single-image results."""
+    if media.modality != MediaModality.IMAGE:
+        return None
+    if media.pixels is None or media.pair_pixels is not None:
+        return None
+    if not bool(result.metadata.get("structured")):
+        return None
+    if not isinstance(result.parsed, dict):
+        return None
+
+    payload = result.parsed
+    description = str(payload.get("description") or payload.get("long_description") or "").strip()
+    if not description:
+        return None
+
+    scores = payload.get("scores")
+    if not isinstance(scores, dict):
+        scores = {}
+
+    try:
+        average_score = float(payload.get("average_score", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        average_score = 0.0
+
+    return {
+        "description": description,
+        "scores": scores,
+        "average_score": average_score,
+    }
+
+
+def _maybe_display_structured_image_result(console: Console, media: MediaContext, result: CaptionResult) -> None:
+    payload = _structured_image_display_payload(media, result)
+    if payload is None:
+        return
+
+    display_caption_and_rate(
+        title=Path(media.uri).name,
+        tag_description="",
+        long_description=payload["description"],
+        pixels=media.pixels,
+        rating=payload["scores"],
+        average_score=payload["average_score"],
+        panel_height=32,
+        console=console,
+    )
+
+
 class Provider(ABC):
     """
     Provider 抽象基类
@@ -237,7 +288,7 @@ class Provider(ABC):
             base_wait=getattr(args, "wait_time", 1.0),
         )
 
-    def resolve_prompts(self, uri: str, mime: str) -> PromptContext:
+    def resolve_prompts(self, uri: str, mime: str, media: Optional[MediaContext] = None) -> PromptContext:
         """解析 provider 执行所需的 prompt。"""
         from .resolver import PromptResolver
 
@@ -248,6 +299,7 @@ class Provider(ABC):
             self.ctx.args,
             character_prompt=char_prompt,
             character_name=char_name,
+            media=media,
         )
 
     def execute(self, uri: str, mime: str, sha256hash: str) -> CaptionResult:
@@ -273,7 +325,7 @@ class Provider(ABC):
         if task_contract is not None and getattr(task_contract, "consumes_prompts", True) is False:
             prompts = PromptContext(system="", user="")
         else:
-            prompts = self.resolve_prompts(uri, mime)
+            prompts = self.resolve_prompts(uri, mime, media=media)
 
         # 执行（带重试）
         retry_cfg = self.get_retry_config()
@@ -285,6 +337,7 @@ class Provider(ABC):
 
         # 后验证
         result = self.post_validate(result, media, self.ctx.args)
+        _maybe_display_structured_image_result(self.ctx.console, media, result)
 
         return result
 

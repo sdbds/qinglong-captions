@@ -375,10 +375,10 @@ def test_caption_step_lists_supported_cohere_transcription_languages():
     options = step._alm_language_options()
 
     assert len(options) == 14
-    assert options["en"] == "English (en)"
-    assert options["zh"] == "Chinese (zh)"
-    assert options["ja"] == "Japanese (ja)"
-    assert options["ko"] == "Korean (ko)"
+    assert options["en"] == "English — English"
+    assert options["zh"] == "中文 — Chinese"
+    assert options["ja"] == "日本語 — Japanese"
+    assert options["ko"] == "한국어 — Korean"
 
 
 def test_caption_step_uses_selected_alm_model_value_when_refreshing_dependent_controls():
@@ -409,7 +409,7 @@ def test_caption_step_uses_selected_alm_model_value_when_refreshing_dependent_co
     step._handle_alm_model_change("cohere_transcribe_local")
 
     assert len(step.alm_language.options) == 14
-    assert step.alm_language.options["ja"] == "Japanese (ja)"
+    assert step.alm_language.options["ja"] == "日本語 — Japanese"
     assert step.config["segment_time"] == 600
     assert step.segment_time_slider.value == 600
 
@@ -437,6 +437,51 @@ def test_caption_step_ignores_alm_language_for_caption_models():
 
     assert "--alm_model=music_flamingo_local" in args
     assert "--alm_language=ja" not in args
+
+
+def test_caption_step_builds_gemma4_audio_task_argument():
+    CaptionStep = _load_caption_step("test_step4_caption_gemma4_audio_task")
+
+    step = CaptionStep()
+    step.api_keys = {}
+    step.mode = SimpleNamespace(value="all")
+    step.pair_dir = SimpleNamespace(value="")
+    step.scene_detector = SimpleNamespace(value="AdaptiveDetector")
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="gemma4_local")
+    step.alm_language = SimpleNamespace(value=None)
+    step.alm_audio_task = SimpleNamespace(value="ast")
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--alm_model=gemma4_local" in args
+    assert "--audio_task=ast" in args
+
+
+def test_caption_step_adds_gemma4_local_extra_once_for_both_routes():
+    CaptionStep = _load_caption_step("test_step4_caption_gemma4_extra")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="gemma4_local")
+    step.alm_model = SimpleNamespace(value="gemma4_local")
+
+    extra_args = step._build_local_extra_args()
+
+    assert extra_args == ["--extra", "gemma4-local"]
+
+
+def test_caption_step_keeps_audio_task_value_empty_until_gemma4_is_selected():
+    CaptionStep = _load_caption_step("test_step4_caption_audio_task_initial_value")
+
+    step = CaptionStep()
+
+    assert step._initial_alm_audio_task_value() is None
+
+    step.alm_model = SimpleNamespace(value="gemma4_local")
+
+    assert step._initial_alm_audio_task_value() == "asr"
 
 
 def test_caption_step_builds_explicit_segment_time_override():
@@ -482,6 +527,13 @@ def test_run_ps1_mentions_lfm_vl_local_extra():
 
     assert '"lfm_vl_local"' in content
     assert 'Add-UvExtra "lfm-vl-local"' in content
+
+
+def test_run_ps1_mentions_gemma4_local_extra():
+    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+
+    assert '"gemma4_local"' in content
+    assert 'Add-UvExtra "gemma4-local"' in content
 
 
 def test_run_ps1_mentions_lighton_ocr_extra():

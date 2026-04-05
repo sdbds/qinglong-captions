@@ -27,7 +27,7 @@ class TestProviderRegistry:
         reg = get_registry()
         reg.discover()
         providers = reg.list_providers()
-        assert len(providers) >= 25
+        assert len(providers) >= 26
         expected = [
             "stepfun",
             "ark",
@@ -52,6 +52,7 @@ class TestProviderRegistry:
             "step_vl_local",
             "penguin_vl_local",
             "reka_edge_local",
+            "gemma4_local",
             "acestep_transcriber_local",
             "cohere_transcribe_local",
             "mistral_ocr",

@@ -12,36 +12,14 @@ from typing import Any
 
 from ..see_through_profile import normalize_quant_mode
 from ..vendor_bootstrap import ensure_vendor_imports
-from utils.transformer_loader import load_pretrained_component
+from utils.transformer_loader import (
+    is_quantized_pretrained_component,
+    load_pretrained_component,
+    move_pretrained_component,
+)
 
 
 DEFAULT_SEED = 42
-
-
-def _is_quantized_component(component: Any) -> bool:
-    return bool(
-        getattr(component, "is_quantized", False)
-        or getattr(component, "quantization_method", None)
-        or getattr(component, "is_loaded_in_4bit", False)
-    )
-
-
-def _move_component(*, component: Any | None, device: str, dtype: Any | None) -> None:
-    if component is None:
-        return
-    move = getattr(component, "to", None)
-    if not callable(move):
-        return
-    kwargs: dict[str, Any] = {"device": device}
-    if dtype is not None:
-        kwargs["dtype"] = dtype
-    try:
-        move(**kwargs)
-    except TypeError:
-        if dtype is None:
-            move(device)
-        else:
-            move(device=device, dtype=dtype)
 
 
 def _maybe_enable_group_offload(*, pipeline: Any, enabled: bool, device: str, console: Any | None = None) -> None:
@@ -142,18 +120,18 @@ def load_layerdiff_pipeline(
 
     if quant_mode == "none":
         for module_name in ("vae", "trans_vae", "unet", "text_encoder", "text_encoder_2"):
-            _move_component(
-                component=getattr(pipeline, module_name, None),
+            move_pretrained_component(
+                getattr(pipeline, module_name, None),
                 device=runtime_context.device,
                 dtype=runtime_context.dtype,
             )
     else:
         for module_name in ("vae", "trans_vae", "unet", "text_encoder", "text_encoder_2"):
             module = getattr(pipeline, module_name, None)
-            if module_name in {"unet", "text_encoder", "text_encoder_2"} and _is_quantized_component(module):
+            if module_name in {"unet", "text_encoder", "text_encoder_2"} and is_quantized_pretrained_component(module):
                 continue
-            _move_component(
-                component=module,
+            move_pretrained_component(
+                module,
                 device=runtime_context.device,
                 dtype=runtime_context.dtype,
             )

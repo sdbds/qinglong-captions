@@ -302,7 +302,11 @@ class QianfanOCRProvider(OCRProvider):
         _, dtype, attn_impl = resolve_device_dtype()
         global _TRANS_LOADER
         if _TRANS_LOADER is None:
-            _TRANS_LOADER = transformerLoader(attn_kw="_attn_implementation", device_map="auto")
+            _TRANS_LOADER = transformerLoader(
+                attn_kw="_attn_implementation",
+                device_map="auto",
+                supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
+            )
 
         with _suppress_broken_wandb_import():
             tokenizer = _TRANS_LOADER.get_or_load_processor(model_id, AutoTokenizer, console=self.ctx.console)

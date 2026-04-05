@@ -58,7 +58,11 @@ def attempt_glm_ocr(
     device, dtype, attn_impl = resolve_device_dtype()
     global _TRANS_LOADER
     if _TRANS_LOADER is None:
-        _TRANS_LOADER = transformerLoader(attn_kw="_attn_implementation", device_map="auto")
+        _TRANS_LOADER = transformerLoader(
+            attn_kw="_attn_implementation",
+            device_map="auto",
+            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
+        )
 
     processor = _TRANS_LOADER.get_or_load_processor(model_id, AutoProcessor, console=console)
     model = _TRANS_LOADER.get_or_load_model(

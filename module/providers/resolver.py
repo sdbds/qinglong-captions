@@ -30,7 +30,7 @@ class PromptResolver:
 
     优先级（从高到低）：
     1. Gemini Task 动态模板（如果是 Gemini + image）
-    2. Pair 图像模式（如果 pair_dir 存在）
+    2. Pair 图像模式（如果实际存在配对媒体）
     3. Provider 特定覆盖
     4. Mime 类型基础选择
     5. Character prompt 注入
@@ -47,6 +47,7 @@ class PromptResolver:
         args: Any,
         character_prompt: str = "",
         character_name: str = "",
+        media: Any | None = None,
     ) -> PromptContext:
         """解析最终使用的 prompt"""
         # 基础选择
@@ -56,7 +57,7 @@ class PromptResolver:
         system, user = self._provider_override(system, user, mime)
 
         # Pair 模式覆盖
-        if mime.startswith("image") and getattr(args, "pair_dir", ""):
+        if mime.startswith("image") and self._is_pair_mode(args, media):
             system, user = self._pair_override(system, user, mime)
 
         # Gemini Task 模板系统
@@ -96,29 +97,34 @@ class PromptResolver:
     def _provider_override(self, system: str, user: str, mime: str) -> Tuple[str, str]:
         """Provider 特定覆盖"""
         provider_names = provider_prompt_prefixes(self.provider_name)
-        provider_prefixes = _unique_preserve_order(name.replace("_", "") for name in provider_names)
 
         if mime.startswith("video"):
             system_keys = [f"{name}_video_system_prompt" for name in provider_names]
-            system_keys.extend(f"{name}_video_system_prompt" for name in provider_prefixes)
-            system = self._get_with_fallback(*system_keys, "step_video_system_prompt", system)
+            if self.provider_name in {"stepfun", "step_vl_local"}:
+                system = self._get_with_fallback(*system_keys, "step_video_system_prompt", system)
+            else:
+                system = self._get_with_fallback(*system_keys, system)
 
             user_keys = [f"{name}_video_prompt" for name in provider_names]
-            user_keys.extend(f"{name}_video_prompt" for name in provider_prefixes)
-            user = self._get_with_fallback(*user_keys, "step_video_prompt", user)
+            if self.provider_name in {"stepfun", "step_vl_local"}:
+                user = self._get_with_fallback(*user_keys, "step_video_prompt", user)
+            else:
+                user = self._get_with_fallback(*user_keys, user)
         elif mime.startswith("image"):
             # 修复：kimi_code/kimi_vl/minimax 兼容性，添加特定 fallback
             kimi_fallback = ""
             if self.provider_name in ("kimi_code", "kimi_vl"):
                 kimi_fallback = "kimi_image_system_prompt"
 
+            mistral_system_fallbacks = ()
+            if self.provider_name == "mistral_ocr":
+                mistral_system_fallbacks = ("mistral_ocr_image_system_prompt", "pixtral_image_system_prompt")
+
             system_keys = [f"{name}_image_system_prompt" for name in provider_names]
-            system_keys.extend(f"{name}_image_system_prompt" for name in provider_prefixes)
             system = self._get_with_fallback(
                 *system_keys,
                 kimi_fallback,
-                "mistral_ocr_image_system_prompt",
-                "pixtral_image_system_prompt",  # 通用兼容性 fallback
+                *mistral_system_fallbacks,
                 system,
             )
 
@@ -131,14 +137,16 @@ class PromptResolver:
             if self.provider_name == "minimax_code":
                 minimax_fallback = "minimax_api_image_prompt"
 
+            mistral_prompt_fallbacks = ()
+            if self.provider_name == "mistral_ocr":
+                mistral_prompt_fallbacks = ("mistral_ocr_image_prompt", "pixtral_image_prompt")
+
             user_keys = [f"{name}_image_prompt" for name in provider_names]
-            user_keys.extend(f"{name}_image_prompt" for name in provider_prefixes)
             user = self._get_with_fallback(
                 *user_keys,
                 kimi_prompt_fallback,
                 minimax_fallback,
-                "mistral_ocr_image_prompt",
-                "pixtral_image_prompt",
+                *mistral_prompt_fallbacks,
                 user,
             )
         elif mime.startswith("audio"):
@@ -156,6 +164,22 @@ class PromptResolver:
         user = self._get_first_existing(["image_pair_prompt", "pair_image_prompt"], user)
 
         return system, user
+
+    @staticmethod
+    def _is_pair_mode(args: Any, media: Any | None) -> bool:
+        """Prefer prepared media state over raw CLI args when deciding pair prompt mode."""
+        if media is not None:
+            extras = getattr(media, "extras", {}) or {}
+            pair_blob = getattr(media, "pair_blob", None)
+            pair_pixels = getattr(media, "pair_pixels", None)
+            pair_extras = getattr(media, "pair_extras", None)
+            if pair_blob is not None or pair_pixels is not None:
+                return True
+            if pair_extras:
+                return True
+            return bool(extras.get("pair_uri"))
+
+        return bool(getattr(args, "pair_dir", ""))
 
     def _get_with_fallback(self, *keys: str) -> str:
         """
@@ -221,13 +245,3 @@ class PromptResolver:
 
         # 直接匹配模板名或返回原 task
         return task_prompts.get(task, task)
-
-
-def _unique_preserve_order(values):
-    seen = set()
-    ordered = []
-    for value in values:
-        if value and value not in seen:
-            seen.add(value)
-            ordered.append(value)
-    return ordered

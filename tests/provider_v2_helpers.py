@@ -23,6 +23,8 @@ def make_provider_args(**kwargs):
         "document_image": False,
         "vlm_image_model": "",
         "alm_model": "",
+        "audio_task": "",
+        "gemma4_model_id": "",
         "pair_dir": "",
     }
     defaults.update(kwargs)

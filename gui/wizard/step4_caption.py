@@ -1,14 +1,22 @@
 """步骤 4: 字幕生成 - 对应 run.ps1 (captioner.py)"""
 
+import asyncio
+from typing import TYPE_CHECKING
+
 from nicegui import ui
 from pathlib import Path
 from typing import Optional, Dict, Any
 from theme import get_classes, COLORS
 from components.path_selector import create_path_selector
 from components.advanced_inputs import editable_slider, toggle_switch, styled_select, styled_input
-from components.execution_panel import ExecutionPanel
 from gui.utils.i18n import t
+from gui.utils.toml_helpers import assess_current_model_fit as assess_current_model_fit_from_toml
+from gui.utils.toml_helpers import load_current_route_model_ids as load_current_route_model_ids_from_toml
 from module.providers.catalog import route_choices, route_requires_remote_config
+
+if TYPE_CHECKING:
+    from components.execution_panel import ExecutionPanel
+    from components.model_config_panel import ModelConfigPanel
 
 
 def _load_gemini_task_names() -> list[str]:
@@ -21,29 +29,46 @@ def _load_gemini_task_names() -> list[str]:
         return []
 
 
-def _load_model_id_map() -> dict[str, str]:
-    """从 model.toml 读取各 section 的 model_id，返回 {section_name: model_id}。"""
-    import toml
-    try:
-        cfg = toml.load(Path(__file__).resolve().parent.parent.parent / "config" / "model.toml")
-    except Exception:
-        return {}
-    result: dict[str, str] = {}
-    for section, value in cfg.items():
-        if isinstance(value, dict):
-            mid = value.get("model_id")
-            if mid:
-                result[section] = mid
-    return result
+def _load_current_route_model_ids() -> dict[str, str]:
+    """从 model.toml 读取当前 route -> model_id 映射。"""
+    route_names = tuple(
+        route_name
+        for route_name in (
+            *route_choices("ocr_model", include_empty=False),
+            *route_choices("vlm_image_model", include_empty=False),
+            *route_choices("alm_model", include_empty=False),
+        )
+        if route_name
+    )
+    return load_current_route_model_ids_from_toml(route_names)
 
 
-# 在模块加载时读取一次
-_MODEL_ID_MAP: dict[str, str] = _load_model_id_map()
+def get_cached_gpu_probe():
+    from module.gpu_profile import get_cached_gpu_probe as _get_cached_gpu_probe
 
-# penguin_vl_local 的 config section 名是 "penguin"
-_MODEL_ID_MAP.setdefault("penguin_vl_local", _MODEL_ID_MAP.get("penguin", "penguin_vl_local"))
-_MODEL_ID_MAP["paddle_ocr"] = "PaddleOCR-VL-1.5"
+    return _get_cached_gpu_probe()
 
+
+def format_gpu_summary(probe) -> str:
+    from module.gpu_profile import format_gpu_summary as _format_gpu_summary
+
+    return _format_gpu_summary(probe)
+
+
+def assess_current_model_fit(route_name: str, *, current_model_id: str, probe=None):
+    return assess_current_model_fit_from_toml(route_name, current_model_id=current_model_id, probe=probe)
+
+
+def _load_execution_panel_cls():
+    from components.execution_panel import ExecutionPanel
+
+    return ExecutionPanel
+
+
+def _load_model_config_panel_cls():
+    from components.model_config_panel import ModelConfigPanel
+
+    return ModelConfigPanel
 
 class CaptionStep:
     """字幕生成页面"""
@@ -54,8 +79,9 @@ class CaptionStep:
             "key_name": "gemini_api_key",
             "models": [
                 "gemini-3.1-pro-preview",
-                "gemini-3.1-flash-image-preview",
+                "gemini-3-flash-preview",
                 "gemini-3.1-flash-lite-preview",
+                "gemini-3.1-flash-image-preview",
                 "gemini-2.5-pro",
                 "gemini-2.5-flash",
                 "gemini-2.5-flash-lite",
@@ -67,11 +93,12 @@ class CaptionStep:
         "Mistral": {
             "key_name": "mistral_api_key",
             "models": [
-                "pixtral-large-latest",
-                "pixtral-12b-latest",
                 "mistral-large-latest",
                 "mistral-medium-latest",
                 "mistral-small-latest",
+                "mistral-ocr-latest",
+                "pixtral-large-latest",
+                "pixtral-12b-latest",
             ],
             "default_model": "mistral-large-latest",
             "supports_video": False,
@@ -80,11 +107,11 @@ class CaptionStep:
         "Step": {
             "key_name": "step_api_key",
             "models": [
+                "step-3.5-flash",
                 "step-3-vl",
                 "step-3-vl-mini",
+                "step-1o-turbo-vision",
                 "step-2o-vision",
-                "step-1.5v-max",
-                "step-1.5v-mini",
                 "step-r1-v-mini",
             ],
             "default_model": "step-3-vl-mini",
@@ -94,15 +121,17 @@ class CaptionStep:
         "Qwen": {
             "key_name": "qwenVL_api_key",
             "models": [
-                "qwen3-max-lastest",
+                "qwen3.5-plus",
+                "qwen3.5-flash",
                 "qwen3-vl-plus",
                 "qwen3-vl-plus-latest",
                 "qwen3-vl-flash",
                 "qwen3-vl-flash-latest",
+                "qwen-vl-max",
                 "qwen-vl-ocr",
                 "qwen-vl-ocr-latest",
             ],
-            "default_model": "qwen3-vl-plus",
+            "default_model": "qwen3.5-plus",
             "supports_video": True,
             "supports_task": False,
         },
@@ -110,14 +139,14 @@ class CaptionStep:
             "key_name": "kimi_api_key",
             "models": [
                 "kimi-k2.5",
-                "moonshot-v1-8k",
-                "moonshot-v1-32k",
-                "moonshot-v1-128k",
+                "kimi-k2",
+                "kimi-k2-turbo-preview",
+                "kimi-k2-thinking",
+                "kimi-k2-thinking-turbo",
             ],
             "default_model": "kimi-k2.5",
             "supports_video": True,
             "supports_task": False,
-            "note": "kimi-latest 已于 2026年1月28日停止新用户使用",
         },
         "Kimi-Code": {
             "key_name": "kimi_code_api_key",
@@ -159,20 +188,27 @@ class CaptionStep:
         "GLM": {
             "key_name": "glm_api_key",
             "models": [
+                "glm-5v-turbo",
                 "glm-5",
                 "glm-4.5v",
                 "glm-4.1v",
                 "glm-4v-plus",
-                "glm-4v",
             ],
-            "default_model": "glm-5",
+            "default_model": "glm-5v-turbo",
             "supports_video": True,
             "supports_task": False,
         },
         "Ark": {
             "key_name": "ark_api_key",
-            "models": [],
-            "default_model": "",
+            "models": [
+                "doubao-seed-2-0-pro-260215",
+                "doubao-1.5-thinking-vision-pro-250428",
+                "doubao-1.5-vision-pro-250328",
+                "doubao-1.5-vision-lite-250315",
+                "doubao-vision-pro-32k-241028",
+                "doubao-vision-lite-32k-241015",
+            ],
+            "default_model": "doubao-1.5-vision-pro-250328",
             "supports_video": True,
             "supports_task": False,
             "custom_model_input": True,
@@ -213,17 +249,16 @@ class CaptionStep:
             if not m:
                 labels[m] = m
                 continue
-            mid = _MODEL_ID_MAP.get(m, m)
             if m in cls._OCR_RANK_SCORES:
                 rank, score = cls._OCR_RANK_SCORES[m]
-                labels[m] = f"{rank} {mid} ({score})"
+                labels[m] = f"{rank} {m} ({score})"
             else:
-                labels[m] = mid
+                labels[m] = m
         return labels
 
     @classmethod
     def _build_route_labels(cls, models: list[str]) -> dict[str, str]:
-        return {m: (_MODEL_ID_MAP.get(m, m) if m else m) for m in models}
+        return {m: m for m in models}
 
     VLM_MODELS = list(route_choices("vlm_image_model"))
 
@@ -269,14 +304,23 @@ class CaptionStep:
         "step_vl_local": "step-vl-local",
         "penguin_vl_local": "penguin-vl-local",
         "reka_edge_local": "reka-edge-local",
+        "gemma4_local": "gemma4-local",
         "lfm_vl_local": "lfm-vl-local",
     }
 
     ALM_EXTRA_MAP = {
+        "gemma4_local": "gemma4-local",
         "music_flamingo_local": "music-flamingo-local",
         "eureka_audio_local": "eureka-audio-local",
         "acestep_transcriber_local": "acestep-transcriber-local",
         "cohere_transcribe_local": "cohere-transcribe-local",
+    }
+
+    ALM_AUDIO_TASK_OPTIONS = {
+        "gemma4_local": {
+            "asr": "ASR",
+            "ast": "AST",
+        }
     }
 
     def __init__(self):
@@ -286,19 +330,169 @@ class CaptionStep:
             "max_retries": 100,
             "segment_time": 600,
             "segment_time_explicit": False,
+            "audio_task": "asr",
             "tags_highlightrate": 0.38,
             "dir_name": False,
             "not_clip_with_caption": True,
             "document_image": True,
             "mistral_ocr_mode": False,
         }
-        self.panel: ExecutionPanel = None
+        self.panel: "ExecutionPanel | None" = None
         self.api_keys = {}
         self._syncing_segment_time = False
+        self.gpu_probe = None
+        self._gpu_probe_scheduled = False
+        self._execution_panel_container = None
 
     @staticmethod
     def _has_text(value: Any) -> bool:
         return value is not None and str(value).strip() != ""
+
+    def _local_model_fit_header(self) -> str:
+        if self.gpu_probe is None:
+            return f"{t('gpu')}: {t('checking')} | {t('vram_tier')}: {t('checking')}"
+        return f"{format_gpu_summary(self.gpu_probe)} | {t('vram_tier')}: {self.gpu_probe.tier_label}"
+
+    def _build_local_model_fit_entries(self) -> tuple[dict[str, str], ...]:
+        if self.gpu_probe is None:
+            return ()
+        model_id_map = _load_current_route_model_ids()
+        route_specs = (
+            ("OCR", "ocr_model", getattr(getattr(self, "ocr_model", None), "value", "") or ""),
+            ("VLM", "vlm_image_model", getattr(getattr(self, "vlm_image_model", None), "value", "") or ""),
+            ("ALM", "alm_model", self._current_alm_model()),
+        )
+
+        entries: list[dict[str, str]] = []
+        for family, route_key, route_name in route_specs:
+            if not self._has_text(route_name):
+                continue
+            if route_requires_remote_config(route_key, route_name):
+                continue
+
+            current_model_id = model_id_map.get(route_name, "")
+            assessment = assess_current_model_fit(
+                route_name,
+                current_model_id=current_model_id,
+                probe=self.gpu_probe,
+            )
+            if assessment is None:
+                continue
+
+            entries.append(
+                {
+                    "family": family,
+                    "route_name": route_name,
+                    "current_model_id": assessment.model_id,
+                    "status": assessment.status,
+                    "status_label": assessment.status_label,
+                    "source": assessment.source,
+                }
+            )
+
+        return tuple(entries)
+
+    def _handle_model_config_saved(self) -> None:
+        for attr_name, options in (
+            ("ocr_model", self._build_ocr_labels()),
+            ("vlm_image_model", self._build_route_labels(self.VLM_MODELS)),
+            ("alm_model", self._build_route_labels(self.ALM_MODELS)),
+        ):
+            control = getattr(self, attr_name, None)
+            if control is not None:
+                control.set_options(options, value=getattr(control, "value", None))
+        self._refresh_local_model_fit_summary()
+
+    async def _load_gpu_probe_async(self) -> None:
+        try:
+            probe = await asyncio.to_thread(get_cached_gpu_probe)
+        except Exception:
+            return
+
+        self.gpu_probe = probe
+        self._refresh_local_model_fit_summary()
+
+    def _refresh_local_model_fit_summary(self) -> None:
+        container = getattr(self, "_local_model_fit_container", None)
+        if container is None:
+            return
+
+        container.clear()
+        entries = self._build_local_model_fit_entries()
+
+        with container:
+            warning_entries = [entry for entry in entries if entry["status"] == "warning"]
+            unknown_entries = [entry for entry in entries if entry["status"] == "unknown"]
+            card_style = (
+                """
+                background: rgba(245, 158, 11, 0.10);
+                border-radius: 10px;
+                border: 1px solid rgba(245, 158, 11, 0.20);
+                box-shadow: none;
+                """
+                if warning_entries
+                else """
+                background: rgba(16, 185, 129, 0.08);
+                border-radius: 10px;
+                border: 1px solid rgba(16, 185, 129, 0.18);
+                box-shadow: none;
+                """
+            )
+
+            with ui.card().classes("w-full q-pa-sm").style(card_style):
+                with ui.row().classes("w-full items-center justify-between gap-2"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("memory", size="18px").style(f"color: {COLORS['success']};")
+                        ui.label("Local Model Fit").classes("text-body2 text-weight-bold").style(
+                            "color: var(--color-text);"
+                        )
+                    ui.label(self._local_model_fit_header()).classes("text-caption").style(
+                        "color: var(--color-text-secondary);"
+                    )
+
+                if self.gpu_probe is None:
+                    ui.label("Detecting GPU capability for current local model checks...").classes(
+                        "text-caption q-mt-sm"
+                    ).style("color: var(--color-text-secondary);")
+                    return
+
+                if not entries:
+                    ui.label("Select local OCR/VLM/ALM routes to check current model VRAM fit.").classes(
+                        "text-caption q-mt-sm"
+                    ).style("color: var(--color-text-secondary);")
+                    return
+
+                if warning_entries:
+                    ui.label("These models may exceed available VRAM:").classes("text-caption q-mt-sm").style(
+                        "color: var(--color-text-secondary);"
+                    )
+                    for entry in warning_entries:
+                        with ui.column().classes("w-full gap-0 q-mt-sm").style(
+                            """
+                            background: rgba(255, 255, 255, 0.55);
+                            border-radius: 8px;
+                            padding: 8px 10px;
+                            """
+                        ):
+                            ui.label(f"{entry['family']} · {entry['current_model_id']}").classes(
+                                "text-caption text-weight-bold"
+                            ).style("color: var(--color-text-secondary);")
+                            ui.label(entry["status_label"]).classes("text-body2").style("color: var(--color-text);")
+                    return
+
+                if unknown_entries:
+                    ui.label("Current model_id values are not verified by model_list metadata.").classes(
+                        "text-caption q-mt-sm"
+                    ).style("color: var(--color-text-secondary);")
+                    for entry in unknown_entries:
+                        ui.label(f"{entry['family']} · {entry['current_model_id']}").classes("text-caption").style(
+                            "color: var(--color-text-secondary);"
+                        )
+                    return
+
+                ui.label("Current local models fit available VRAM.").classes("text-caption q-mt-sm").style(
+                    "color: var(--color-text-secondary);"
+                )
 
     def _current_alm_model(self) -> str:
         alm_model = getattr(self, "alm_model", None)
@@ -318,6 +512,23 @@ class CaptionStep:
         model_name = alm_model if alm_model is not None else self._current_alm_model()
         return dict(self.ALM_LANGUAGE_OPTIONS.get(model_name, {}))
 
+    def _alm_requires_audio_task(self, alm_model: Optional[str] = None) -> bool:
+        model_name = alm_model if alm_model is not None else self._current_alm_model()
+        return model_name in self.ALM_AUDIO_TASK_OPTIONS
+
+    def _alm_audio_task_options(self, alm_model: Optional[str] = None) -> dict[str, str]:
+        model_name = alm_model if alm_model is not None else self._current_alm_model()
+        return dict(self.ALM_AUDIO_TASK_OPTIONS.get(model_name, {}))
+
+    def _initial_alm_audio_task_value(self, alm_model: Optional[str] = None) -> Optional[str]:
+        options = self._alm_audio_task_options(alm_model)
+        if not options:
+            return None
+        preferred_value = self.config.get("audio_task", "asr")
+        if preferred_value in options:
+            return preferred_value
+        return next(iter(options), None)
+
     def _sync_alm_language_options(self, alm_model: Optional[str] = None) -> None:
         alm_language = getattr(self, "alm_language", None)
         if alm_language is None:
@@ -330,6 +541,33 @@ class CaptionStep:
 
         # Hide the container when no language options are available
         container = getattr(self, "_alm_language_container", None)
+        if container is not None:
+            container.set_visibility(bool(options))
+
+    def _handle_audio_task_change(self, selected_task: Optional[str]) -> None:
+        if self._has_text(selected_task):
+            self.config["audio_task"] = selected_task
+
+    def _sync_alm_audio_task_options(self, alm_model: Optional[str] = None) -> None:
+        audio_task = getattr(self, "alm_audio_task", None)
+        if audio_task is None:
+            return
+
+        options = self._alm_audio_task_options(alm_model)
+        current_value = getattr(audio_task, "value", None)
+        preferred_value = self.config.get("audio_task", "asr")
+        if current_value in options:
+            next_value = current_value
+        elif preferred_value in options:
+            next_value = preferred_value
+        else:
+            next_value = next(iter(options), None)
+
+        audio_task.set_options(options, value=next_value)
+        if next_value is not None:
+            self.config["audio_task"] = next_value
+
+        container = getattr(self, "_alm_audio_task_container", None)
         if container is not None:
             container.set_visibility(bool(options))
 
@@ -370,6 +608,43 @@ class CaptionStep:
     def _handle_alm_model_change(self, selected_model: Optional[str]) -> None:
         self._sync_segment_time_default(selected_model)
         self._sync_alm_language_options(selected_model)
+        self._sync_alm_audio_task_options(selected_model)
+        self._on_model_select_change("alm", selected_model)
+
+    def _on_model_select_change(self, model_type: str, route_name: Optional[str]) -> None:
+        panel_map = {
+            "ocr": getattr(self, "_ocr_config_panel", None),
+            "vlm": getattr(self, "_vlm_config_panel", None),
+            "alm": getattr(self, "_alm_config_panel", None),
+        }
+        panel: Optional["ModelConfigPanel"] = panel_map.get(model_type)
+        if panel is None:
+            return
+        if route_name and route_name.strip():
+            panel.show(route_name)
+        else:
+            panel.hide()
+        self._refresh_local_model_fit_summary()
+
+    def _ensure_execution_panel(self):
+        if self.panel is not None:
+            return self.panel
+
+        container = self._execution_panel_container
+        if container is None:
+            raise RuntimeError("Execution panel container is not ready")
+
+        execution_panel_cls = _load_execution_panel_cls()
+        with container:
+            self.panel = execution_panel_cls(start_label=t("start_caption"))
+        self.panel._on_start = self._start_caption
+        return self.panel
+
+    def _schedule_gpu_probe_refresh(self) -> None:
+        if self._gpu_probe_scheduled:
+            return
+        self._gpu_probe_scheduled = True
+        asyncio.create_task(self._load_gpu_probe_async())
 
     def _has_remote_provider_config(self) -> bool:
         has_api = any(self._has_text(getattr(key_input, "value", "")) for key_input in self.api_keys.values())
@@ -473,6 +748,9 @@ class CaptionStep:
             alm_language = getattr(getattr(self, "alm_language", None), "value", "")
             if self._alm_requires_language() and self._has_text(alm_language):
                 args.append(f"--alm_language={alm_language}")
+            alm_audio_task = getattr(getattr(self, "alm_audio_task", None), "value", "")
+            if self._alm_requires_audio_task() and self._has_text(alm_audio_task):
+                args.append(f"--audio_task={alm_audio_task}")
 
         return args
 
@@ -523,9 +801,11 @@ class CaptionStep:
                 with ui.tab_panel(ocr_tab):
                     self._render_ocr_settings()
 
-            # 执行面板 (Start/Stop + LogViewer)
-            self.panel = ExecutionPanel(start_label=t("start_caption"))
-            self.panel._on_start = self._start_caption
+            # 执行面板懒创建，避免首屏被日志 UI 拖慢。
+            self._execution_panel_container = ui.column().classes("w-full")
+
+        ui.timer(0.01, self._ensure_execution_panel, once=True)
+        ui.timer(0.01, self._schedule_gpu_probe_refresh, once=True)
 
     def _render_basic_settings(self):
         """渲染基础设置"""
@@ -707,10 +987,13 @@ class CaptionStep:
 
     def _render_ocr_settings(self):
         """渲染 OCR/VLM/ALM 设置"""
+        model_config_panel_cls = _load_model_config_panel_cls()
         with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
             with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                 ui.icon("text_fields", size="22px").style(f"color: {COLORS['info']};")
                 ui.label("OCR " + t("settings")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
+
+            self._local_model_fit_container = ui.column().classes("w-full q-mb-md")
 
             # OCR 模型 - 带图标的现代化下拉框
             self.ocr_model = styled_select(
@@ -720,6 +1003,9 @@ class CaptionStep:
                 icon="text_fields",
                 icon_color=COLORS["info"],
             )
+            _ocr_cfg_container = ui.column().classes("w-full")
+            self._ocr_config_panel = model_config_panel_cls(_ocr_cfg_container, on_save=self._handle_model_config_saved)
+            self.ocr_model.on_value_change(lambda e: self._on_model_select_change("ocr", e.value))
 
             # 开关选项
             with ui.row().classes("w-full gap-4 q-mt-md"):
@@ -737,6 +1023,9 @@ class CaptionStep:
                 icon="visibility",
                 icon_color=COLORS["secondary"],
             )
+            _vlm_cfg_container = ui.column().classes("w-full")
+            self._vlm_config_panel = model_config_panel_cls(_vlm_cfg_container, on_save=self._handle_model_config_saved)
+            self.vlm_image_model.on_value_change(lambda e: self._on_model_select_change("vlm", e.value))
 
             with ui.row().classes("w-full items-center gap-2 q-mb-md q-mt-md"):
                 ui.icon("graphic_eq", size="22px").style(f"color: {COLORS['primary']};")
@@ -751,6 +1040,8 @@ class CaptionStep:
                 on_change=self._handle_alm_model_change,
                 searchable=False,
             )
+            _alm_cfg_container = ui.column().classes("w-full")
+            self._alm_config_panel = model_config_panel_cls(_alm_cfg_container, on_save=self._handle_model_config_saved)
 
             with ui.column().classes("w-full") as self._alm_language_container:
                 self.alm_language = styled_select(
@@ -764,8 +1055,23 @@ class CaptionStep:
                 )
             self._alm_language_container.set_visibility(False)
 
+            with ui.column().classes("w-full") as self._alm_audio_task_container:
+                self.alm_audio_task = styled_select(
+                    options=self._alm_audio_task_options(),
+                    value=self._initial_alm_audio_task_value(),
+                    label=t("audio_task"),
+                    icon="subtitles",
+                    icon_color=COLORS["primary"],
+                    placeholder="Select audio task",
+                    searchable=False,
+                    on_change=self._handle_audio_task_change,
+                )
+            self._alm_audio_task_container.set_visibility(False)
+
             self._sync_segment_time_default()
             self._sync_alm_language_options()
+            self._sync_alm_audio_task_options()
+            self._refresh_local_model_fit_summary()
 
     async def _start_caption(self):
         """开始字幕生成"""
@@ -795,7 +1101,9 @@ class CaptionStep:
             if uv_extra_args:
                 lv.info(f"uv extras: {uv_extra_args}")
 
-        await self.panel.run_job(
+        panel = self._ensure_execution_panel()
+
+        await panel.run_job(
             "module.captioner",
             args,
             name=job_name,

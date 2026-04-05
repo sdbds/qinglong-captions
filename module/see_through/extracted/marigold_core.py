@@ -12,33 +12,11 @@ from typing import Any
 
 from ..see_through_profile import DEFAULT_DEPTH_INFERENCE_STEPS, DEFAULT_SEED, normalize_quant_mode
 from ..vendor_bootstrap import ensure_vendor_imports
-from utils.transformer_loader import load_pretrained_component
-
-
-def _is_quantized_component(component: Any) -> bool:
-    return bool(
-        getattr(component, "is_quantized", False)
-        or getattr(component, "quantization_method", None)
-        or getattr(component, "is_loaded_in_4bit", False)
-    )
-
-
-def _move_component(*, component: Any | None, device: str, dtype: Any | None) -> None:
-    if component is None:
-        return
-    move = getattr(component, "to", None)
-    if not callable(move):
-        return
-    kwargs: dict[str, Any] = {"device": device}
-    if dtype is not None:
-        kwargs["dtype"] = dtype
-    try:
-        move(**kwargs)
-    except TypeError:
-        if dtype is None:
-            move(device)
-        else:
-            move(device=device, dtype=dtype)
+from utils.transformer_loader import (
+    is_quantized_pretrained_component,
+    load_pretrained_component,
+    move_pretrained_component,
+)
 
 
 def _maybe_enable_group_offload(*, pipeline: Any, enabled: bool, device: str, console: Any | None = None) -> None:
@@ -100,11 +78,11 @@ def load_marigold_pipeline(
     if quant_mode == "none":
         pipeline.to(device=runtime_context.device, dtype=runtime_context.dtype)
     else:
-        _move_component(component=getattr(pipeline, "vae", None), device=runtime_context.device, dtype=runtime_context.dtype)
-        _move_component(component=getattr(pipeline, "unet", None), device=runtime_context.device, dtype=runtime_context.dtype)
+        move_pretrained_component(getattr(pipeline, "vae", None), device=runtime_context.device, dtype=runtime_context.dtype)
+        move_pretrained_component(getattr(pipeline, "unet", None), device=runtime_context.device, dtype=runtime_context.dtype)
         text_encoder = getattr(pipeline, "text_encoder", None)
-        if text_encoder is not None and not _is_quantized_component(text_encoder):
-            _move_component(component=text_encoder, device=runtime_context.device, dtype=runtime_context.dtype)
+        if text_encoder is not None and not is_quantized_pretrained_component(text_encoder):
+            move_pretrained_component(text_encoder, device=runtime_context.device, dtype=runtime_context.dtype)
 
     if hasattr(pipeline, "set_progress_bar_config"):
         pipeline.set_progress_bar_config(disable=True)
@@ -130,6 +108,15 @@ def _manifest_resolution_value(height: int, width: int) -> int | list[int]:
     return [int(height), int(width)]
 
 
+def _resolve_depth_target_size(*, resolution_depth: int, src_height: int, src_width: int) -> list[int]:
+    value = int(resolution_depth)
+    if value == -1:
+        return [int(src_height), int(src_width)]
+    if value <= 0:
+        raise ValueError("resolution_depth must be -1 or a positive integer.")
+    return [value, value]
+
+
 def run_marigold_phase(
     *,
     source_path: Path,
@@ -145,7 +132,7 @@ def run_marigold_phase(
     import torch
     from PIL import Image
 
-    from utils.cv import img_alpha_blending, smart_resize, validate_resolution
+    from utils.cv import img_alpha_blending, smart_resize
     from utils.inference_utils import VALID_BODY_PARTS_V2
     from utils.io_utils import dict2json, json2dict
     from utils.torch_utils import seed_everything
@@ -154,10 +141,11 @@ def run_marigold_phase(
     src_img_path = output_dir / "src_img.png"
     fullpage = np.array(Image.open(src_img_path).convert("RGBA"))
     src_height, src_width = fullpage.shape[:2]
-    if int(resolution_depth) == -1:
-        effective_depth_resolution = [src_height, src_width]
-    else:
-        effective_depth_resolution = validate_resolution(int(resolution_depth))
+    effective_depth_resolution = _resolve_depth_target_size(
+        resolution_depth=resolution_depth,
+        src_height=src_height,
+        src_width=src_width,
+    )
     target_depth_size = tuple(int(value) for value in effective_depth_resolution)
 
     img_list: list[np.ndarray] = []

@@ -86,7 +86,11 @@ def attempt_hunyuan_ocr(
     device, dtype, attn_impl = resolve_device_dtype()
     global _TRANS_LOADER
     if _TRANS_LOADER is None:
-        _TRANS_LOADER = transformerLoader(attn_kw="_attn_implementation", device_map="auto")
+        _TRANS_LOADER = transformerLoader(
+            attn_kw="_attn_implementation",
+            device_map="auto",
+            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
+        )
 
     # Load processor (HunyuanOCR requires use_fast=False)
     processor = _TRANS_LOADER.get_or_load_processor(

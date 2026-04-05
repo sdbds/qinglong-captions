@@ -180,14 +180,23 @@ class PenguinVLLocalProvider(LocalVLMProvider):
         from transformers import AutoModelForCausalLM, AutoProcessor
         from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
-        device, dtype, attn_impl = resolve_device_dtype()
+        try:
+            device, dtype, attn_impl = resolve_device_dtype(
+                supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False))
+            )
+        except TypeError:
+            device, dtype, attn_impl = resolve_device_dtype()
         if self._attn_implementation:
             attn_impl = self._attn_implementation
         model_id = self.model_id
 
         self.log(f"Loading Penguin-VL model: {model_id} (device={device}, dtype={dtype}, attn={attn_impl})", "blue")
 
-        loader = transformerLoader(attn_kw="attn_implementation", device_map="auto")
+        loader = transformerLoader(
+            attn_kw="attn_implementation",
+            device_map="auto",
+            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
+        )
 
         processor = loader.get_or_load_processor(
             model_id,

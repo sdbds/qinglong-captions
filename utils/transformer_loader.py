@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import importlib.metadata
 from contextlib import contextmanager, nullcontext
 import importlib.util
 import sys
@@ -83,6 +85,44 @@ _HF_PROGRESS_PATCH_PROGRESS: Optional[Progress] = None
 
 
 @contextmanager
+def suppress_library_progress_bars():
+    """Temporarily disable noisy tqdm-based progress bars from model-loading libraries."""
+
+    restorers: list[tuple[Any | None, bool | None]] = []
+    for module_name in ("diffusers.utils.logging", "transformers.utils.logging"):
+        try:
+            logging_module = importlib.import_module(module_name)
+        except Exception:
+            continue
+
+        disable = getattr(logging_module, "disable_progress_bar", None)
+        enable = getattr(logging_module, "enable_progress_bar", None)
+        is_enabled = getattr(logging_module, "is_progress_bar_enabled", None)
+
+        if not callable(disable):
+            continue
+
+        previous_state: bool | None = None
+        if callable(is_enabled):
+            try:
+                previous_state = bool(is_enabled())
+            except Exception:
+                previous_state = None
+
+        disable()
+        restorers.append((enable if callable(enable) else None, previous_state))
+
+    try:
+        yield
+    finally:
+        for enable, previous_state in reversed(restorers):
+            if previous_state is False:
+                continue
+            if callable(enable):
+                enable()
+
+
+@contextmanager
 def hf_download_reporting(console: Optional[Any] = None):
     """Render Hugging Face download progress with Rich while loading artifacts."""
 
@@ -156,14 +196,147 @@ def load_pretrained_component(
     resolved_console.print(f"[cyan]Resolving Hugging Face {label}:[/cyan] {repo_id}")
 
     try:
-        with hf_download_reporting(resolved_console):
+        with suppress_library_progress_bars(), hf_download_reporting(resolved_console):
             loaded = component_cls.from_pretrained(repo_id, **kwargs)
+    except importlib.metadata.PackageNotFoundError as exc:
+        missing_pkg = str(getattr(exc, "name", "") or exc)
+        if missing_pkg != "bitsandbytes":
+            resolved_console.print(f"[red]Failed to load Hugging Face {label}:[/red] {repo_id}")
+            raise
+        resolved_console.print(f"[red]Failed to load Hugging Face {label}:[/red] {repo_id}")
+        raise RuntimeError(
+            "Missing dependency 'bitsandbytes'. Quantized Hugging Face checkpoints require it. "
+            "If you are using see-through NF4 repos, rerun `uv sync --extra see-through`."
+        ) from exc
     except Exception:
         resolved_console.print(f"[red]Failed to load Hugging Face {label}:[/red] {repo_id}")
         raise
 
     resolved_console.print(f"[green]Hugging Face {label} ready:[/green] {repo_id}")
     return loaded
+
+
+def is_quantized_pretrained_component(component: Any) -> bool:
+    return bool(
+        getattr(component, "is_quantized", False)
+        or getattr(component, "quantization_method", None)
+        or getattr(component, "is_loaded_in_4bit", False)
+        or getattr(component, "is_loaded_in_8bit", False)
+    )
+
+
+def _is_unsupported_quantized_move_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return (
+        "bitsandbytes" in message
+        or "4-bit" in message
+        or "8-bit" in message
+        or ("quantized" in message and ".to" in message)
+        or "please use the model as it is" in message
+    )
+
+
+def move_pretrained_component(component: Any, *, device: Any | None = None, dtype: Any | None = None) -> Any:
+    if component is None:
+        return component
+    move = getattr(component, "to", None)
+    if not callable(move):
+        return component
+
+    quantized = is_quantized_pretrained_component(component)
+    kwargs: dict[str, Any] = {}
+    if device is not None:
+        kwargs["device"] = device
+    if dtype is not None and not quantized:
+        kwargs["dtype"] = dtype
+    if not kwargs:
+        return component
+
+    def _resolve(result: Any) -> Any:
+        return component if result is None else result
+
+    try:
+        return _resolve(move(**kwargs))
+    except TypeError:
+        try:
+            if "device" in kwargs and "dtype" in kwargs:
+                return _resolve(move(kwargs["device"], kwargs["dtype"]))
+            if "device" in kwargs:
+                return _resolve(move(kwargs["device"]))
+            return _resolve(move(kwargs["dtype"]))
+        except ValueError as exc:
+            if quantized and _is_unsupported_quantized_move_error(exc):
+                return component
+            raise
+    except ValueError as exc:
+        if quantized and _is_unsupported_quantized_move_error(exc):
+            return component
+        raise
+
+
+def _move_model_inputs_to_device(inputs: Any, *, device: Any = "cpu", dtype: Any | None = None) -> Any:
+    move = getattr(inputs, "to", None)
+    if callable(move):
+        try:
+            if dtype is not None:
+                return inputs.to(device, dtype)
+            return inputs.to(device)
+        except TypeError:
+            try:
+                return inputs.to(device)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    if isinstance(inputs, dict):
+        moved: dict[str, Any] = {}
+        for key, value in inputs.items():
+            if not hasattr(value, "to"):
+                moved[key] = value
+                continue
+            if dtype is not None and getattr(value, "is_floating_point", lambda: False)():
+                try:
+                    moved[key] = value.to(device=device, dtype=dtype)
+                    continue
+                except TypeError:
+                    pass
+            moved[key] = value.to(device)
+        return moved
+
+    return inputs
+
+
+def prepare_multimodal_inputs(
+    processor: Any,
+    messages: list[dict[str, Any]],
+    *,
+    device: Any = "cpu",
+    dtype: Any | None = None,
+    add_generation_prompt: bool = True,
+    return_tensors: str = "pt",
+    return_dict: bool = True,
+    chat_template_kwargs: Optional[dict[str, Any]] = None,
+) -> Any:
+    apply_kwargs: dict[str, Any] = {
+        "tokenize": True,
+        "add_generation_prompt": add_generation_prompt,
+        "return_tensors": return_tensors,
+        "return_dict": return_dict,
+    }
+    optional_kwargs = dict(chat_template_kwargs or {})
+    apply_kwargs.update(optional_kwargs)
+
+    try:
+        inputs = processor.apply_chat_template(messages, **apply_kwargs)
+    except TypeError:
+        if not optional_kwargs:
+            raise
+        for key in optional_kwargs:
+            apply_kwargs.pop(key, None)
+        inputs = processor.apply_chat_template(messages, **apply_kwargs)
+
+    return _move_model_inputs_to_device(inputs, device=device, dtype=dtype)
 
 
 def snapshot_download_with_reporting(
@@ -263,14 +436,61 @@ def _has_flash_attn() -> bool:
     return True
 
 
-def _is_missing_flash_attn_error(exc: BaseException) -> bool:
+@lru_cache(maxsize=1)
+def _has_flex_attention() -> bool:
+    attention = getattr(getattr(torch, "nn", None), "attention", None)
+    return hasattr(attention, "flex_attention")
+
+
+@lru_cache(maxsize=1)
+def _has_sdpa() -> bool:
+    functional = getattr(getattr(torch, "nn", None), "functional", None)
+    return hasattr(functional, "scaled_dot_product_attention")
+
+
+def _is_missing_attention_backend_error(exc: BaseException, attn_impl: Optional[str]) -> bool:
     message = str(exc)
-    return "flash_attn" in message or "FlashAttention2 has been toggled on" in message
+    lowered = message.lower()
+    if attn_impl == "flash_attention_2":
+        return "flash_attn" in message or "FlashAttention2 has been toggled on" in message
+    if attn_impl == "flex_attention":
+        return "flex_attention" in lowered or "torch.nn.attention.flex_attention" in lowered
+    return False
 
 
-def resolve_device_dtype() -> tuple[str, torch.dtype, str]:
+def _default_cuda_attention_impl(*, supports_flex_attn: bool = False) -> str:
+    if supports_flex_attn and _has_flex_attention():
+        return "flex_attention"
+    if _has_flash_attn():
+        return "flash_attention_2"
+    if _has_sdpa():
+        return "sdpa"
+    return "eager"
+
+
+def _next_attention_fallback(attn_impl: Optional[str]) -> Optional[str]:
+    if attn_impl == "flex_attention":
+        if _has_flash_attn():
+            return "flash_attention_2"
+        return "sdpa" if _has_sdpa() else "eager"
+    if attn_impl == "flash_attention_2":
+        return "sdpa" if _has_sdpa() else "eager"
+    if attn_impl == "sdpa":
+        return "eager"
+    return None
+
+
+def _prefer_flex_attention(attn_impl: Optional[str], *, supports_flex_attn: bool = False) -> Optional[str]:
+    if not supports_flex_attn or not _has_flex_attention():
+        return attn_impl
+    if attn_impl in (None, "flash_attention_2", "sdpa", "eager"):
+        return "flex_attention"
+    return attn_impl
+
+
+def resolve_device_dtype(*, supports_flex_attn: bool = False) -> tuple[str, torch.dtype, str]:
     if torch.cuda.is_available():
-        attn_impl = "flash_attention_2" if _has_flash_attn() else "eager"
+        attn_impl = _default_cuda_attention_impl(supports_flex_attn=supports_flex_attn)
         return "cuda", getattr(torch, "bfloat16", torch.float16), attn_impl
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         return "mps", torch.float16, "eager"
@@ -278,9 +498,16 @@ def resolve_device_dtype() -> tuple[str, torch.dtype, str]:
 
 
 class transformerLoader:
-    def __init__(self, attn_kw: Optional[str] = "attn_implementation", device_map: Any = "auto") -> None:
+    def __init__(
+        self,
+        attn_kw: Optional[str] = "attn_implementation",
+        device_map: Any = "auto",
+        *,
+        supports_flex_attn: bool = False,
+    ) -> None:
         self.attn_kw = attn_kw
         self.device_map = device_map
+        self.supports_flex_attn = supports_flex_attn
         self._processor_cache: dict[str, Any] = {}
         self._model_cache: dict[tuple[type[Any], str], Any] = {}
 
@@ -347,6 +574,7 @@ class transformerLoader:
         key = (model_cls, model_id)
         if key in self._model_cache:
             return self._model_cache[key]
+        attn_impl = _prefer_flex_attention(attn_impl, supports_flex_attn=self.supports_flex_attn)
         if console:
             console.print(f"[green]Loading model:[/green] {model_id} (dtype={dtype}, attn={attn_impl or 'default'})")
         kwargs: dict[str, Any] = {}
@@ -360,28 +588,39 @@ class transformerLoader:
             kwargs[self.attn_kw] = attn_impl
         if extra_kwargs:
             kwargs.update(extra_kwargs)
-        try:
-            model = load_pretrained_component(
-                model_cls,
-                model_id,
-                console=console,
-                component_name="model",
-                **kwargs,
-            )
-        except ImportError as exc:
-            if not (self.attn_kw and attn_impl and attn_impl != "eager" and _is_missing_flash_attn_error(exc)):
-                raise
-            fallback_kwargs = dict(kwargs)
-            fallback_kwargs[self.attn_kw] = "eager"
-            if console:
-                console.print("[yellow]flash_attn 不可用，回退到 eager attention 继续加载[/yellow]")
-            model = load_pretrained_component(
-                model_cls,
-                model_id,
-                console=console,
-                component_name="model",
-                **fallback_kwargs,
-            )
+
+        attempt_kwargs = dict(kwargs)
+        attempt_attn_impl = attn_impl
+        while True:
+            try:
+                model = load_pretrained_component(
+                    model_cls,
+                    model_id,
+                    console=console,
+                    component_name="model",
+                    **attempt_kwargs,
+                )
+                break
+            except ImportError as exc:
+                if not (
+                    self.attn_kw
+                    and attempt_attn_impl
+                    and attempt_attn_impl != "eager"
+                    and _is_missing_attention_backend_error(exc, attempt_attn_impl)
+                ):
+                    raise
+
+                fallback_attn_impl = _next_attention_fallback(attempt_attn_impl)
+                if not fallback_attn_impl or fallback_attn_impl == attempt_attn_impl:
+                    raise
+
+                attempt_kwargs = dict(kwargs)
+                attempt_kwargs[self.attn_kw] = fallback_attn_impl
+                if console:
+                    console.print(
+                        f"[yellow]flash_attn 不可用，回退到 {fallback_attn_impl} attention 继续加载[/yellow]"
+                    )
+                attempt_attn_impl = fallback_attn_impl
         try:
             model = model.eval()
         except Exception:
@@ -501,14 +740,7 @@ class transformerLoader:
                 return_tensors=return_tensors,
                 **kwargs,
             )
-        try:
-            inputs = inputs.to(device)
-        except Exception:
-            try:
-                inputs = {k: (v.to(device) if hasattr(v, "to") else v) for k, v in inputs.items()}  # type: ignore
-            except Exception:
-                pass
-        return inputs
+        return _move_model_inputs_to_device(inputs, device=device)
 
     def evict_model(self, model_id: str, model_cls: Any = None) -> bool:
         if model_cls is None:

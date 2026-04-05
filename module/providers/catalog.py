@@ -67,6 +67,11 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
         canonical_name="lfm_vl_local",
         config_sections=("lfm_vl_local", "lfm_vl"),
     ),
+    "gemma4_local": ProviderSpec(
+        canonical_name="gemma4_local",
+        config_sections=("gemma4_local",),
+        prompt_prefixes=("gemma4",),
+    ),
     "music_flamingo_local": ProviderSpec(
         canonical_name="music_flamingo_local",
         config_sections=("music_flamingo_local", "music_flamingo"),
@@ -112,12 +117,14 @@ ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
         RouteSpec("penguin_vl_local", "penguin_vl_local"),
         RouteSpec("reka_edge_local", "reka_edge_local"),
         RouteSpec("lfm_vl_local", "lfm_vl_local"),
+        RouteSpec("gemma4_local", "gemma4_local"),
     ),
     "alm_model": (
         RouteSpec("music_flamingo_local", "music_flamingo_local"),
         RouteSpec("eureka_audio_local", "eureka_audio_local"),
         RouteSpec("acestep_transcriber_local", "acestep_transcriber_local"),
         RouteSpec("cohere_transcribe_local", "cohere_transcribe_local"),
+        RouteSpec("gemma4_local", "gemma4_local"),
     ),
 }
 

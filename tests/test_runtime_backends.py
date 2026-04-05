@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -75,8 +76,8 @@ def test_openai_compatible_does_not_steal_explicit_local_route():
     assert provider.name == "qwen_vl_local"
 
 
-def test_openai_compatible_still_handles_video_when_image_routes_are_configured():
-    from providers.registry import get_registry
+def test_explicit_vlm_video_route_does_not_fall_back_to_openai_compatible():
+    from providers.registry import ProviderSelectionError, get_registry
 
     args = SimpleNamespace(
         openai_base_url="http://127.0.0.1:8000/v1",
@@ -98,9 +99,36 @@ def test_openai_compatible_still_handles_video_when_image_routes_are_configured(
         local_runtime_backend="openai",
     )
 
+    with pytest.raises(ProviderSelectionError, match="cannot handle mime=video/mp4"):
+        get_registry().find_provider(args, "video/mp4")
+
+
+def test_explicit_reka_video_route_still_wins_with_openai_compatible_configured():
+    from providers.registry import get_registry
+
+    args = SimpleNamespace(
+        openai_base_url="http://127.0.0.1:8000/v1",
+        openai_api_key="sk-no-key",
+        openai_model_name="shared-model",
+        vlm_image_model="reka_edge_local",
+        ocr_model="olmocr",
+        document_image=True,
+        pair_dir="",
+        step_api_key="",
+        ark_api_key="",
+        qwenVL_api_key="",
+        glm_api_key="",
+        kimi_code_api_key="",
+        kimi_api_key="",
+        mistral_api_key="",
+        pixtral_api_key="",
+        gemini_api_key="",
+        local_runtime_backend="openai",
+    )
+
     provider = get_registry().find_provider(args, "video/mp4")
     assert provider is not None
-    assert provider.name == "openai_compatible"
+    assert provider.name == "reka_edge_local"
 
 
 def test_local_vlm_prepare_media_populates_pair_image(tmp_path):
@@ -545,6 +573,291 @@ def test_transformer_loader_passes_torch_dtype_instead_of_dtype():
     json.dumps({"torch_dtype": captured["kwargs"]["torch_dtype"]})
 
 
+def test_resolve_device_dtype_prefers_sdpa_when_flash_attn_missing_on_cuda(monkeypatch):
+    import torch
+
+    from utils import transformer_loader
+
+    monkeypatch.setattr(transformer_loader.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(transformer_loader, "_has_flash_attn", lambda: False)
+    monkeypatch.setattr(transformer_loader, "_has_sdpa", lambda: True)
+
+    device, dtype, attn_impl = transformer_loader.resolve_device_dtype()
+
+    assert device == "cuda"
+    assert dtype == getattr(torch, "bfloat16", torch.float16)
+    assert attn_impl == "sdpa"
+
+
+def test_resolve_device_dtype_prefers_flex_when_supported_and_enabled_on_cuda(monkeypatch):
+    import torch
+
+    from utils import transformer_loader
+
+    monkeypatch.setattr(transformer_loader.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(transformer_loader, "_has_flex_attention", lambda: True)
+    monkeypatch.setattr(transformer_loader, "_has_flash_attn", lambda: True)
+    monkeypatch.setattr(transformer_loader, "_has_sdpa", lambda: True)
+
+    device, dtype, attn_impl = transformer_loader.resolve_device_dtype(supports_flex_attn=True)
+
+    assert device == "cuda"
+    assert dtype == getattr(torch, "bfloat16", torch.float16)
+    assert attn_impl == "flex_attention"
+
+
+def test_transformer_loader_retries_with_sdpa_when_flash_attn_load_fails(monkeypatch):
+    import torch
+
+    from utils.transformer_loader import transformerLoader
+
+    attempts = []
+
+    class FakeModelLoader:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            attempts.append(kwargs.get("attn_implementation"))
+            if kwargs.get("attn_implementation") == "flash_attention_2":
+                raise ImportError("flash_attn import failed")
+
+            class _FakeModel:
+                def eval(self):
+                    return self
+
+            return _FakeModel()
+
+    monkeypatch.setattr("utils.transformer_loader._has_sdpa", lambda: True)
+
+    loader = transformerLoader(attn_kw="attn_implementation", device_map="auto")
+    model = loader.load_model(
+        "dummy/model",
+        FakeModelLoader,
+        dtype=torch.float16,
+        attn_impl="flash_attention_2",
+        device_map="cpu",
+    )
+
+    assert model is not None
+    assert attempts == ["flash_attention_2", "sdpa"]
+
+
+def test_transformer_loader_prefers_flex_then_flash_then_sdpa_then_eager(monkeypatch):
+    import torch
+
+    from utils.transformer_loader import transformerLoader
+
+    attempts = []
+
+    class FakeModelLoader:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            attn_impl = kwargs.get("attn_implementation")
+            attempts.append(attn_impl)
+            if attn_impl == "flex_attention":
+                raise ImportError("flex_attention backend unavailable")
+            if attn_impl == "flash_attention_2":
+                raise ImportError("flash_attn import failed")
+
+            class _FakeModel:
+                def eval(self):
+                    return self
+
+            return _FakeModel()
+
+    monkeypatch.setattr("utils.transformer_loader._has_flex_attention", lambda: True)
+    monkeypatch.setattr("utils.transformer_loader._has_flash_attn", lambda: True)
+    monkeypatch.setattr("utils.transformer_loader._has_sdpa", lambda: True)
+
+    loader = transformerLoader(attn_kw="attn_implementation", device_map="auto", supports_flex_attn=True)
+    model = loader.load_model(
+        "dummy/model",
+        FakeModelLoader,
+        dtype=torch.float16,
+        attn_impl="flash_attention_2",
+        device_map="cpu",
+    )
+
+    assert model is not None
+    assert attempts == ["flex_attention", "flash_attention_2", "sdpa"]
+
+
+def test_transformer_loader_retries_with_eager_when_sdpa_unavailable(monkeypatch):
+    import torch
+
+    from utils.transformer_loader import transformerLoader
+
+    attempts = []
+
+    class FakeModelLoader:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            attempts.append(kwargs.get("attn_implementation"))
+            if kwargs.get("attn_implementation") == "flash_attention_2":
+                raise ImportError("flash_attn import failed")
+
+            class _FakeModel:
+                def eval(self):
+                    return self
+
+            return _FakeModel()
+
+    monkeypatch.setattr("utils.transformer_loader._has_sdpa", lambda: False)
+
+    loader = transformerLoader(attn_kw="attn_implementation", device_map="auto")
+    model = loader.load_model(
+        "dummy/model",
+        FakeModelLoader,
+        dtype=torch.float16,
+        attn_impl="flash_attention_2",
+        device_map="cpu",
+    )
+
+    assert model is not None
+    assert attempts == ["flash_attention_2", "eager"]
+
+
+def test_move_pretrained_component_skips_dtype_for_quantized_models():
+    import torch
+
+    from utils.transformer_loader import move_pretrained_component
+
+    calls = []
+
+    class FakeQuantizedModel:
+        quantization_method = "bitsandbytes"
+
+        def to(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            if "dtype" in kwargs:
+                raise AssertionError("dtype should not be passed to quantized models")
+            return self
+
+    model = FakeQuantizedModel()
+    moved = move_pretrained_component(model, device="cpu", dtype=torch.float16)
+
+    assert moved is model
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args == ()
+    assert kwargs["device"] == "cpu"
+    assert "dtype" not in kwargs
+
+
+def test_prepare_multimodal_inputs_moves_batch_feature_like_result():
+    from utils.transformer_loader import prepare_multimodal_inputs
+
+    calls = []
+
+    class FakeBatchFeature:
+        def to(self, device, dtype=None):
+            calls.append((device, dtype))
+            return {"input_ids": f"moved:{device}", "dtype": dtype}
+
+    class FakeProcessor:
+        def apply_chat_template(self, messages, **kwargs):
+            assert messages == [{"role": "user", "content": "hello"}]
+            assert kwargs["tokenize"] is True
+            assert kwargs["return_dict"] is True
+            assert kwargs["return_tensors"] == "pt"
+            return FakeBatchFeature()
+
+    inputs = prepare_multimodal_inputs(
+        FakeProcessor(),
+        [{"role": "user", "content": "hello"}],
+        device="cuda:0",
+        dtype="bfloat16",
+    )
+
+    assert inputs == {"input_ids": "moved:cuda:0", "dtype": "bfloat16"}
+    assert calls == [("cuda:0", "bfloat16")]
+
+
+def test_prepare_multimodal_inputs_retries_without_optional_chat_template_kwargs():
+    from utils.transformer_loader import prepare_multimodal_inputs
+
+    seen_kwargs = []
+
+    class FakeBatchFeature:
+        def to(self, device, dtype=None):
+            return {"device": device, "dtype": dtype}
+
+    class FakeProcessor:
+        def apply_chat_template(self, messages, **kwargs):
+            seen_kwargs.append(dict(kwargs))
+            if "video_fps" in kwargs:
+                raise TypeError("unexpected keyword argument 'video_fps'")
+            return FakeBatchFeature()
+
+    inputs = prepare_multimodal_inputs(
+        FakeProcessor(),
+        [{"role": "user", "content": "hello"}],
+        device="cpu",
+        chat_template_kwargs={"video_fps": 1.0},
+    )
+
+    assert inputs == {"device": "cpu", "dtype": None}
+    assert len(seen_kwargs) == 2
+    assert seen_kwargs[0]["video_fps"] == 1.0
+    assert "video_fps" not in seen_kwargs[1]
+
+
+def test_reka_edge_local_tolerates_quantized_cpu_model_move():
+    import torch
+
+    from providers.base import ProviderContext
+    from providers.local_vlm.reka_edge_local import RekaEdgeLocalProvider
+
+    captured = {}
+
+    class FakeProcessor:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            captured["processor_args"] = args
+            captured["processor_kwargs"] = kwargs
+            return "processor"
+
+    class FakeQuantizedModel:
+        quantization_method = "bitsandbytes"
+
+        def eval(self):
+            return self
+
+        def to(self, *args, **kwargs):
+            captured.setdefault("to_calls", []).append((args, kwargs))
+            raise ValueError(".to is not supported for 4-bit or 8-bit bitsandbytes models")
+
+    class FakeModelLoader:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            captured["model_args"] = args
+            captured["model_kwargs"] = kwargs
+            return FakeQuantizedModel()
+
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoProcessor = FakeProcessor
+    fake_transformers.AutoModelForImageTextToText = FakeModelLoader
+
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO(), force_terminal=False),
+        config={"reka_edge_local": {"model_id": "RekaAI/reka-edge-2603"}},
+        args=SimpleNamespace(vlm_image_model="reka_edge_local"),
+    )
+
+    with (
+        patch.dict(sys.modules, {"transformers": fake_transformers}),
+        patch("utils.transformer_loader.resolve_device_dtype", return_value=("cpu", torch.float32, "eager")),
+    ):
+        cached = RekaEdgeLocalProvider(ctx)._load_model()
+
+    assert cached["device"] == "cpu"
+    assert isinstance(cached["model"], FakeQuantizedModel)
+    assert captured["model_kwargs"]["torch_dtype"] == torch.float32
+    assert len(captured["to_calls"]) == 1
+    args, kwargs = captured["to_calls"][0]
+    assert "dtype" not in kwargs
+    assert kwargs.get("device") == "cpu" or args == ("cpu",)
+
+
 def test_load_pretrained_component_wraps_hf_progress_context(monkeypatch):
     from contextlib import contextmanager
 
@@ -661,3 +974,74 @@ def test_snapshot_download_with_reporting_wraps_hf_progress_context(monkeypatch)
     assert state["patched_during_call"] is True
     assert state["kwargs"]["local_dir"] == "C:/cache"
     assert fake_file_download._get_progress_bar_context is original_progress_context
+
+
+def test_load_pretrained_component_temporarily_disables_library_progress_bars(monkeypatch):
+    from utils.transformer_loader import load_pretrained_component
+
+    state = {}
+
+    def _make_progress_module(module_name):
+        enabled = {"value": True}
+        module = types.ModuleType(module_name)
+
+        def is_progress_bar_enabled():
+            return enabled["value"]
+
+        def disable_progress_bar():
+            enabled["value"] = False
+            state.setdefault("disabled", []).append(module_name)
+
+        def enable_progress_bar():
+            enabled["value"] = True
+            state.setdefault("enabled", []).append(module_name)
+
+        module.is_progress_bar_enabled = is_progress_bar_enabled
+        module.disable_progress_bar = disable_progress_bar
+        module.enable_progress_bar = enable_progress_bar
+        return module, enabled
+
+    diffusers_pkg = types.ModuleType("diffusers")
+    diffusers_utils_pkg = types.ModuleType("diffusers.utils")
+    diffusers_logging_mod, diffusers_enabled = _make_progress_module("diffusers.utils.logging")
+
+    transformers_pkg = types.ModuleType("transformers")
+    transformers_utils_pkg = types.ModuleType("transformers.utils")
+    transformers_logging_mod, transformers_enabled = _make_progress_module("transformers.utils.logging")
+
+    monkeypatch.setitem(sys.modules, "diffusers", diffusers_pkg)
+    monkeypatch.setitem(sys.modules, "diffusers.utils", diffusers_utils_pkg)
+    monkeypatch.setitem(sys.modules, "diffusers.utils.logging", diffusers_logging_mod)
+    monkeypatch.setitem(sys.modules, "transformers", transformers_pkg)
+    monkeypatch.setitem(sys.modules, "transformers.utils", transformers_utils_pkg)
+    monkeypatch.setitem(sys.modules, "transformers.utils.logging", transformers_logging_mod)
+
+    class FakeLoader:
+        @staticmethod
+        def from_pretrained(model_id, **kwargs):
+            state["during_call"] = (
+                diffusers_enabled["value"],
+                transformers_enabled["value"],
+            )
+            return {"model_id": model_id, "kwargs": kwargs}
+
+    result = load_pretrained_component(FakeLoader, "demo/model")
+
+    assert result["model_id"] == "demo/model"
+    assert state["during_call"] == (False, False)
+    assert diffusers_enabled["value"] is True
+    assert transformers_enabled["value"] is True
+
+
+def test_load_pretrained_component_translates_missing_bitsandbytes_error():
+    from importlib.metadata import PackageNotFoundError
+
+    from utils.transformer_loader import load_pretrained_component
+
+    class FakeLoader:
+        @staticmethod
+        def from_pretrained(model_id, **kwargs):
+            raise PackageNotFoundError("bitsandbytes")
+
+    with pytest.raises(RuntimeError, match="bitsandbytes"):
+        load_pretrained_component(FakeLoader, "demo/model")

@@ -293,6 +293,7 @@ def test_music_flamingo_fp8_load_uses_auto_dtype_on_cuda(monkeypatch):
     fake_transformers.MusicFlamingoForConditionalGeneration = object
     fake_transformer_loader = types.ModuleType("utils.transformer_loader")
     fake_transformer_loader.load_pretrained_component = fake_load_pretrained_component
+    fake_transformer_loader.move_pretrained_component = lambda model, **kwargs: model
     fake_transformer_loader.resolve_device_dtype = lambda: ("cuda", "bfloat16", "eager")
 
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
@@ -334,6 +335,7 @@ def test_music_flamingo_fp8_does_not_warn_on_compute_capability_89(monkeypatch):
     fake_transformers.MusicFlamingoForConditionalGeneration = object
     fake_transformer_loader = types.ModuleType("utils.transformer_loader")
     fake_transformer_loader.load_pretrained_component = fake_load_pretrained_component
+    fake_transformer_loader.move_pretrained_component = lambda model, **kwargs: model
     fake_transformer_loader.resolve_device_dtype = lambda: ("cuda", "bfloat16", "eager")
 
     class FakeCuda:

@@ -39,7 +39,7 @@ class RekaEdgeLocalProvider(LocalVLMProvider):
         import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
 
-        from utils.transformer_loader import load_pretrained_component, resolve_device_dtype
+        from utils.transformer_loader import load_pretrained_component, move_pretrained_component, resolve_device_dtype
 
         model_id = self.model_id
         device, dtype, _ = resolve_device_dtype()
@@ -70,7 +70,7 @@ class RekaEdgeLocalProvider(LocalVLMProvider):
             **load_kwargs,
         ).eval()
         if device != "cuda":
-            model = model.to(device)
+            model = move_pretrained_component(model, device=device)
 
         return {
             "model": model,

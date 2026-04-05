@@ -329,6 +329,7 @@ def test_acestep_transcriber_load_uses_automodel_and_processor(monkeypatch):
     fake_transformers.AutoModelForCausalLM = object
     fake_transformer_loader = types.ModuleType("utils.transformer_loader")
     fake_transformer_loader.load_pretrained_component = fake_load_pretrained_component
+    fake_transformer_loader.move_pretrained_component = lambda model, **kwargs: model
     fake_transformer_loader.resolve_device_dtype = lambda: ("cuda", "bfloat16", "flash_attention_2")
 
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)

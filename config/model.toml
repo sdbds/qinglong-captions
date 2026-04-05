@@ -86,11 +86,13 @@ response_modalities = ["text"]
 response_mime_type = "text/plain"
 
 [olmocr]
+model_list."olmOCR 2 7B 1025" = { model_id = "allenai/olmOCR-2-7B-1025", meta = { min_vram_gb = 10 } }
 model_id = "allenai/olmOCR-2-7B-1025"
 temperature = 0.1
 max_new_tokens = 512
 
 [deepseek_ocr]
+model_list."DeepSeek OCR 2" = { model_id = "deepseek-ai/DeepSeek-OCR-2", meta = { min_vram_gb = 10 } }
 model_id = "deepseek-ai/DeepSeek-OCR-2"
 base_size = 1024
 image_size = 768
@@ -99,6 +101,7 @@ crop_mode = true
 # Logics-Parsing-v2 configuration
 # Model: https://huggingface.co/Logics-MLLM/Logics-Parsing-v2
 [logics_ocr]
+model_list."Logics Parsing v2" = { model_id = "Logics-MLLM/Logics-Parsing-v2", meta = { min_vram_gb = 10 } }
 model_id = "Logics-MLLM/Logics-Parsing-v2"
 max_new_tokens = 16384
 min_pixels = 3136
@@ -108,6 +111,7 @@ max_pixels = 7372800
 # Model: https://huggingface.co/lightonai/LightOnOCR-2-1B
 # Requires: transformers[serving]>=5.0.0
 [lighton_ocr]
+model_list."LightOnOCR 2 1B" = { model_id = "lightonai/LightOnOCR-2-1B", meta = { min_vram_gb = 8 } }
 model_id = "lightonai/LightOnOCR-2-1B"
 max_new_tokens = 4096
 
@@ -115,6 +119,7 @@ max_new_tokens = 4096
 # Model: https://huggingface.co/davanstrien/dots.ocr-1.5
 # Upstream: https://github.com/rednote-hilab/dots.ocr
 [dots_ocr]
+model_list."dots OCR 1.5" = { model_id = "davanstrien/dots.ocr-1.5", meta = { min_vram_gb = 10 } }
 model_id = "davanstrien/dots.ocr-1.5"
 svg_model_id = "davanstrien/dots.ocr-1.5-svg"
 prompt_mode = "prompt_ocr"
@@ -129,6 +134,7 @@ dpi = 200
 # Qianfan-OCR configuration
 # Model: https://huggingface.co/baidu/Qianfan-OCR
 [qianfan_ocr]
+model_list."Qianfan OCR" = { model_id = "baidu/Qianfan-OCR", meta = { min_vram_gb = 10 } }
 model_id = "baidu/Qianfan-OCR"
 prompt = ""
 prompt_strategy = "append"
@@ -140,6 +146,7 @@ max_num = 12
 # HunyuanOCR configuration
 # Requires: pip install git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4
 [hunyuan_ocr]
+model_list."HunyuanOCR" = { model_id = "tencent/HunyuanOCR", meta = { min_vram_gb = 12 } }
 model_id = "tencent/HunyuanOCR"
 max_new_tokens = 16384
 
@@ -147,6 +154,7 @@ max_new_tokens = 16384
 # Model: https://huggingface.co/zai-org/GLM-OCR
 # Requires: pip install git+https://github.com/huggingface/transformers.git
 [glm_ocr]
+model_list."GLM OCR" = { model_id = "zai-org/GLM-OCR", meta = { min_vram_gb = 10 } }
 model_id = "zai-org/GLM-OCR"
 max_new_tokens = 8192
 
@@ -154,6 +162,7 @@ max_new_tokens = 8192
 # Model: https://huggingface.co/nanonets/Nanonets-OCR2-3B
 # GitHub: https://github.com/NanoNets/docstrange
 [nanonets_ocr]
+model_list."Nanonets OCR2 3B" = { model_id = "nanonets/Nanonets-OCR2-3B", meta = { min_vram_gb = 8 } }
 model_id = "nanonets/Nanonets-OCR2-3B"
 max_new_tokens = 15000
 
@@ -161,9 +170,19 @@ max_new_tokens = 15000
 # Model: https://huggingface.co/datalab-to/chandra-ocr-2
 # Requires: pip install chandra-ocr[hf]
 [chandra_ocr]
+model_list."Chandra OCR 2" = { model_id = "datalab-to/chandra-ocr-2", meta = { min_vram_gb = 10 } }
 model_id = "datalab-to/chandra-ocr-2"
 max_new_tokens = 12384
 prompt_type = "ocr_layout"
+
+[firered_ocr]
+model_list."FireRed OCR" = { model_id = "FireRedTeam/FireRed-OCR", meta = { min_vram_gb = 12 } }
+model_id = "FireRedTeam/FireRed-OCR"
+max_new_tokens = 16384
+
+[paddle_ocr]
+model_list."PaddleOCR" = { model_id = "PaddleOCR" }
+model_id = "PaddleOCR"
 
 [paddle_ocr.save]
 save_json = true
@@ -220,6 +239,7 @@ force_eager_attention = false
 output_dir = "workspace/see_through_output"
 
 [moondream]
+model_list."Moondream 3 Preview" = { model_id = "moondream/moondream3-preview", meta = { min_vram_gb = 6 } }
 model_id = "moondream/moondream3-preview"
 prompt = ""
 reasoning = false
@@ -236,6 +256,9 @@ reasoning = false
 tasks = "caption"
 
 [qwen_vl_local]
+model_list."Qwen3 VL 3B Instruct" = { model_id = "Qwen/Qwen3-VL-3B-Instruct", meta = { min_vram_gb = 4 } }
+model_list."Qwen3 VL 8B Instruct" = { model_id = "Qwen/Qwen3-VL-8B-Instruct", meta = { min_vram_gb = 8 } }
+model_list."Qwen3.5 9B" = { model_id = "Qwen/Qwen3.5-9B", meta = { min_vram_gb = 12 } }
 model_id = "Qwen/Qwen3.5-9B"
 prompt = ""
 greedy = false
@@ -246,7 +269,12 @@ repetition_penalty = 1.0
 presence_penalty = 1.5
 out_seq_length = 16384
 
+[step_vl_local]
+model_list."Step 1.5V Mini" = { model_id = "stepfun-ai/Step1.5V-mini", meta = { min_vram_gb = 8 } }
+model_id = "stepfun-ai/Step1.5V-mini"
+
 [penguin]
+model_list."Penguin VL 8B" = { model_id = "tencent/Penguin-VL-8B", meta = { min_vram_gb = 10 } }
 model_id = "tencent/Penguin-VL-8B"
 prompt = ""
 greedy = false
@@ -257,6 +285,7 @@ repetition_penalty = 1.0
 out_seq_length = 4096
 
 [reka_edge_local]
+model_list."Reka Edge 2603" = { model_id = "RekaAI/reka-edge-2603", meta = { min_vram_gb = 8 } }
 model_id = "RekaAI/reka-edge-2603"
 max_new_tokens = 1024
 do_sample = false
@@ -266,6 +295,7 @@ top_k = 0
 repetition_penalty = 1.0
 
 [lfm_vl_local]
+model_list."LFM 2.5 VL 1.6B ONNX" = { model_id = "LiquidAI/LFM2.5-VL-1.6B-ONNX", meta = { min_vram_gb = 6 } }
 model_id = "LiquidAI/LFM2.5-VL-1.6B-ONNX"
 encoder_variant = "fp16"
 decoder_variant = "fp16"
@@ -278,12 +308,34 @@ min_image_tokens = 64
 max_image_tokens = 256
 do_image_splitting = true
 
+# Gemma 4 multimodal local runtime configuration
+# Shared route provider for image / video / audio.
+[gemma4_local]
+model_list."Gemma 4 E2B it" = { model_id = "google/gemma-4-E2B-it", meta = { min_vram_gb = 10 } }
+model_list."Gemma 4 E4B it" = { model_id = "google/gemma-4-E4B-it", meta = { min_vram_gb = 16 } }
+model_list."Gemma 4 E2B it FP8 Dynamic" = { model_id = "leon-se/gemma-4-E2B-it-FP8-Dynamic", meta = { min_vram_gb = 8 } }
+model_list."Gemma 4 E4B it FP8" = { model_id = "protoLabsAI/gemma-4-E4B-it-FP8", meta = { min_vram_gb = 12 } }
+model_list."Gemma 4 26B A4B it" = { model_id = "google/gemma-4-26B-A4B-it", meta = { min_vram_gb = 48 } }
+model_list."Gemma 4 31B it" = { model_id = "google/gemma-4-31B-it", meta = { min_vram_gb = 64 } }
+model_list."Gemma 4 31B Ghetto NF4 (24GB)" = { model_id = "livadies/gemma-4-31B-Ghetto-NF4", meta = { min_vram_gb = 24 } }
+# Note: Gemma 4 26B/31B variants are text-image only. Audio stays on E2B/E4B variants.
+model_id = "google/gemma-4-E4B-it"
+audio_task = "asr"
+runtime_backend = "direct"
+max_new_tokens = 2048
+temperature = 0.0
+top_p = 1.0
+video_fps = 1.0
+video_max_seconds = 60
+audio_max_seconds = 30
+
 # Music Flamingo ALM configuration
 # Model: https://huggingface.co/henry1477/music-flamingo-2601-hf-fp8
 # Requires: uv sync --extra music-flamingo-local
 # Uses a custom Transformers branch from lashahub/transformers@modular-mf
 # FP8 repo keeps audio_tower / multi_modal_projector / lm_head in bf16.
 [music_flamingo_local]
+model_list."Music Flamingo FP8" = { model_id = "henry1477/music-flamingo-2601-hf-fp8", meta = { min_vram_gb = 8 } }
 model_id = "henry1477/music-flamingo-2601-hf-fp8"
 max_new_tokens = 500
 do_sample = true
@@ -295,6 +347,7 @@ top_p = 0.9
 # Requires: uv sync --extra eureka-audio-local
 # Provider calls the upstream EurekaAudio wrapper from https://github.com/sdbds/Eureka-Audio.
 [eureka_audio_local]
+model_list."Eureka Audio Instruct" = { model_id = "cslys1999/Eureka-Audio-Instruct", meta = { min_vram_gb = 8 } }
 model_id = "cslys1999/Eureka-Audio-Instruct"
 max_new_tokens = 512
 do_sample = false
@@ -307,6 +360,7 @@ top_k = 0
 # Requires: uv sync --extra acestep-transcriber-local
 # Model card says usage follows Qwen2.5 Omni style audio chat format.
 [acestep_transcriber_local]
+model_list."ACE-Step Transcriber" = { model_id = "ACE-Step/acestep-transcriber", meta = { min_vram_gb = 10 } }
 model_id = "ACE-Step/acestep-transcriber"
 max_new_tokens = 1024
 do_sample = false
@@ -319,6 +373,7 @@ top_k = 0
 # Requires: accept the gated Hugging Face model terms, then run `uv sync --extra cohere-transcribe-local`
 # The upstream API requires an explicit ISO 639-1 language code and does not do language detection.
 [cohere_transcribe_local]
+model_list."Cohere Transcribe 03 2026" = { model_id = "CohereLabs/cohere-transcribe-03-2026", meta = { min_vram_gb = 10 } }
 model_id = "CohereLabs/cohere-transcribe-03-2026"
 language = "zh"
 punctuation = true

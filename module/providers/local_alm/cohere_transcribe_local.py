@@ -42,10 +42,15 @@ class CohereTranscribeLocalProvider(LocalALMProvider):
     def _load_model(self):
         from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
 
-        from utils.transformer_loader import load_pretrained_component, resolve_device_dtype
+        from utils.transformer_loader import load_pretrained_component, move_pretrained_component, resolve_device_dtype
 
         model_id = self.model_id
-        device, dtype, attn_impl = resolve_device_dtype()
+        try:
+            device, dtype, attn_impl = resolve_device_dtype(
+                supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False))
+            )
+        except TypeError:
+            device, dtype, attn_impl = resolve_device_dtype()
         self.log(f"Loading Cohere Transcribe model: {model_id} (device={device}, dtype={dtype})", "blue")
 
         processor = load_pretrained_component(
@@ -77,8 +82,8 @@ class CohereTranscribeLocalProvider(LocalALMProvider):
             model = model.eval()
         except Exception:
             pass
-        if device != "cuda" and hasattr(model, "to"):
-            model = model.to(device)
+        if device != "cuda":
+            model = move_pretrained_component(model, device=device)
 
         return {"model": model, "processor": processor}
 

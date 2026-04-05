@@ -242,6 +242,22 @@ class TestFindProvider:
         provider = reg.find_provider(args, "image/jpeg")
         assert provider is not None and provider.name == "lfm_vl_local"
 
+    def test_gemma4_local_image(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(vlm_image_model="gemma4_local")
+        provider = reg.find_provider(args, "image/jpeg")
+        assert provider is not None and provider.name == "gemma4_local"
+
+    def test_gemma4_local_video(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(vlm_image_model="gemma4_local")
+        provider = reg.find_provider(args, "video/mp4")
+        assert provider is not None and provider.name == "gemma4_local"
+
     def test_music_flamingo_local_audio(self):
         from providers.registry import get_registry
 
@@ -281,6 +297,14 @@ class TestFindProvider:
         args = make_provider_args(alm_model="cohere_transcribe_local")
         provider = reg.find_provider(args, "audio/wav")
         assert provider is not None and provider.name == "cohere_transcribe_local"
+
+    def test_gemma4_local_audio(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(alm_model="gemma4_local")
+        provider = reg.find_provider(args, "audio/wav")
+        assert provider is not None and provider.name == "gemma4_local"
 
     def test_cohere_transcribe_local_ignores_non_audio(self):
         from providers.registry import get_registry

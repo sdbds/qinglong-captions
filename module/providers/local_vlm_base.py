@@ -42,6 +42,7 @@ class LocalVLMProvider(Provider):
 
     # 子类必须定义
     default_model_id: ClassVar[str] = ""
+    _supports_flex_attn: ClassVar[bool] = False
 
     # 修复 #9：attention 实现参数（带下划线前缀）
     _attn_implementation: ClassVar[str] = "eager"
@@ -245,17 +246,17 @@ class LocalVLMProvider(Provider):
         try:
             from utils.transformer_loader import resolve_device_dtype
 
-            return resolve_device_dtype(
-                device_arg=getattr(self.ctx.args, "device", None), dtype_arg=getattr(self.ctx.args, "dtype", None)
-            )
+            try:
+                return resolve_device_dtype(supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)))
+            except TypeError:
+                return resolve_device_dtype()
         except ImportError:
             # 默认返回
             import torch
 
-            return {
-                "device": "cuda" if torch.cuda.is_available() else "cpu",
-                "dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
-            }
+            if torch.cuda.is_available():
+                return "cuda", torch.float16, "eager"
+            return "cpu", torch.float32, "eager"
 
     def _get_attn_kwargs(self) -> Dict[str, Any]:
         """

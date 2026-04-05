@@ -55,7 +55,7 @@ class MusicFlamingoLocalProvider(LocalALMProvider):
     def _load_model(self):
         from transformers import AutoProcessor, MusicFlamingoForConditionalGeneration
 
-        from utils.transformer_loader import load_pretrained_component, resolve_device_dtype
+        from utils.transformer_loader import load_pretrained_component, move_pretrained_component, resolve_device_dtype
 
         model_id = self.model_id
         device, dtype, _attn_impl = resolve_device_dtype()
@@ -105,8 +105,8 @@ class MusicFlamingoLocalProvider(LocalALMProvider):
             model = model.eval()
         except Exception:
             pass
-        if device != "cuda" and hasattr(model, "to"):
-            model = model.to(device)
+        if device != "cuda":
+            model = move_pretrained_component(model, device=device)
 
         return {"model": model, "processor": processor}
 

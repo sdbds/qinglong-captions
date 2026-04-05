@@ -1,12 +1,20 @@
 """共享执行面板 - 封装 Start/Stop 按钮、progress bar、LogViewer 和 teardown。"""
 
 from nicegui import ui
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 from gui.theme import get_classes, COLORS
 from gui.utils.i18n import t
-from gui.components.log_viewer import create_log_viewer, LogViewer
 from gui.utils.job_manager import job_manager
 from gui.utils.process_runner import ProcessResult, ProcessStatus
+
+if TYPE_CHECKING:
+    from gui.components.log_viewer import LogViewer
+
+
+def _create_log_viewer(*, height: str) -> "LogViewer":
+    from gui.components.log_viewer import create_log_viewer
+
+    return create_log_viewer(height=height)
 
 
 class ExecutionPanel:
@@ -68,8 +76,8 @@ class ExecutionPanel:
                 else:
                     self.start_btn = None
 
-        # LogViewer (直接内嵌，不再套额外 card)
-        self.log_viewer: LogViewer = create_log_viewer(height=height)
+        # LogViewer 延迟到面板真正实例化时再导入，避免工具页首屏被日志 UI 拖慢。
+        self.log_viewer: "LogViewer" = _create_log_viewer(height=height)
 
     async def _handle_start(self):
         """内置 Start 按钮点击 → 委托给外部 on_start 回调（如有）。"""

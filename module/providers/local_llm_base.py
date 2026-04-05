@@ -25,6 +25,7 @@ class LocalLLMProvider(ABC):
     """本地 LLM Provider 基类。"""
 
     default_model_id: ClassVar[str] = ""
+    _supports_flex_attn: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -60,7 +61,10 @@ class LocalLLMProvider(ABC):
     def _resolve_device_dtype(self) -> tuple[str, Any, str]:
         from utils.transformer_loader import resolve_device_dtype
 
-        return resolve_device_dtype()
+        try:
+            return resolve_device_dtype(supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)))
+        except TypeError:
+            return resolve_device_dtype()
 
     def _load_components(self) -> Tuple[Any, Any]:
         from transformers import AutoModelForCausalLM, AutoTokenizer

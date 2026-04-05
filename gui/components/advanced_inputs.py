@@ -186,8 +186,8 @@ def toggle_switch(label_key: str, value_ref: Dict[str, Any], value_key: str, lab
         status_text = t("status_on") if value else t("status_off")
         status_label = ui.label(status_text).classes("toggle-status")
 
-    def toggle():
-        new_value = not value_ref.get(value_key, False)
+    def apply_value(new_value: bool):
+        new_value = bool(new_value)
         value_ref[value_key] = new_value
 
         if new_value:
@@ -200,7 +200,11 @@ def toggle_switch(label_key: str, value_ref: Dict[str, Any], value_key: str, lab
         if on_change:
             on_change(new_value)
 
+    def toggle():
+        apply_value(not value_ref.get(value_key, False))
+
     btn.on_click(toggle)
+    btn.set_toggle_value = apply_value
     return btn
 
 

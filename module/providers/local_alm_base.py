@@ -36,6 +36,7 @@ class LocalALMProvider(Provider):
     )
 
     default_model_id: ClassVar[str] = ""
+    _supports_flex_attn: ClassVar[bool] = False
     task_contract: ClassVar[ALMTaskContract] = ALMTaskContract()
 
     @property
@@ -82,6 +83,21 @@ class LocalALMProvider(Provider):
 
     def _load_model(self):
         raise NotImplementedError(f"{self.name} must implement _load_model()")
+
+    def _resolve_device_dtype(self):
+        try:
+            from utils.transformer_loader import resolve_device_dtype
+
+            try:
+                return resolve_device_dtype(supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)))
+            except TypeError:
+                return resolve_device_dtype()
+        except ImportError:
+            import torch
+
+            if torch.cuda.is_available():
+                return "cuda", torch.float16, "eager"
+            return "cpu", torch.float32, "eager"
 
     @staticmethod
     def _coerce_dtype(value: Any) -> Any:

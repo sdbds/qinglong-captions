@@ -82,6 +82,7 @@ _PROVIDER_MODULES: Dict[str, str] = {
     "penguin_vl_local": "module.providers.local_vlm.penguin_vl_local",
     "reka_edge_local": "module.providers.local_vlm.reka_edge_local",
     "lfm_vl_local": "module.providers.local_vlm.lfm_vl_local",
+    "gemma4_local": "module.providers.local_vlm.gemma4_local",
     "music_flamingo_local": "module.providers.local_alm.music_flamingo_local",
     "eureka_audio_local": "module.providers.local_alm.eureka_audio_local",
     "acestep_transcriber_local": "module.providers.local_alm.acestep_transcriber_local",
@@ -154,6 +155,7 @@ class ProviderRegistry:
                 "penguin_vl_local",
                 "reka_edge_local",
                 "lfm_vl_local",
+                "gemma4_local",
                 # Local ALM
                 "music_flamingo_local",
                 "eureka_audio_local",
@@ -357,7 +359,7 @@ class ProviderRegistry:
                 return (("ocr_model", True),)
             return (("vlm_image_model", True),)
         if mime.startswith("video"):
-            return (("vlm_image_model", False),)
+            return (("vlm_image_model", True),)
         return tuple()
 
     def get_provider(self, name: str) -> Optional[Type["Provider"]]:

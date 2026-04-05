@@ -321,6 +321,86 @@ class TestPromptResolver:
         assert p.system == "stepfun_vsys"
         assert p.user == "stepfun_vprompt"
 
+    def test_gemma4_image_keeps_generic_prompt_when_mistral_fallback_exists(self):
+        from providers.resolver import PromptResolver
+        config = self._config({
+            "image_system_prompt": "generic_img_sys",
+            "image_prompt": "generic_img_prompt",
+            "mistral_ocr_image_system_prompt": "mistral_img_sys",
+            "mistral_ocr_image_prompt": "mistral_img_prompt",
+        })
+        resolver = PromptResolver(config, "gemma4_local")
+        args = SimpleNamespace(pair_dir="", gemini_task="")
+
+        p = resolver.resolve("image/jpeg", args)
+
+        assert p.system == "generic_img_sys"
+        assert p.user == "generic_img_prompt"
+
+    def test_gemma4_video_keeps_generic_prompt_when_step_fallback_exists(self):
+        from providers.resolver import PromptResolver
+        config = self._config({
+            "video_system_prompt": "generic_video_sys",
+            "video_prompt": "generic_video_prompt",
+            "step_video_system_prompt": "step_video_sys",
+            "step_video_prompt": "step_video_prompt",
+        })
+        resolver = PromptResolver(config, "gemma4_local")
+        args = SimpleNamespace(pair_dir="", gemini_task="")
+
+        p = resolver.resolve("video/mp4", args)
+
+        assert p.system == "generic_video_sys"
+        assert p.user == "generic_video_prompt"
+
+    def test_mistral_ocr_image_still_accepts_legacy_pixtral_fallback(self):
+        from providers.resolver import PromptResolver
+        config = self._config({
+            "image_system_prompt": "generic_img_sys",
+            "image_prompt": "generic_img_prompt",
+            "pixtral_image_system_prompt": "pixtral_img_sys",
+            "pixtral_image_prompt": "pixtral_img_prompt",
+        })
+        resolver = PromptResolver(config, "mistral_ocr")
+        args = SimpleNamespace(pair_dir="", gemini_task="")
+
+        p = resolver.resolve("image/jpeg", args)
+
+        assert p.system == "pixtral_img_sys"
+        assert p.user == "pixtral_img_prompt"
+
+    def test_stepfun_video_still_accepts_legacy_step_fallback(self):
+        from providers.resolver import PromptResolver
+        config = self._config({
+            "video_system_prompt": "generic_video_sys",
+            "video_prompt": "generic_video_prompt",
+            "step_video_system_prompt": "step_video_sys",
+            "step_video_prompt": "step_video_prompt",
+        })
+        resolver = PromptResolver(config, "stepfun")
+        args = SimpleNamespace(pair_dir="", gemini_task="")
+
+        p = resolver.resolve("video/mp4", args)
+
+        assert p.system == "step_video_sys"
+        assert p.user == "step_video_prompt"
+
+    def test_resolver_does_not_use_underscore_stripped_provider_prefixes(self):
+        from providers.resolver import PromptResolver
+        config = self._config({
+            "image_system_prompt": "generic_img_sys",
+            "image_prompt": "generic_img_prompt",
+            "gemma4local_image_system_prompt": "bad_img_sys",
+            "gemma4local_image_prompt": "bad_img_prompt",
+        })
+        resolver = PromptResolver(config, "gemma4_local")
+        args = SimpleNamespace(pair_dir="", gemini_task="")
+
+        p = resolver.resolve("image/jpeg", args)
+
+        assert p.system == "generic_img_sys"
+        assert p.user == "generic_img_prompt"
+
     def test_pair_mode(self):
         from providers.resolver import PromptResolver
         config = self._config({
@@ -334,6 +414,27 @@ class TestPromptResolver:
         p = resolver.resolve("image/jpeg", args)
         assert p.system == "pair_sys"
         assert p.user == "pair_prompt"
+
+    def test_pair_mode_uses_prepared_media_state_when_available(self):
+        from providers.resolver import PromptResolver
+        config = self._config({
+            "image_system_prompt": "generic_sys",
+            "image_prompt": "generic_prompt",
+            "image_pair_system_prompt": "pair_sys",
+            "image_pair_prompt": "pair_prompt",
+        })
+        resolver = PromptResolver(config, "test")
+        args = SimpleNamespace(pair_dir="/some/dir", gemini_task="")
+
+        no_pair_media = SimpleNamespace(pair_blob=None, pair_pixels=None, pair_extras=[], extras={})
+        p = resolver.resolve("image/jpeg", args, media=no_pair_media)
+        assert p.system == "generic_sys"
+        assert p.user == "generic_prompt"
+
+        pair_media = SimpleNamespace(pair_blob="blob", pair_pixels=None, pair_extras=[], extras={})
+        p2 = resolver.resolve("image/jpeg", args, media=pair_media)
+        assert p2.system == "pair_sys"
+        assert p2.user == "pair_prompt"
 
     def test_pair_mode_does_not_override_video_prompt(self):
         from providers.resolver import PromptResolver
@@ -807,7 +908,7 @@ class TestKimiStructuredDisplay:
         assert mock_display.call_args.kwargs["long_description"] == "long text"
 
 
-class TestKimiFolderNameLogging:
+class TestKimiFolderNamePrompting:
 
     @pytest.mark.parametrize(
         ("provider_name", "provider_args"),
@@ -816,16 +917,15 @@ class TestKimiFolderNameLogging:
             ("kimi_vl", {"kimi_api_key": "test-key"}),
         ],
     )
-    def test_kimi_logs_folder_input_name_when_dir_name_enabled(self, tmp_path, provider_name, provider_args):
+    def test_kimi_passes_folder_input_name_into_prompts_when_dir_name_enabled(self, tmp_path, provider_name, provider_args):
         from providers.base import CaptionResult, MediaContext, MediaModality, ProviderContext
         from providers.registry import get_registry
-        from rich.console import Console
 
         folder = tmp_path / "Alice (Wonderland)"
         image_path = folder / "sample.jpg"
-        log_output = io.StringIO()
+        captured = {}
         ctx = ProviderContext(
-            console=Console(file=log_output, force_terminal=False, color_system=None),
+            console=MagicMock(),
             config={"prompts": {}},
             args=SimpleNamespace(
                 dir_name=True,
@@ -845,17 +945,24 @@ class TestKimiFolderNameLogging:
             blob="base64data",
         )
 
+        def fake_attempt(_media, prompts):
+            captured["prompts"] = prompts
+            return CaptionResult(raw="ok")
+
         with (
             patch.object(provider, "prepare_media", return_value=media),
-            patch.object(provider, "attempt", return_value=CaptionResult(raw="ok")),
+            patch.object(provider, "attempt", side_effect=fake_attempt),
         ):
             result = provider.execute(str(image_path), "image/jpeg", "hash")
 
         assert result.raw == "ok"
-        rendered_log = log_output.getvalue()
-        assert "Kimi 文件夹输入名确认" in rendered_log
-        assert "Alice (Wonderland)" in rendered_log
-        assert "<Alice> from (Wonderland)" in rendered_log
+        prompts = captured["prompts"]
+        assert prompts.character_name == "<Alice> from (Wonderland)"
+        assert prompts.character_prompt == (
+            "If there is a person/character or more in the image you must refer to them as "
+            "<Alice> from (Wonderland).\n"
+        )
+        assert prompts.user.startswith(prompts.character_prompt)
 
 
 class TestAPIRetryConfig:
@@ -1080,6 +1187,141 @@ class TestProviderBase:
         )
         Dummy(ctx).execute("/a.jpg", "image/jpeg", "hash-123")
         assert captured["sha256hash"] == "hash-123"
+
+    def test_execute_displays_structured_single_image_result(self):
+        from providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality
+        from rich.console import Console
+
+        pixels = object()
+        payload = {
+            "description": "structured image caption",
+            "scores": {"Composition": 8},
+            "average_score": 8.0,
+        }
+
+        class Dummy(Provider):
+            name = "dummy"
+
+            @classmethod
+            def can_handle(cls, args, mime):
+                return True
+
+            def prepare_media(self, uri, mime, args):
+                return MediaContext(uri=uri, mime=mime, sha256hash="", modality=MediaModality.IMAGE, pixels=pixels)
+
+            def attempt(self, media, prompts):
+                return CaptionResult(
+                    raw=json.dumps(payload, ensure_ascii=False),
+                    parsed=payload,
+                    metadata={"provider": self.name, "structured": True},
+                )
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO(), force_terminal=False),
+            config={"prompts": {}},
+            args=SimpleNamespace(max_retries=1, wait_time=0.01, dir_name=False, pair_dir="", gemini_task=""),
+        )
+
+        with patch("providers.base.display_caption_and_rate") as mocked_display:
+            result = Dummy(ctx).execute("C:/images/frame.jpg", "image/jpeg", "hash-123")
+
+        assert result.parsed == payload
+        mocked_display.assert_called_once()
+        kwargs = mocked_display.call_args.kwargs
+        assert kwargs["title"] == "frame.jpg"
+        assert kwargs["long_description"] == "structured image caption"
+        assert kwargs["rating"] == {"Composition": 8}
+        assert kwargs["average_score"] == 8.0
+        assert kwargs["pixels"] is pixels
+
+    def test_execute_skips_shared_display_for_pair_images(self):
+        from providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality
+        from rich.console import Console
+
+        class Dummy(Provider):
+            name = "dummy"
+
+            @classmethod
+            def can_handle(cls, args, mime):
+                return True
+
+            def prepare_media(self, uri, mime, args):
+                return MediaContext(
+                    uri=uri,
+                    mime=mime,
+                    sha256hash="",
+                    modality=MediaModality.IMAGE,
+                    pixels=object(),
+                    pair_pixels=object(),
+                )
+
+            def attempt(self, media, prompts):
+                payload = {
+                    "description": "pair caption",
+                    "scores": {"Composition": 8},
+                    "average_score": 8.0,
+                }
+                return CaptionResult(
+                    raw=json.dumps(payload, ensure_ascii=False),
+                    parsed=payload,
+                    metadata={"provider": self.name, "structured": True},
+                )
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO(), force_terminal=False),
+            config={"prompts": {}},
+            args=SimpleNamespace(max_retries=1, wait_time=0.01, dir_name=False, pair_dir="", gemini_task=""),
+        )
+
+        with patch("providers.base.display_caption_and_rate") as mocked_display:
+            Dummy(ctx).execute("C:/images/frame.jpg", "image/jpeg", "hash-123")
+
+        mocked_display.assert_not_called()
+
+    def test_execute_resolves_pair_prompt_from_prepared_media_not_raw_args(self):
+        from providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality
+        from rich.console import Console
+
+        captured = {}
+
+        class Dummy(Provider):
+            name = "dummy"
+
+            @classmethod
+            def can_handle(cls, args, mime):
+                return True
+
+            def prepare_media(self, uri, mime, args):
+                return MediaContext(
+                    uri=uri,
+                    mime=mime,
+                    sha256hash="",
+                    modality=MediaModality.IMAGE,
+                    pixels=object(),
+                    pair_pixels=None,
+                )
+
+            def attempt(self, media, prompts):
+                captured["prompts"] = prompts
+                return CaptionResult(raw="ok")
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO(), force_terminal=False),
+            config={
+                "prompts": {
+                    "image_system_prompt": "generic_sys",
+                    "image_prompt": "generic_prompt",
+                    "image_pair_system_prompt": "pair_sys",
+                    "image_pair_prompt": "pair_prompt",
+                }
+            },
+            args=SimpleNamespace(max_retries=1, wait_time=0.01, dir_name=False, pair_dir="C:/pairs", gemini_task=""),
+        )
+
+        Dummy(ctx).execute("C:/images/frame.jpg", "image/jpeg", "hash-123")
+
+        assert captured["prompts"].system == "generic_sys"
+        assert captured["prompts"].user == "generic_prompt"
 
 
 # ──────────────────────────────────────────────

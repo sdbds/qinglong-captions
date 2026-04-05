@@ -99,7 +99,7 @@ class OCRProvider(Provider):
 
         return "", prompt  # OCR 通常不需要 system prompt
 
-    def resolve_prompts(self, uri: str, mime: str) -> PromptContext:
+    def resolve_prompts(self, uri: str, mime: str, media: Optional[MediaContext] = None) -> PromptContext:
         """OCR provider 直接使用自己的 prompt 配置，而不是通用 PromptResolver。"""
         system, user = self.get_prompts(mime)
         char_name, char_prompt = self._get_character_prompt(uri)

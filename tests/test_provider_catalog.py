@@ -32,10 +32,12 @@ def test_catalog_exposes_canonical_route_choices_only_by_default():
     assert "pixtral_ocr" not in ocr_choices
     assert "pixtral" not in ocr_choices
     assert "lfm_vl_local" in vlm_choices
+    assert "gemma4_local" in vlm_choices
     assert "music_flamingo_local" in alm_choices
     assert "eureka_audio_local" in alm_choices
     assert "acestep_transcriber_local" in alm_choices
     assert "cohere_transcribe_local" in alm_choices
+    assert "gemma4_local" in alm_choices
 
 
 def test_catalog_keeps_legacy_alias_attrs_in_sync():
@@ -69,6 +71,7 @@ def test_catalog_config_section_candidates_cover_local_provider_compat():
     assert provider_config_sections("step_vl_local") == ("step_vl_local", "stepfun_local")
     assert provider_config_sections("reka_edge_local") == ("reka_edge_local", "reka_edge")
     assert provider_config_sections("lfm_vl_local") == ("lfm_vl_local", "lfm_vl")
+    assert provider_config_sections("gemma4_local") == ("gemma4_local",)
     assert provider_config_sections("eureka_audio_local") == ("eureka_audio_local", "eureka_audio")
     assert provider_config_sections("acestep_transcriber_local") == ("acestep_transcriber_local",)
     assert provider_config_sections("cohere_transcribe_local") == ("cohere_transcribe_local",)
@@ -86,7 +89,9 @@ def test_catalog_marks_only_remote_routes_as_needing_api_config():
     assert route_requires_remote_config("vlm_image_model", "qwen_vl_local") is False
     assert route_requires_remote_config("vlm_image_model", "reka_edge_local") is False
     assert route_requires_remote_config("vlm_image_model", "lfm_vl_local") is False
+    assert route_requires_remote_config("vlm_image_model", "gemma4_local") is False
     assert route_requires_remote_config("alm_model", "music_flamingo_local") is False
     assert route_requires_remote_config("alm_model", "eureka_audio_local") is False
     assert route_requires_remote_config("alm_model", "acestep_transcriber_local") is False
     assert route_requires_remote_config("alm_model", "cohere_transcribe_local") is False
+    assert route_requires_remote_config("alm_model", "gemma4_local") is False

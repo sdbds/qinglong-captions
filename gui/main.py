@@ -11,6 +11,7 @@
 """
 
 import sys
+from importlib import import_module
 from pathlib import Path
 
 # 添加项目根目录到 Python 路径
@@ -22,15 +23,6 @@ import asyncio
 import logging
 import toml
 from nicegui import ui, app
-from wizard.step0_setup import render_setup_step
-from wizard.step1_import import render_import_step
-from wizard.step2_video_split import render_video_split_step
-from wizard.step3_tagger import render_tagger_step
-from wizard.step4_caption import render_caption_step
-from wizard.step5_export import render_export_step
-from wizard.step6_tools import render_tools_step
-from wizard.step7_settings import create_settings_dialog
-from wizard.console_page import render_console_page
 from theme import apply_theme, get_classes, COLORS
 from gui.utils.i18n import t, set_language, get_i18n
 from components.job_list import JobListDrawer, inject_job_list_css
@@ -98,6 +90,12 @@ THEME_SCRIPT = """
 """
 
 
+def _load_wizard_attr(module_name: str, attr_name: str):
+    """Load wizard modules on demand to keep startup on the homepage cheap."""
+    module = import_module(module_name)
+    return getattr(module, attr_name)
+
+
 def create_header(job_drawer=None):
     """创建现代化页面头部导航"""
     with ui.header().classes(get_classes("header")):
@@ -152,7 +150,7 @@ def create_header(job_drawer=None):
                     ui.element("div").style(f"width: 1px; height: 24px; background: {COLORS['accent']}; opacity: 0.5;")
 
                 # 配置管理按钮
-                settings_dlg = create_settings_dialog()
+                settings_dlg = _load_wizard_attr("wizard.step7_settings", "create_settings_dialog")()
                 settings_btn = ui.button(icon="settings", on_click=settings_dlg.open).props("flat round dense")
                 settings_btn.style(f"color: {COLORS['accent']};")
                 settings_btn.tooltip(t("nav_settings"))
@@ -312,42 +310,42 @@ def home_page():
 
 def import_page():
     """数据导入页面"""
-    page_base(render_import_step)
+    page_base(_load_wizard_attr("wizard.step1_import", "render_import_step"))
 
 
 def split_page():
     """视频分割页面"""
-    page_base(render_video_split_step)
+    page_base(_load_wizard_attr("wizard.step2_video_split", "render_video_split_step"))
 
 
 def tagger_page():
     """标签生成页面"""
-    page_base(render_tagger_step)
+    page_base(_load_wizard_attr("wizard.step3_tagger", "render_tagger_step"))
 
 
 def caption_page():
     """字幕生成页面"""
-    page_base(render_caption_step)
+    page_base(_load_wizard_attr("wizard.step4_caption", "render_caption_step"))
 
 
 def export_page():
     """数据导出页面"""
-    page_base(render_export_step)
+    page_base(_load_wizard_attr("wizard.step5_export", "render_export_step"))
 
 
 def tools_page():
     """工具页面"""
-    page_base(render_tools_step)
+    page_base(_load_wizard_attr("wizard.step6_tools", "render_tools_step"))
 
 
 def setup_page():
     """环境检查页面"""
-    page_base(render_setup_step)
+    page_base(_load_wizard_attr("wizard.step0_setup", "render_setup_step"))
 
 
 def console_page():
     """全屏终端页面（无导航栏）"""
-    render_console_page()
+    _load_wizard_attr("wizard.console_page", "render_console_page")()
 
 
 def not_found_page():

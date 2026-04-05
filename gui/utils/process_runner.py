@@ -44,6 +44,7 @@ _PROGRESS_TIME_RE = re.compile(r"(?:\b(?:\d+:)?\d{1,2}:\d{2}\b|-:--:--|-:--)")
 _LEADING_NON_SGR_ANSI_RE = re.compile(
     r"^(?:(?:\x1b\[[0-9;?]*[A-LN-Za-ln-z])|(?:\x1b\][^\x07]*\x07))+"
 )
+_LEADING_BARE_CSI_RE = re.compile(r"^(?:\[[0-9;?]*[A-LN-Za-ln-z])+")
 _UV_TORCH_EXTRAS = frozenset(
     {
         "translate",
@@ -65,6 +66,7 @@ _UV_TORCH_EXTRAS = frozenset(
         "step-vl-local",
         "penguin-vl-local",
         "reka-edge-local",
+        "gemma4-local",
         "lfm-vl-local",
         "music-flamingo-local",
         "eureka-audio-local",
@@ -91,6 +93,7 @@ _UV_TORCHVISION_EXTRAS = frozenset(
         "step-vl-local",
         "penguin-vl-local",
         "reka-edge-local",
+        "gemma4-local",
     }
 )
 _UV_TORCH_GROUPS = frozenset({"test"})
@@ -613,6 +616,7 @@ class ProcessRunner:
             return
 
         normalized = _LEADING_NON_SGR_ANSI_RE.sub("", raw)
+        normalized = _LEADING_BARE_CSI_RE.sub("", normalized)
         if not strip_ansi(normalized).strip():
             return
 

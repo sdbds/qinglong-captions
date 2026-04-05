@@ -27,6 +27,15 @@ def test_captioner_parser_leaves_alm_language_unset_by_default():
     assert args.alm_language is None
 
 
+def test_captioner_parser_leaves_gemma4_audio_contract_unset_by_default():
+    from module.captioner import setup_parser
+
+    args = setup_parser().parse_args(["datasets"])
+
+    assert args.audio_task == ""
+    assert args.gemma4_model_id == ""
+
+
 def test_captioner_parser_rejects_legacy_config_flag():
     from module.captioner import setup_parser
 

@@ -167,7 +167,7 @@
 
 ### 5. 恢复策略
 
-首版不引入 JSON manifest，也不引入行级 Lance 状态表。
+首版不引入 JSON 状态表，也不引入行级 Lance 状态表。
 
 恢复模型直接收敛成两件事：
 
@@ -189,19 +189,31 @@
 - 首版不存在 `stable tag` / `latest complete version` / `stage version` 这类 item 级状态语义
 - 因此首版也不存在行级主键、行级 upsert、按阶段 merge 的写入契约问题
 
-首版允许保留一个极小的 run 级元数据文件，例如：
+首版允许保留极小的 JSON 文件，但它们都不是状态表，例如：
 
 - `<output_dir>/run_meta.json`
+- `<item_dir>/layerdiff/manifest.json`
+- `<item_dir>/depth/manifest.json`
+- `<item_dir>/optimized/manifest.json`
 
-它只用于记录：
+其中 `run_meta.json` 只记录：
 
 - `config_fingerprint`
 - `input_dir`
 - `created_at`
 
-它不是 item 级状态表；它只参与“这个 `output_dir` 是否还能继续用于当前任务”的目录级身份校验，不参与 item 级阶段恢复。
+各 phase manifest 只记录该目录下输出是否完整、关键产物路径和必要的派生元数据，不承载 item 级状态机语义。
 
-如果后续版本确实要把 Lance 从“备份快照”升级为“item 级状态表”，那必须额外单开设计，不允许在首版实现上自然生长。升级设计至少要先钉死以下约束：
+这些文件都不是 item 级状态表；它们的职责只有两类：
+
+- `run_meta.json` 只参与“这个 `output_dir` 是否还能继续用于当前任务”的目录级身份校验
+- 各 phase manifest 只承担输出完整性记录职责，用于从已落盘结果推导续跑起点
+
+它们都不参与行级阶段状态、行级 upsert、行级 merge 或 stable tag 管理。
+
+如果后续版本确实要把 Lance 从“备份快照”升级为“item 级状态表”，那必须额外单开设计，不允许在首版实现上自然生长。
+
+以下约束只属于未来的 Lance live state 设计前提，不属于首版实现要求：
 
 - 每行必须有稳定 `item_id`，不能拿 `source_path` 直接充当主键
 - 所有写入都必须基于“最新完整版本”做 `merge_insert(on="item_id")`
@@ -219,16 +231,16 @@
 1. 扫描输入目录，建立 item 清单并完成基础校验
 2. `LayerDiff` phase：
    - 对所有需要处理的 item 执行 `LayerDiff`
-   - 写入分层 PNG 与 `layerdiff` 阶段状态
+   - 写入分层 PNG 与 `layerdiff` 输出完整性记录
 3. 卸载 `LayerDiff` GPU 模块
 4. `Marigold` phase：
    - 只处理 `layerdiff` 阶段有效的 item
-   - 写入深度图与 `marigold` 阶段状态
+   - 写入深度图与 `marigold` 输出完整性记录
 5. 卸载 `Marigold` GPU 模块
 6. `Postprocess / PSD` phase：
    - 只处理前置阶段有效的 item
    - 执行 `further_extr` / PSD 导出
-   - 写入最终 `completed` 状态
+   - 写入最终产物与 `optimized` 输出完整性记录
 
 这里的关键不再是“单张图闭环可解释”，而是：
 

@@ -4,14 +4,11 @@ import types
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-
-fake_transformer_loader = types.ModuleType("utils.transformer_loader")
-fake_transformer_loader.load_pretrained_component = lambda *args, **kwargs: None
-sys.modules.setdefault("utils.transformer_loader", fake_transformer_loader)
 
 import module.see_through.extracted.marigold_core as marigold_core
 from module.see_through.vendor_bootstrap import VENDOR_ROOT
@@ -57,13 +54,6 @@ def _install_fake_vendor_imports(monkeypatch, seeded):
     def seed_everything(seed):
         seeded.append(seed)
 
-    def validate_resolution(resolution):
-        if isinstance(resolution, int):
-            return [resolution, resolution]
-        if isinstance(resolution, str):
-            return [int(part.strip()) for part in resolution.split(",")[:2]]
-        return [int(resolution[0]), int(resolution[1])]
-
     def smart_resize(array, size):
         target_height, target_width = int(size[0]), int(size[1])
         if array.ndim == 2:
@@ -90,7 +80,6 @@ def _install_fake_vendor_imports(monkeypatch, seeded):
     def json2dict(path):
         return json.loads(Path(path).read_text(encoding="utf-8"))
 
-    fake_cv.validate_resolution = validate_resolution
     fake_cv.smart_resize = smart_resize
     fake_cv.img_alpha_blending = img_alpha_blending
     fake_io_utils.dict2json = dict2json
@@ -182,3 +171,71 @@ def test_run_marigold_phase_resizes_to_requested_depth_resolution(monkeypatch, t
     manifest = json.loads((output_dir / "depth" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["resolution"] == 64
     assert manifest["resolution_depth"] == 32
+
+
+class _TrackingComponent:
+    def __init__(self, *, quantized=False):
+        self.quantized = quantized
+        self.calls = []
+
+    @property
+    def is_quantized(self):
+        return self.quantized
+
+    def to(self, *args, **kwargs):
+        self.calls.append({"args": args, "kwargs": dict(kwargs)})
+        if self.quantized and "dtype" in kwargs:
+            raise ValueError("quantized component must not receive dtype")
+        return self
+
+
+class _TrackingPipeline:
+    def __init__(self, *, unet, vae, text_encoder):
+        self.unet = unet
+        self.vae = vae
+        self.text_encoder = text_encoder
+        self.progress_disabled = False
+
+    def set_progress_bar_config(self, *, disable):
+        self.progress_disabled = bool(disable)
+
+
+def test_load_marigold_pipeline_nf4_moves_quantized_unet_without_dtype(monkeypatch):
+    fake_unet = _TrackingComponent(quantized=True)
+    fake_vae = _TrackingComponent()
+    fake_text_encoder = _TrackingComponent()
+    fake_pipeline = _TrackingPipeline(unet=fake_unet, vae=fake_vae, text_encoder=fake_text_encoder)
+
+    load_calls = []
+
+    def fake_load_pretrained_component(component_cls, repo_id, **kwargs):
+        load_calls.append({"component_cls": component_cls, "repo_id": repo_id, "kwargs": dict(kwargs)})
+        if kwargs.get("component_name") == "Marigold UNet":
+            return fake_unet
+        return fake_pipeline
+
+    fake_layerdiff_module = types.ModuleType("modules.layerdiffuse.layerdiff3d")
+    fake_layerdiff_module.UNetFrameConditionModel = type("UNetFrameConditionModel", (), {})
+    fake_marigold_module = types.ModuleType("modules.marigold")
+    fake_marigold_module.MarigoldDepthPipeline = type("MarigoldDepthPipeline", (), {})
+
+    monkeypatch.setattr(marigold_core, "ensure_vendor_imports", lambda: None)
+    monkeypatch.setattr(marigold_core, "load_pretrained_component", fake_load_pretrained_component)
+    monkeypatch.setitem(sys.modules, "modules.layerdiffuse.layerdiff3d", fake_layerdiff_module)
+    monkeypatch.setitem(sys.modules, "modules.marigold", fake_marigold_module)
+
+    runtime_context = types.SimpleNamespace(device="cuda", dtype="bfloat16")
+
+    pipeline = marigold_core.load_marigold_pipeline(
+        repo_id="demo/marigold_nf4",
+        runtime_context=runtime_context,
+        quant_mode="nf4",
+    )
+
+    assert pipeline is fake_pipeline
+    assert load_calls[0]["kwargs"]["torch_dtype"] == "bfloat16"
+    assert load_calls[1]["kwargs"]["torch_dtype"] == "bfloat16"
+    assert fake_unet.calls == [{"args": (), "kwargs": {"device": "cuda"}}]
+    assert fake_vae.calls == [{"args": (), "kwargs": {"device": "cuda", "dtype": "bfloat16"}}]
+    assert fake_text_encoder.calls == [{"args": (), "kwargs": {"device": "cuda", "dtype": "bfloat16"}}]
+    assert fake_pipeline.progress_disabled is True

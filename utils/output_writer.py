@@ -38,6 +38,13 @@ def caption_output_path(source_path: Path, mime: str, output=None) -> Path:
 
 
 def _structured_description(payload: dict) -> str:
+    task_kind = str(payload.get("task_kind") or "").strip().lower()
+    subtitle_format = str(payload.get("subtitle_format") or "").strip().lower()
+    extension = caption_extension_from_payload(payload)
+    if task_kind == "ast" or subtitle_format == "srt" or extension == ".srt":
+        srt_text = payload.get("translation_srt") or payload.get("transcript")
+        if has_meaningful_text_content(srt_text):
+            return str(srt_text)
     return (
         payload.get("long_description")
         or payload.get("transcript")

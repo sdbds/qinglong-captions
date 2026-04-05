@@ -104,3 +104,14 @@ def test_transient_rich_progress_cleanup_keeps_following_real_log_line():
 
     assert runner._consume_native_log_chunk(chunk) == ["模型下载完成"]
     assert runner._consume_native_log_chunk("", final_flush=True) == []
+
+
+def test_bare_cursor_up_artifact_is_ignored():
+    runner = create_runner()
+
+    chunk = "Loading weights:   0%|          | 0/196 [00:00<?, ?it/s]\n[A\nLoading weights: 100%|##########| 196/196 [00:00<00:00, 2143.70it/s]\n"
+
+    assert runner._consume_native_log_chunk(chunk) == [
+        "Loading weights:   0%|          | 0/196 [00:00<?, ?it/s]",
+        "Loading weights: 100%|##########| 196/196 [00:00<00:00, 2143.70it/s]",
+    ]

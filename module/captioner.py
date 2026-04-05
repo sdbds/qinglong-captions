@@ -337,6 +337,19 @@ def setup_parser() -> argparse.ArgumentParser:
         default=None,
         help="Language code hint for ALM transcription tasks (for example: zh, en, ja)",
     )
+    parser.add_argument(
+        "--audio_task",
+        type=str,
+        choices=["", "asr", "ast"],
+        default="",
+        help="Audio task contract for multimodal audio routes (asr or ast)",
+    )
+    parser.add_argument(
+        "--gemma4_model_id",
+        type=str,
+        default="",
+        help="Explicit Gemma 4 local Hugging Face model_id override",
+    )
 
     parser.add_argument(
         "--document_image",

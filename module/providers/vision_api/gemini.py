@@ -214,19 +214,6 @@ def attempt_gemini(
             )
             return description
         else:
-            description = captions.get("description", "") if isinstance(captions, dict) else ""
-            scores = captions.get("scores", []) if isinstance(captions, dict) else []
-            average_score = captions.get("average_score", 0.0) if isinstance(captions, dict) else 0.0
-            display_caption_and_rate(
-                title=Path(uri).name,
-                tag_description="",
-                long_description=description,
-                pixels=pixels,
-                rating=scores,
-                average_score=average_score,
-                panel_height=32,
-                console=console,
-            )
             return response_text
 
     # Video/Audio: parse SRT

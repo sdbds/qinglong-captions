@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import tomlkit
+from gui.utils.toml_helpers import unwrap as _unwrap, guess_slider_range as _guess_slider_range
 from nicegui import ui
 
 from theme import COLORS
@@ -22,54 +23,6 @@ _CONFIG_FILES = {
     "model": "model.toml",
     "general": "general.toml",
 }
-
-# ── tomlkit value unwrapping ────────────────────────────────────────
-
-
-def _unwrap(value):
-    """Convert tomlkit wrapper types to plain Python types for JSON serialization."""
-    if isinstance(value, dict):
-        return {str(k): _unwrap(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_unwrap(v) for v in value]
-    if isinstance(value, bool):
-        return bool(value)
-    if isinstance(value, int):
-        return int(value)
-    if isinstance(value, float):
-        return float(value)
-    if isinstance(value, str):
-        return str(value)
-    return value
-
-
-# ── Slider range heuristics for numeric fields ─────────────────────
-
-
-def _guess_slider_range(key: str, value, is_float: bool):
-    """Guess a reasonable slider min/max/step for a numeric config field."""
-    if is_float:
-        if value <= 0:
-            return 0.0, 1.0, 0.01
-        if value <= 1.0:
-            return 0.0, 1.0, 0.01
-        if value <= 2.0:
-            return 0.0, 2.0, 0.05
-        if value <= 10.0:
-            return 0.0, 10.0, 0.1
-        return 0.0, value * 3, 0.1
-    else:
-        if value <= 0:
-            return 0, 100, 1
-        if value <= 10:
-            return 0, 20, 1
-        if value <= 100:
-            return 0, 200, 1
-        if value <= 1000:
-            return 0, 2000, 10
-        if value <= 10000:
-            return 0, 20000, 100
-        return 0, value * 3, max(1, value // 100)
 
 
 # ── Scoped CSS for settings dialog ─────────────────────────────────
