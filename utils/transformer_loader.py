@@ -488,10 +488,33 @@ def _prefer_flex_attention(attn_impl: Optional[str], *, supports_flex_attn: bool
     return attn_impl
 
 
+def is_cuda_device(device: Any) -> bool:
+    return str(device or "").startswith("cuda")
+
+
+def current_cuda_device_string() -> str:
+    try:
+        index = int(torch.cuda.current_device())
+    except Exception:
+        return "cuda"
+    return "cuda" if index <= 0 else f"cuda:{index}"
+
+
+def resolve_pretrained_device_map(device: Any, device_map: Any) -> Any:
+    if device_map != "auto":
+        return device_map
+    if not is_cuda_device(device):
+        return device_map
+    text = str(device)
+    if text == "cuda":
+        return "auto"
+    return {"": text}
+
+
 def resolve_device_dtype(*, supports_flex_attn: bool = False) -> tuple[str, torch.dtype, str]:
     if torch.cuda.is_available():
         attn_impl = _default_cuda_attention_impl(supports_flex_attn=supports_flex_attn)
-        return "cuda", getattr(torch, "bfloat16", torch.float16), attn_impl
+        return current_cuda_device_string(), getattr(torch, "bfloat16", torch.float16), attn_impl
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         return "mps", torch.float16, "eager"
     return "cpu", torch.float32, "eager"
@@ -582,7 +605,10 @@ class transformerLoader:
         kwargs["low_cpu_mem_usage"] = low_cpu_mem_usage
         if use_safetensors is not None:
             kwargs["use_safetensors"] = use_safetensors
-        kwargs["device_map"] = self.device_map if device_map is None else device_map
+        kwargs["device_map"] = resolve_pretrained_device_map(
+            current_cuda_device_string() if torch.cuda.is_available() else None,
+            self.device_map if device_map is None else device_map,
+        )
         kwargs["torch_dtype"] = str(dtype).split(".")[-1]
         if attn_impl and self.attn_kw:
             kwargs[self.attn_kw] = attn_impl

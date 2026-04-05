@@ -573,12 +573,47 @@ def test_transformer_loader_passes_torch_dtype_instead_of_dtype():
     json.dumps({"torch_dtype": captured["kwargs"]["torch_dtype"]})
 
 
+def test_transformer_loader_pins_auto_device_map_to_nonzero_current_cuda(monkeypatch):
+    import torch
+
+    from utils import transformer_loader
+
+    captured = {}
+
+    class FakeModelLoader:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            captured["kwargs"] = kwargs
+
+            class _FakeModel:
+                def eval(self):
+                    return self
+
+            return _FakeModel()
+
+    monkeypatch.setattr(transformer_loader.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(transformer_loader.torch.cuda, "current_device", lambda: 1)
+
+    loader = transformer_loader.transformerLoader(attn_kw="attn_implementation", device_map="auto")
+    loader.load_model(
+        "dummy/model",
+        FakeModelLoader,
+        dtype=torch.float32,
+        attn_impl="eager",
+        trust_remote_code=False,
+        low_cpu_mem_usage=False,
+    )
+
+    assert captured["kwargs"]["device_map"] == {"": "cuda:1"}
+
+
 def test_resolve_device_dtype_prefers_sdpa_when_flash_attn_missing_on_cuda(monkeypatch):
     import torch
 
     from utils import transformer_loader
 
     monkeypatch.setattr(transformer_loader.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(transformer_loader.torch.cuda, "current_device", lambda: 0)
     monkeypatch.setattr(transformer_loader, "_has_flash_attn", lambda: False)
     monkeypatch.setattr(transformer_loader, "_has_sdpa", lambda: True)
 
@@ -589,12 +624,30 @@ def test_resolve_device_dtype_prefers_sdpa_when_flash_attn_missing_on_cuda(monke
     assert attn_impl == "sdpa"
 
 
+def test_resolve_device_dtype_uses_current_cuda_index_when_nonzero(monkeypatch):
+    import torch
+
+    from utils import transformer_loader
+
+    monkeypatch.setattr(transformer_loader.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(transformer_loader.torch.cuda, "current_device", lambda: 1)
+    monkeypatch.setattr(transformer_loader, "_has_flash_attn", lambda: False)
+    monkeypatch.setattr(transformer_loader, "_has_sdpa", lambda: True)
+
+    device, dtype, attn_impl = transformer_loader.resolve_device_dtype()
+
+    assert device == "cuda:1"
+    assert dtype == getattr(torch, "bfloat16", torch.float16)
+    assert attn_impl == "sdpa"
+
+
 def test_resolve_device_dtype_prefers_flex_when_supported_and_enabled_on_cuda(monkeypatch):
     import torch
 
     from utils import transformer_loader
 
     monkeypatch.setattr(transformer_loader.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(transformer_loader.torch.cuda, "current_device", lambda: 0)
     monkeypatch.setattr(transformer_loader, "_has_flex_attention", lambda: True)
     monkeypatch.setattr(transformer_loader, "_has_flash_attn", lambda: True)
     monkeypatch.setattr(transformer_loader, "_has_sdpa", lambda: True)
@@ -604,6 +657,50 @@ def test_resolve_device_dtype_prefers_flex_when_supported_and_enabled_on_cuda(mo
     assert device == "cuda"
     assert dtype == getattr(torch, "bfloat16", torch.float16)
     assert attn_impl == "flex_attention"
+
+
+def test_reka_edge_local_uses_cuda_indexed_device_as_cuda_gpu(monkeypatch):
+    import torch
+
+    from providers.base import ProviderContext
+    from providers.local_vlm.reka_edge_local import RekaEdgeLocalProvider
+
+    captured = {}
+
+    class FakeProcessor:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            return "processor"
+
+    class FakeModelLoader:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            captured["model_kwargs"] = kwargs
+
+            class _FakeModel:
+                def eval(self):
+                    return self
+
+            return _FakeModel()
+
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoProcessor = FakeProcessor
+    fake_transformers.AutoModelForImageTextToText = FakeModelLoader
+
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO(), force_terminal=False),
+        config={"reka_edge_local": {"model_id": "RekaAI/reka-edge-2603"}},
+        args=SimpleNamespace(vlm_image_model="reka_edge_local"),
+    )
+
+    with (
+        patch.dict(sys.modules, {"transformers": fake_transformers}),
+        patch("utils.transformer_loader.resolve_device_dtype", return_value=("cuda:1", torch.bfloat16, "eager")),
+    ):
+        cached = RekaEdgeLocalProvider(ctx)._load_model()
+
+    assert cached["device"] == "cuda:1"
+    assert captured["model_kwargs"]["device_map"] == {"": "cuda:1"}
 
 
 def test_transformer_loader_retries_with_sdpa_when_flash_attn_load_fails(monkeypatch):

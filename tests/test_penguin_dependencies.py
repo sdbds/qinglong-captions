@@ -167,6 +167,15 @@ def test_pyproject_declares_cohere_transcribe_local_extra():
     assert "protobuf" in cohere_transcribe_deps
 
 
+def test_pyproject_declares_bitsandbytes_runtime_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "bitsandbytes-runtime" in optional_deps
+    bitsandbytes_runtime_deps = optional_deps["bitsandbytes-runtime"]
+    assert any(dep.startswith("bitsandbytes") for dep in bitsandbytes_runtime_deps)
+
+
 def test_pyproject_declares_vocal_midi_extra():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     optional_deps = pyproject["project"]["optional-dependencies"]
@@ -472,6 +481,29 @@ def test_caption_step_adds_gemma4_local_extra_once_for_both_routes():
     assert extra_args == ["--extra", "gemma4-local"]
 
 
+def test_caption_step_adds_bitsandbytes_extra_for_quantized_repo_ids():
+    CaptionStep = _load_caption_step("test_step4_caption_gemma4_quantized_extra")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="gemma4_local")
+    step.alm_model = SimpleNamespace(value="")
+    step._selected_local_route_model_ids = lambda: ("livadies/gemma-4-31B-Ghetto-NF4",)
+
+    extra_args = step._build_local_extra_args()
+
+    assert extra_args == ["--extra", "gemma4-local", "--extra", "bitsandbytes-runtime"]
+
+
+def test_caption_step_detects_bitsandbytes_quantized_repo_markers():
+    CaptionStep = _load_caption_step("test_step4_caption_bitsandbytes_repo_markers")
+
+    assert CaptionStep._repo_id_requires_bitsandbytes("livadies/gemma-4-31B-Ghetto-NF4") is True
+    assert CaptionStep._repo_id_requires_bitsandbytes("custom/model-bnb-4bit") is True
+    assert CaptionStep._repo_id_requires_bitsandbytes("google/gemma-4-31B-it") is False
+    assert CaptionStep._repo_id_requires_bitsandbytes("protoLabsAI/gemma-4-E4B-it-FP8") is False
+
+
 def test_caption_step_keeps_audio_task_value_empty_until_gemma4_is_selected():
     CaptionStep = _load_caption_step("test_step4_caption_audio_task_initial_value")
 
@@ -534,6 +566,14 @@ def test_run_ps1_mentions_gemma4_local_extra():
 
     assert '"gemma4_local"' in content
     assert 'Add-UvExtra "gemma4-local"' in content
+
+
+def test_run_ps1_mentions_bitsandbytes_runtime_extra_for_quantized_repo_ids():
+    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+
+    assert 'function Test-BitsAndBytesQuantizedRepoId' in content
+    assert 'Add-UvExtra "bitsandbytes-runtime"' in content
+    assert 'function Get-ModelConfigRouteModelId' in content
 
 
 def test_run_ps1_mentions_lighton_ocr_extra():

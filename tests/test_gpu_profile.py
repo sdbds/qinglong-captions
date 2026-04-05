@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from module.gpu_profile import (
     GPUProbeResult,
     classify_vram_tier,
+    format_gpu_summary,
     probe_gpu_environment,
     recommend_see_through_config,
 )
@@ -95,6 +96,45 @@ def test_probe_gpu_environment_collects_name_sm_and_vram():
     assert probe.devices[0].capability_label == "12.0"
     assert probe.devices[0].sm == "sm120"
     assert probe.devices[0].total_vram_gb == 24.0
+
+
+def test_format_gpu_summary_includes_nonzero_current_cuda_index():
+    probe = GPUProbeResult(
+        torch_available=True,
+        cuda_available=True,
+        cuda_version="12.8",
+        device_count=2,
+        current_device_index=1,
+        devices=(
+            SimpleNamespace(
+                index=0,
+                name="GPU Zero",
+                capability=(8, 9),
+                capability_label="8.9",
+                sm="sm89",
+                total_vram_bytes=24 * 1024**3,
+                total_vram_gb=24.0,
+                bf16_supported=False,
+            ),
+            SimpleNamespace(
+                index=1,
+                name="GPU One",
+                capability=(8, 9),
+                capability_label="8.9",
+                sm="sm89",
+                total_vram_bytes=24 * 1024**3,
+                total_vram_gb=24.0,
+                bf16_supported=True,
+            ),
+        ),
+        tier="gt16gb",
+        tier_label=">16 GB",
+    )
+
+    summary = format_gpu_summary(probe)
+
+    assert "cuda:1" in summary
+    assert "GPU One" in summary
 
 
 def test_recommend_see_through_config_uses_conservative_profiles():

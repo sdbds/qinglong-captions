@@ -50,7 +50,7 @@ class EurekaAudioLocalProvider(LocalALMProvider):
         if configured:
             return configured
         if resolved_device.startswith("cuda"):
-            return "cuda:0"
+            return resolved_device
         return "cpu"
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:

@@ -227,4 +227,37 @@ def test_eureka_audio_load_uses_official_wrapper(monkeypatch):
 
     assert isinstance(cached["model"], FakeEurekaAudio)
     assert captured["model_path"] == "cslys1999/Eureka-Audio-Instruct"
-    assert captured["device"] == "cuda:0"
+    assert captured["device"] == "cuda"
+
+
+def test_eureka_audio_load_preserves_nonzero_cuda_device(monkeypatch):
+    from providers.base import ProviderContext
+    from providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
+
+    captured = {}
+
+    class FakeEurekaAudio:
+        def __init__(self, model_path, device):
+            captured["model_path"] = model_path
+            captured["device"] = device
+
+    fake_api = types.ModuleType("eureka_infer.api")
+    fake_api.EurekaAudio = FakeEurekaAudio
+    fake_transformer_loader = types.ModuleType("utils.transformer_loader")
+    fake_transformer_loader.resolve_device_dtype = lambda: ("cuda:1", "bfloat16", "eager")
+
+    monkeypatch.setitem(sys.modules, "eureka_infer.api", fake_api)
+    monkeypatch.setitem(sys.modules, "utils.transformer_loader", fake_transformer_loader)
+
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO(), force_terminal=False),
+        config={},
+        args=SimpleNamespace(alm_model="eureka_audio_local"),
+    )
+    provider = EurekaAudioLocalProvider(ctx)
+
+    cached = provider._load_model()
+
+    assert isinstance(cached["model"], FakeEurekaAudio)
+    assert captured["model_path"] == "cslys1999/Eureka-Audio-Instruct"
+    assert captured["device"] == "cuda:1"

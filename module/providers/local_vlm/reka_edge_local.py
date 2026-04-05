@@ -18,6 +18,21 @@ from module.providers.registry import register_provider
 from utils.parse_display import extract_code_block_content
 
 
+def _is_cuda_device(device: Any) -> bool:
+    return str(device or "").startswith("cuda")
+
+
+def _resolve_pretrained_device_map(device: Any, device_map: Any) -> Any:
+    if device_map != "auto":
+        return device_map
+    if not _is_cuda_device(device):
+        return device_map
+    text = str(device)
+    if text == "cuda":
+        return "auto"
+    return {"": text}
+
+
 @register_provider("reka_edge_local")
 class RekaEdgeLocalProvider(LocalVLMProvider):
     """Local provider for RekaAI/reka-edge-2603."""
@@ -59,8 +74,8 @@ class RekaEdgeLocalProvider(LocalVLMProvider):
             "trust_remote_code": True,
             "torch_dtype": dtype,
         }
-        if device == "cuda":
-            load_kwargs["device_map"] = "auto"
+        if _is_cuda_device(device):
+            load_kwargs["device_map"] = _resolve_pretrained_device_map(device, "auto")
 
         model = load_pretrained_component(
             AutoModelForImageTextToText,
@@ -69,7 +84,7 @@ class RekaEdgeLocalProvider(LocalVLMProvider):
             component_name="model",
             **load_kwargs,
         ).eval()
-        if device != "cuda":
+        if not _is_cuda_device(device):
             model = move_pretrained_component(model, device=device)
 
         return {
@@ -96,7 +111,7 @@ class RekaEdgeLocalProvider(LocalVLMProvider):
             if normalized in dtype_aliases:
                 return dtype_aliases[normalized]
 
-        if device == "cuda":
+        if _is_cuda_device(device):
             return torch_module.float16
         return dtype
 

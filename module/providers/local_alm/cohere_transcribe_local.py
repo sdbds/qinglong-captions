@@ -13,6 +13,21 @@ from module.providers.registry import register_provider
 from utils.parse_display import extract_code_block_content
 
 
+def _is_cuda_device(device: Any) -> bool:
+    return str(device or "").startswith("cuda")
+
+
+def _resolve_pretrained_device_map(device: Any, device_map: Any) -> Any:
+    if device_map != "auto":
+        return device_map
+    if not _is_cuda_device(device):
+        return device_map
+    text = str(device)
+    if text == "cuda":
+        return "auto"
+    return {"": text}
+
+
 @register_provider("cohere_transcribe_local")
 class CohereTranscribeLocalProvider(LocalALMProvider):
     default_model_id = "CohereLabs/cohere-transcribe-03-2026"
@@ -68,8 +83,8 @@ class CohereTranscribeLocalProvider(LocalALMProvider):
         }
         if attn_impl:
             load_kwargs["attn_implementation"] = attn_impl
-        if device == "cuda":
-            load_kwargs["device_map"] = "auto"
+        if _is_cuda_device(device):
+            load_kwargs["device_map"] = _resolve_pretrained_device_map(device, "auto")
 
         model = load_pretrained_component(
             AutoModelForSpeechSeq2Seq,
@@ -82,7 +97,7 @@ class CohereTranscribeLocalProvider(LocalALMProvider):
             model = model.eval()
         except Exception:
             pass
-        if device != "cuda":
+        if not _is_cuda_device(device):
             model = move_pretrained_component(model, device=device)
 
         return {"model": model, "processor": processor}

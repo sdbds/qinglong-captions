@@ -287,6 +287,9 @@ gemma4-local = [
     "librosa",
     "triton-windows; sys_platform == 'win32'",
 ]
+bitsandbytes-runtime = [
+    "bitsandbytes>=0.49",
+]
 lfm-vl-local = [
     "qinglong-captions[onnx-base]",
     "transformers[serving]>=4.56.0",

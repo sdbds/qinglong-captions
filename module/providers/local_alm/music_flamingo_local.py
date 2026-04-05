@@ -15,6 +15,21 @@ from module.providers.registry import register_provider
 from utils.parse_display import extract_code_block_content
 
 
+def _is_cuda_device(device: Any) -> bool:
+    return str(device or "").startswith("cuda")
+
+
+def _resolve_pretrained_device_map(device: Any, device_map: Any) -> Any:
+    if device_map != "auto":
+        return device_map
+    if not _is_cuda_device(device):
+        return device_map
+    text = str(device)
+    if text == "cuda":
+        return "auto"
+    return {"": text}
+
+
 @register_provider("music_flamingo_local")
 class MusicFlamingoLocalProvider(LocalALMProvider):
     default_model_id = "henry1477/music-flamingo-2601-hf-fp8"
@@ -62,7 +77,7 @@ class MusicFlamingoLocalProvider(LocalALMProvider):
         self.log(f"Loading Music Flamingo model: {model_id} (device={device}, dtype={dtype})", "blue")
         is_fp8_model = self._is_fp8_model(model_id)
 
-        if is_fp8_model and device == "cuda":
+        if is_fp8_model and _is_cuda_device(device):
             self.log(
                 "Detected FP8 Music Flamingo weights; using torch_dtype='auto' so Transformers can honor the repo quantization config.",
                 "blue",
@@ -89,10 +104,10 @@ class MusicFlamingoLocalProvider(LocalALMProvider):
 
         load_kwargs: dict[str, Any] = {
             "trust_remote_code": True,
-            "torch_dtype": "auto" if is_fp8_model and device == "cuda" else dtype,
+            "torch_dtype": "auto" if is_fp8_model and _is_cuda_device(device) else dtype,
         }
-        if device == "cuda":
-            load_kwargs["device_map"] = "auto"
+        if _is_cuda_device(device):
+            load_kwargs["device_map"] = _resolve_pretrained_device_map(device, "auto")
 
         model = load_pretrained_component(
             MusicFlamingoForConditionalGeneration,
@@ -105,7 +120,7 @@ class MusicFlamingoLocalProvider(LocalALMProvider):
             model = model.eval()
         except Exception:
             pass
-        if device != "cuda":
+        if not _is_cuda_device(device):
             model = move_pretrained_component(model, device=device)
 
         return {"model": model, "processor": processor}

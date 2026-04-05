@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import module.see_through.runtime as runtime_module
-from module.see_through.runtime import resolve_attention_backend
+from module.see_through.runtime import resolve_attention_backend, resolve_dtype
 
 
 def test_resolve_attention_backend_prefers_force_eager_escape_hatch():
@@ -45,3 +45,10 @@ def test_resolve_attention_backend_falls_back_to_sdpa_when_flash_attn_probe_fail
 
     assert context.attention_backend == "sdpa"
     assert "flash-attn import probe failed" in context.reason
+
+
+def test_resolve_dtype_treats_cuda_indexed_device_as_cuda(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: True, raising=False)
+
+    assert resolve_dtype("bfloat16", device="cuda:1") == torch.bfloat16
+    assert resolve_dtype("float16", device="cuda:1") == torch.float16

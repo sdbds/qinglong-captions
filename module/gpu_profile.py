@@ -359,7 +359,10 @@ def format_gpu_summary(probe: GPUProbeResult) -> str:
     if primary_device is None:
         return "CPU only"
 
-    parts = [primary_device.name]
+    parts: list[str] = []
+    if probe.current_device_index is not None:
+        parts.append("cuda" if probe.current_device_index <= 0 else f"cuda:{probe.current_device_index}")
+    parts.append(primary_device.name)
     if primary_device.sm:
         parts.append(primary_device.sm)
     parts.append(f"{primary_device.total_vram_gb:.1f} GB")

@@ -63,6 +63,21 @@ _IMAGE_SCORE_LIMITS["Setting & Environment Integration"] = 5
 _IMAGE_SCORE_LIMITS["Storytelling & Concept"] = 5
 
 
+def _is_cuda_device(device: Any) -> bool:
+    return str(device or "").startswith("cuda")
+
+
+def _resolve_pretrained_device_map(device: Any, device_map: Any) -> Any:
+    if device_map != "auto":
+        return device_map
+    if not _is_cuda_device(device):
+        return device_map
+    text = str(device)
+    if text == "cuda":
+        return "auto"
+    return {"": text}
+
+
 def _image_score_lookup_key(label: str) -> str:
     simplified = str(label or "").replace("\\", " ").replace("*", "").replace("_", " ")
     simplified = re.sub(r"\s+", " ", simplified).strip().casefold()
@@ -444,7 +459,7 @@ class Gemma4LocalProvider(LocalVLMProvider):
         return messages
 
     def _resolve_attention_impl(self, torch_module: Any, device: str, attn_impl: str | None) -> str | None:
-        if device != "cuda" or attn_impl != "flash_attention_2":
+        if not _is_cuda_device(device) or attn_impl != "flash_attention_2":
             return attn_impl
 
         functional = getattr(getattr(torch_module, "nn", None), "functional", None)
@@ -504,8 +519,8 @@ class Gemma4LocalProvider(LocalVLMProvider):
                 "trust_remote_code": True,
                 "torch_dtype": dtype,
             }
-            if device == "cuda":
-                load_kwargs["device_map"] = "auto"
+            if _is_cuda_device(device):
+                load_kwargs["device_map"] = _resolve_pretrained_device_map(device, "auto")
                 load_kwargs["attn_implementation"] = attn_impl
 
             try:
@@ -516,7 +531,7 @@ class Gemma4LocalProvider(LocalVLMProvider):
                     component_name=f"model via {model_cls.__name__}",
                     **load_kwargs,
                 ).eval()
-                if device != "cuda":
+                if not _is_cuda_device(device):
                     model = move_pretrained_component(model, device=device)
                 return {
                     "model": model,

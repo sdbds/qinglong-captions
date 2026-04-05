@@ -1,6 +1,7 @@
 """步骤 4: 字幕生成 - 对应 run.ps1 (captioner.py)"""
 
 import asyncio
+import re
 from typing import TYPE_CHECKING
 
 from nicegui import ui
@@ -71,6 +72,11 @@ def _load_model_config_panel_cls():
     return ModelConfigPanel
 
 class CaptionStep:
+    BITSANDBYTES_EXTRA = "bitsandbytes-runtime"
+    _BITSANDBYTES_REPO_PATTERN = re.compile(
+        r"(?:^|[-_./])(?:nf4|bnb|bitsandbytes|4bit|8bit|int4|int8)(?:$|[-_./])"
+    )
+
     """字幕生成页面"""
 
     # API 配置 - 模型列表（与 config.toml / captioner.py 后端保持一致）
@@ -670,6 +676,19 @@ class CaptionStep:
         seen.add(extra_name)
         extra_args.extend(["--extra", extra_name])
 
+    @classmethod
+    def _repo_id_requires_bitsandbytes(cls, repo_id: Optional[str]) -> bool:
+        return bool(repo_id and cls._BITSANDBYTES_REPO_PATTERN.search(repo_id.lower()))
+
+    def _selected_local_route_model_ids(self) -> tuple[str, ...]:
+        model_id_map = _load_current_route_model_ids()
+        route_names = (
+            getattr(getattr(self, "ocr_model", None), "value", "") or "",
+            getattr(getattr(self, "vlm_image_model", None), "value", "") or "",
+            self._current_alm_model(),
+        )
+        return tuple(model_id_map.get(route_name, "") for route_name in route_names if route_name)
+
     def _build_local_extra_args(self) -> list[str]:
         extra_args: list[str] = []
         seen: set[str] = set()
@@ -677,6 +696,8 @@ class CaptionStep:
         self._append_extra(extra_args, seen, self.OCR_EXTRA_MAP.get(self.ocr_model.value or ""))
         self._append_extra(extra_args, seen, self.VLM_EXTRA_MAP.get(self.vlm_image_model.value or ""))
         self._append_extra(extra_args, seen, self.ALM_EXTRA_MAP.get(self._current_alm_model()))
+        if any(self._repo_id_requires_bitsandbytes(model_id) for model_id in self._selected_local_route_model_ids()):
+            self._append_extra(extra_args, seen, self.BITSANDBYTES_EXTRA)
 
         return extra_args
 

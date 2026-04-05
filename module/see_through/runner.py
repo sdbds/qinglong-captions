@@ -328,7 +328,7 @@ def build_execution_plan(config: "SeeThroughRunConfig", output_dir: Path, discov
 
 
 def _format_vram_log(vram_snapshot: dict[str, float | str]) -> str:
-    if vram_snapshot.get("device") != "cuda":
+    if not str(vram_snapshot.get("device") or "").startswith("cuda"):
         return f"[dim]VRAM[/dim] {vram_snapshot.get('stage')}: cpu"
     return (
         f"[dim]VRAM[/dim] {vram_snapshot.get('stage')}: "

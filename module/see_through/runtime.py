@@ -11,6 +11,10 @@ import torch
 _FLASH_ATTN_PROBE_CACHE: tuple[bool, str] | None = None
 
 
+def _is_cuda_device(device: str | None) -> bool:
+    return str(device or "").startswith("cuda")
+
+
 @dataclass(frozen=True)
 class RuntimeContext:
     device: str
@@ -24,14 +28,18 @@ def resolve_dtype(dtype_name: str | None, *, device: str | None = None) -> torch
     target_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
     if normalized in {"bf16", "bfloat16"}:
-        if target_device == "cuda" and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported():
+        if _is_cuda_device(target_device) and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported():
             return torch.bfloat16
         return torch.float32
     if normalized in {"fp16", "float16", "half"}:
-        return torch.float16 if target_device == "cuda" else torch.float32
+        return torch.float16 if _is_cuda_device(target_device) else torch.float32
     if normalized in {"fp32", "float32"}:
         return torch.float32
-    return torch.bfloat16 if target_device == "cuda" and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported() else torch.float32
+    return (
+        torch.bfloat16
+        if _is_cuda_device(target_device) and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported()
+        else torch.float32
+    )
 
 
 def probe_flash_attn_runtime() -> tuple[bool, str]:
@@ -78,7 +86,7 @@ def resolve_attention_backend(*, force_eager_attention: bool = False, dtype_name
     if force_eager_attention:
         return RuntimeContext(device=device, dtype=dtype, attention_backend="eager", reason="force_eager_attention enabled")
 
-    if device != "cuda":
+    if not _is_cuda_device(device):
         return RuntimeContext(device=device, dtype=dtype, attention_backend="eager", reason="CUDA unavailable")
 
     flash_attn_ok, flash_attn_reason = probe_flash_attn_runtime()

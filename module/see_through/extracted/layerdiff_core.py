@@ -22,10 +22,14 @@ from utils.transformer_loader import (
 DEFAULT_SEED = 42
 
 
+def _is_cuda_device(device: str | None) -> bool:
+    return str(device or "").startswith("cuda")
+
+
 def _maybe_enable_group_offload(*, pipeline: Any, enabled: bool, device: str, console: Any | None = None) -> None:
     if not enabled:
         return
-    if device != "cuda":
+    if not _is_cuda_device(device):
         if console is not None:
             console.print("[yellow]Skipping group offload:[/yellow] CUDA is unavailable.")
         return
@@ -71,7 +75,7 @@ def load_layerdiff_pipeline(
     if console is not None:
         console.print(f"[cyan]Loading LayerDiff pipeline:[/cyan] {repo_id} [dim](quant_mode={quant_mode})[/dim]")
 
-    if quant_mode != "none" and getattr(runtime_context, "device", "cpu") != "cuda":
+    if quant_mode != "none" and not _is_cuda_device(getattr(runtime_context, "device", "cpu")):
         raise RuntimeError("See-through quant_mode=nf4 requires CUDA for layerdiff inference.")
 
     trans_vae = load_pretrained_component(
