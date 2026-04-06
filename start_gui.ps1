@@ -10,22 +10,15 @@ $Config = @{
 #endregion
 
 #region Environment Setup
-# Activate python venv
+# Run the GUI as a PEP 723 script so uv builds a script-scoped runtime
+# instead of attaching the GUI process to the shared project environment.
 Set-Location $PSScriptRoot
 $env:PYTHONPATH = "$PSScriptRoot;$env:PYTHONPATH"
-$VenvPaths = @(
-    "./venv/Scripts/activate",
-    "./.venv/Scripts/activate",
-    "./venv/bin/Activate.ps1",
-    "./.venv/bin/activate.ps1"
-)
-
-foreach ($Path in $VenvPaths) {
-    if (Test-Path $Path) {
-        Write-Output "Activating venv: $Path"
-        & $Path
-        break
-    }
+try {
+    $UvCommand = Get-Command uv -ErrorAction Stop
+} catch {
+    Write-Error "uv not found in PATH. Please install uv first."
+    exit 1
 }
 
 # Set environment variables
@@ -34,15 +27,12 @@ $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
 #$Env:HF_ENDPOINT = "https://hf-mirror.com"
 $Env:UV_EXTRA_INDEX_URL = "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/ https://download.pytorch.org/whl/cu130"
 $Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
-$Env:UV_NO_BUILD_ISOLATION = "1"
 $Env:UV_NO_CACHE = "0"
 $Env:UV_LINK_MODE = "symlink"
+$Env:UV_INDEX_STRATEGY = "unsafe-best-match"
 #endregion
 
-function Get-GuiEnvName {
-    if ($Env:VIRTUAL_ENV) {
-        return Split-Path -Path $Env:VIRTUAL_ENV -Leaf
-    }
+function Get-ProjectEnvName {
     if (Test-Path "./.venv") {
         return ".venv"
     }
@@ -82,8 +72,9 @@ Write-Output "  青龙字幕工具 GUI (Qinglong Captions GUI)"
 Write-Output "============================================================"
 Write-Output ""
 Write-Output "  URL: http://$($Config.host):$($Config.port)"
-Write-Output "  Python: $((Get-Command python).Source)"
-Write-Output "  Environment: $(Get-GuiEnvName)"
+Write-Output "  UV: $($UvCommand.Source)"
+Write-Output "  Runtime: uv run gui/launch.py"
+Write-Output "  Project Env: $(Get-ProjectEnvName)"
 if ($Config.native) {
     Write-Output "  Mode: Native window (原生窗口模式)"
 } else {
@@ -98,7 +89,8 @@ Write-Output "  按 Ctrl+C 停止服务"
 Write-Output "============================================================"
 Write-Output ""
 
-python -m gui.launch @exargs
+$launchArgs = @("run", "gui/launch.py") + $exargs
+& $UvCommand.Source @launchArgs
 
 Write-Output ""
 Write-Output "GUI stopped"

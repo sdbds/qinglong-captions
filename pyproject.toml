@@ -35,7 +35,6 @@ dependencies = [
     "scenedetect>=0.6.6",
     "nicegui[native]",
     "tomlkit",
-    "numpy<2",
 ]
 
 [project.optional-dependencies]

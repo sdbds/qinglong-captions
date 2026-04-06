@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10,<3.13"
+# dependencies = [
+#   "nicegui[native]==3.9.0",
+#   "rich",
+#   "rich_pixels",
+#   "toml",
+#   "tomlkit",
+# ]
+# ///
 """
 青龙字幕工具 GUI 启动脚本
 支持 Windows 和 Linux
 
 使用方法:
     cd /path/to/qinglong-captions
-    python -m gui.launch
+    uv run gui/launch.py
 
 可选参数:
     --host    绑定地址 (默认: 127.0.0.1)
@@ -94,7 +104,7 @@ def find_available_port(start_port, max_attempts=10):
 
 
 def print_runtime_snapshot(actual_port: int) -> None:
-    env_name = Path(os.environ.get("VIRTUAL_ENV", "")).name or (".venv" if (project_root / ".venv").exists() else "unknown")
+    env_name = detect_runtime_environment_name()
     tracked_env_keys = [
         "VIRTUAL_ENV",
         "PYTHONPATH",
@@ -130,6 +140,30 @@ def print_runtime_snapshot(actual_port: int) -> None:
     for key in tracked_env_keys:
         print(f"    {key}={os.environ.get(key, '')}")
     print(f"=" * 60)
+
+
+def detect_runtime_environment_name() -> str:
+    venv_env = os.environ.get("VIRTUAL_ENV", "").strip()
+    if venv_env:
+        return Path(venv_env).name or venv_env
+
+    project_env_dirs = {
+        (project_root / ".venv").resolve(),
+        (project_root / "venv").resolve(),
+    }
+    executable = Path(sys.executable).resolve()
+    parent_name = executable.parent.name.lower()
+    if parent_name in {"scripts", "bin"}:
+        env_dir = executable.parent.parent.resolve()
+        if env_dir not in project_env_dirs:
+            return f"uv-isolated({env_dir.name})"
+        return env_dir.name or str(env_dir)
+
+    if (project_root / ".venv").exists():
+        return ".venv"
+    if (project_root / "venv").exists():
+        return "venv"
+    return "unknown"
 
 
 if __name__ == "__main__":
