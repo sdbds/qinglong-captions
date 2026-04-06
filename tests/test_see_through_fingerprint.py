@@ -39,7 +39,7 @@ def _make_config(**overrides):
         "resolution": 1024,
         "resolution_depth": 720,
         "inference_steps_depth": -1,
-        "seed": 42,
+        "seed": 1026,
         "dtype": "bfloat16",
         "quant_mode": "none",
         "group_offload": False,

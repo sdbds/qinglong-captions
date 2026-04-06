@@ -61,5 +61,5 @@ class LayerDiffPhase:
             pipeline=pipeline,
             resolution=self.config.resolution,
             generator_device=self.runtime_context.device,
-            seed=int(getattr(self.config, "seed", 42)),
+            seed=int(getattr(self.config, "seed", 1026)),
         )

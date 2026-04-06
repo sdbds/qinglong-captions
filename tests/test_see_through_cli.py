@@ -19,7 +19,7 @@ def test_see_through_parser_defaults_from_config():
     assert args.resolution == 1024
     assert args.resolution_depth == 720
     assert args.inference_steps_depth == -1
-    assert args.seed == 42
+    assert args.seed == 1026
     assert args.quant_mode == "none"
     assert args.group_offload is False
     assert args.offload_policy == "delete"

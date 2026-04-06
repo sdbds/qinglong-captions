@@ -379,7 +379,7 @@ class CaptionStep:
 
         with ui.row().classes("w-full items-center gap-2 q-mt-xs"):
             ui.icon("dns", size="16px").style(f"color: {COLORS['info']};")
-            ui.label(f"Detected GPU details ({len(lines)})").classes("text-caption").style(
+            ui.label(f"{t('detected_gpus')} ({len(lines)})").classes("text-caption").style(
                 "color: var(--color-text-secondary);"
             )
 
@@ -387,7 +387,7 @@ class CaptionStep:
                 details_open["value"] = not details_open["value"]
                 details_container.set_visibility(details_open["value"])
 
-            ui.button("Toggle", on_click=_toggle_gpu_details, icon="unfold_more").props('flat dense type="button"')
+            ui.button(t("toggle"), on_click=_toggle_gpu_details, icon="unfold_more").props('flat dense type="button"')
 
         details_container = ui.column().classes("w-full gap-1 q-mt-xs")
         details_container.set_visibility(False)
@@ -485,7 +485,7 @@ class CaptionStep:
                 with ui.row().classes("w-full items-center justify-between gap-2"):
                     with ui.row().classes("items-center gap-2"):
                         ui.icon("memory", size="18px").style(f"color: {COLORS['success']};")
-                        ui.label("Local Model Fit").classes("text-body2 text-weight-bold").style(
+                        ui.label(t("local_model_fit")).classes("text-body2 text-weight-bold").style(
                             "color: var(--color-text);"
                         )
                     ui.label(self._local_model_fit_header()).classes("text-caption").style(
@@ -495,19 +495,19 @@ class CaptionStep:
                 self._render_gpu_details_toggle()
 
                 if self.gpu_probe is None:
-                    ui.label("Detecting GPU capability for current local model checks...").classes(
+                    ui.label(t("detecting_gpu")).classes(
                         "text-caption q-mt-sm"
                     ).style("color: var(--color-text-secondary);")
                     return
 
                 if not entries:
-                    ui.label("Select local OCR/VLM/ALM routes to check current model VRAM fit.").classes(
+                    ui.label(t("select_routes_check")).classes(
                         "text-caption q-mt-sm"
                     ).style("color: var(--color-text-secondary);")
                     return
 
                 if warning_entries:
-                    ui.label("These models may exceed available VRAM:").classes("text-caption q-mt-sm").style(
+                    ui.label(t("models_exceed_vram")).classes("text-caption q-mt-sm").style(
                         "color: var(--color-text-secondary);"
                     )
                     for entry in warning_entries:
@@ -525,7 +525,7 @@ class CaptionStep:
                     return
 
                 if unknown_entries:
-                    ui.label("Current model_id values are missing min_vram_gb metadata in model_list.").classes(
+                    ui.label(t("missing_metadata")).classes(
                         "text-caption q-mt-sm"
                     ).style("color: var(--color-text-secondary);")
                     for entry in unknown_entries:
@@ -534,7 +534,7 @@ class CaptionStep:
                         )
                     return
 
-                ui.label("Current local models fit available VRAM.").classes("text-caption q-mt-sm").style(
+                ui.label(t("models_fit_vram")).classes("text-caption q-mt-sm").style(
                     "color: var(--color-text-secondary);"
                 )
 
@@ -1052,7 +1052,7 @@ class CaptionStep:
         with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
             with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                 ui.icon("text_fields", size="22px").style(f"color: {COLORS['info']};")
-                ui.label("OCR " + t("settings")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
+                ui.label(t("ocr_settings")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
 
             self._local_model_fit_container = ui.column().classes("w-full q-mb-md")
 
@@ -1074,7 +1074,7 @@ class CaptionStep:
 
             with ui.row().classes("w-full items-center gap-2 q-mb-md q-mt-md"):
                 ui.icon("visibility", size="22px").style(f"color: {COLORS['secondary']};")
-                ui.label("VLM " + t("settings")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
+                ui.label(t("vlm_settings")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
 
             # VLM 图像模型 - 带图标的现代化下拉框
             self.vlm_image_model = styled_select(
@@ -1090,7 +1090,7 @@ class CaptionStep:
 
             with ui.row().classes("w-full items-center gap-2 q-mb-md q-mt-md"):
                 ui.icon("graphic_eq", size="22px").style(f"color: {COLORS['primary']};")
-                ui.label("ALM " + t("settings")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
+                ui.label(t("alm_settings")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
 
             self.alm_model = styled_select(
                 options=self._build_route_labels(self.ALM_MODELS),

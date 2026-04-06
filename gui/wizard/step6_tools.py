@@ -32,7 +32,7 @@ GAME_ONNX_MODEL_LABELS: dict[str, str] = {
 }
 
 DEFAULT_DEPTH_INFERENCE_STEPS = -1
-DEFAULT_SEED = 42
+DEFAULT_SEED = 1026
 DEFAULT_DEPTH_RESOLUTION = 720
 
 SEE_THROUGH_REPO_MAP = {
@@ -175,20 +175,20 @@ class ToolsStep:
         "float16": "FP16",
         "float32": "FP32",
     }
-    SEE_THROUGH_QUANT_MODES = {
-        "none": "Standard",
-        "nf4": "NF4 (4-bit)",
+    SEE_THROUGH_QUANT_MODE_LABEL_KEYS = {
+        "none": "see_through_quant_mode_standard",
+        "nf4": "see_through_quant_mode_nf4",
     }
-    SEE_THROUGH_DEPTH_RESOLUTIONS = {
+    SEE_THROUGH_DEPTH_RESOLUTION_LABELS = {
         "720": "720 px",
         "768": "768 px",
         "1024": "1024 px",
         "1280": "1280 px",
-        "-1": "Match layerdiff",
+        "-1": "see_through_resolution_depth_match",
     }
-    SEE_THROUGH_OFFLOAD_POLICIES = {
-        "delete": "Delete",
-        "cpu": "CPU",
+    SEE_THROUGH_OFFLOAD_POLICY_LABEL_KEYS = {
+        "delete": "see_through_offload_delete",
+        "cpu": "see_through_offload_cpu",
     }
 
     # 水印检测模型
@@ -357,21 +357,40 @@ class ToolsStep:
     def _build_see_through_summary(self) -> str:
         recommendation = self.see_through_recommendation
         minimum_text = (
-            "CPU fallback"
+            t("cpu_fallback")
             if recommendation.min_vram_gb is None
             else f">= {recommendation.min_vram_gb:.0f} GB"
         )
+        quant_mode_options = self._see_through_quant_mode_options()
         return (
             f"{t('gpu')}: {_format_gpu_summary(self.gpu_probe)} | "
             f"{t('recommended_profile')}: {minimum_text} -> "
             f"{recommendation.resolution}px / depth {recommendation.resolution_depth}px / "
-            f"{self.SEE_THROUGH_QUANT_MODES.get(recommendation.quant_mode, recommendation.quant_mode)} / "
-            f"{t('group_offload')}={'on' if recommendation.group_offload else 'off'} / "
+            f"{quant_mode_options.get(recommendation.quant_mode, recommendation.quant_mode)} / "
+            f"{t('group_offload')}={t('status_on_inline' if recommendation.group_offload else 'status_off_inline')} / "
             f"{self.SEE_THROUGH_DTYPES.get(recommendation.dtype, recommendation.dtype)}"
         )
 
     def _gpu_detail_lines(self) -> tuple[str, ...]:
         return _format_gpu_device_lines(self.gpu_probe)
+
+    def _see_through_quant_mode_options(self) -> dict[str, str]:
+        return {
+            option: t(label_key)
+            for option, label_key in self.SEE_THROUGH_QUANT_MODE_LABEL_KEYS.items()
+        }
+
+    def _see_through_depth_resolution_options(self) -> dict[str, str]:
+        options: dict[str, str] = {}
+        for value, label in self.SEE_THROUGH_DEPTH_RESOLUTION_LABELS.items():
+            options[value] = t(label) if label.startswith("see_through_") else label
+        return options
+
+    def _see_through_offload_policy_options(self) -> dict[str, str]:
+        return {
+            option: t(label_key)
+            for option, label_key in self.SEE_THROUGH_OFFLOAD_POLICY_LABEL_KEYS.items()
+        }
 
     def _refresh_see_through_summary(self) -> None:
         if self._see_through_summary_label is not None:
@@ -405,11 +424,11 @@ class ToolsStep:
         with header_container:
             with ui.row().classes("w-full items-center gap-2"):
                 ui.icon("dns", size="16px").style(f"color: {COLORS['info']};")
-                ui.label(f"Detected GPU details ({len(lines)})").classes("text-caption").style(
+                ui.label(f"{t('detected_gpus')} ({len(lines)})").classes("text-caption").style(
                     "color: var(--color-text-secondary);"
                 )
                 ui.button(
-                    "Toggle",
+                    t("toggle"),
                     on_click=self._toggle_see_through_gpu_details,
                     icon="unfold_more",
                 ).props('flat dense type="button"')
@@ -1089,7 +1108,7 @@ class ToolsStep:
 
             with ui.row().classes("w-full gap-4 q-mt-md"):
                 self.see_through_resolution_depth = styled_select(
-                    options=self.SEE_THROUGH_DEPTH_RESOLUTIONS,
+                    options=self._see_through_depth_resolution_options(),
                     value=str(self.config["see_through_resolution_depth"]),
                     label=t("resolution_depth"),
                     icon="straighten",
@@ -1102,7 +1121,7 @@ class ToolsStep:
                     flex=1,
                 )
                 self.see_through_quant_mode = styled_select(
-                    options=self.SEE_THROUGH_QUANT_MODES,
+                    options=self._see_through_quant_mode_options(),
                     value=self.config["see_through_quant_mode"],
                     label=t("quant_mode"),
                     icon="tune",
@@ -1145,7 +1164,7 @@ class ToolsStep:
                     flex=1,
                 )
                 self.see_through_offload_policy = styled_select(
-                    options=self.SEE_THROUGH_OFFLOAD_POLICIES,
+                    options=self._see_through_offload_policy_options(),
                     value=self.config["see_through_offload_policy"],
                     label=t("offload_policy"),
                     icon="memory",

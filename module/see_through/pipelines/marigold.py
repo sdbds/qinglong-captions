@@ -55,5 +55,5 @@ class MarigoldPhase:
             pipeline=pipeline,
             resolution_depth=int(getattr(self.config, "resolution_depth", 720)),
             inference_steps_depth=int(getattr(self.config, "inference_steps_depth", -1)),
-            seed=int(getattr(self.config, "seed", 42)),
+            seed=int(getattr(self.config, "seed", 1026)),
         )

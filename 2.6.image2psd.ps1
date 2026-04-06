@@ -8,7 +8,7 @@ $Config = @{
     resolution            = 1024                                             # LayerDiff canvas resolution
     resolution_depth      = 720                                              # Marigold depth resolution (-1 => follow canvas size)
     inference_steps_depth = -1                                               # Marigold denoising steps (-1 => pipeline default)
-    seed                  = 42                                               # Global random seed
+    seed                  = 1026                                             # Global random seed
     dtype                 = "bfloat16"                                       # bfloat16 | float16 | float32
     quant_mode            = "none"                                           # none | nf4
     offload_policy        = "delete"                                         # delete | cpu

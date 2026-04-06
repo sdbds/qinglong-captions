@@ -7,6 +7,7 @@ sys.path.insert(1, str(ROOT / "gui"))
 sys.path.insert(2, str(ROOT / "gui" / "wizard"))
 
 from gui.wizard import step6_tools
+from gui.utils.i18n import get_i18n, set_language
 from module.gpu_profile import GPUDeviceInfo, GPUProbeResult
 from module.see_through.see_through_profile import recommend_see_through_config
 
@@ -214,6 +215,43 @@ def test_tools_step_exposes_gpu_detail_lines_for_multi_gpu_probe():
         "GPU 0 | GPU Zero | sm89 | 24.0 GB",
         "GPU 1 | GPU One | sm89 | 24.0 GB",
     )
+
+
+def test_tools_step_see_through_summary_uses_localized_cpu_fallback_and_status():
+    original_lang = get_i18n().lang
+    set_language("ja")
+
+    try:
+        step = step6_tools.ToolsStep()
+        step.see_through_recommendation = step6_tools._default_see_through_recommendation()
+
+        summary = step._build_see_through_summary()
+
+        assert "CPU フォールバック" in summary
+        assert "グループオフロード=オフ" in summary
+        assert "CPU 未検出" not in summary
+    finally:
+        set_language(original_lang)
+
+
+def test_tools_step_see_through_option_labels_follow_current_language():
+    original_lang = get_i18n().lang
+    set_language("zh")
+
+    try:
+        step = step6_tools.ToolsStep()
+
+        assert step._see_through_quant_mode_options() == {
+            "none": "标准",
+            "nf4": "NF4（4 位）",
+        }
+        assert step._see_through_offload_policy_options() == {
+            "delete": "删除",
+            "cpu": "CPU",
+        }
+        assert step._see_through_depth_resolution_options()["-1"] == "跟随 layerdiff"
+    finally:
+        set_language(original_lang)
 
 
 def test_tools_step_only_requests_gpu_probe_when_see_through_panel_renders(monkeypatch):

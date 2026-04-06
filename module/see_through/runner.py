@@ -70,7 +70,7 @@ def build_config_fingerprint(config: "SeeThroughRunConfig") -> str:
         "resolution": int(config.resolution),
         "resolution_depth": int(getattr(config, "resolution_depth", 720)),
         "inference_steps_depth": int(getattr(config, "inference_steps_depth", -1)),
-        "seed": int(getattr(config, "seed", 42)),
+        "seed": int(getattr(config, "seed", 1026)),
         "dtype": str(config.dtype),
         "quant_mode": str(getattr(config, "quant_mode", "none")),
         "save_to_psd": bool(config.save_to_psd),

@@ -187,7 +187,7 @@ class SetupStep:
             return
 
         with self.gpu_detail_section:
-            ui.label("Detected GPUs").classes("text-caption").style("color: var(--color-text-secondary);")
+            ui.label(t("detected_gpus")).classes("text-caption").style("color: var(--color-text-secondary);")
             for line in format_gpu_device_lines(self.gpu_probe):
                 ui.label(line).classes("text-body2").style("color: var(--color-text);")
 

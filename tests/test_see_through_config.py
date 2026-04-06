@@ -18,7 +18,7 @@ def test_model_toml_contains_see_through_section():
     assert parsed["see_through"]["output_dir"] == "workspace/see_through_output"
     assert parsed["see_through"]["resolution_depth"] == 720
     assert parsed["see_through"]["inference_steps_depth"] == -1
-    assert parsed["see_through"]["seed"] == 42
+    assert parsed["see_through"]["seed"] == 1026
     assert parsed["see_through"]["quant_mode"] == "none"
     assert parsed["see_through"]["group_offload"] is False
 
