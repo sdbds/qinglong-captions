@@ -72,7 +72,6 @@ def attempt_chandra_ocr(
         _TRANS_LOADER = transformerLoader(
             attn_kw="_attn_implementation",
             device_map="auto",
-            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
         )
 
     processor = _TRANS_LOADER.get_or_load_processor(model_id, AutoProcessor, console=console)

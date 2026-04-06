@@ -1,28 +1,35 @@
 import sys
 import types
+import importlib
 from types import SimpleNamespace
 
-fake_layerdiff = types.ModuleType("module.see_through.pipelines.layerdiff")
-fake_layerdiff.LayerDiffPhase = object
-sys.modules.setdefault("module.see_through.pipelines.layerdiff", fake_layerdiff)
+import pytest
 
-fake_marigold = types.ModuleType("module.see_through.pipelines.marigold")
-fake_marigold.MarigoldPhase = object
-sys.modules.setdefault("module.see_through.pipelines.marigold", fake_marigold)
 
-fake_model_manager = types.ModuleType("module.see_through.model_manager")
-fake_model_manager.SeeThroughModelManager = object
-sys.modules.setdefault("module.see_through.model_manager", fake_model_manager)
+@pytest.fixture
+def build_config_fingerprint(monkeypatch):
+    fake_layerdiff = types.ModuleType("module.see_through.pipelines.layerdiff")
+    fake_layerdiff.LayerDiffPhase = object
+    monkeypatch.setitem(sys.modules, "module.see_through.pipelines.layerdiff", fake_layerdiff)
 
-fake_postprocess = types.ModuleType("module.see_through.postprocess")
-fake_postprocess.run_postprocess = lambda **kwargs: None
-sys.modules.setdefault("module.see_through.postprocess", fake_postprocess)
+    fake_marigold = types.ModuleType("module.see_through.pipelines.marigold")
+    fake_marigold.MarigoldPhase = object
+    monkeypatch.setitem(sys.modules, "module.see_through.pipelines.marigold", fake_marigold)
 
-fake_runtime = types.ModuleType("module.see_through.runtime")
-fake_runtime.resolve_attention_backend = lambda **kwargs: None
-sys.modules.setdefault("module.see_through.runtime", fake_runtime)
+    fake_model_manager = types.ModuleType("module.see_through.model_manager")
+    fake_model_manager.SeeThroughModelManager = object
+    monkeypatch.setitem(sys.modules, "module.see_through.model_manager", fake_model_manager)
 
-from module.see_through.runner import build_config_fingerprint
+    fake_postprocess = types.ModuleType("module.see_through.postprocess")
+    fake_postprocess.run_postprocess = lambda **kwargs: None
+    monkeypatch.setitem(sys.modules, "module.see_through.postprocess", fake_postprocess)
+
+    fake_runtime = types.ModuleType("module.see_through.runtime")
+    fake_runtime.resolve_attention_backend = lambda **kwargs: None
+    monkeypatch.setitem(sys.modules, "module.see_through.runtime", fake_runtime)
+
+    sys.modules.pop("module.see_through.runner", None)
+    return importlib.import_module("module.see_through.runner").build_config_fingerprint
 
 
 def _make_config(**overrides):
@@ -45,7 +52,7 @@ def _make_config(**overrides):
     return SimpleNamespace(**base)
 
 
-def test_build_config_fingerprint_changes_when_output_affecting_see_through_settings_change():
+def test_build_config_fingerprint_changes_when_output_affecting_see_through_settings_change(build_config_fingerprint):
     baseline = _make_config()
     changed_quant_mode = _make_config(quant_mode="nf4")
     changed_resolution_depth = _make_config(resolution_depth=-1)
@@ -58,7 +65,7 @@ def test_build_config_fingerprint_changes_when_output_affecting_see_through_sett
     assert build_config_fingerprint(baseline) != build_config_fingerprint(changed_seed)
 
 
-def test_build_config_fingerprint_ignores_group_offload_runtime_only_switch():
+def test_build_config_fingerprint_ignores_group_offload_runtime_only_switch(build_config_fingerprint):
     baseline = _make_config(group_offload=False)
     changed_group_offload = _make_config(group_offload=True)
 

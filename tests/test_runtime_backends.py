@@ -12,6 +12,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "module"))
 
+# Import transformer_loader before any sys.modules patching. If torch is first
+# imported inside patch.dict(sys.modules, ...), the context rollback removes the
+# fresh torch modules from sys.modules and PyTorch cannot be safely re-imported.
+from utils import transformer_loader as transformer_loader_module
+
 
 def test_resolve_runtime_backend_prefers_args_over_config():
     from providers.backends import resolve_runtime_backend
@@ -293,8 +298,8 @@ def test_attempt_qwenvl_local_normalizes_file_image_uris(tmp_path):
     try:
         with (
             patch.dict(sys.modules, {"transformers": fake_transformers}),
-            patch("utils.transformer_loader.resolve_device_dtype", return_value=("cpu", "float32", "eager")),
-            patch("utils.transformer_loader.transformerLoader", return_value=fake_loader),
+            patch.object(transformer_loader_module, "resolve_device_dtype", return_value=("cpu", "float32", "eager")),
+            patch.object(transformer_loader_module, "transformerLoader", return_value=fake_loader),
         ):
             result = qwenvl_module.attempt_qwenvl(
                 model_path="Qwen/Qwen3.5-2B",
@@ -526,7 +531,7 @@ def test_reka_edge_local_prefers_fp16_on_cuda():
 
     with (
         patch.dict(sys.modules, {"transformers": fake_transformers}),
-        patch("utils.transformer_loader.resolve_device_dtype", return_value=("cuda", torch.bfloat16, "eager")),
+        patch.object(transformer_loader_module, "resolve_device_dtype", return_value=("cuda", torch.bfloat16, "eager")),
     ):
         cached = RekaEdgeLocalProvider(ctx)._load_model()
 
@@ -695,7 +700,7 @@ def test_reka_edge_local_uses_cuda_indexed_device_as_cuda_gpu(monkeypatch):
 
     with (
         patch.dict(sys.modules, {"transformers": fake_transformers}),
-        patch("utils.transformer_loader.resolve_device_dtype", return_value=("cuda:1", torch.bfloat16, "eager")),
+        patch.object(transformer_loader_module, "resolve_device_dtype", return_value=("cuda:1", torch.bfloat16, "eager")),
     ):
         cached = RekaEdgeLocalProvider(ctx)._load_model()
 
@@ -942,7 +947,7 @@ def test_reka_edge_local_tolerates_quantized_cpu_model_move():
 
     with (
         patch.dict(sys.modules, {"transformers": fake_transformers}),
-        patch("utils.transformer_loader.resolve_device_dtype", return_value=("cpu", torch.float32, "eager")),
+        patch.object(transformer_loader_module, "resolve_device_dtype", return_value=("cpu", torch.float32, "eager")),
     ):
         cached = RekaEdgeLocalProvider(ctx)._load_model()
 
