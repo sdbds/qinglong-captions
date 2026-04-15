@@ -94,6 +94,7 @@ class SettingsDialog:
         self._active_key = "prompts"
         self.env_data: Dict[str, str] = {}
         self._env_container: ui.column | None = None
+        self._pending_tabs: set = set()
 
     # ── I/O ──────────────────────────────────────────────────────────
 
@@ -1047,6 +1048,7 @@ class SettingsDialog:
 
                 def _on_tab(e, tm=tab_map):
                     self._active_key = tm.get(e.value, "prompts")
+                    self._ensure_tab_loaded(self._active_key)
 
                 tabs.on_value_change(_on_tab)
 
@@ -1071,17 +1073,27 @@ class SettingsDialog:
                         )
 
     def open(self):
-        """Open the dialog, loading fresh data from disk."""
+        """Open the dialog, loading fresh data on demand."""
         if self.dialog is None:
             self.build()
-        for key in _CONFIG_FILES:
+        self._active_key = "prompts"
+        # Only load + render the first visible tab; others load lazily
+        self.data["prompts"] = self._load("prompts")
+        self._render_tab("prompts")
+        self._pending_tabs = {"model", "general", "env"}
+        self.dialog.open()
+
+    def _ensure_tab_loaded(self, key: str):
+        """Lazy-load a tab's data and render it on first switch."""
+        if key not in self._pending_tabs:
+            return
+        self._pending_tabs.discard(key)
+        if key == "env":
+            self.env_data = load_env_config()
+            self._render_env_tab()
+        else:
             self.data[key] = self._load(key)
             self._render_tab(key)
-        # Load environment variables tab
-        self.env_data = load_env_config()
-        self._render_env_tab()
-        self._active_key = "prompts"
-        self.dialog.open()
 
 
 def create_settings_dialog() -> SettingsDialog:

@@ -46,44 +46,33 @@ APP_VERSION = _load_app_version()
 THEME_SCRIPT = """
 <script>
 (function() {
-    // Sync Quasar Dark mode with body.dark-mode CSS class
     function syncQuasarDark(isDark) {
-        if (window.Quasar && Quasar.Dark) {
-            Quasar.Dark.set(isDark);
-        }
-        // Override Quasar --q-primary to Gold/Amber
-        document.documentElement.style.setProperty('--q-primary', isDark ? '#fbbf24' : '#f59e0b', 'important');
-        document.documentElement.style.setProperty('--q-color-primary', isDark ? '#fbbf24' : '#f59e0b', 'important');
+        if (window.Quasar && Quasar.Dark) Quasar.Dark.set(isDark);
+        var accent = isDark ? '#daa520' : '#c49318';
+        document.documentElement.style.setProperty('--q-primary', accent);
+        document.documentElement.style.setProperty('--q-color-primary', accent);
     }
 
-    // Theme toggle function
     window.toggleDarkMode = function() {
-        const isDark = document.body.classList.toggle('dark-mode');
+        var isDark = document.body.classList.toggle('dark-mode');
         localStorage.setItem('dark_mode', isDark);
         syncQuasarDark(isDark);
-        // Update theme button icons
         document.querySelectorAll('.theme-toggle-btn .q-icon').forEach(function(icon) {
             icon.textContent = isDark ? 'dark_mode' : 'light_mode';
         });
         return isDark;
     };
 
-    // Apply saved theme (default dark)
     var saved = localStorage.getItem('dark_mode');
     var isDark = saved === null ? true : saved === 'true';
-    if (isDark) {
-        document.body.classList.add('dark-mode');
-    } else {
-        document.body.classList.remove('dark-mode');
-    }
+    if (isDark) document.body.classList.add('dark-mode');
+    else document.body.classList.remove('dark-mode');
     syncQuasarDark(isDark);
 
-    // Update button icons
     document.querySelectorAll('.theme-toggle-btn .q-icon').forEach(function(icon) {
         icon.textContent = isDark ? 'dark_mode' : 'light_mode';
     });
 
-    // Quasar may load late, retry sync
     setTimeout(function() { syncQuasarDark(isDark); }, 300);
 })();
 </script>
@@ -99,27 +88,18 @@ def _load_wizard_attr(module_name: str, attr_name: str):
 def create_header(job_drawer=None):
     """创建现代化页面头部导航"""
     with ui.header().classes(get_classes("header")):
-        with ui.row().classes("w-full items-center justify-between q-py-sm"):
-            # Logo 区域
+        with ui.row().classes("w-full items-center justify-between").style("padding: 4px 0;"):
+            # Logo
             with ui.row().classes("items-center gap-3"):
-                with (
-                    ui.element("div")
-                    .classes("flex items-center justify-center")
-                    .style(f"""
-                    width: 40px;
-                    height: 40px;
-                    background: linear-gradient(135deg, {COLORS["primary"]}, {COLORS["secondary"]});
-                    border-radius: 12px;
-                    font-size: 24px;
-                """)
-                ):
-                    ui.label("🐉").classes("text-2xl")
+                ui.label("🐉").style(
+                    "font-size: 28px; line-height: 1;"
+                )
                 with ui.column().classes("gap-0"):
-                    ui.label(t("app_title")).classes("text-h6 text-weight-bold header-title")
-                    ui.label(f"v{APP_VERSION}").classes("text-caption header-version")
+                    ui.label(t("app_title")).classes("text-subtitle1").classes("header-title")
+                    ui.label(f"v{APP_VERSION}").classes("header-version")
 
-            # 导航菜单
-            with ui.row().classes("gap-2"):
+            # Nav
+            with ui.row().classes("gap-1"):
                 nav_items = [
                     (t("nav_home"), "/", "home"),
                     (t("nav_import"), "/import", "download"),
@@ -131,43 +111,29 @@ def create_header(job_drawer=None):
                 ]
 
                 for label_text, path, icon in nav_items:
-                    btn = ui.button(label_text, on_click=lambda p=path: ui.navigate.to(p), icon=icon)
+                    btn = ui.button(label_text, on_click=lambda p=path: ui.navigate.to(p), icon=icon, color=None)
+                    btn.props("flat no-caps")
                     btn.classes(get_classes("nav_btn"))
-                    # 移除 Quasar 默认颜色类，防止闪烁
-                    btn.classes(remove="bg-primary bg-secondary text-white q-btn--active")
 
-            # 右侧：Job 列表 + 配置 + 主题切换 + 语言选择
-            with ui.row().classes("items-center gap-3"):
-                # Job 列表触发按钮（drawer 已在 page_base 顶层创建）
+            # Right side: Job list + Settings + Theme + Language
+            with ui.row().classes("items-center gap-2"):
                 if job_drawer is not None:
-                    with ui.button(icon="assignment", on_click=job_drawer.toggle).props("flat round dense") as job_btn:
-                        job_btn.style(f"color: {COLORS['accent']};")
-                        job_btn.tooltip("任务列表")
-                        job_badge = ui.badge("0", color="red").props("floating").style("display: none;")
+                    job_btn = ui.button(icon="assignment", on_click=job_drawer.toggle).props("flat round dense")
+                    job_btn.style("color: var(--ql-text-secondary);")
+                    job_btn.tooltip("任务列表")
+                    job_badge = ui.badge("0", color="red").props("floating").style("display: none;")
                     job_drawer.set_badge(job_badge)
 
-                    # 分隔线
-                    ui.element("div").style(f"width: 1px; height: 24px; background: {COLORS['accent']}; opacity: 0.5;")
-
-                # 配置管理按钮
                 settings_dlg = _load_wizard_attr("wizard.step7_settings", "create_settings_dialog")()
                 settings_btn = ui.button(icon="settings", on_click=settings_dlg.open).props("flat round dense")
-                settings_btn.style(f"color: {COLORS['accent']};")
+                settings_btn.style("color: var(--ql-text-secondary);")
                 settings_btn.tooltip(t("nav_settings"))
 
-                # 分隔线
-                ui.element("div").style(f"width: 1px; height: 24px; background: {COLORS['accent']}; opacity: 0.5;")
-
-                # 主题切换按钮
                 theme_btn = ui.button(icon="light_mode").props("flat round dense").classes("theme-toggle-btn")
                 theme_btn.on_click(lambda: ui.run_javascript("window.toggleDarkMode()"))
 
-                # 分隔线
-                ui.element("div").style(f"width: 1px; height: 24px; background: {COLORS['accent']}; opacity: 0.5;")
-
-                # 语言选择器
-                with ui.row().classes("items-center gap-2"):
-                    ui.icon("language", size="20px").style(f"color: {COLORS['accent']};")
+                with ui.row().classes("items-center gap-1"):
+                    ui.icon("language", size="18px").style("color: var(--ql-text-muted);")
                     lang_select = (
                         ui.select(
                             {
@@ -188,7 +154,6 @@ def create_header(job_drawer=None):
                         if lang and lang in ["zh", "en", "ja", "ko"]:
                             set_language(lang)
                             ui.notify(t("language_changed"), type="positive")
-                            # 刷新页面以应用新语言
                             ui.run_javascript("window.location.reload();")
 
                     lang_select.on_value_change(on_lang_change)
@@ -219,25 +184,25 @@ def home_page():
     def content():
         with ui.column().classes(get_classes("page_container") + " gap-6"):
             # Hero Section
-            with ui.element("div").classes("w-full text-center q-py-xl"):
-                ui.label(t("app_title")).classes("text-h2 text-weight-bold q-mb-md").style(f"""
-                    background: linear-gradient(135deg, {COLORS["primary_light"]}, {COLORS["secondary"]});
-                    -webkit-background-clip: text;
-                    -webkit-text-fill-color: transparent;
-                    background-clip: text;
-                """)
-                ui.label(t("app_description")).classes("text-h6 app-desc")
+            with ui.element("div").classes("w-full text-center").style("padding: 48px 0 32px;"):
+                ui.label(t("app_title")).classes("text-h3").style(
+                    "font-weight: 600; "
+                    "background: linear-gradient(135deg, var(--ql-accent), var(--ql-secondary)); "
+                    "-webkit-background-clip: text; -webkit-text-fill-color: transparent; "
+                    "background-clip: text;"
+                )
+                ui.label(t("app_description")).classes("text-body1 app-desc").style("margin-top: 8px;")
 
             # Quick Start Cards
             with ui.card().classes(get_classes("card") + " w-full q-pa-lg"):
-                with ui.row().classes("w-full items-center justify-between q-mb-lg"):
-                    ui.label(t("quick_start")).classes("text-h5 text-weight-bold section-title")
-                    with ui.row().classes("gap-2"):
-                        ui.label(t("support")).classes("text-caption section-subtitle")
-                        ui.label("6").classes(get_classes("badge") + " modern-badge-primary").style("padding: 2px 10px;")
-                        ui.label(t("tools_label")).classes("text-caption section-subtitle")
+                with ui.row().classes("w-full items-center justify-between q-mb-md"):
+                    ui.label(t("quick_start")).classes("text-h6 section-title").style("font-weight: 600;")
+                    with ui.row().classes("gap-2 items-center"):
+                        ui.label(t("support")).classes("text-caption").style("color: var(--ql-text-muted);")
+                        ui.label("6").classes(get_classes("badge") + " ql-badge--primary")
+                        ui.label(t("tools_label")).classes("text-caption").style("color: var(--ql-text-muted);")
 
-                with ui.row().classes("w-full gap-4"):
+                with ui.row().classes("w-full gap-3"):
                     steps = [
                         ("download", t("dataset_import"), t("feature_list")["import_desc"], "/import"),
                         ("movie", t("video_split"), t("feature_list")["split_desc"], "/split"),
@@ -249,44 +214,44 @@ def home_page():
 
                     for icon, title, desc, path in steps:
                         with ui.card().classes("step-card flex-1").on("click", lambda p=path: ui.navigate.to(p)):
-                            ui.icon(icon, size="48px").classes("q-mb-md")
-                            ui.label(title).classes("text-h6 text-weight-bold q-mb-sm step-title")
-                            ui.label(desc).classes("text-body2 step-desc")
+                            ui.icon(icon, size="36px").style("margin-bottom: 10px;")
+                            ui.label(title).classes("text-subtitle1 step-title").style("font-weight: 600;")
+                            ui.label(desc).classes("text-caption step-desc")
 
             # Supported Models
             with ui.card().classes(get_classes("card") + " w-full q-pa-lg"):
-                with ui.row().classes("w-full items-center gap-3 q-mb-lg"):
-                    ui.icon("view_module", size="28px").style(f"color: {COLORS['primary']};")
-                    ui.label(t("supported_models")).classes("text-h5 text-weight-bold section-title")
+                with ui.row().classes("w-full items-center gap-3 q-mb-md"):
+                    ui.icon("view_module", size="24px").style("color: var(--ql-accent);")
+                    ui.label(t("supported_models")).classes("text-h6 section-title").style("font-weight: 600;")
 
                 model_list = t("model_list")
                 models = [
-                    ("Gemini", model_list["gemini"], "primary"),
-                    ("Mistral", model_list["pixtral"], "secondary"),
-                    ("Step-VL", model_list["step"], "accent"),
-                    ("Qwen-VL", model_list["qwen"], "primary"),
-                    ("Kimi", model_list["kimi"], "secondary"),
-                    ("Kimi-Code", model_list["kimi_code"], "accent"),
-                    ("MiniMax", model_list["minimax"], "primary"),
-                    ("MiniMax-Code", model_list["minimax_code"], "secondary"),
-                    ("GLM", model_list["glm"], "accent"),
-                    ("Ark", model_list["ark"], "primary"),
-                    ("OpenAI-Compatible", model_list["openai_compatible"], "secondary"),
+                    ("Gemini", model_list["gemini"]),
+                    ("Mistral", model_list["pixtral"]),
+                    ("Step-VL", model_list["step"]),
+                    ("Qwen-VL", model_list["qwen"]),
+                    ("Kimi", model_list["kimi"]),
+                    ("Kimi-Code", model_list["kimi_code"]),
+                    ("MiniMax", model_list["minimax"]),
+                    ("MiniMax-Code", model_list["minimax_code"]),
+                    ("GLM", model_list["glm"]),
+                    ("Ark", model_list["ark"]),
+                    ("OpenAI-Compatible", model_list["openai_compatible"]),
                 ]
 
-                with ui.grid(columns=3).classes("w-full gap-4"):
-                    for name, desc, color_key in models:
+                with ui.grid(columns=3).classes("w-full gap-3"):
+                    for name, desc in models:
                         with ui.row().classes("model-item items-center gap-3"):
-                            ui.icon("check_circle", size="20px").style(f"color: {COLORS[color_key]};")
+                            ui.icon("check_circle", size="18px").style("color: var(--ql-accent);")
                             with ui.column().classes("gap-0"):
-                                ui.label(name).classes("text-body2 text-weight-bold model-name")
+                                ui.label(name).classes("text-body2 model-name").style("font-weight: 500;")
                                 ui.label(desc).classes("text-caption model-desc")
 
             # Features Section
             with ui.card().classes(get_classes("card") + " w-full q-pa-lg"):
-                with ui.row().classes("w-full items-center gap-3 q-mb-lg"):
-                    ui.icon("auto_awesome", size="28px").style(f"color: {COLORS['secondary']};")
-                    ui.label(t("features")).classes("text-h5 text-weight-bold section-title")
+                with ui.row().classes("w-full items-center gap-3 q-mb-md"):
+                    ui.icon("auto_awesome", size="24px").style("color: var(--ql-secondary);")
+                    ui.label(t("features")).classes("text-h6 section-title").style("font-weight: 600;")
 
                 feature_list = t("feature_list")
                 features = [
@@ -298,10 +263,10 @@ def home_page():
                     ("🎨", feature_list["modern_ui"]),
                 ]
 
-                with ui.grid(columns=3).classes("w-full gap-4"):
+                with ui.grid(columns=3).classes("w-full gap-3"):
                     for icon, desc in features:
                         with ui.row().classes("model-item items-start gap-3"):
-                            ui.label(icon).classes("text-2xl")
+                            ui.label(icon).classes("text-xl")
                             with ui.column().classes("gap-0"):
                                 ui.label(desc).classes("text-body2 feature-desc")
 
@@ -353,9 +318,9 @@ def not_found_page():
 
     def content():
         with ui.column().classes(get_classes("page_container") + " gap-6 items-center justify-center").style("min-height: 60vh;"):
-            ui.icon("error_outline", size="80px").style(f"color: {COLORS['warning']};")
-            ui.label(t("page_not_found")).classes("text-h3 text-weight-bold").style("color: var(--color-text);")
-            ui.label(t("page_not_found_desc")).classes("text-body1").style("color: var(--color-text-secondary);")
+            ui.icon("error_outline", size="80px").style("color: var(--ql-warning);")
+            ui.label(t("page_not_found")).classes("text-h3").style("font-weight: 600; color: var(--ql-text);")
+            ui.label(t("page_not_found_desc")).classes("text-body1").style("color: var(--ql-text-secondary);")
 
             with ui.row().classes("gap-4 q-mt-lg"):
                 home_btn = ui.button(t("back_to_home"), on_click=lambda: ui.navigate.to("/"), icon="home")
