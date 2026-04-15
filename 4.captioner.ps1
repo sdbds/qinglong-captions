@@ -11,7 +11,7 @@ $kimi_api_key = ""
 $kimi_model_path = "kimi-k2.5" # "moonshotai/kimi-k2.5" if you want to use nvidia's endpoint
 $kimi_base_url = "https://api.moonshot.cn/v1" # "https://integrate.api.nvidia.com/v1" if you want to use nvidia's endpoint
 $kimi_code_api_key = ""
-$kimi_code_model_path = "k2p5"
+$kimi_code_model_path = "kimi-for-coding"
 $kimi_code_base_url = "https://api.kimi.com/coding/v1"
 
 # MiniMax API 配置
@@ -300,7 +300,7 @@ if ($kimi_code_api_key) {
   [void]$ext_args.Add("--kimi_code_api_key=$kimi_code_api_key")
 }
 
-if ($kimi_code_model_path -and $kimi_code_model_path -ne "k2p5") {
+if ($kimi_code_model_path -and $kimi_code_model_path -ne "kimi-for-coding") {
   [void]$ext_args.Add("--kimi_code_model_path=$kimi_code_model_path")
 }
 

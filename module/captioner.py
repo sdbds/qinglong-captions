@@ -107,8 +107,8 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--kimi_code_model_path",
         type=str,
-        default="k2p5",
-        help="Model name for Kimi-Code (default: k2p5)",
+        default="kimi-for-coding",
+        help="Model name for Kimi-Code (default: kimi-for-coding)",
     )
     parser.add_argument(
         "--kimi_code_base_url",

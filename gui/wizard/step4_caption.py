@@ -163,9 +163,10 @@ class CaptionStep:
         "Kimi-Code": {
             "key_name": "kimi_code_api_key",
             "models": [
+                "kimi-for-coding",
                 "k2p5",
             ],
-            "default_model": "k2p5",
+            "default_model": "kimi-for-coding",
             "supports_video": True,
             "supports_task": False,
         },
@@ -467,16 +468,16 @@ class CaptionStep:
             unknown_entries = [entry for entry in entries if entry["status"] == "unknown"]
             card_style = (
                 """
-                background: rgba(245, 158, 11, 0.10);
-                border-radius: 10px;
-                border: 1px solid rgba(245, 158, 11, 0.20);
+                background: rgba(255,255,255,0.02);
+                border-radius: var(--radius-md);
+                border: 1px solid var(--color-border);
                 box-shadow: none;
                 """
                 if warning_entries
                 else """
-                background: rgba(16, 185, 129, 0.08);
-                border-radius: 10px;
-                border: 1px solid rgba(16, 185, 129, 0.18);
+                background: rgba(255,255,255,0.02);
+                border-radius: var(--radius-md);
+                border: 1px solid var(--color-border);
                 box-shadow: none;
                 """
             )

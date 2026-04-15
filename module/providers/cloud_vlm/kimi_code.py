@@ -80,7 +80,7 @@ class KimiCodeProvider(CloudVLMProvider):
 
         result = attempt_kimi_vl(
             client=client,
-            model_path=getattr(self.ctx.args, "kimi_code_model_path", "kimi-k2.5"),
+            model_path=getattr(self.ctx.args, "kimi_code_model_path", "kimi-for-coding"),
             messages=messages,
             console=self.ctx.console,
             progress=self.ctx.progress,
