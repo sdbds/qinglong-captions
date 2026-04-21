@@ -1,6 +1,6 @@
 """
 Qinglong Captions GUI — Unified Theme System
-Clean dark-first design inspired by Linear + Supabase.
+Light palette from the first reference image; dark palette from the second.
 
 Single CSS Custom Properties system — no duplicate themes, no !important abuse.
 Light/dark mode switching via CSS variables on body.dark-mode class.
@@ -13,45 +13,45 @@ from nicegui import ui
 # ============================================================
 
 COLORS = {
-    # Brand — green from character hair, gold from rose
-    "primary":        "#6ee07a",   # Mint green (hair color)
-    "primary_dark":   "#3cb54a",   # Deeper green
-    "primary_light":  "#8df097",   # Lighter green
-    "secondary":      "#daa520",   # Goldenrod (rose color)
-    "accent":         "#6ee07a",   # Alias for primary
+    # Theme-aware semantic colors
+    "primary":         "var(--ql-accent)",
+    "primary_dark":    "var(--ql-accent-strong)",
+    "primary_light":   "var(--ql-accent-hover)",
+    "secondary":       "var(--ql-secondary)",
+    "accent":          "var(--ql-accent)",
 
     # Semantic
-    "success":        "#6ee07a",
-    "warning":        "#daa520",
-    "error":          "#f85149",
-    "info":           "#58a6ff",
+    "success":         "var(--ql-success)",
+    "warning":         "var(--ql-warning)",
+    "error":           "var(--ql-error)",
+    "info":            "var(--ql-info)",
 
-    # Surfaces (dark mode defaults — teal-dark from clothing)
-    "background":     "#0f2828",
-    "surface":        "#1a3a3a",
-    "surface_light":  "#213f3f",
-    "surface_dark":   "#0f2828",
+    # Surfaces
+    "background":      "var(--ql-bg)",
+    "surface":         "var(--ql-surface)",
+    "surface_light":   "var(--ql-surface-raised)",
+    "surface_dark":    "var(--ql-surface-strong)",
 
     # Text
-    "text":           "#e6f0ef",
-    "text_secondary": "#8aa8a6",
-    "text_muted":     "#4a706e",
+    "text":            "var(--ql-text)",
+    "text_secondary":  "var(--ql-text-secondary)",
+    "text_muted":      "var(--ql-text-muted)",
 
     # Borders
-    "border":         "#2a5050",
+    "border":          "var(--ql-border)",
 
     # Legacy keys
-    "blue":           "#daa520",
-    "blue_light":     "#e6b422",
-    "blue_dark":      "#c49318",
-    "mint":           "#6ee07a",
-    "emerald":        "#6ee07a",
-    "forest":         "#0f2828",
-    "bg_light":       "#f0f6f6",
-    "text_on_primary": "#0f2828",
-    "text_on_accent": "#0f2828",
-    "bg_dark":        "#0f2828",
-    "text_dark":      "#e6f0ef",
+    "blue":            "var(--ql-info)",
+    "blue_light":      "var(--ql-info)",
+    "blue_dark":       "var(--ql-info)",
+    "mint":            "var(--ql-accent)",
+    "emerald":         "var(--ql-success)",
+    "forest":          "var(--ql-surface-strong)",
+    "bg_light":        "var(--ql-surface-raised)",
+    "text_on_primary": "var(--ql-btn-text)",
+    "text_on_accent":  "var(--ql-text-on-accent)",
+    "bg_dark":         "var(--ql-surface-strong)",
+    "text_dark":       "var(--ql-text)",
 }
 
 # CSS class name mapping — consumed via get_classes()
@@ -94,59 +94,83 @@ def _css_variables() -> str:
     return """
 /* ===== CSS Custom Properties ===== */
 :root {
-    /* Surfaces — teal-dark from clothing */
-    --ql-bg:              #0f2828;
-    --ql-surface:         #1a3a3a;
-    --ql-surface-raised:  #213f3f;
-    --ql-overlay:         #284848;
+    /* Dark theme — graphite base + mint highlight + gold auxiliary */
+    --ql-bg:              #101014;
+    --ql-surface:         #17171d;
+    --ql-surface-raised:  #1f2028;
+    --ql-surface-strong:  #0c0d10;
+    --ql-overlay:         #262732;
+    --ql-inset-bg:        rgba(255, 255, 255, 0.04);
+    --ql-inset-border:    rgba(255, 255, 255, 0.08);
+    --ql-console-bg:      #0c0d10;
+    --ql-console-text:    #ebeaf3;
+    --ql-console-border:  rgba(126, 226, 165, 0.16);
 
-    /* Brand accent — mint green (hair) */
-    --ql-accent:          #6ee07a;
-    --ql-accent-hover:    #8df097;
-    --ql-accent-muted:    rgba(110, 224, 122, 0.10);
-    --ql-accent-border:   rgba(110, 224, 122, 0.20);
-    --ql-secondary:       #daa520;
+    --ql-accent:          #7ee2a5;
+    --ql-accent-strong:   #5ec887;
+    --ql-accent-hover:    #9aefbc;
+    --ql-accent-muted:    rgba(126, 226, 165, 0.14);
+    --ql-accent-border:   rgba(126, 226, 165, 0.24);
+    --ql-accent-soft:     rgba(126, 226, 165, 0.10);
+    --ql-secondary:       #d7b455;
+    --ql-secondary-hover: #e4c46f;
+    --ql-secondary-muted: rgba(215, 180, 85, 0.18);
+    --ql-secondary-border: rgba(215, 180, 85, 0.26);
 
-    /* Text */
-    --ql-text:            #e6f0ef;
-    --ql-text-secondary:  #8aa8a6;
-    --ql-text-muted:      #4a706e;
-    --ql-text-on-accent:  #0f2828;
+    --ql-text:            #f2f1f8;
+    --ql-text-secondary:  #c7cad7;
+    --ql-text-muted:      #9297a8;
+    --ql-text-dim:        rgba(199, 202, 215, 0.72);
+    --ql-text-faint:      rgba(199, 202, 215, 0.58);
+    --ql-text-ghost:      rgba(199, 202, 215, 0.38);
+    --ql-text-on-accent:  #101014;
 
-    /* Borders */
-    --ql-border:          #2a5050;
-    --ql-border-hover:    #3a6868;
+    --ql-border:          #383b48;
+    --ql-border-hover:    #4d5161;
 
-    /* Semantic */
-    --ql-success:         #6ee07a;
-    --ql-warning:         #daa520;
-    --ql-error:           #f85149;
-    --ql-info:            #daa520;
+    --ql-success:         #7ee2a5;
+    --ql-success-soft:    rgba(126, 226, 165, 0.12);
+    --ql-success-border:  rgba(126, 226, 165, 0.22);
+    --ql-warning:         #d7b455;
+    --ql-warning-soft:    rgba(215, 180, 85, 0.14);
+    --ql-warning-border:  rgba(215, 180, 85, 0.24);
+    --ql-error:           #c76388;
+    --ql-error-hover:     #b45579;
+    --ql-error-soft:      rgba(199, 99, 136, 0.14);
+    --ql-info:            #bf6c83;
+    --ql-info-soft:       rgba(191, 108, 131, 0.14);
 
-    /* Buttons — gold (rose color) */
-    --ql-btn-bg:          #daa520;
+    --ql-btn-bg:          var(--ql-secondary);
     --ql-btn-text:        #ffffff;
-    --ql-btn-hover:       #e6b422;
-    --ql-btn-border:      #c49318;
-    --ql-btn-shadow:      rgba(218, 165, 32, 0.30);
+    --ql-btn-hover:       var(--ql-secondary-hover);
+    --ql-btn-border:      #e4c46f;
+    --ql-btn-shadow:      rgba(215, 180, 85, 0.28);
+    --ql-toggle-active-bg: var(--ql-secondary);
+    --ql-toggle-active-border: var(--ql-btn-border);
+    --ql-toggle-active-text: var(--ql-text-on-accent);
+    --ql-nav-bg:          rgba(126, 226, 165, 0.10);
+    --ql-nav-hover:       rgba(126, 226, 165, 0.16);
+    --ql-nav-border:      rgba(126, 226, 165, 0.24);
+    --ql-nav-text:        #c7ead4;
+    --ql-nav-active-bg:   var(--ql-accent);
+    --ql-nav-active-text: #101014;
+    --ql-nav-active-border: var(--ql-accent-strong);
+    --ql-nav-shadow:      rgba(126, 226, 165, 0.22);
 
-    /* Cards */
-    --ql-card-bg:         #1a3a3a;
-    --ql-card-border:     #2a5050;
-    --ql-card-shadow:     0 1px 3px rgba(0,0,0,0.3);
+    --ql-card-bg:         var(--ql-surface);
+    --ql-card-border:     var(--ql-border);
+    --ql-card-shadow:     0 10px 24px rgba(0, 0, 0, 0.22);
 
-    /* Inputs */
-    --ql-input-bg:        #122e2e;
-    --ql-input-border:    #2a5050;
-    --ql-input-focus:     rgba(218, 165, 32, 0.35);
+    --ql-input-bg:        #121318;
+    --ql-input-border:    var(--ql-border);
+    --ql-input-focus:     rgba(126, 226, 165, 0.22);
 
-    /* Quasar overrides */
-    --q-primary: #daa520;
-    --q-color-primary: #daa520;
+    --q-primary: var(--ql-accent);
+    --q-color-primary: var(--ql-accent);
 
     /* Legacy aliases — backward compat for wizard pages using var(--color-*) */
     --color-primary:        var(--ql-accent);
-    --color-primary-dark:   #059669;
+    --color-primary-dark:   var(--ql-accent-strong);
     --color-primary-light:  var(--ql-accent-hover);
     --color-secondary:      var(--ql-secondary);
     --color-accent:         var(--ql-accent);
@@ -172,14 +196,14 @@ def _css_variables() -> str:
     --btn-primary-text:     var(--ql-btn-text);
     --btn-primary-border:   var(--ql-btn-border);
     --btn-primary-shadow:   var(--ql-btn-shadow);
-    --btn-primary-color:    var(--ql-accent);
-    --color-gold:           var(--ql-accent);
-    --color-gold-light:     var(--ql-accent-hover);
+    --btn-primary-color:    var(--ql-btn-bg);
+    --color-gold:           var(--ql-secondary);
+    --color-gold-light:     var(--ql-secondary-hover);
     --color-gold-text:      var(--ql-text-on-accent);
-    --color-emerald-50:     #ecfdf5;
-    --color-emerald-100:    #d1fae5;
+    --color-emerald-50:     var(--ql-surface-raised);
+    --color-emerald-100:    var(--ql-surface);
     --color-emerald-300:    var(--ql-text-secondary);
-    --color-emerald-600:    var(--ql-accent);
+    --color-emerald-600:    var(--ql-success);
     --color-emerald-800:    var(--ql-text);
     --color-green-400:      var(--ql-accent-hover);
     --color-green-50:       var(--ql-surface-raised);
@@ -187,44 +211,83 @@ def _css_variables() -> str:
 
 /* Light mode overrides */
 body:not(.dark-mode) {
-    --ql-bg:              #f0f6f6;
-    --ql-surface:         #ffffff;
-    --ql-surface-raised:  #f0f6f6;
-    --ql-overlay:         #ffffff;
+    /* Light theme — warm ivory paper + ribbon mauve + champagne */
+    --ql-bg:              #f7f0e6;
+    --ql-surface:         #fffaf4;
+    --ql-surface-raised:  #f2e8dc;
+    --ql-surface-strong:  #eadfce;
+    --ql-overlay:         #fffdf8;
+    --ql-inset-bg:        rgba(128, 97, 138, 0.05);
+    --ql-inset-border:    rgba(128, 97, 138, 0.12);
+    --ql-console-bg:      #f3ece3;
+    --ql-console-text:    #392f2b;
+    --ql-console-border:  rgba(128, 97, 138, 0.16);
 
-    --ql-accent:          #1a7a28;
-    --ql-accent-hover:    #15661f;
-    --ql-accent-muted:    rgba(26, 122, 40, 0.10);
-    --ql-accent-border:   rgba(26, 122, 40, 0.25);
+    --ql-accent:          #80618a;
+    --ql-accent-strong:   #6d5978;
+    --ql-accent-hover:    #9578a0;
+    --ql-accent-muted:    rgba(128, 97, 138, 0.12);
+    --ql-accent-border:   rgba(128, 97, 138, 0.22);
+    --ql-accent-soft:     rgba(128, 97, 138, 0.08);
+    --ql-secondary:       #b88746;
+    --ql-secondary-hover: #c99955;
+    --ql-secondary-muted: rgba(184, 135, 70, 0.16);
+    --ql-secondary-border: rgba(184, 135, 70, 0.24);
 
-    --ql-text:            #0a1515;
-    --ql-text-secondary:  #1e3838;
-    --ql-text-muted:      #3d5e5e;
+    --ql-text:            #392f2b;
+    --ql-text-secondary:  #6c5f58;
+    --ql-text-muted:      #93857b;
+    --ql-text-dim:        rgba(108, 95, 88, 0.72);
+    --ql-text-faint:      rgba(108, 95, 88, 0.58);
+    --ql-text-ghost:      rgba(108, 95, 88, 0.38);
     --ql-text-on-accent:  #ffffff;
 
-    --ql-border:          #b8d4d2;
-    --ql-border-hover:    #8aa8a6;
+    --ql-border:          #c6b49e;
+    --ql-border-hover:    #b09d86;
 
-    --ql-btn-bg:          #c49318;
-    --ql-btn-text:        #ffffff;
-    --ql-btn-hover:       #b08516;
-    --ql-btn-border:      #a07a14;
-    --ql-btn-shadow:      rgba(196, 147, 24, 0.20);
+    --ql-success:         #567860;
+    --ql-success-soft:    rgba(86, 120, 96, 0.10);
+    --ql-success-border:  rgba(86, 120, 96, 0.20);
+    --ql-warning:         #8d602f;
+    --ql-warning-soft:    rgba(141, 96, 47, 0.12);
+    --ql-warning-border:  rgba(141, 96, 47, 0.22);
+    --ql-error:           #a65466;
+    --ql-error-hover:     #924759;
+    --ql-error-soft:      rgba(166, 84, 102, 0.12);
+    --ql-info:            #a65466;
+    --ql-info-soft:       rgba(166, 84, 102, 0.12);
 
-    --ql-card-bg:         #ffffff;
-    --ql-card-border:     #b8d4d2;
-    --ql-card-shadow:     0 1px 3px rgba(15,40,40,0.06);
+    --ql-btn-bg:          #e4d5c0;
+    --ql-btn-text:        #392f2b;
+    --ql-btn-hover:       #dcc7aa;
+    --ql-btn-border:      #c5ae8a;
+    --ql-btn-shadow:      rgba(90, 70, 52, 0.14);
+    --ql-toggle-active-bg: #d7b455;
+    --ql-toggle-active-border: #e4c46f;
+    --ql-toggle-active-text: #392f2b;
+    --ql-nav-bg:          rgba(128, 97, 138, 0.08);
+    --ql-nav-hover:       rgba(128, 97, 138, 0.14);
+    --ql-nav-border:      rgba(128, 97, 138, 0.22);
+    --ql-nav-text:        #6d5978;
+    --ql-nav-active-bg:   var(--ql-accent);
+    --ql-nav-active-text: #ffffff;
+    --ql-nav-active-border: var(--ql-accent-strong);
+    --ql-nav-shadow:      rgba(128, 97, 138, 0.18);
 
-    --ql-input-bg:        #ffffff;
-    --ql-input-border:    #b8d4d2;
-    --ql-input-focus:     rgba(218, 165, 32, 0.30);
+    --ql-card-bg:         var(--ql-surface);
+    --ql-card-border:     #d2c0aa;
+    --ql-card-shadow:     0 8px 22px rgba(58, 47, 43, 0.08);
 
-    --q-primary: #c49318;
-    --q-color-primary: #c49318;
+    --ql-input-bg:        var(--ql-surface);
+    --ql-input-border:    #b6a28a;
+    --ql-input-focus:     rgba(128, 97, 138, 0.20);
+
+    --q-primary: var(--ql-accent);
+    --q-color-primary: var(--ql-accent);
 
     /* Legacy aliases must be re-declared here so they pick up light-mode --ql-* values */
     --color-primary:        var(--ql-accent);
-    --color-primary-dark:   #15661f;
+    --color-primary-dark:   var(--ql-accent-strong);
     --color-primary-light:  var(--ql-accent-hover);
     --color-secondary:      var(--ql-secondary);
     --color-accent:         var(--ql-accent);
@@ -250,14 +313,14 @@ body:not(.dark-mode) {
     --btn-primary-text:     var(--ql-btn-text);
     --btn-primary-border:   var(--ql-btn-border);
     --btn-primary-shadow:   var(--ql-btn-shadow);
-    --btn-primary-color:    var(--ql-accent);
-    --color-gold:           var(--ql-accent);
-    --color-gold-light:     var(--ql-accent-hover);
+    --btn-primary-color:    var(--ql-btn-bg);
+    --color-gold:           var(--ql-secondary);
+    --color-gold-light:     var(--ql-secondary-hover);
     --color-gold-text:      var(--ql-text-on-accent);
-    --color-emerald-50:     #f0f6f6;
-    --color-emerald-100:    #e0eded;
+    --color-emerald-50:     var(--ql-surface-raised);
+    --color-emerald-100:    var(--ql-surface);
     --color-emerald-300:    var(--ql-text-secondary);
-    --color-emerald-600:    var(--ql-accent);
+    --color-emerald-600:    var(--ql-success);
     --color-emerald-800:    var(--ql-text);
     --color-green-400:      var(--ql-accent-hover);
     --color-green-50:       var(--ql-surface-raised);
@@ -279,13 +342,8 @@ body {
     font-family: 'Inter', -apple-system, 'Microsoft YaHei', 'Segoe UI', sans-serif;
     background: var(--ql-bg);
     color: var(--ql-text);
-    text-shadow: 0 1px 2px rgba(139, 90, 30, 0.25);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-}
-
-body:not(.dark-mode) {
-    text-shadow: none;
 }
 
 #app, #q-app {
@@ -330,28 +388,29 @@ def _header_styles() -> str:
 .header-title { color: var(--ql-text); font-weight: 600; }
 .header-version { color: var(--ql-text-muted); font-size: 12px; }
 
-/* ===== Nav Buttons — Gold filled ===== */
+/* ===== Nav Buttons ===== */
 .q-btn.ql-nav-btn,
 .q-btn.ql-nav-btn.bg-primary,
 .q-btn.ql-nav-btn.text-primary {
-    background: var(--ql-btn-bg) !important;
-    color: #ffffff !important;
-    border: 1px solid var(--ql-btn-border);
+    background: var(--ql-nav-bg) !important;
+    color: var(--ql-nav-text) !important;
+    border: 1px solid var(--ql-nav-border);
     border-radius: 8px;
     padding: 6px 14px;
     font-weight: 600;
     font-size: 13px;
     text-transform: none;
     letter-spacing: 0;
-    box-shadow: 0 1px 3px var(--ql-btn-shadow);
+    box-shadow: 0 1px 3px var(--ql-nav-shadow);
     transition: background 0.15s, box-shadow 0.15s;
 }
 
 .q-btn.ql-nav-btn:hover,
 .q-btn.ql-nav-btn.text-primary:hover {
-    background: var(--ql-btn-hover) !important;
-    color: #ffffff !important;
-    box-shadow: 0 2px 8px var(--ql-btn-shadow);
+    background: var(--ql-nav-hover) !important;
+    color: var(--ql-nav-text) !important;
+    border-color: var(--ql-nav-active-border);
+    box-shadow: 0 2px 8px var(--ql-nav-shadow);
 }
 
 .q-btn.ql-nav-btn .q-btn__content {
@@ -367,15 +426,15 @@ def _header_styles() -> str:
 .q-btn.ql-nav-btn--active,
 .q-btn.ql-nav-btn--active.bg-primary,
 .q-btn.ql-nav-btn--active.text-primary {
-    background: var(--ql-btn-hover) !important;
-    color: #ffffff !important;
-    border-color: var(--ql-btn-border);
+    background: var(--ql-nav-active-bg) !important;
+    color: var(--ql-nav-active-text) !important;
+    border-color: var(--ql-nav-active-border);
     font-weight: 700;
-    box-shadow: 0 2px 10px var(--ql-btn-shadow);
+    box-shadow: 0 2px 10px var(--ql-nav-shadow);
 }
 
 .q-btn.ql-nav-btn--active .q-icon {
-    color: #ffffff;
+    color: var(--ql-nav-active-text);
 }
 """
 
@@ -427,30 +486,40 @@ def _button_styles() -> str:
 /* ===== Buttons ===== */
 
 /* Primary */
+.q-btn.ql-btn-primary, .q-btn.modern-btn-primary, .q-btn.modern-btn-success,
+.q-btn.gold-btn, .q-btn.green-btn,
 .ql-btn-primary, .modern-btn-primary, .modern-btn-success, .gold-btn, .green-btn {
-    background: var(--ql-btn-bg);
-    color: var(--ql-btn-text);
-    border: 1px solid var(--ql-btn-border);
+    background: var(--ql-btn-bg) !important;
+    color: var(--ql-btn-text) !important;
+    border: 1px solid var(--ql-btn-border) !important;
     border-radius: 8px;
     padding: 8px 20px;
     font-weight: 600;
     font-size: 13px;
     text-transform: none;
     letter-spacing: 0;
-    box-shadow: 0 1px 2px var(--ql-btn-shadow);
+    box-shadow: 0 1px 2px var(--ql-btn-shadow) !important;
     transition: background 0.15s, box-shadow 0.15s;
 }
 
+.q-btn.ql-btn-primary:hover, .q-btn.modern-btn-primary:hover, .q-btn.modern-btn-success:hover,
+.q-btn.gold-btn:hover, .q-btn.green-btn:hover,
 .ql-btn-primary:hover, .modern-btn-primary:hover, .modern-btn-success:hover,
 .gold-btn:hover, .green-btn:hover {
-    background: var(--ql-btn-hover);
-    box-shadow: 0 2px 8px var(--ql-btn-shadow);
+    background: var(--ql-btn-hover) !important;
+    box-shadow: 0 2px 8px var(--ql-btn-shadow) !important;
 }
 
 .ql-btn-primary .q-btn__content, .modern-btn-primary .q-btn__content,
 .modern-btn-success .q-btn__content, .gold-btn .q-btn__content,
 .green-btn .q-btn__content {
-    color: var(--ql-btn-text);
+    color: var(--ql-btn-text) !important;
+}
+
+.ql-btn-primary .q-icon, .modern-btn-primary .q-icon,
+.modern-btn-success .q-icon, .gold-btn .q-icon,
+.green-btn .q-icon {
+    color: var(--ql-btn-text) !important;
 }
 
 /* Secondary */
@@ -486,12 +555,12 @@ def _button_styles() -> str:
     font-weight: 600;
     font-size: 13px;
     text-transform: none;
-    box-shadow: 0 1px 2px rgba(248, 81, 73, 0.25);
+    box-shadow: 0 1px 2px var(--ql-error-soft);
     transition: background 0.15s;
 }
 
 .ql-btn-danger:hover, .modern-btn-danger:hover, .red-btn:hover {
-    background: #da3633;
+    background: var(--ql-error-hover);
 }
 
 .ql-btn-danger .q-btn__content, .modern-btn-danger .q-btn__content,
@@ -852,6 +921,32 @@ button[class*="slider-value"]:hover {
 .q-slider__thumb-circle { background: var(--ql-secondary); border-color: var(--ql-secondary); }
 .q-slider--disabled .q-slider__track-container { background: var(--ql-border); }
 
+/* Editable slider needs a thin rail, not a filled container block */
+.editable-slider .q-slider__track-container,
+.editable-slider .q-slider__track-container--h {
+    height: 3px !important;
+    background: transparent !important;
+    border-radius: 999px !important;
+    box-shadow: none !important;
+    border: none !important;
+}
+.editable-slider .q-slider__track[style*="width"]:not([style*="width: 0"]) {
+    background: var(--ql-secondary) !important;
+    border-radius: 999px !important;
+}
+.editable-slider .q-slider__thumb {
+    color: var(--ql-secondary);
+    background: transparent !important;
+    border-radius: 999px !important;
+    box-shadow: none !important;
+}
+.editable-slider .q-slider__thumb-circle {
+    color: var(--ql-secondary);
+    background: var(--ql-secondary) !important;
+    border-color: var(--ql-secondary) !important;
+    border-radius: 999px !important;
+}
+
 /* ===== Toggle Switch ===== */
 .toggle-container {
     display: inline-flex;
@@ -875,8 +970,8 @@ button[class*="slider-value"]:hover {
 }
 
 .toggle-container.active {
-    background: var(--ql-secondary);
-    border-color: var(--ql-btn-border);
+    background: var(--ql-toggle-active-bg);
+    border-color: var(--ql-toggle-active-border);
 }
 
 .toggle-switch {
@@ -917,12 +1012,12 @@ button[class*="slider-value"]:hover {
     margin-left: 2px;
 }
 
-.toggle-container.active .toggle-label { color: var(--ql-text-on-accent); }
-.toggle-container.active .toggle-status { color: var(--ql-text-on-accent); }
+.toggle-container.active .toggle-label { color: var(--ql-toggle-active-text); }
+.toggle-container.active .toggle-status { color: var(--ql-toggle-active-text); }
 
 /* ===== Log Output ===== */
 .log-container {
-    background: #0d1117;
+    background: var(--ql-console-bg);
     color: var(--ql-accent);
     font-family: 'JetBrains Mono', 'Consolas', monospace;
     border: 1px solid var(--ql-border);
@@ -930,7 +1025,7 @@ button[class*="slider-value"]:hover {
 }
 
 .log-output {
-    background: #0d1117;
+    background: var(--ql-console-bg);
     color: var(--ql-text);
     font-family: 'JetBrains Mono', 'Consolas', monospace;
     border-radius: 8px;
@@ -940,14 +1035,14 @@ button[class*="slider-value"]:hover {
 }
 
 .modern-log {
-    background: #0d1117;
+    background: var(--ql-console-bg);
     border: 1px solid var(--ql-border);
     border-radius: 8px;
     font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 }
 
 .title-glow {
-    text-shadow: 0 0 20px rgba(62, 207, 142, 0.4);
+    text-shadow: 0 0 20px var(--ql-accent-border);
 }
 
 /* ===== Stepper ===== */
@@ -1251,57 +1346,53 @@ body:not(.dark-mode) {
     --q-dark-page: transparent;
 }
 
-/* Override text-primary to use gold */
-.text-primary { color: #daa520 !important; }
+/* Override text-primary to follow theme primary accent */
+.text-primary { color: var(--ql-accent) !important; }
 
 /* Force --q-primary on body to beat Quasar inline style on html */
 body {
-    --q-primary: #daa520 !important;
-    --q-color-primary: #daa520 !important;
-}
-body:not(.dark-mode) {
-    --q-primary: #c49318 !important;
-    --q-color-primary: #c49318 !important;
+    --q-primary: var(--ql-accent) !important;
+    --q-color-primary: var(--ql-accent) !important;
 }
 
-/* White text/icons inside gold bg-primary buttons */
+/* Theme-aware text/icons inside primary buttons */
 .q-btn.bg-primary .q-btn__content,
 .q-btn.bg-primary .q-icon {
-    color: #ffffff !important;
+    color: var(--ql-btn-text) !important;
 }
 
-/* Flat buttons with text-primary → gold text */
+/* Flat buttons with text-primary → theme accent */
 .q-btn--flat.text-primary,
 .q-btn--flat.text-primary .q-btn__content {
-    color: #daa520 !important;
+    color: var(--ql-accent) !important;
 }
 .q-btn--flat.text-primary:hover {
-    background: rgba(218, 165, 32, 0.12) !important;
+    background: var(--ql-accent-muted) !important;
 }
 
-/* Slider value button (editable-slider) → gold text */
+/* Slider value button (editable-slider) → theme gold */
 .slider-value,
 .slider-value.q-btn {
-    color: #daa520 !important;
+    color: var(--ql-secondary) !important;
 }
 
-/* Icons — gold by default, white inside filled buttons */
-.q-icon { color: #daa520; }
-.q-field__marginal .q-icon { color: #daa520; }
+/* Icons — gold by default, theme-aware inside filled buttons */
+.q-icon { color: var(--ql-secondary); }
+.q-field__marginal .q-icon { color: var(--ql-secondary); }
 .q-tab .q-icon { color: inherit; }
-.q-stepper__dot .q-icon { color: #daa520; }
-.q-btn.bg-primary .q-icon { color: #ffffff !important; }
+.q-stepper__dot .q-icon { color: var(--ql-secondary); }
+.q-btn.bg-primary .q-icon { color: var(--ql-btn-text) !important; }
 
-/* Slider accent → gold */
+/* Slider accent → secondary accent */
 .q-slider__thumb { color: var(--ql-secondary); }
 .q-slider__thumb-circle {
     background: var(--ql-secondary) !important;
     border-color: var(--ql-secondary) !important;
 }
 
-/* Toggle accent → gold */
-.q-toggle__inner--truthy .q-toggle__track { background: var(--ql-secondary) !important; }
-.q-toggle__inner--truthy .q-toggle__thumb::after { background: var(--ql-secondary) !important; }
+/* Toggle accent → dedicated active toggle color */
+.q-toggle__inner--truthy .q-toggle__track { background: var(--ql-toggle-active-bg) !important; }
+.q-toggle__inner--truthy .q-toggle__thumb::after { background: var(--ql-toggle-active-bg) !important; }
 
 /* Quasar buttons: remove default bg-primary/text-primary interference */
 body .q-btn.ql-nav-btn,
@@ -1320,6 +1411,63 @@ body .q-btn.red-btn {
     --q-btn-active-opacity: 1;
 }
 
+/* Final override for custom filled buttons: beat Quasar's default bg-primary */
+body .q-btn.ql-btn-primary,
+body .q-btn.modern-btn-primary,
+body .q-btn.modern-btn-success,
+body .q-btn.gold-btn,
+body .q-btn.green-btn {
+    background: var(--ql-btn-bg) !important;
+    color: var(--ql-btn-text) !important;
+    border: 1px solid var(--ql-btn-border) !important;
+    box-shadow: 0 1px 2px var(--ql-btn-shadow) !important;
+}
+
+body .q-btn.ql-btn-primary:hover,
+body .q-btn.modern-btn-primary:hover,
+body .q-btn.modern-btn-success:hover,
+body .q-btn.gold-btn:hover,
+body .q-btn.green-btn:hover {
+    background: var(--ql-btn-hover) !important;
+    box-shadow: 0 2px 8px var(--ql-btn-shadow) !important;
+}
+
+body .q-btn.ql-btn-primary .q-btn__content,
+body .q-btn.modern-btn-primary .q-btn__content,
+body .q-btn.modern-btn-success .q-btn__content,
+body .q-btn.gold-btn .q-btn__content,
+body .q-btn.green-btn .q-btn__content,
+body .q-btn.ql-btn-primary .q-icon,
+body .q-btn.modern-btn-primary .q-icon,
+body .q-btn.modern-btn-success .q-icon,
+body .q-btn.gold-btn .q-icon,
+body .q-btn.green-btn .q-icon {
+    color: var(--ql-btn-text) !important;
+}
+
+/* Final override for custom ghost buttons */
+body .q-btn.ql-btn-ghost,
+body .q-btn.modern-btn-ghost {
+    background: transparent !important;
+    color: var(--ql-text-secondary) !important;
+    border: 1px solid var(--ql-border) !important;
+    box-shadow: none !important;
+}
+
+body .q-btn.ql-btn-ghost:hover,
+body .q-btn.modern-btn-ghost:hover {
+    background: var(--ql-accent-muted) !important;
+    color: var(--ql-text) !important;
+    border-color: var(--ql-border-hover) !important;
+}
+
+body .q-btn.ql-btn-ghost .q-btn__content,
+body .q-btn.modern-btn-ghost .q-btn__content,
+body .q-btn.ql-btn-ghost .q-icon,
+body .q-btn.modern-btn-ghost .q-icon {
+    color: inherit !important;
+}
+
 /* Animation Keyframes */
 @keyframes ql-fade-in {
     from { opacity: 0; transform: translateY(6px); }
@@ -1329,8 +1477,8 @@ body .q-btn.red-btn {
 .animate-fade-in { animation: ql-fade-in 0.3s ease forwards; }
 
 @keyframes ql-glow {
-    0%, 100% { box-shadow: 0 0 4px rgba(218, 165, 32, 0.3); }
-    50% { box-shadow: 0 0 16px rgba(218, 165, 32, 0.6); }
+    0%, 100% { box-shadow: 0 0 4px var(--ql-accent-border); }
+    50% { box-shadow: 0 0 16px var(--ql-accent-muted); }
 }
 
 .animate-glow { animation: ql-glow 2s ease-in-out infinite; }
@@ -1342,12 +1490,12 @@ body .q-btn.red-btn {
 # ============================================================
 
 _PRELOAD_CSS = """<style>
-html { background: #0f2828; }
-body { background: #0f2828; color: #e6f0ef;
-       --q-primary: #daa520 !important; --q-color-primary: #daa520 !important; }
-body:not(.dark-mode) { background: #f0f6f6; color: #0a1515;
-       --q-primary: #c49318 !important; --q-color-primary: #c49318 !important; }
-body.dark-mode { --q-primary: #daa520 !important; --q-color-primary: #daa520 !important; }
+html { background: #101014; }
+body { background: #101014; color: #f2f1f8;
+       --q-primary: #7ee2a5 !important; --q-color-primary: #7ee2a5 !important; }
+body:not(.dark-mode) { background: #f7f0e6; color: #392f2b;
+       --q-primary: #80618a !important; --q-color-primary: #80618a !important; }
+body.dark-mode { --q-primary: #7ee2a5 !important; --q-color-primary: #7ee2a5 !important; }
 .q-tab-panels, .q-tab-panel { background: transparent; transition: none; }
 </style>"""
 

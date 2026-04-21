@@ -30,42 +30,26 @@ _CONFIG_FILES = {
 _SETTINGS_CSS = """
 /* ---- Settings dialog background ---- */
 .settings-dialog-bg {
-    background: #e8f5e9 !important;          /* light: distinct mint-green */
-}
-body.dark-mode .settings-dialog-bg {
-    background: #001a11 !important;          /* dark: very deep green-black */
+    background: linear-gradient(180deg, var(--ql-bg), var(--ql-surface-raised)) !important;
 }
 
 /* ---- Top-level section cards ---- */
 .settings-dialog-bg .settings-section-card {
-    background: #ffffff !important;          /* light: white card */
-    border: 1px solid rgba(5,150,105,0.25) !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
-}
-body.dark-mode .settings-dialog-bg .settings-section-card {
-    background: #0a3d2e !important;          /* dark: teal-green card */
-    border: 1px solid rgba(16,185,129,0.3) !important;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.3) !important;
+    background: var(--ql-card-bg) !important;
+    border: 1px solid var(--ql-card-border) !important;
+    box-shadow: var(--ql-card-shadow) !important;
 }
 
 /* ---- Nested sub-section cards ---- */
 .settings-dialog-bg .settings-nested-card {
-    background: #f1f8e9 !important;          /* light: lime tint */
-    border: 1px solid rgba(5,150,105,0.18) !important;
-}
-body.dark-mode .settings-dialog-bg .settings-nested-card {
-    background: #072a22 !important;          /* dark: slightly lighter than card */
-    border: 1px solid rgba(16,185,129,0.2) !important;
+    background: var(--ql-surface-raised) !important;
+    border: 1px solid var(--ql-inset-border) !important;
 }
 
 /* ---- Section header gradient strip ---- */
 .settings-dialog-bg .settings-section-header {
     background: linear-gradient(135deg,
-        rgba(5,150,105,0.10), rgba(251,191,36,0.05)) !important;
-}
-body.dark-mode .settings-dialog-bg .settings-section-header {
-    background: linear-gradient(135deg,
-        rgba(16,185,129,0.20), rgba(251,191,36,0.10)) !important;
+        var(--ql-accent-soft), var(--ql-secondary-muted)) !important;
 }
 
 /* ---- Clickable key label ---- */
@@ -76,10 +60,7 @@ body.dark-mode .settings-dialog-bg .settings-section-header {
     transition: background 0.15s;
 }
 .settings-key-label:hover {
-    background: rgba(5,150,105,0.10);
-}
-body.dark-mode .settings-key-label:hover {
-    background: rgba(16,185,129,0.15);
+    background: var(--ql-accent-muted);
 }
 """
 

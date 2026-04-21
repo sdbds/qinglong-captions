@@ -7,11 +7,11 @@ from gui.theme import COLORS
 
 # Job 状态对应的图标和颜色
 _STATUS_ICON = {
-    JobStatus.PENDING:   ("schedule",     COLORS.get("accent", "#94a3b8")),
-    JobStatus.RUNNING:   ("sync",         COLORS.get("info", "#3b82f6")),
-    JobStatus.SUCCESS:   ("check_circle", COLORS.get("success", "#22c55e")),
-    JobStatus.ERROR:     ("error",        COLORS.get("error", "#ef4444")),
-    JobStatus.CANCELLED: ("cancel",       COLORS.get("warning", "#f59e0b")),
+    JobStatus.PENDING:   ("schedule",     COLORS.get("accent", "var(--ql-accent)")),
+    JobStatus.RUNNING:   ("sync",         COLORS.get("info", "var(--ql-info)")),
+    JobStatus.SUCCESS:   ("check_circle", COLORS.get("success", "var(--ql-success)")),
+    JobStatus.ERROR:     ("error",        COLORS.get("error", "var(--ql-error)")),
+    JobStatus.CANCELLED: ("cancel",       COLORS.get("warning", "var(--ql-warning)")),
 }
 
 _STATUS_LABEL = {
@@ -49,8 +49,8 @@ class JobListDrawer:
         with ui.column().classes("w-full gap-0").style("height: 100%; overflow: hidden;"):
             # 标题栏
             with ui.row().classes("w-full items-center justify-between q-pa-md").style(
-                f"background: linear-gradient(135deg, {COLORS['primary']}22, {COLORS['secondary']}11); "
-                "border-bottom: 1px solid rgba(5, 150, 105, 0.15); flex-shrink: 0;"
+                "background: linear-gradient(135deg, var(--ql-accent-soft), var(--ql-secondary-muted)); "
+                "border-bottom: 1px solid var(--ql-accent-border); flex-shrink: 0;"
             ):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("assignment", size="22px").style(f"color: {COLORS['primary']};")
@@ -59,7 +59,7 @@ class JobListDrawer:
                 # 清除已完成按钮
                 clear_btn = ui.button(icon="delete_sweep", on_click=self._clear_finished)
                 clear_btn.props('flat round dense').tooltip("清除已完成任务")
-                clear_btn.style(f"color: {COLORS.get('accent', '#94a3b8')};")
+                clear_btn.style(f"color: {COLORS['accent']};")
 
             # Job 列表（可滚动）
             with ui.scroll_area().classes("w-full").style("flex: 1; overflow: auto;"):
@@ -77,8 +77,8 @@ class JobListDrawer:
         if not jobs:
             with self._job_list_container:
                 with ui.column().classes("w-full items-center q-pa-xl gap-3"):
-                    ui.icon("inbox", size="48px").style("color: rgba(148,163,184,0.4);")
-                    ui.label("暂无任务").classes("text-body2").style("color: rgba(148,163,184,0.6);")
+                    ui.icon("inbox", size="48px").style("color: var(--ql-text-ghost);")
+                    ui.label("暂无任务").classes("text-body2").style("color: var(--ql-text-faint);")
             return
 
         with self._job_list_container:
@@ -87,13 +87,13 @@ class JobListDrawer:
 
     def _render_job_card(self, job: Job):
         """渲染单个 Job 卡片"""
-        icon_name, icon_color = _STATUS_ICON.get(job.status, ("help", "#94a3b8"))
+        icon_name, icon_color = _STATUS_ICON.get(job.status, ("help", "var(--ql-text-muted)"))
         status_label = _STATUS_LABEL.get(job.status, str(job.status.value))
         elapsed = job_manager.elapsed_str(job)
         is_active = job.status in (JobStatus.PENDING, JobStatus.RUNNING)
 
         with ui.card().classes("w-full").style(
-            "border-radius: 0; border: none; border-bottom: 1px solid rgba(5, 150, 105, 0.1); "
+            "border-radius: 0; border: none; border-bottom: 1px solid var(--ql-border); "
             "background: transparent;"
         ):
             with ui.row().classes("w-full items-center gap-3 q-pa-md"):
@@ -109,18 +109,18 @@ class JobListDrawer:
                     )
                     with ui.row().classes("items-center gap-2"):
                         ui.label(status_label).classes("text-caption").style(f"color: {icon_color};")
-                        ui.label("·").classes("text-caption").style("color: rgba(148,163,184,0.5);")
-                        ui.label(elapsed).classes("text-caption").style("color: rgba(148,163,184,0.7);")
+                        ui.label("·").classes("text-caption").style("color: var(--ql-text-ghost);")
+                        ui.label(elapsed).classes("text-caption").style("color: var(--ql-text-dim);")
 
                 # 操作按钮
                 if is_active:
                     stop_btn = ui.button(icon="stop", on_click=lambda j=job: self._stop_job(j.id))
                     stop_btn.props("flat round dense").tooltip("停止任务")
-                    stop_btn.style("color: #ef4444;")
+                    stop_btn.style(f"color: {COLORS['error']};")
                 else:
                     remove_btn = ui.button(icon="delete", on_click=lambda j=job: self._remove_job(j.id))
                     remove_btn.props("flat round dense").tooltip("移除记录")
-                    remove_btn.style("color: rgba(148,163,184,0.6);")
+                    remove_btn.style("color: var(--ql-text-faint);")
 
     def _stop_job(self, job_id: str):
         """停止指定任务"""

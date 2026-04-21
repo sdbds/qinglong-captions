@@ -28,18 +28,18 @@ _MODEL_ID_FIELDS = {"model_id"}
 
 # Row layout shared between all field rows
 _ROW_STYLE = (
-    "border-bottom: 1px solid var(--color-border, #e5e7eb); "
+    "border-bottom: 1px solid var(--color-border); "
     "padding: 6px 0; gap: 8px;"
 )
 
 # Outer wrapper style — visually distinguishes panel from parent card
 _PANEL_STYLE = (
-    "background: rgba(5, 150, 105, 0.08); "
+    "background: var(--ql-accent-soft); "
     "box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.06); "
     "border-radius: 10px; "
     "padding: 8px 12px; "
     "margin-top: 6px; "
-    "border: none; outline: none;"
+    "border: 1px solid var(--ql-accent-border); outline: none;"
 )
 
 

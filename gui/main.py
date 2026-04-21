@@ -46,20 +46,70 @@ APP_VERSION = _load_app_version()
 THEME_SCRIPT = """
 <script>
 (function() {
+    var normalizeButtonsQueued = false;
+
+    function resolveThemePrimary() {
+        var styles = getComputedStyle(document.body);
+        var primary = styles.getPropertyValue('--ql-accent').trim();
+        return primary || '#80618a';
+    }
+
+    function normalizeCustomButtons() {
+        var selectors = [
+            '.q-btn.ql-btn-primary',
+            '.q-btn.modern-btn-primary',
+            '.q-btn.modern-btn-success',
+            '.q-btn.gold-btn',
+            '.q-btn.green-btn',
+            '.q-btn.ql-btn-ghost',
+            '.q-btn.modern-btn-ghost',
+            '.q-btn.ql-btn-secondary',
+            '.q-btn.modern-btn-secondary',
+            '.q-btn.ql-btn-danger',
+            '.q-btn.modern-btn-danger',
+            '.q-btn.red-btn'
+        ].join(',');
+        document.querySelectorAll(selectors).forEach(function(btn) {
+            btn.classList.remove(
+                'bg-primary', 'bg-secondary', 'bg-positive', 'bg-negative',
+                'bg-info', 'bg-warning', 'text-white'
+            );
+        });
+    }
+
+    function queueNormalizeCustomButtons() {
+        if (normalizeButtonsQueued) return;
+        normalizeButtonsQueued = true;
+        requestAnimationFrame(function() {
+            normalizeButtonsQueued = false;
+            normalizeCustomButtons();
+        });
+    }
+
+    function syncThemeToggleIcons() {
+        var isDark = document.body.classList.contains('dark-mode');
+        document.querySelectorAll('.theme-toggle-btn .q-icon').forEach(function(icon) {
+            icon.textContent = isDark ? 'dark_mode' : 'light_mode';
+        });
+    }
+
     function syncQuasarDark(isDark) {
         if (window.Quasar && Quasar.Dark) Quasar.Dark.set(isDark);
-        var accent = isDark ? '#daa520' : '#c49318';
+        var accent = resolveThemePrimary();
         document.documentElement.style.setProperty('--q-primary', accent);
         document.documentElement.style.setProperty('--q-color-primary', accent);
     }
+
+    window.syncThemeToggleIcons = syncThemeToggleIcons;
+    window.normalizeCustomButtons = normalizeCustomButtons;
+    window.queueNormalizeCustomButtons = queueNormalizeCustomButtons;
 
     window.toggleDarkMode = function() {
         var isDark = document.body.classList.toggle('dark-mode');
         localStorage.setItem('dark_mode', isDark);
         syncQuasarDark(isDark);
-        document.querySelectorAll('.theme-toggle-btn .q-icon').forEach(function(icon) {
-            icon.textContent = isDark ? 'dark_mode' : 'light_mode';
-        });
+        syncThemeToggleIcons();
+        queueNormalizeCustomButtons();
         return isDark;
     };
 
@@ -68,12 +118,23 @@ THEME_SCRIPT = """
     if (isDark) document.body.classList.add('dark-mode');
     else document.body.classList.remove('dark-mode');
     syncQuasarDark(isDark);
+    syncThemeToggleIcons();
+    queueNormalizeCustomButtons();
 
-    document.querySelectorAll('.theme-toggle-btn .q-icon').forEach(function(icon) {
-        icon.textContent = isDark ? 'dark_mode' : 'light_mode';
+    requestAnimationFrame(function() {
+        syncQuasarDark(isDark);
+        queueNormalizeCustomButtons();
     });
+    requestAnimationFrame(syncThemeToggleIcons);
+    setTimeout(function() {
+        syncQuasarDark(isDark);
+        syncThemeToggleIcons();
+        queueNormalizeCustomButtons();
+    }, 300);
 
-    setTimeout(function() { syncQuasarDark(isDark); }, 300);
+    new MutationObserver(function() {
+        queueNormalizeCustomButtons();
+    }).observe(document.body, { childList: true, subtree: true });
 })();
 </script>
 """
@@ -129,7 +190,7 @@ def create_header(job_drawer=None):
                 settings_btn.style("color: var(--ql-text-secondary);")
                 settings_btn.tooltip(t("nav_settings"))
 
-                theme_btn = ui.button(icon="light_mode").props("flat round dense").classes("theme-toggle-btn")
+                theme_btn = ui.button(icon="contrast").props("flat round dense").classes("theme-toggle-btn")
                 theme_btn.on_click(lambda: ui.run_javascript("window.toggleDarkMode()"))
 
                 with ui.row().classes("items-center gap-1"):
@@ -176,6 +237,12 @@ def page_base(content_func):
 
     # 执行页面内容
     content_func()
+    ui.run_javascript("""
+        requestAnimationFrame(function() {
+            if (window.syncThemeToggleIcons) window.syncThemeToggleIcons();
+            if (window.queueNormalizeCustomButtons) window.queueNormalizeCustomButtons();
+        });
+    """)
 
 
 def home_page():

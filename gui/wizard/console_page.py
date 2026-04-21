@@ -4,6 +4,7 @@
 """
 
 from nicegui import ui, context
+from gui.theme import apply_theme
 from gui.utils.ansi_to_html import AnsiToHtmlConverter
 from gui.utils.log_buffer import log_buffer
 from gui.utils.i18n import t
@@ -11,6 +12,7 @@ from gui.utils.i18n import t
 
 def render_console_page():
     """渲染 /console 全屏终端页面"""
+    apply_theme()
 
     converter = AnsiToHtmlConverter()
     auto_scroll = {"value": True}
@@ -24,12 +26,12 @@ def render_console_page():
         body {
             margin: 0;
             padding: 0;
-            background: var(--color-bg, rgba(15, 23, 42, 1));
+            background: var(--color-bg);
             overflow: hidden;
         }
         .console-toolbar {
-            background: var(--color-surface, rgba(22, 27, 34, 0.95));
-            border-bottom: 1px solid var(--color-border, rgba(48, 54, 61, 0.8));
+            background: var(--color-surface);
+            border-bottom: 1px solid var(--color-border);
             padding: 8px 16px;
             display: flex;
             align-items: center;
@@ -39,7 +41,7 @@ def render_console_page():
             gap: 12px;
         }
         .console-title {
-            color: var(--color-text, #e5e5e5);
+            color: var(--color-text);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             font-size: 14px;
             font-weight: 600;
@@ -51,12 +53,12 @@ def render_console_page():
             border-radius: 50%;
             margin-right: 6px;
         }
-        .console-title .dot-green { background: var(--color-success, #10b981); }
+        .console-title .dot-green { background: var(--color-success); }
         .console-body {
             font-family: 'Cascadia Code', 'Consolas', 'Monaco', 'Courier New', monospace;
             font-size: 13px;
             line-height: 1.6;
-            color: #e5e5e5;
+            color: var(--ql-console-text);
             padding: 12px 16px;
             white-space: pre-wrap;
             word-break: break-all;
@@ -84,7 +86,7 @@ def render_console_page():
                     })();
                 """),
             )
-            back_btn.props("flat dense").style("color: var(--color-text-secondary, #94a3b8);")
+            back_btn.props("flat dense").style("color: var(--color-text-secondary);")
             back_btn.tooltip(t("close", "Close"))
 
             ui.html('<span class="console-title"><span class="dot dot-green"></span>Console</span>')
@@ -92,19 +94,19 @@ def render_console_page():
         # 右侧: 自动滚动开关 + 清屏
         with ui.row().classes("items-center gap-3"):
             scroll_switch = ui.switch("Auto Scroll", value=True).props("dense")
-            scroll_switch.style("color: var(--color-text, #e5e5e5); font-size: 12px;")
+            scroll_switch.style("color: var(--color-text); font-size: 12px;")
 
             def on_scroll_change(e):
                 auto_scroll["value"] = e.value
             scroll_switch.on_value_change(on_scroll_change)
 
             clear_btn = ui.button(icon="delete_sweep", on_click=lambda: log_container.clear())
-            clear_btn.props("flat dense").style("color: var(--color-text-secondary, #94a3b8);")
+            clear_btn.props("flat dense").style("color: var(--color-text-secondary);")
             clear_btn.tooltip("Clear Screen")
 
     # 终端区域 — 背景色与 log_viewer 保持一致
     scroll_area = ui.scroll_area().classes("w-full").style(
-        "height: calc(100vh - 48px); background: rgba(15, 23, 42, 0.8);"
+        "height: calc(100vh - 48px); background: var(--ql-console-bg);"
     )
     with scroll_area:
         log_container = ui.element("div").classes("console-body")

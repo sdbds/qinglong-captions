@@ -1,14 +1,15 @@
 # Theme System — Style Guide
 
-Unified theme system based on CSS Custom Properties. Dark-first design
-inspired by Linear + Supabase.
+Unified theme system based on CSS Custom Properties. The light palette is
+derived from the first reference image (ivory + mauve + champagne); the dark
+palette is derived from the second reference image (deep teal + mint + amber).
 
 ## Architecture
 
 - **Single theme** — no duplicate green-gold / modern split
 - **CSS Custom Properties** — `--ql-*` namespace, auto-switch via `body.dark-mode`
 - **Legacy aliases** — old `var(--color-*)`, `var(--card-*)`, `var(--btn-primary-*)` still work
-- **No `!important`** — clean cascade, no specificity wars
+- **Scoped `!important` only for Quasar overrides** — keep component styles token-driven
 
 ## Quick Start
 
@@ -21,22 +22,26 @@ apply_theme()  # Call once per page in page_base()
 with ui.card().classes(get_classes('card')):
     ui.label('Content')
 
-# Use color values
+# Use theme-aware color values
 ui.icon("star").style(f"color: {COLORS['primary']};")
 ```
+
+`COLORS[...]` now resolves to `var(--ql-*)` strings so inline styles follow
+light/dark mode automatically. Do not append alpha suffixes like `22` to
+`COLORS` values; define a CSS token instead.
 
 ## Color Palette
 
 | Key | Value | Usage |
 |-----|-------|-------|
-| `primary` | `#3ecf8e` | Brand accent (emerald) |
-| `primary_dark` | `#059669` | Deeper emerald |
-| `primary_light` | `#4ade80` | Light highlights |
-| `secondary` | `#818cf8` | Indigo accent |
-| `success` | `#3ecf8e` | Success state |
-| `warning` | `#d29922` | Warning state |
-| `error` | `#f85149` | Error/danger |
-| `info` | `#58a6ff` | Information |
+| `primary` | `var(--ql-accent)` | Theme accent: mauve in light, mint in dark |
+| `primary_dark` | `var(--ql-accent-strong)` | Stronger accent for borders / pressed states |
+| `primary_light` | `var(--ql-accent-hover)` | Softer accent highlight |
+| `secondary` | `var(--ql-secondary)` | Champagne / amber secondary accent |
+| `success` | `var(--ql-success)` | Success state |
+| `warning` | `var(--ql-warning)` | Warning state |
+| `error` | `var(--ql-error)` | Error / danger state |
+| `info` | `var(--ql-info)` | Information state |
 
 ## CSS Class Mapping
 
@@ -67,8 +72,8 @@ All variables use the `--ql-` prefix. In inline styles, prefer these:
 var(--ql-text)            — primary text color
 var(--ql-text-secondary)  — secondary text
 var(--ql-text-muted)      — muted text
-var(--ql-accent)          — brand accent
-var(--ql-secondary)       — secondary accent (indigo)
+var(--ql-accent)          — primary accent
+var(--ql-secondary)       — champagne / amber secondary accent
 var(--ql-border)          — standard border
 var(--ql-surface)         — surface background
 var(--ql-card-bg)         — card background
@@ -77,6 +82,8 @@ var(--ql-success)         — success color
 var(--ql-warning)         — warning color
 var(--ql-error)           — error color
 var(--ql-info)            — info color
+var(--ql-inset-bg)        — soft inset panel background
+var(--ql-console-bg)      — log / console background
 ```
 
 Legacy `var(--color-text)`, `var(--card-border)`, etc. are aliased and

@@ -98,8 +98,8 @@ class LogViewer:
                 ui.element("div")
                 .classes("w-full q-px-md q-mb-md")
                 .style(f"""
-                background: rgba(15, 23, 42, 0.8);
-                border: 1px solid rgba(5, 150, 105, 0.2);
+                background: var(--ql-console-bg);
+                border: 1px solid var(--ql-console-border);
                 border-radius: 12px;
                 overflow: hidden;
             """)
@@ -111,7 +111,7 @@ class LogViewer:
                         "font-family: 'Cascadia Code', 'Consolas', 'Monaco', monospace; "
                         "font-size: 13px; line-height: 1.5; padding: 12px; "
                         "white-space: pre-wrap; word-break: break-all; "
-                        "color: #e5e5e5;"
+                        "color: var(--ql-console-text);"
                     )
 
         # 先订阅，再取历史快照，保证两者之间推入的行不丢失
@@ -150,13 +150,13 @@ class LogViewer:
 
             .log-scroll-area .q-scrollarea__bar--v {{
                 width: 10px !important;
-                background: rgba(15, 23, 42, 0.28) !important;
+                background: var(--ql-inset-bg) !important;
                 border-radius: 999px !important;
             }}
 
             .log-scroll-area .q-scrollarea__thumb--v {{
                 width: 10px !important;
-                background: linear-gradient(180deg, {COLORS['primary']} 0%, {COLORS['secondary']} 100%) !important;
+                background: linear-gradient(180deg, var(--ql-accent) 0%, var(--ql-secondary) 100%) !important;
                 border-radius: 999px !important;
             }}
 

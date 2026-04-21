@@ -75,9 +75,9 @@ class SetupStep:
                     ui.row()
                     .classes("w-full items-center justify-between q-pa-sm")
                     .style(f"""
-                    background: rgba(5, 150, 105, 0.08);
+                    background: var(--ql-success-soft);
                     border-radius: 10px;
-                    border: 1px solid rgba(5, 150, 105, 0.2);
+                    border: 1px solid var(--ql-success-border);
                 """) as python_row
                 ):
                     with ui.row().classes("items-center gap-2"):
@@ -93,9 +93,9 @@ class SetupStep:
                     ui.row()
                     .classes("w-full items-center justify-between q-pa-sm q-mt-sm")
                     .style(f"""
-                    background: rgba(251, 191, 36, 0.08);
+                    background: var(--ql-warning-soft);
                     border-radius: 10px;
-                    border: 1px solid rgba(251, 191, 36, 0.2);
+                    border: 1px solid var(--ql-warning-border);
                 """) as torch_row
                 ):
                     with ui.row().classes("items-center gap-2"):
@@ -109,9 +109,9 @@ class SetupStep:
                     ui.row()
                     .classes("w-full items-center justify-between q-pa-sm q-mt-sm")
                     .style(f"""
-                    background: rgba(16, 185, 129, 0.1);
+                    background: var(--ql-info-soft);
                     border-radius: 10px;
-                    border: 1px solid rgba(16, 185, 129, 0.2);
+                    border: 1px solid var(--ql-accent-border);
                 """) as cuda_row
                 ):
                     with ui.row().classes("items-center gap-2"):

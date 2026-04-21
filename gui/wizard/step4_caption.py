@@ -468,16 +468,16 @@ class CaptionStep:
             unknown_entries = [entry for entry in entries if entry["status"] == "unknown"]
             card_style = (
                 """
-                background: rgba(255,255,255,0.02);
+                background: var(--ql-inset-bg);
                 border-radius: var(--radius-md);
-                border: 1px solid var(--color-border);
+                border: 1px solid var(--ql-inset-border);
                 box-shadow: none;
                 """
                 if warning_entries
                 else """
-                background: rgba(255,255,255,0.02);
+                background: var(--ql-inset-bg);
                 border-radius: var(--radius-md);
-                border: 1px solid var(--color-border);
+                border: 1px solid var(--ql-inset-border);
                 box-shadow: none;
                 """
             )
@@ -514,7 +514,8 @@ class CaptionStep:
                     for entry in warning_entries:
                         with ui.column().classes("w-full gap-0 q-mt-sm").style(
                             """
-                            background: rgba(255, 255, 255, 0.55);
+                            background: var(--ql-warning-soft);
+                            border: 1px solid var(--ql-warning-border);
                             border-radius: 8px;
                             padding: 8px 10px;
                             """

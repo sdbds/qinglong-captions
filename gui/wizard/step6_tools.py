@@ -804,7 +804,7 @@ class ToolsStep:
                 with (
                     ui.card()
                     .classes("w-full q-pa-md")
-                    .style("background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);")
+                    .style("background: var(--ql-inset-bg); border: 1px solid var(--ql-inset-border);")
                 ):
                     with ui.row().classes("w-full items-center gap-2 q-mb-sm"):
                         ui.icon("piano", size="18px").style(f"color: {COLORS['secondary']};")
