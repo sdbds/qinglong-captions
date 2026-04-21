@@ -7,7 +7,7 @@ import tomlkit
 from gui.utils.toml_helpers import unwrap as _unwrap, guess_slider_range as _guess_slider_range
 from nicegui import ui
 
-from theme import COLORS
+from gui.theme import COLORS
 from gui.utils.i18n import t, get_i18n
 from gui.utils.env_config import (
     ENV_VAR_DEFINITIONS,

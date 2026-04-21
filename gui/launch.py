@@ -68,7 +68,7 @@ from main import (
     console_page,
     not_found_page,  # 404 页面
 )
-from theme import apply_theme
+from gui.theme import apply_theme
 
 # 设置页面路由 - 所有页面
 ui.page("/")(home_page)

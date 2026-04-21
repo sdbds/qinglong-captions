@@ -3,7 +3,7 @@
 from nicegui import ui
 from pathlib import Path
 from typing import Dict, Any
-from theme import get_classes, COLORS
+from gui.theme import get_classes, COLORS
 from components.path_selector import create_path_selector
 from components.advanced_inputs import toggle_switch, styled_select, styled_input
 from components.execution_panel import ExecutionPanel

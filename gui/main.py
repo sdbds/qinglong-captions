@@ -23,7 +23,7 @@ import asyncio
 import logging
 import toml
 from nicegui import ui, app
-from theme import apply_theme, get_classes, COLORS
+from gui.theme import apply_theme, get_classes, COLORS
 from gui.utils.i18n import t, set_language, get_i18n
 from components.job_list import JobListDrawer, inject_job_list_css
 

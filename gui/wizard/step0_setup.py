@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import platform
 from typing import Optional
-from theme import get_classes, COLORS
+from gui.theme import get_classes, COLORS
 from gui.utils.i18n import t
 from module.gpu_profile import format_gpu_device_lines, format_gpu_summary, get_cached_gpu_probe
 

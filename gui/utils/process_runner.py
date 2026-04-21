@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from rich.console import Console
+import toml
 
 from gui.utils.ansi_to_html import strip_ansi
 from gui.utils.log_buffer import LogBuffer
@@ -100,6 +101,7 @@ _UV_TORCHVISION_EXTRAS = frozenset(
 _UV_TORCH_GROUPS = frozenset({"test"})
 _UV_TORCHVISION_GROUPS = frozenset()
 _SEE_THROUGH_OPENCV_CLEANUP_PACKAGES = OPENCV_DISTRIBUTION_PACKAGES
+_PYPROJECT_PATH = Path(__file__).resolve().parent.parent.parent / "pyproject.toml"
 
 # 序列化 _patch_shared_environment，防止两个并发 Job 同时修改共享 .venv
 _uv_patch_lock: Optional[asyncio.Lock] = None
@@ -111,6 +113,59 @@ def _get_uv_patch_lock() -> asyncio.Lock:
     if _uv_patch_lock is None:
         _uv_patch_lock = asyncio.Lock()
     return _uv_patch_lock
+
+
+def _infer_torch_backend_from_pyproject() -> Optional[str]:
+    """从 pyproject.toml 的 uv sources/index 配置推断 torch backend。"""
+    try:
+        pyproject = toml.load(_PYPROJECT_PATH)
+    except Exception:
+        return None
+
+    tool = pyproject.get("tool")
+    if not isinstance(tool, dict):
+        return None
+
+    uv = tool.get("uv")
+    if not isinstance(uv, dict):
+        return None
+
+    sources = uv.get("sources")
+    if not isinstance(sources, dict):
+        return None
+
+    torch_source = sources.get("torch")
+    index_name = ""
+    if isinstance(torch_source, dict):
+        index_name = str(torch_source.get("index", "") or "").strip()
+    elif isinstance(torch_source, list):
+        for item in torch_source:
+            if isinstance(item, dict) and item.get("index"):
+                index_name = str(item.get("index") or "").strip()
+                if index_name:
+                    break
+
+    if not index_name:
+        return None
+
+    indexes = uv.get("index")
+    if not isinstance(indexes, list):
+        indexes = []
+
+    candidates = [index_name]
+    for item in indexes:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("name", "") or "").strip() != index_name:
+            continue
+        candidates.append(str(item.get("url", "") or "").strip())
+        break
+
+    for candidate in candidates:
+        match = re.search(r"(cpu|cu\d+)", candidate)
+        if match:
+            return match.group(1)
+    return None
 
 
 def _render_exception_text(exc: BaseException, prefix: Optional[str] = None, *, summary_style: str = "red") -> str:
@@ -348,15 +403,7 @@ class ProcessRunner:
         backend = str(env.get("UV_TORCH_BACKEND", "")).strip()
         if backend:
             return backend
-
-        for key in ("UV_EXTRA_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
-            value = str(env.get(key, "")).strip()
-            if not value:
-                continue
-            match = re.search(r"/(cu\d+)(?:/|$)", value)
-            if match:
-                return match.group(1)
-        return None
+        return _infer_torch_backend_from_pyproject()
 
     @staticmethod
     def _inspect_installed_torch_backend(python_path: Optional[str], env: dict) -> Optional[str]:

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from nicegui import ui
 from pathlib import Path
 from typing import Optional, Dict, Any
-from theme import get_classes, COLORS
+from gui.theme import get_classes, COLORS
 from components.path_selector import create_path_selector
 from components.advanced_inputs import editable_slider, toggle_switch, styled_select, styled_input
 from gui.utils.i18n import t

@@ -13,7 +13,7 @@ inspired by Linear + Supabase.
 ## Quick Start
 
 ```python
-from theme import apply_theme, get_classes, COLORS
+from gui.theme import apply_theme, get_classes, COLORS
 
 apply_theme()  # Call once per page in page_base()
 
@@ -95,7 +95,7 @@ window.toggleDarkMode();  // defined in THEME_SCRIPT
 ## Convenience Functions
 
 ```python
-from theme import apply_card, apply_button, apply_input
+from gui.theme import apply_card, apply_button, apply_input
 
 apply_card(element, hover=True)
 apply_button(element, variant='primary')  # primary|secondary|danger|ghost

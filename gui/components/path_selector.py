@@ -3,7 +3,7 @@
 from nicegui import ui
 from pathlib import Path
 from typing import Optional, Callable
-from theme import get_classes, COLORS
+from gui.theme import get_classes, COLORS
 from gui.utils.i18n import t
 
 

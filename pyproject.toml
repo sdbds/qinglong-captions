@@ -348,10 +348,6 @@ allow-direct-references = true
 
 [tool.uv]
 package = false
-extra-index-url = [
-    "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/",
-    "https://download.pytorch.org/whl/cu130",
-]
 conflicts = [
     [
         { extra = "deepseek-ocr" },
@@ -813,8 +809,31 @@ conflicts = [
     ],
 ]
 
+[[tool.uv.index]]
+name = "onnxruntime-cuda13"
+url = "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
 [tool.uv.sources]
 dots_ocr = { path = "third_party/dots.ocr", editable = true }
+onnxruntime-gpu = { index = "onnxruntime-cuda13" }
+torch = [
+    { index = "pytorch-cu130", marker = "sys_platform == 'win32' or (sys_platform == 'linux' and platform_machine == 'x86_64')" },
+    { index = "pytorch-cu130", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+]
+torchvision = [
+    { index = "pytorch-cu130", marker = "sys_platform == 'win32' or (sys_platform == 'linux' and platform_machine == 'x86_64')" },
+    { index = "pytorch-cu130", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+]
+torchaudio = [
+    { index = "pytorch-cu130", marker = "sys_platform == 'win32' or (sys_platform == 'linux' and platform_machine == 'x86_64')" },
+    { index = "pytorch-cu130", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+]
 
 [tool.uv.extra-build-dependencies]
 tensorrt-cu12-libs = ["wheel_stub"]
