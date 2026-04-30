@@ -604,7 +604,7 @@ Version 2.3 updated the GLM4V model for video captions
 
 ### 2.2
 
-Version 2.2 has updated TensorRT for accelerating local ONNX model WDtagger.
+Version 2.2 added TensorRT acceleration for local ONNX models such as WDtagger.
 
 After testing, it takes 30 minutes to mark 10,000 samples with the standard CUDA tag,
 
@@ -614,9 +614,9 @@ However, the first time using it will take a longer time to compile.
 
 If TensorRT fails, it will automatically revert to CUDA without worry.
 
-If it prompts that TensorRT librarys are missing, it may be missing some parts
+Current ONNX dependency profiles install `tensorrt-cu13==10.16.1.11` by default.
 
-Please install version 10.7.x manually from [here](https://developer.nvidia.com/tensorrt/download/10x)
+If Windows still reports missing TensorRT libraries, install TensorRT 10.16.1.11 for CUDA 13.2 manually from [NVIDIA's Windows zip](https://developer.download.nvidia.com/compute/machine-learning/tensorrt/10.16.1/zip/TensorRT-10.16.1.11.Windows.amd64.cuda-13.2.zip?t=eyJscyI6IndlYnNpdGUiLCJsc2QiOiJkZXZlbG9wZXIubnZpZGlhLmNvbS9kb3dubG9hZHMvY29tcHV0ZS9tYWNoaW5lLWxlYXJuaW5nL3RlbnNvcnJ0LyJ9).
 
 ### 2.1
 
@@ -786,9 +786,9 @@ sudo pwsh ./1.install-uv-qinglong.ps1
 use sudo pwsh if you in Linux.
 
 ### TensorRT (Optional)
-windows need to install TensorRT-libs manually from [here](https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/10.9.0/zip/TensorRT-10.9.0.34.Windows.win10.cuda-12.8.zip).
-TensorRT can faster use WD14Tagger (not effect API part)
-Now we use 10.9 version
+ONNX dependency profiles install `tensorrt-cu13==10.16.1.11` by default.
+On Windows, if TensorRT libraries are still missing at runtime, install TensorRT 10.16.1.11 for CUDA 13.0 manually from [NVIDIA's Windows zip](https://developer.download.nvidia.com/compute/machine-learning/tensorrt/10.16.1/zip/TensorRT-10.16.1.11.Windows.amd64.cuda-13.2.zip?t=eyJscyI6IndlYnNpdGUiLCJsc2QiOiJkZXZlbG9wZXIubnZpZGlhLmNvbS9kb3dubG9hZHMvY29tcHV0ZS9tYWNoaW5lLWxlYXJuaW5nL3RlbnNvcnJ0LyJ9).
+TensorRT can accelerate local ONNX tools such as WD14Tagger; API providers are unaffected.
 
 ## Usage
 

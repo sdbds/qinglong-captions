@@ -47,9 +47,18 @@ THEME_SCRIPT = """
 <script>
 (function() {
     var normalizeButtonsQueued = false;
+    var themeRoot = document.documentElement;
+
+    function applyThemeState(isDark) {
+        themeRoot.classList.toggle('dark-mode', isDark);
+        themeRoot.classList.toggle('light-mode', !isDark);
+        if (document.body) {
+            document.body.classList.toggle('dark-mode', isDark);
+        }
+    }
 
     function resolveThemePrimary() {
-        var styles = getComputedStyle(document.body);
+        var styles = getComputedStyle(themeRoot);
         var primary = styles.getPropertyValue('--ql-accent').trim();
         return primary || '#80618a';
     }
@@ -105,7 +114,8 @@ THEME_SCRIPT = """
     window.queueNormalizeCustomButtons = queueNormalizeCustomButtons;
 
     window.toggleDarkMode = function() {
-        var isDark = document.body.classList.toggle('dark-mode');
+        var isDark = !themeRoot.classList.contains('dark-mode');
+        applyThemeState(isDark);
         localStorage.setItem('dark_mode', isDark);
         syncQuasarDark(isDark);
         syncThemeToggleIcons();
@@ -115,8 +125,7 @@ THEME_SCRIPT = """
 
     var saved = localStorage.getItem('dark_mode');
     var isDark = saved === null ? true : saved === 'true';
-    if (isDark) document.body.classList.add('dark-mode');
-    else document.body.classList.remove('dark-mode');
+    applyThemeState(isDark);
     syncQuasarDark(isDark);
     syncThemeToggleIcons();
     queueNormalizeCustomButtons();

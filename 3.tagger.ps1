@@ -253,9 +253,10 @@ if ($TagConfig.tag_replacement) { [void]$ExtArgs.Add("--tag_replacement=$($TagCo
 #endregion
 
 #region Execute Tagger
+$WdtaggerExtra = if ($Config.repo_id -eq "cella110n/cl_tagger_v2") { "wdtagger-cl-tagger-v2" } else { "wdtagger" }
 Write-Output "Starting tagger..."
-Install-UvExtraPatch @("wdtagger")
-if ($env:OS -eq "Windows_NT") {
+Install-UvExtraPatch @($WdtaggerExtra)
+if ($env:OS -eq "Windows_NT" -and $WdtaggerExtra -eq "wdtagger") {
     $PythonExe = Get-ProjectPython
     if (-not $PythonExe) {
         $PythonExe = "python"
@@ -319,9 +320,11 @@ if ($env:OS -eq "Windows_NT") {
     if (-not $OpenCvReady) {
         throw "wdtagger OpenCV setup did not produce a working cv2 import"
     }
+} elseif ($env:OS -eq "Windows_NT") {
+    Write-Output "cl_tagger v2 selected; skipping legacy wdtagger OpenCV override"
 }
 Write-Output "runtime target environment: $(Get-UvEnvName)"
-Write-Output "runtime dependency profile: extra:wdtagger"
+Write-Output "runtime dependency profile: extra:$WdtaggerExtra"
 
 # Run tagger
 python "./utils/wdtagger.py" `

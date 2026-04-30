@@ -9,11 +9,12 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_tensorrt_cu12_libs_declares_wheel_stub_extra_build_dependency():
+def test_tensorrt_cu13_libs_declares_wheel_stub_extra_build_dependency():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     extra_build_deps = pyproject["tool"]["uv"].get("extra-build-dependencies", {})
 
-    assert extra_build_deps["tensorrt-cu12-libs"] == ["wheel_stub"]
+    assert extra_build_deps["tensorrt-cu13-libs"] == ["wheel_stub"]
+    assert "tensorrt-cu12-libs" not in extra_build_deps
 
 
 def test_transformers_declares_setuptools_and_wheel_extra_build_dependencies():

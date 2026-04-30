@@ -40,3 +40,18 @@ def test_load_env_config_preserves_custom_extra_index(tmp_path, monkeypatch):
     loaded = env_config.load_env_config()
 
     assert loaded["UV_EXTRA_INDEX_URL"] == custom_value
+
+
+def test_hf_token_is_available_for_subprocess_env(tmp_path, monkeypatch):
+    config_path = tmp_path / "env_vars.json"
+    config_path.write_text('{"HF_TOKEN": "hf_test_token"}', encoding="utf-8")
+
+    monkeypatch.setattr(env_config, "CONFIG_PATH", Path(config_path))
+    monkeypatch.setattr(env_config, "_detect_system_language", lambda: "en")
+
+    defaults = {item["key"]: item for item in env_config.ENV_VAR_DEFINITIONS}
+    env = env_config.get_env_for_subprocess()
+
+    assert defaults["HF_TOKEN"]["group"] == "runtime"
+    assert defaults["HF_TOKEN"]["default"] == ""
+    assert env["HF_TOKEN"] == "hf_test_token"

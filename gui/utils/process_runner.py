@@ -51,6 +51,7 @@ _UV_TORCH_EXTRAS = frozenset(
     {
         "translate",
         "wdtagger",
+        "wdtagger-cl-tagger-v2",
         "moondream",
         "olmocr",
         "deepseek-ocr",
@@ -80,6 +81,7 @@ _UV_TORCHVISION_EXTRAS = frozenset(
     {
         "translate",
         "wdtagger",
+        "wdtagger-cl-tagger-v2",
         "olmocr",
         "deepseek-ocr",
         "logics-ocr",
@@ -379,6 +381,35 @@ class ProcessRunner:
     @staticmethod
     def _uv_index_strategy(env: dict) -> str:
         return str(env.get("UV_INDEX_STRATEGY", "")).strip() or "unsafe-best-match"
+
+    @staticmethod
+    def _parse_repo_id_arg(args: list[str]) -> Optional[str]:
+        args_iter = iter(args)
+        for arg in args_iter:
+            if arg.startswith("--repo_id="):
+                value = arg.split("=", 1)[1].strip()
+                return value or None
+            if arg == "--repo_id":
+                value = str(next(args_iter, "")).strip()
+                return value or None
+        return None
+
+    @classmethod
+    def _resolve_wdtagger_extra(
+        cls,
+        script_key: str,
+        args: list[str],
+        default_extra: Optional[str],
+        explicit_extra: Optional[str],
+    ) -> Optional[str]:
+        if explicit_extra:
+            return explicit_extra
+        if script_key != "utils.wdtagger":
+            return default_extra
+        repo_id = cls._parse_repo_id_arg(args)
+        if repo_id in {"cella110n/cl_tagger_v2", "celstk/cl-SigLIP2-lora-onnx"}:
+            return "wdtagger-cl-tagger-v2"
+        return default_extra
 
     @staticmethod
     def _resolve_project_python(work_dir: Path, env: dict) -> Optional[str]:
@@ -1026,7 +1057,7 @@ class ProcessRunner:
                 script_path = "./" + script_key.replace(".", "/") + ".py"
                 default_extra = None
 
-            extra_name = uv_extra or default_extra
+            extra_name = self._resolve_wdtagger_extra(script_key, args, default_extra, uv_extra)
             extras, groups = self._collect_uv_profiles(extra_name, uv_extra_args)
             profile_parts = self._profile_parts(extras, groups)
             env_name = self._detect_project_env_name(work_dir, env)

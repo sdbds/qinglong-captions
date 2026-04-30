@@ -53,6 +53,10 @@ def test_paddleocr_conflicts_with_logics_ocr():
     assert _has_extra_conflict("paddleocr", "logics-ocr")
 
 
+def test_paddleocr_conflicts_with_wdtagger_cl_tagger_v2():
+    assert _has_extra_conflict("paddleocr", "wdtagger-cl-tagger-v2")
+
+
 def test_paddleocr_conflicts_with_all_torch_stack_extras():
     torch_extras = [
         name

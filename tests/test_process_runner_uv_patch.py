@@ -610,3 +610,130 @@ def test_see_through_uses_dedicated_uv_extra_by_default(monkeypatch):
     assert result.status.value == "成功"
     assert captured == {"extras": ["see-through"], "groups": []}
     assert commands == [["python", "./module/see_through/cli.py", "--help"]]
+
+
+def test_patch_shared_environment_skips_wdtagger_opencv_override_for_cl_tagger_v2_extra(tmp_path, monkeypatch):
+    _write_project(
+        tmp_path,
+        with_lock=False,
+        optional_deps={"wdtagger-cl-tagger-v2": ["qinglong-captions[onnx-base]", "transformers[serving]>=4.56.0"]},
+    )
+    runner = ProcessRunner()
+    commands: list[list[str]] = []
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+    monkeypatch.setattr(runner, "_resolve_project_python", lambda work_dir, env: "python", raising=False)
+    monkeypatch.setattr("gui.utils.process_runner.sys.platform", "win32")
+    monkeypatch.setattr(
+        "gui.utils.process_runner.build_wdtagger_opencv_install_plan",
+        lambda env=None, platform=None: (_ for _ in ()).throw(AssertionError("legacy wdtagger OpenCV override should be skipped")),
+    )
+
+    result = asyncio.run(
+        runner._patch_shared_environment("uv", tmp_path, {}, "test-env", ["wdtagger-cl-tagger-v2"], []),
+    )
+
+    assert result is None
+    assert len(commands) == 1
+    install_cmd = commands[0]
+    assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
+    assert install_cmd[install_cmd.index("--extra") + 1] == "wdtagger-cl-tagger-v2"
+
+
+def test_wdtagger_keeps_legacy_extra_for_cl_tagger_v1_repo(monkeypatch):
+    runner = ProcessRunner()
+    captured: dict[str, list[str]] = {}
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
+    monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
+
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups):
+        captured["extras"] = list(extras)
+        captured["groups"] = list(groups)
+        return None
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_patch_shared_environment", fake_patch)
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+
+    result = asyncio.run(
+        runner.run_python_script("utils.wdtagger", ["./datasets", "--repo_id=cella110n/cl_tagger"], native_console=False),
+    )
+
+    assert result.status.value == "成功"
+    assert captured == {"extras": ["wdtagger"], "groups": []}
+    assert commands == [["python", "./utils/wdtagger.py", "./datasets", "--repo_id=cella110n/cl_tagger"]]
+
+
+def test_wdtagger_uses_cl_tagger_v2_extra_for_explicit_v2_repo(monkeypatch):
+    runner = ProcessRunner()
+    captured: dict[str, list[str]] = {}
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
+    monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
+
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups):
+        captured["extras"] = list(extras)
+        captured["groups"] = list(groups)
+        return None
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_patch_shared_environment", fake_patch)
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+
+    result = asyncio.run(
+        runner.run_python_script(
+            "utils.wdtagger",
+            ["./datasets", "--repo_id=cella110n/cl_tagger_v2"],
+            native_console=False,
+        ),
+    )
+
+    assert result.status.value == "成功"
+    assert captured == {"extras": ["wdtagger-cl-tagger-v2"], "groups": []}
+    assert commands == [["python", "./utils/wdtagger.py", "./datasets", "--repo_id=cella110n/cl_tagger_v2"]]
+
+
+def test_wdtagger_keeps_legacy_extra_for_other_repos(monkeypatch):
+    runner = ProcessRunner()
+    captured: dict[str, list[str]] = {}
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
+    monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
+
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups):
+        captured["extras"] = list(extras)
+        captured["groups"] = list(groups)
+        return None
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_patch_shared_environment", fake_patch)
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+
+    result = asyncio.run(
+        runner.run_python_script(
+            "utils.wdtagger",
+            ["./datasets", "--repo_id=SmilingWolf/wd-v1-4-moat-tagger-v2"],
+            native_console=False,
+        ),
+    )
+
+    assert result.status.value == "成功"
+    assert captured == {"extras": ["wdtagger"], "groups": []}
+    assert commands == [["python", "./utils/wdtagger.py", "./datasets", "--repo_id=SmilingWolf/wd-v1-4-moat-tagger-v2"]]

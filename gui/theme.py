@@ -142,18 +142,21 @@ def _css_variables() -> str:
 
     --ql-btn-bg:          var(--ql-secondary);
     --ql-btn-text:        #ffffff;
+    --ql-btn-icon:        var(--ql-accent);
     --ql-btn-hover:       var(--ql-secondary-hover);
     --ql-btn-border:      #e4c46f;
     --ql-btn-shadow:      rgba(215, 180, 85, 0.28);
     --ql-toggle-active-bg: var(--ql-secondary);
     --ql-toggle-active-border: var(--ql-btn-border);
-    --ql-toggle-active-text: var(--ql-text-on-accent);
+    --ql-toggle-active-text: #ffffff;
     --ql-nav-bg:          rgba(126, 226, 165, 0.10);
     --ql-nav-hover:       rgba(126, 226, 165, 0.16);
     --ql-nav-border:      rgba(126, 226, 165, 0.24);
     --ql-nav-text:        #c7ead4;
+    --ql-nav-icon:        var(--ql-accent);
     --ql-nav-active-bg:   var(--ql-accent);
     --ql-nav-active-text: #101014;
+    --ql-nav-active-icon: var(--ql-accent);
     --ql-nav-active-border: var(--ql-accent-strong);
     --ql-nav-shadow:      rgba(126, 226, 165, 0.22);
 
@@ -259,6 +262,7 @@ body:not(.dark-mode) {
 
     --ql-btn-bg:          #e4d5c0;
     --ql-btn-text:        #392f2b;
+    --ql-btn-icon:        var(--ql-accent);
     --ql-btn-hover:       #dcc7aa;
     --ql-btn-border:      #c5ae8a;
     --ql-btn-shadow:      rgba(90, 70, 52, 0.14);
@@ -269,8 +273,10 @@ body:not(.dark-mode) {
     --ql-nav-hover:       rgba(128, 97, 138, 0.14);
     --ql-nav-border:      rgba(128, 97, 138, 0.22);
     --ql-nav-text:        #6d5978;
+    --ql-nav-icon:        var(--ql-accent);
     --ql-nav-active-bg:   var(--ql-accent);
     --ql-nav-active-text: #ffffff;
+    --ql-nav-active-icon: var(--ql-accent);
     --ql-nav-active-border: var(--ql-accent-strong);
     --ql-nav-shadow:      rgba(128, 97, 138, 0.18);
 
@@ -419,7 +425,7 @@ def _header_styles() -> str:
 
 .q-btn.ql-nav-btn .q-icon {
     font-size: 18px;
-    color: inherit;
+    color: var(--ql-nav-icon);
 }
 
 /* Active nav */
@@ -434,7 +440,7 @@ def _header_styles() -> str:
 }
 
 .q-btn.ql-nav-btn--active .q-icon {
-    color: var(--ql-nav-active-text);
+    color: var(--ql-nav-active-icon);
 }
 """
 
@@ -510,16 +516,16 @@ def _button_styles() -> str:
     box-shadow: 0 2px 8px var(--ql-btn-shadow) !important;
 }
 
-.ql-btn-primary .q-btn__content, .modern-btn-primary .q-btn__content,
-.modern-btn-success .q-btn__content, .gold-btn .q-btn__content,
-.green-btn .q-btn__content {
+.ql-btn-primary .q-btn__content > span, .modern-btn-primary .q-btn__content > span,
+.modern-btn-success .q-btn__content > span, .gold-btn .q-btn__content > span,
+.green-btn .q-btn__content > span {
     color: var(--ql-btn-text) !important;
 }
 
 .ql-btn-primary .q-icon, .modern-btn-primary .q-icon,
 .modern-btn-success .q-icon, .gold-btn .q-icon,
 .green-btn .q-icon {
-    color: var(--ql-btn-text) !important;
+    color: var(--ql-btn-icon) !important;
 }
 
 /* Secondary */
@@ -1355,9 +1361,8 @@ body {
     --q-color-primary: var(--ql-accent) !important;
 }
 
-/* Theme-aware text/icons inside primary buttons */
-.q-btn.bg-primary .q-btn__content,
-.q-btn.bg-primary .q-icon {
+/* Theme-aware text inside generic primary buttons */
+.q-btn.bg-primary .q-btn__content > span {
     color: var(--ql-btn-text) !important;
 }
 
@@ -1376,12 +1381,8 @@ body {
     color: var(--ql-secondary) !important;
 }
 
-/* Icons — gold by default, theme-aware inside filled buttons */
-.q-icon { color: var(--ql-secondary); }
-.q-field__marginal .q-icon { color: var(--ql-secondary); }
+/* Icons keep their own component/local colors. */
 .q-tab .q-icon { color: inherit; }
-.q-stepper__dot .q-icon { color: var(--ql-secondary); }
-.q-btn.bg-primary .q-icon { color: var(--ql-btn-text) !important; }
 
 /* Slider accent → secondary accent */
 .q-slider__thumb { color: var(--ql-secondary); }
@@ -1432,17 +1433,20 @@ body .q-btn.green-btn:hover {
     box-shadow: 0 2px 8px var(--ql-btn-shadow) !important;
 }
 
-body .q-btn.ql-btn-primary .q-btn__content,
-body .q-btn.modern-btn-primary .q-btn__content,
-body .q-btn.modern-btn-success .q-btn__content,
-body .q-btn.gold-btn .q-btn__content,
-body .q-btn.green-btn .q-btn__content,
+body .q-btn.ql-btn-primary .q-btn__content > span,
+body .q-btn.modern-btn-primary .q-btn__content > span,
+body .q-btn.modern-btn-success .q-btn__content > span,
+body .q-btn.gold-btn .q-btn__content > span,
+body .q-btn.green-btn .q-btn__content > span {
+    color: var(--ql-btn-text) !important;
+}
+
 body .q-btn.ql-btn-primary .q-icon,
 body .q-btn.modern-btn-primary .q-icon,
 body .q-btn.modern-btn-success .q-icon,
 body .q-btn.gold-btn .q-icon,
 body .q-btn.green-btn .q-icon {
-    color: var(--ql-btn-text) !important;
+    color: var(--ql-btn-icon) !important;
 }
 
 /* Final override for custom ghost buttons */
@@ -1489,13 +1493,70 @@ body .q-btn.modern-btn-ghost .q-icon {
 #  Pre-load CSS — prevents flash before main CSS loads
 # ============================================================
 
+_PRELOAD_THEME_INIT = """<script>
+(function() {
+    var saved = localStorage.getItem('dark_mode');
+    var isDark = saved === null ? true : saved === 'true';
+    document.documentElement.classList.toggle('dark-mode', isDark);
+    document.documentElement.classList.toggle('light-mode', !isDark);
+    document.addEventListener('DOMContentLoaded', function() {
+        if (!document.body) return;
+        document.body.classList.toggle('dark-mode', isDark);
+    });
+})();
+</script>"""
+
 _PRELOAD_CSS = """<style>
-html { background: #101014; }
-body { background: #101014; color: #f2f1f8;
-       --q-primary: #7ee2a5 !important; --q-color-primary: #7ee2a5 !important; }
-body:not(.dark-mode) { background: #f7f0e6; color: #392f2b;
-       --q-primary: #80618a !important; --q-color-primary: #80618a !important; }
-body.dark-mode { --q-primary: #7ee2a5 !important; --q-color-primary: #7ee2a5 !important; }
+html {
+    background: #101014;
+    color: #f2f1f8;
+    --ql-accent: #7ee2a5;
+    --ql-secondary: #d7b455;
+    --ql-success: #7ee2a5;
+    --ql-warning: #d7b455;
+    --ql-info: #bf6c83;
+    --ql-text: #f2f1f8;
+    --ql-text-secondary: #c7cad7;
+    --ql-text-muted: #9297a8;
+    --ql-text-dim: rgba(199, 202, 215, 0.72);
+    --ql-text-faint: rgba(199, 202, 215, 0.58);
+    --ql-text-ghost: rgba(199, 202, 215, 0.38);
+    --ql-btn-text: #ffffff;
+    --ql-btn-icon: #7ee2a5;
+    --ql-nav-text: #c7ead4;
+    --ql-nav-icon: #7ee2a5;
+    --ql-nav-active-text: #101014;
+    --ql-nav-active-icon: #7ee2a5;
+    --q-primary: #7ee2a5 !important;
+    --q-color-primary: #7ee2a5 !important;
+}
+html:not(.dark-mode) {
+    background: #f7f0e6;
+    color: #392f2b;
+    --ql-accent: #80618a;
+    --ql-secondary: #b88746;
+    --ql-success: #567860;
+    --ql-warning: #8d602f;
+    --ql-info: #a65466;
+    --ql-text: #392f2b;
+    --ql-text-secondary: #6c5f58;
+    --ql-text-muted: #93857b;
+    --ql-text-dim: rgba(108, 95, 88, 0.72);
+    --ql-text-faint: rgba(108, 95, 88, 0.58);
+    --ql-text-ghost: rgba(108, 95, 88, 0.38);
+    --ql-btn-text: #392f2b;
+    --ql-btn-icon: #80618a;
+    --ql-nav-text: #6d5978;
+    --ql-nav-icon: #80618a;
+    --ql-nav-active-text: #ffffff;
+    --ql-nav-active-icon: #80618a;
+    --q-primary: #80618a !important;
+    --q-color-primary: #80618a !important;
+}
+body {
+    background: inherit;
+    color: inherit;
+}
 .q-tab-panels, .q-tab-panel { background: transparent; transition: none; }
 </style>"""
 
@@ -1513,6 +1574,7 @@ def apply_theme(theme_name: str = "modern", use_green_gold: bool = False):
         use_green_gold: Ignored. Kept for backward compat.
     """
     # Pre-load styles to prevent flash
+    ui.add_head_html(_PRELOAD_THEME_INIT, shared=True)
     ui.add_head_html(_PRELOAD_CSS, shared=True)
 
     # Assemble full CSS

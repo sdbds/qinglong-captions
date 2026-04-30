@@ -1,7 +1,9 @@
 import argparse  # noqa: I001
 import concurrent.futures
 import csv
+import hashlib
 import json
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -32,6 +34,12 @@ from rich.progress import (
 from module.lanceImport import transform2lance
 from module.onnx_runtime import OnnxModelSpec, load_single_model_bundle, resolve_tool_runtime_config
 from utils.console_util import print_exception
+from utils.wdtagger_siglip2 import (
+    Siglip2InferenceContext,
+    is_cl_tagger_v2_repo,
+    load_cl_tagger_v2_bundle,
+    process_siglip2_batch,
+)
 
 console = Console(color_system="truecolor", force_terminal=True)
 
@@ -178,9 +186,30 @@ def load_and_preprocess_batch(uris, is_cl_tagger=False):
     return images
 
 
+def load_siglip2_rgb_batch(uris):
+    """并行加载一批 RGB PIL 图像，并保留成功加载的 URI 对应关系。"""
+
+    def load_single_image(uri):
+        try:
+            with Image.open(uri) as image:
+                return str(uri), image.convert("RGB")
+        except Exception as e:
+            print_exception(console, e, prefix=f"Error processing {uri}")
+            return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+        loaded = list(executor.map(load_single_image, uris))
+
+    valid_pairs = [item for item in loaded if item is not None]
+    return [uri for uri, _ in valid_pairs], [image for _, image in valid_pairs]
+
+
 def process_batch(images, session, input_name):
     """处理图像批次"""
     try:
+        if isinstance(input_name, Siglip2InferenceContext):
+            return process_siglip2_batch(images, session, input_name)
+
         # 图像已经是 numpy 数组，直接堆叠并确保连续
         batch_data = np.ascontiguousarray(np.stack(images))
         # 执行推理
@@ -282,166 +311,167 @@ def get_tags_official(
 
 def load_model_and_tags(args):
     """加载模型和标签"""
-    model_path = (
-        Path(args.model_dir) / args.repo_id.replace("/", "_") / CL_FILES[0]
-        if args.repo_id.startswith("cella110n/cl_tagger")
-        else Path(args.model_dir) / args.repo_id.replace("/", "_") / FILES[0]
-    )
-
-    # 下载模型和标签文件
-    if not model_path.exists() or args.force_download:
-        # 选择正确的文件列表
-        files_to_download = CL_FILES if args.repo_id.startswith("cella110n/cl_tagger") else FILES
-        for file in files_to_download:
-            file_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / file
-            if not file_path.exists() or args.force_download:
-                file_path = Path(
-                    hf_hub_download(
-                        repo_id=args.repo_id,
-                        filename=file,
-                        local_dir=Path(args.model_dir) / args.repo_id.replace("/", "_"),
-                        force_download=args.force_download,
-                    )
-                )
-                console.print(f"[blue]Downloaded {file} to {file_path}[/blue]")
-            else:
-                console.print(f"[green]Using existing {file}[/green]")
-
-    # 加载标签
-    if args.repo_id.startswith("cella110n/cl_tagger"):
-        # 处理JSON格式的标签文件 - 使用官方兼容方式
-        json_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / JSON_FILE
-        if not json_path.exists():
-            raise Exception(f"Tags file not found: {json_path}")
-
-        with json_path.open("r", encoding="utf-8") as f:
-            tag_data = json.load(f)
-
-        # Correctly handle potentially sparse tag indices from JSON.
-        # The following logic creates a sparse list (`names`) that correctly maps
-        # a model's output index to its tag name, even if indices are not contiguous.
-        tag_data_int_keys = {int(k): v for k, v in tag_data.items()}
-        idx_to_tag = {idx: data["tag"] for idx, data in tag_data_int_keys.items()}
-        tag_to_category = {data["tag"]: data["category"] for data in tag_data_int_keys.values()}
-
-        # Create a sparse list for `names` to ensure correct index mapping.
-        max_idx = max(idx_to_tag.keys())
-        names = [None] * (max_idx + 1)
-        for idx, tag in idx_to_tag.items():
-            names[idx] = tag
-
-        # Invert tag_to_category for faster lookups and prepare for categorization
-        category_to_tags = {}
-        for tag, category in tag_to_category.items():
-            if category not in category_to_tags:
-                category_to_tags[category] = []
-            category_to_tags[category].append(tag)
-
-        # Create a reverse map from tag to index for efficient lookup
-        tag_to_idx = {tag: i for i, tag in idx_to_tag.items()}
-
-        # Dynamically create category_indices from the data
-        category_indices = {}
-        for category, tags_in_category in category_to_tags.items():
-            # Use the lowercase version of the category name as the key for consistency
-            category_key = category.lower()
-            indices = [tag_to_idx[tag] for tag in tags_in_category if tag in tag_to_idx]
-            category_indices[category_key] = np.array(indices, dtype=np.int64)
-
-        # Create a mapping from tag index to its category name (lowercase)
-        tag_index_to_category = {
-            idx: category.lower()
-            for category, tags in category_to_tags.items()
-            for tag in tags
-            if (idx := tag_to_idx.get(tag)) is not None
-        }
-
-        # Create LabelData object
-        label_data = LabelData(
-            names=names,
-            category_indices=category_indices,
-            tag_index_to_category=tag_index_to_category,
-        )
-
-        total_tags = len(tag_data)
-    else:
-        # 处理CSV格式的标签文件 - 保持原有实现
-        csv_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / CSV_FILE
-        if not csv_path.exists():
-            raise Exception(f"Tags file not found: {csv_path}")
-
-        with csv_path.open("r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            line = [row for row in reader]
-            header = line[0]  # tag_id,name,category,count
-            rows = line[1:]
-
-        assert header[0] == "tag_id" and header[1] == "name" and header[2] == "category", f"unexpected csv format: {header}"
-
-        # 为CSV格式创建LabelData结构
-        names = []
-        rating_indices, general_indices, character_indices = [], [], []
-
-        for i, row in enumerate(rows):
-            tag_name = row[1]
-            category = row[2]
-            names.append(tag_name)
-
-            if category == "9":  # rating
-                rating_indices.append(i)
-            elif category == "0":  # general
-                general_indices.append(i)
-            elif category == "4":  # character
-                character_indices.append(i)
-
-        # 创建LabelData对象
-        # Create LabelData object for CSV format
-        category_indices = {
-            "rating": np.array(rating_indices, dtype=np.int64),
-            "general": np.array(general_indices, dtype=np.int64),
-            "character": np.array(character_indices, dtype=np.int64),
-            # CSV format doesn't have these, so initialize as empty
-            "copyright": np.array([], dtype=np.int64),
-            "artist": np.array([], dtype=np.int64),
-            "meta": np.array([], dtype=np.int64),
-            "quality": np.array([], dtype=np.int64),
-            "model": np.array([], dtype=np.int64),
-        }
-        tag_index_to_category = {}
-        for cat, indices in category_indices.items():
-            for idx in indices:
-                tag_index_to_category[idx] = cat
-
-        label_data = LabelData(
-            names=names,
-            category_indices=category_indices,
-            tag_index_to_category=tag_index_to_category,
-        )
-
-        total_tags = len(rows)
-
-    # 显示标签加载信息
-    console.print(f"[blue]Tags loaded: {total_tags} total[/blue]")
-    for category, indices in sorted(label_data.category_indices.items()):
-        if len(indices) > 0:
-            console.print(f"[blue]  - {category.capitalize()}: {len(indices)} tags[/blue]")
-
     start_time = time.time()
     runtime_config = resolve_tool_runtime_config(
         _cfg,
         tool_name="wdtagger",
         cli_override={"force_download": args.force_download},
     )
-    spec = OnnxModelSpec(
-        repo_id=args.repo_id,
-        onnx_filename=CL_FILES[0] if args.repo_id.startswith("cella110n/cl_tagger") else FILES[0],
-        local_dir=Path(args.model_dir) / args.repo_id.replace("/", "_"),
-        bundle_key=f"wdtagger:{args.repo_id}",
-    )
-    bundle = load_single_model_bundle(spec=spec, runtime_config=runtime_config, logger=console.print)
-    ort_sess = bundle.session
-    input_name = bundle.input_metas[0].name if bundle.input_metas else ort_sess.get_inputs()[0].name
-    console.print(f"[blue]Providers: {bundle.providers}[/blue]")
+
+    if is_cl_tagger_v2_repo(args.repo_id):
+        bundle = load_cl_tagger_v2_bundle(
+            repo_id=args.repo_id,
+            model_dir=args.model_dir,
+            runtime_config=runtime_config,
+            force_download=args.force_download,
+            logger=console.print,
+        )
+        label_data = LabelData(
+            names=bundle.vocabulary.names,
+            category_indices=bundle.vocabulary.category_indices,
+            tag_index_to_category=bundle.vocabulary.tag_index_to_category,
+        )
+        total_tags = sum(1 for tag in label_data.names if tag)
+        ort_sess = bundle.session
+        input_name = bundle.inference_context
+        console.print(f"[blue]Providers: {bundle.providers}[/blue]")
+    else:
+        model_path = (
+            Path(args.model_dir) / args.repo_id.replace("/", "_") / CL_FILES[0]
+            if args.repo_id.startswith("cella110n/cl_tagger")
+            else Path(args.model_dir) / args.repo_id.replace("/", "_") / FILES[0]
+        )
+
+        # 下载模型和标签文件
+        if not model_path.exists() or args.force_download:
+            files_to_download = CL_FILES if args.repo_id.startswith("cella110n/cl_tagger") else FILES
+            for file in files_to_download:
+                file_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / file
+                if not file_path.exists() or args.force_download:
+                    file_path = Path(
+                        hf_hub_download(
+                            repo_id=args.repo_id,
+                            filename=file,
+                            local_dir=Path(args.model_dir) / args.repo_id.replace("/", "_"),
+                            force_download=args.force_download,
+                        )
+                    )
+                    console.print(f"[blue]Downloaded {file} to {file_path}[/blue]")
+                else:
+                    console.print(f"[green]Using existing {file}[/green]")
+
+        if args.repo_id.startswith("cella110n/cl_tagger"):
+            json_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / JSON_FILE
+            if not json_path.exists():
+                raise Exception(f"Tags file not found: {json_path}")
+
+            with json_path.open("r", encoding="utf-8") as f:
+                tag_data = json.load(f)
+
+            tag_data_int_keys = {int(k): v for k, v in tag_data.items()}
+            idx_to_tag = {idx: data["tag"] for idx, data in tag_data_int_keys.items()}
+            tag_to_category = {data["tag"]: data["category"] for data in tag_data_int_keys.values()}
+
+            max_idx = max(idx_to_tag.keys())
+            names = [None] * (max_idx + 1)
+            for idx, tag in idx_to_tag.items():
+                names[idx] = tag
+
+            category_to_tags = {}
+            for tag, category in tag_to_category.items():
+                if category not in category_to_tags:
+                    category_to_tags[category] = []
+                category_to_tags[category].append(tag)
+
+            tag_to_idx = {tag: i for i, tag in idx_to_tag.items()}
+
+            category_indices = {}
+            for category, tags_in_category in category_to_tags.items():
+                category_key = category.lower()
+                indices = [tag_to_idx[tag] for tag in tags_in_category if tag in tag_to_idx]
+                category_indices[category_key] = np.array(indices, dtype=np.int64)
+
+            tag_index_to_category = {
+                idx: category.lower()
+                for category, tags in category_to_tags.items()
+                for tag in tags
+                if (idx := tag_to_idx.get(tag)) is not None
+            }
+
+            label_data = LabelData(
+                names=names,
+                category_indices=category_indices,
+                tag_index_to_category=tag_index_to_category,
+            )
+
+            total_tags = len(tag_data)
+        else:
+            csv_path = Path(args.model_dir) / args.repo_id.replace("/", "_") / CSV_FILE
+            if not csv_path.exists():
+                raise Exception(f"Tags file not found: {csv_path}")
+
+            with csv_path.open("r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                line = [row for row in reader]
+                header = line[0]
+                rows = line[1:]
+
+            assert header[0] == "tag_id" and header[1] == "name" and header[2] == "category", f"unexpected csv format: {header}"
+
+            names = []
+            rating_indices, general_indices, character_indices = [], [], []
+
+            for i, row in enumerate(rows):
+                tag_name = row[1]
+                category = row[2]
+                names.append(tag_name)
+
+                if category == "9":
+                    rating_indices.append(i)
+                elif category == "0":
+                    general_indices.append(i)
+                elif category == "4":
+                    character_indices.append(i)
+
+            category_indices = {
+                "rating": np.array(rating_indices, dtype=np.int64),
+                "general": np.array(general_indices, dtype=np.int64),
+                "character": np.array(character_indices, dtype=np.int64),
+                "copyright": np.array([], dtype=np.int64),
+                "artist": np.array([], dtype=np.int64),
+                "meta": np.array([], dtype=np.int64),
+                "quality": np.array([], dtype=np.int64),
+                "model": np.array([], dtype=np.int64),
+            }
+            tag_index_to_category = {}
+            for cat, indices in category_indices.items():
+                for idx in indices:
+                    tag_index_to_category[idx] = cat
+
+            label_data = LabelData(
+                names=names,
+                category_indices=category_indices,
+                tag_index_to_category=tag_index_to_category,
+            )
+
+            total_tags = len(rows)
+
+        spec = OnnxModelSpec(
+            repo_id=args.repo_id,
+            onnx_filename=CL_FILES[0] if args.repo_id.startswith("cella110n/cl_tagger") else FILES[0],
+            local_dir=Path(args.model_dir) / args.repo_id.replace("/", "_"),
+            bundle_key=f"wdtagger:{args.repo_id}",
+        )
+        bundle = load_single_model_bundle(spec=spec, runtime_config=runtime_config, logger=console.print)
+        ort_sess = bundle.session
+        input_name = bundle.input_metas[0].name if bundle.input_metas else ort_sess.get_inputs()[0].name
+        console.print(f"[blue]Providers: {bundle.providers}[/blue]")
+
+    # 显示标签加载信息
+    console.print(f"[blue]Tags loaded: {total_tags} total[/blue]")
+    for category, indices in sorted(label_data.category_indices.items()):
+        if len(indices) > 0:
+            console.print(f"[blue]  - {category.capitalize()}: {len(indices)} tags[/blue]")
 
     parent_to_child_map = {}
     if args.remove_parents_tag:
@@ -835,8 +865,13 @@ def main(args):
             uris = batch["uris"].to_pylist()
 
             # 使用并行处理加载和预处理图像
-            is_cl_tagger = args.repo_id.startswith("cella110n/cl_tagger")
-            batch_images = load_and_preprocess_batch(uris, is_cl_tagger)
+            is_siglip2_tagger = is_cl_tagger_v2_repo(args.repo_id)
+            if is_siglip2_tagger:
+                valid_uris, batch_images = load_siglip2_rgb_batch(uris)
+            else:
+                is_cl_tagger = args.repo_id.startswith("cella110n/cl_tagger")
+                batch_images = load_and_preprocess_batch(uris, is_cl_tagger)
+                valid_uris = uris
 
             if not batch_images:
                 progress.update(task, advance=len(uris))
@@ -847,7 +882,7 @@ def main(args):
             general_confidence = args.general_threshold or args.thresh
             character_confidence = args.character_threshold or args.thresh
             if probs is not None:
-                for path, prob in zip(uris, probs):
+                for path, prob in zip(valid_uris, probs):
                     tags_result = get_tags_official(
                         prob,
                         label_data,
@@ -1107,6 +1142,51 @@ class TagClassifier:
                                 tag_categories[tag_key] = category_id
             except Exception as e:
                 print_exception(console, e, prefix=f"Error merging tags from {tags_json_path}")
+
+        # Merge category hints from data/sankaku_tags_raw.json when available
+        sankaku_raw_path = Path(__file__).resolve().parents[1] / "data" / "sankaku_tags_raw.json"
+        if sankaku_raw_path.exists():
+            try:
+                with open(sankaku_raw_path, "r", encoding="utf-8") as f:
+                    sankaku_data = json.load(f)
+                sankaku_type_map = {
+                    0: "0",
+                    1: "1",
+                    2: "2",
+                    3: "3",
+                    4: "4",
+                    5: "5",
+                    8: "8",
+                    9: "9",
+                    10: "10",
+                    11: "11",
+                    12: "12",
+                    13: "13",
+                    14: "14",
+                    15: "15",
+                    16: "16",
+                    17: "17",
+                    18: "18",
+                    19: "19",
+                    20: "20",
+                    21: "21",
+                    22: "22",
+                }
+                for entry in sankaku_data:
+                    if not isinstance(entry, dict):
+                        continue
+                    tag_name = entry.get("name") or entry.get("name_en") or entry.get("tagName")
+                    tag_type = entry.get("type")
+                    if not tag_name or tag_type is None:
+                        continue
+                    category_id = sankaku_type_map.get(tag_type)
+                    if not category_id:
+                        continue
+                    tag_key = str(tag_name).replace("_", " ").lower()
+                    if tag_key and tag_key not in tag_categories:
+                        tag_categories[tag_key] = category_id
+            except Exception as e:
+                print_exception(console, e, prefix=f"Error merging tags from {sankaku_raw_path}")
 
         return tag_categories
 

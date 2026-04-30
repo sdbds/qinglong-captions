@@ -49,6 +49,7 @@ onnx-base = [
     "qinglong-captions[torch-base]",
     "onnxruntime-gpu>=1.24.4; sys_platform == 'win32'",
     "onnxruntime-gpu>=1.20.2; sys_platform == 'linux'",
+    "tensorrt-cu13==10.16.1.11",
 ]
 video-split = [
     "numpy<2",
@@ -92,8 +93,10 @@ wdtagger = [
     "opencv-contrib-python; sys_platform == 'linux'",
     "qinglong-captions[onnx-base]",
 ]
-wdtagger-tensorrt = [
-    "tensorrt==10.9.0.34",
+wdtagger-cl-tagger-v2 = [
+    "pillow>=11.3",
+    "qinglong-captions[onnx-base]",
+    "transformers[serving]>=4.56.0",
 ]
 moondream = [
     "qinglong-captions[torch-base]",
@@ -354,8 +357,20 @@ conflicts = [
         { extra = "translate" },
     ],
     [
-        { extra = "translate" },
-        { extra = "wdtagger" },
+        { extra = "paddleocr" },
+        { extra = "wdtagger-cl-tagger-v2" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "see-through" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "gemma4-local" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "cohere-transcribe-local" },
     ],
     [
         { extra = "deepseek-ocr" },
@@ -836,7 +851,7 @@ torchaudio = [
 ]
 
 [tool.uv.extra-build-dependencies]
-tensorrt-cu12-libs = ["wheel_stub"]
+tensorrt-cu13-libs = ["wheel_stub"]
 transformers = ["setuptools", "wheel"]
 pysrt = ["setuptools", "wheel"]
 bitmath = ["setuptools", "wheel"]

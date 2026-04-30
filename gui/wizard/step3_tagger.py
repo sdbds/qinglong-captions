@@ -13,8 +13,10 @@ from gui.utils.i18n import t
 class TaggerStep:
     """数据集打标页面"""
 
+    DEFAULT_MODEL = "cella110n/cl_tagger_v2"
     DEFAULT_MODELS = [
         "cella110n/cl_tagger",
+        "cella110n/cl_tagger_v2",
         "SmilingWolf/wd-eva02-large-tagger-v3",
         "SmilingWolf/wd-vit-large-tagger-v3",
         "SmilingWolf/wd-vit-tagger-v3",
@@ -64,7 +66,7 @@ class TaggerStep:
                         # 模型仓库 - 带图标的现代化下拉框
                         self.repo_id = styled_select(
                             options=dict(zip(self.DEFAULT_MODELS, self.DEFAULT_MODELS)),
-                            value="cella110n/cl_tagger",
+                            value=self.DEFAULT_MODEL,
                             label=t("model_repo"),
                             icon="model_training",
                             icon_color=COLORS["primary"],

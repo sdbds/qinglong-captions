@@ -15,17 +15,27 @@ def test_onnx_base_depends_on_torch_base():
 
     assert "qinglong-captions[torch-base]" in onnx_base_deps
     assert any(dep.startswith("onnxruntime-gpu") for dep in onnx_base_deps)
+    assert "tensorrt-cu13==10.16.1.11" in onnx_base_deps
+    assert not any(dep.startswith("tensorrt==") for dep in onnx_base_deps)
+    assert not any(dep.startswith("tensorrt-cu13-libs==") for dep in onnx_base_deps)
+
+
+def test_tensorrt_is_not_a_separate_wdtagger_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "wdtagger-tensorrt" not in optional_deps
 
 
 def test_uv_extra_indexes_cover_windows_onnx_cuda13_and_torch_cu130():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    extra_indexes = pyproject["tool"]["uv"]["extra-index-url"]
+    extra_index_urls = {index["url"] for index in pyproject["tool"]["uv"]["index"]}
 
     assert (
         "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/"
-        in extra_indexes
+        in extra_index_urls
     )
-    assert "https://download.pytorch.org/whl/cu130" in extra_indexes
+    assert "https://download.pytorch.org/whl/cu130" in extra_index_urls
 
 
 def test_vocal_midi_depends_on_onnx_base():

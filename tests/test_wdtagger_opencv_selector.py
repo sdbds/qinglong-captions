@@ -95,6 +95,16 @@ def test_pyproject_declares_default_windows_opencv_contrib_for_wdtagger():
     assert not any(dep.startswith("transformers") for dep in optional_deps)
 
 
+def test_pyproject_declares_isolated_cl_tagger_v2_extra_without_opencv():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    optional_deps = pyproject["project"]["optional-dependencies"]["wdtagger-cl-tagger-v2"]
+
+    assert "qinglong-captions[onnx-base]" in optional_deps
+    assert any(dep.startswith("transformers[serving]>=4.56.0") for dep in optional_deps)
+    assert not any("opencv" in dep for dep in optional_deps)
+
+
 def test_opencv_distribution_cleanup_list_covers_conflicting_cv2_wheels():
     assert "opencv-python" in OPENCV_DISTRIBUTION_PACKAGES
     assert "opencv-contrib-python" in OPENCV_DISTRIBUTION_PACKAGES
@@ -186,7 +196,11 @@ def test_probe_cv2_runtime_reports_import_error(monkeypatch):
 def test_tagger_powershell_wrapper_installs_selected_wdtagger_opencv():
     content = (ROOT / "3.tagger.ps1").read_text(encoding="utf-8")
 
-    assert 'Install-UvExtraPatch @("wdtagger")' in content
+    assert '$WdtaggerExtra = if ($Config.repo_id -eq "cella110n/cl_tagger_v2") { "wdtagger-cl-tagger-v2" } else { "wdtagger" }' in content
+    assert 'Install-UvExtraPatch @($WdtaggerExtra)' in content
+    assert 'if ($env:OS -eq "Windows_NT" -and $WdtaggerExtra -eq "wdtagger")' in content
+    assert 'Write-Output "runtime dependency profile: extra:$WdtaggerExtra"' in content
+    assert "cl_tagger v2 selected; skipping legacy wdtagger OpenCV override" in content
     assert "resolve_wdtagger_windows_opencv_requirement" not in content
     assert "function Get-WdtaggerOpenCvRequirement" not in content
     assert "function Install-WdtaggerOpenCvOverride" not in content

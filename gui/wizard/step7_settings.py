@@ -914,7 +914,11 @@ class SettingsDialog:
                     value=current_val,
                     placeholder=t("env_empty_hint"),
                 )
-                .props("dense outlined")
+                .props(
+                    "dense outlined type=password autocomplete=off"
+                    if env_key == "HF_TOKEN"
+                    else "dense outlined"
+                )
                 .classes("flex-1")
             )
             inp.on_value_change(
