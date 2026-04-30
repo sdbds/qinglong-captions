@@ -1,9 +1,7 @@
 import argparse  # noqa: I001
 import concurrent.futures
 import csv
-import hashlib
 import json
-import os
 import re
 import time
 from dataclasses import dataclass
@@ -1142,51 +1140,6 @@ class TagClassifier:
                                 tag_categories[tag_key] = category_id
             except Exception as e:
                 print_exception(console, e, prefix=f"Error merging tags from {tags_json_path}")
-
-        # Merge category hints from data/sankaku_tags_raw.json when available
-        sankaku_raw_path = Path(__file__).resolve().parents[1] / "data" / "sankaku_tags_raw.json"
-        if sankaku_raw_path.exists():
-            try:
-                with open(sankaku_raw_path, "r", encoding="utf-8") as f:
-                    sankaku_data = json.load(f)
-                sankaku_type_map = {
-                    0: "0",
-                    1: "1",
-                    2: "2",
-                    3: "3",
-                    4: "4",
-                    5: "5",
-                    8: "8",
-                    9: "9",
-                    10: "10",
-                    11: "11",
-                    12: "12",
-                    13: "13",
-                    14: "14",
-                    15: "15",
-                    16: "16",
-                    17: "17",
-                    18: "18",
-                    19: "19",
-                    20: "20",
-                    21: "21",
-                    22: "22",
-                }
-                for entry in sankaku_data:
-                    if not isinstance(entry, dict):
-                        continue
-                    tag_name = entry.get("name") or entry.get("name_en") or entry.get("tagName")
-                    tag_type = entry.get("type")
-                    if not tag_name or tag_type is None:
-                        continue
-                    category_id = sankaku_type_map.get(tag_type)
-                    if not category_id:
-                        continue
-                    tag_key = str(tag_name).replace("_", " ").lower()
-                    if tag_key and tag_key not in tag_categories:
-                        tag_categories[tag_key] = category_id
-            except Exception as e:
-                print_exception(console, e, prefix=f"Error merging tags from {sankaku_raw_path}")
 
         return tag_categories
 
