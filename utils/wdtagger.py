@@ -13,7 +13,6 @@ import cv2
 import lance
 import numpy as np
 import pyarrow as pa
-import toml
 from huggingface_hub import hf_hub_download
 from PIL import Image
 from rich.console import Console
@@ -32,6 +31,7 @@ from rich.progress import (
 from module.lanceImport import transform2lance
 from module.onnx_runtime import OnnxModelSpec, load_single_model_bundle, resolve_tool_runtime_config
 from utils.console_util import print_exception
+from utils.tag_highlighting import get_tag_classifier
 from utils.wdtagger_siglip2 import (
     Siglip2InferenceContext,
     is_cl_tagger_v2_repo,
@@ -919,7 +919,7 @@ def main(args):
             progress.update(task, advance=len(batch["uris"].to_pylist()))
 
     console.print("\n[yellow]Tag frequencies:[/yellow]")
-    tag_classifier = TagClassifier()
+    tag_classifier = get_tag_classifier()
     # Sort tags by frequency for printing
     sorted_tags = sorted(tag_freq.items(), key=lambda item: item[1], reverse=True)
 
@@ -1008,7 +1008,7 @@ def format_description(text: str, tag_description: str = "") -> str:
     # 高亮()内的内容
     text = re.sub(r"\(([^)]+)\)", r"[dark_magenta]\1[/dark_magenta]", text)
 
-    tagClassifier = TagClassifier()
+    tag_classifier = get_tag_classifier()
     matched_tags = set()
     tags = []
 
@@ -1021,7 +1021,7 @@ def format_description(text: str, tag_description: str = "") -> str:
 
             def _replace(match: re.Match) -> str:
                 matched_tags.add(match.group(0).lower())
-                return tagClassifier.get_colored_tag(match.group(0))
+                return tag_classifier.get_colored_tag(match.group(0))
 
             text = re.sub(pattern, _replace, text, flags=re.IGNORECASE)
 
@@ -1041,174 +1041,6 @@ def format_description(text: str, tag_description: str = "") -> str:
     highlight_rate = f"[{style}]{rate:.2f}%[/{style}]"
 
     return text, highlight_rate
-
-
-class TagClassifier:
-    """
-    标签分类器，用于根据标签类别对标签进行分类，使用config.toml中定义的数字ID
-    """
-
-    def __init__(self):
-        """
-        初始化标签分类器
-        """
-        # 加载标签类型ID映射
-        self.tag_type = self._load_tag_type()
-
-        # 加载标签到类别的映射
-        csv_path = Path("wd14_tagger_model") / "selected_tags_classified.csv"
-        if not csv_path.exists():
-            hf_hub_download(
-                repo_id="deepghs/sankaku_tags_categorize_for_WD14Tagger",
-                filename="selected_tags_classified.csv",
-                local_dir="wd14_tagger_model",
-                force_download=True,
-                force_filename="selected_tags_classified.csv",
-                repo_type="dataset",
-            )
-
-        self.tag_categories = self._load_tag_categories(csv_path)
-
-    def _load_tag_type(self):
-        """
-        从config.toml加载标签类型ID映射
-
-        Returns:
-            dict: 类别名称到数字ID的映射
-        """
-        # 使用硬编码的配置文件路径
-        config_path = Path("config/config.toml")
-        config = toml.load(config_path)
-        # 新格式中，tag_type包含一个fields数组
-        tag_type_fields = config["tag_type"]["fields"]
-        # 创建一个字典，将ID映射到字段信息
-        tag_type_dict = {}
-        for field in tag_type_fields:
-            tag_type_dict[str(field["id"])] = field
-        return tag_type_dict
-
-    def _load_tag_categories(self, csv_path):
-        """
-        加载标签到类别的映射
-
-        Returns:
-            dict: 标签到类别的映射字典
-        """
-        with open(csv_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            tag_categories = {row["name"].replace("_", " ").lower(): row["category"] for row in reader}
-
-        # Merge category hints from datasets/tags.json when available
-        tags_json_path = Path(__file__).resolve().parents[1] / "datasets" / "tags.json"
-        if tags_json_path.exists():
-            try:
-                data = json.loads(tags_json_path.read_text(encoding="utf-8"))
-                category_map = {
-                    "general": "0",
-                    "artist": "1",
-                    "studio": "2",
-                    "copyright": "3",
-                    "franchise": "3",
-                    "character": "4",
-                    "genre": "5",
-                    "medium": "8",
-                    "meta": "9",
-                    "fashion": "10",
-                    "anatomy": "11",
-                    "pose": "12",
-                    "activity": "13",
-                    "role": "14",
-                    "flora": "15",
-                    "fauna": "16",
-                    "entity": "17",
-                    "object": "18",
-                    "substance": "19",
-                    "setting": "20",
-                    "language": "21",
-                    "automatic": "22",
-                }
-                for entry in data.values():
-                    if not isinstance(entry, dict):
-                        continue
-                    for category_name, tags in entry.items():
-                        category_id = category_map.get(category_name)
-                        if not category_id or not isinstance(tags, list):
-                            continue
-                        for tag in tags:
-                            tag_key = str(tag).lower()
-                            if tag_key and tag_key not in tag_categories:
-                                tag_categories[tag_key] = category_id
-            except Exception as e:
-                print_exception(console, e, prefix=f"Error merging tags from {tags_json_path}")
-
-        return tag_categories
-
-    def classify(self, tags):
-        """
-        对标签列表进行分类，使用config.toml中定义的数字ID作为类别键
-
-        Args:
-            tags (list): 需要分类的标签列表
-
-        Returns:
-            dict: 按类别ID分组的标签字典，键为类别ID，值为带颜色格式的标签列表
-        """
-        colored_tags = {}
-        for tag in tags:
-            # 获取标签的类别名称，默认为'general'
-            category_id = self.tag_categories.get(tag.lower(), "0")
-            # 获取该类别的完整信息（包括颜色）
-            category_info = self.tag_type.get(category_id)
-
-            # 如果类别不存在，使用general（通用）类别
-            if not category_info:
-                color = "orange3"
-            else:
-                color = category_info["color"]
-
-            # 使用rich格式添加颜色
-            colored_tag = f"[{color}]{tag}[/{color}]"
-
-            if category_id not in colored_tags:
-                colored_tags[category_id] = []
-            colored_tags[category_id].append(colored_tag)
-
-        return colored_tags
-
-    def get_colored_tag(self, tag):
-        """
-        对单个标签进行分类，返回带颜色格式的标签
-
-        Args:
-            tag (str): 需要分类的标签
-
-        Returns:
-            str: 带颜色格式的标签
-        """
-        # 获取标签的类别名称，默认为'0'(general)
-        addtion = ""
-        if tag.endswith(","):
-            tag = tag[:-1]
-            addtion = ","
-        elif tag.endswith("."):
-            tag = tag[:-1]
-            addtion = "."
-
-        category_id = self.tag_categories.get(tag.lower(), "0")
-        # 获取该类别的完整信息（包括颜色）
-        category_info = self.tag_type.get(category_id)
-
-        # 如果类别不存在，使用orange3颜色
-        if not category_info:
-            color = "orange3"
-        else:
-            color = category_info["color"]
-
-        # 使用rich格式添加颜色
-        colored_tag = f"[{color}]{tag}[/{color}]{addtion}"
-
-        return colored_tag
-
 
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
