@@ -1,12 +1,14 @@
 """步骤 3: 数据集打标 - 对应 tagger.ps1"""
 
-from nicegui import ui
 from pathlib import Path
-from typing import Dict, Any
-from gui.theme import get_classes, COLORS
-from components.path_selector import create_path_selector
-from components.advanced_inputs import editable_slider, toggle_switch, styled_select, styled_input
+from typing import Any, Dict
+
+from components.advanced_inputs import editable_slider, styled_input, styled_select, toggle_switch
 from components.execution_panel import ExecutionPanel
+from components.path_selector import create_path_selector
+from nicegui import ui
+
+from gui.theme import COLORS, get_classes
 from gui.utils.i18n import t
 
 
@@ -14,6 +16,8 @@ class TaggerStep:
     """数据集打标页面"""
 
     DEFAULT_MODEL = "cella110n/cl_tagger_v2"
+    DEFAULT_CL_TAGGER_V2_VERSION = "v1_02"
+    DEFAULT_CL_TAGGER_V2_THRESHOLD = 0.9
     DEFAULT_MODELS = [
         "cella110n/cl_tagger",
         "cella110n/cl_tagger_v2",
@@ -26,9 +30,10 @@ class TaggerStep:
     def __init__(self):
         self.config: Dict[str, Any] = {
             "batch_size": 12,
-            "thresh": 0.6,
-            "general_threshold": 0.55,
-            "character_threshold": 1.0,
+            "cl_tagger_v2_version": self.DEFAULT_CL_TAGGER_V2_VERSION,
+            "thresh": self.DEFAULT_CL_TAGGER_V2_THRESHOLD,
+            "general_threshold": self.DEFAULT_CL_TAGGER_V2_THRESHOLD,
+            "character_threshold": self.DEFAULT_CL_TAGGER_V2_THRESHOLD,
             "remove_underscore": True,
             "frequency_tags": False,
             "use_rating_tags": True,
@@ -69,6 +74,19 @@ class TaggerStep:
                             value=self.DEFAULT_MODEL,
                             label=t("model_repo"),
                             icon="model_training",
+                            icon_color=COLORS["primary"],
+                            new_value_mode="add-unique",
+                        )
+
+                        self.cl_tagger_v2_version = styled_select(
+                            options={
+                                "v1_02": "v1.02",
+                                "v1_01": "v1.01",
+                                "v1_00": "v1.00",
+                            },
+                            value=self.config["cl_tagger_v2_version"],
+                            label=t("cl_tagger_v2_version"),
+                            icon="history",
                             icon_color=COLORS["primary"],
                             new_value_mode="add-unique",
                         )
@@ -134,7 +152,9 @@ class TaggerStep:
 
                         # 功能开关 - 使用按钮式开关
                         with ui.card().classes(get_classes("card") + " w-full q-pa-md q-mt-md"):
-                            ui.label(t("feature_toggles")).classes("text-subtitle1 text-weight-bold").style("color: var(--color-text);")
+                            ui.label(t("feature_toggles")).classes("text-subtitle1 text-weight-bold").style(
+                                "color: var(--color-text);"
+                            )
 
                             with ui.grid(columns=3).classes("w-full gap-4 q-mt-sm"):
                                 toggle_switch("remove_underscore", self.config, "remove_underscore")
@@ -179,6 +199,7 @@ class TaggerStep:
             return
 
         repo_id = self.repo_id.value
+        cl_tagger_v2_version = self.cl_tagger_v2_version.value or self.DEFAULT_CL_TAGGER_V2_VERSION
         model_dir = self.model_dir.value or "wd14_tagger_model"
         batch_size = int(self.config["batch_size"])
         thresh = self.config["thresh"]
@@ -188,6 +209,8 @@ class TaggerStep:
         # 构建参数
         args = [train_data_dir]
         args.append(f"--repo_id={repo_id}")
+        if repo_id in {"cella110n/cl_tagger_v2", "celstk/cl-SigLIP2-lora-onnx"}:
+            args.append(f"--cl_tagger_v2_version={cl_tagger_v2_version}")
         args.append(f"--model_dir={model_dir}")
         args.append(f"--batch_size={batch_size}")
         args.append(f"--thresh={thresh}")

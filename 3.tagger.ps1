@@ -6,12 +6,13 @@
 # Model settings
 $Config = @{
     train_data_dir     = "./datasets"                                # Input images path | 图片输入路径
-    repo_id            = "cella110n/cl_tagger"      # Model repo ID from Hugging Face
+    repo_id            = "cella110n/cl_tagger_v2"                    # Model repo ID from Hugging Face
+    cl_tagger_v2_version = "v1_02"                                    # cl_tagger v2 model version
     model_dir          = "wd14_tagger_model"                         # Local model folder path | 本地模型文件夹路径
     batch_size         = 12                                          # Batch size for inference
-    thresh             = 0.6                                         # Concept threshold
-    general_threshold  = 0.55                                         # General threshold
-    character_threshold = 1.0                                       # Character threshold
+    thresh             = 0.9                                         # Concept threshold
+    general_threshold  = 0.9                                         # General threshold
+    character_threshold = 0.9                                       # Character threshold
 }
 
 # Feature flags
@@ -224,8 +225,13 @@ function Test-WdtaggerOpenCvImport {
     }
 }
 
+$ClTaggerV2Repos = @("cella110n/cl_tagger_v2", "celstk/cl-SigLIP2-lora-onnx")
+
 # Add configuration arguments
 if ($Config.repo_id) { [void]$ExtArgs.Add("--repo_id=$($Config.repo_id)") }
+if ($Config.cl_tagger_v2_version -and $Config.repo_id -in $ClTaggerV2Repos) {
+    [void]$ExtArgs.Add("--cl_tagger_v2_version=$($Config.cl_tagger_v2_version)")
+}
 if ($Config.model_dir) { [void]$ExtArgs.Add("--model_dir=$($Config.model_dir)") }
 if ($Config.batch_size) { [void]$ExtArgs.Add("--batch_size=$($Config.batch_size)") }
 if ($Config.general_threshold) { [void]$ExtArgs.Add("--general_threshold=$($Config.general_threshold)") }
@@ -253,7 +259,7 @@ if ($TagConfig.tag_replacement) { [void]$ExtArgs.Add("--tag_replacement=$($TagCo
 #endregion
 
 #region Execute Tagger
-$WdtaggerExtra = if ($Config.repo_id -eq "cella110n/cl_tagger_v2") { "wdtagger-cl-tagger-v2" } else { "wdtagger" }
+$WdtaggerExtra = if ($Config.repo_id -in $ClTaggerV2Repos) { "wdtagger-cl-tagger-v2" } else { "wdtagger" }
 Write-Output "Starting tagger..."
 Install-UvExtraPatch @($WdtaggerExtra)
 if ($env:OS -eq "Windows_NT" -and $WdtaggerExtra -eq "wdtagger") {

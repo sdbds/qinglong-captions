@@ -98,11 +98,12 @@ def test_wdtagger_load_model_and_tags_uses_siglip2_bundle_for_explicit_cl_tagger
     fake_session = SimpleNamespace()
     fake_context = wdtagger.Siglip2InferenceContext(processor="processor")
 
-    def fake_siglip2_bundle(*, repo_id, model_dir, runtime_config, force_download, logger=None):
+    def fake_siglip2_bundle(*, repo_id, model_dir, runtime_config, version, force_download, logger=None):
         captured["bundle"] = {
             "repo_id": repo_id,
             "model_dir": model_dir,
             "runtime_config": runtime_config,
+            "version": version,
             "force_download": force_download,
             "logger": logger,
         }
@@ -149,4 +150,40 @@ def test_wdtagger_load_model_and_tags_uses_siglip2_bundle_for_explicit_cl_tagger
     assert label_data.category_indices["quality"].tolist() == [0]
     assert parent_to_child_map == {}
     assert captured["bundle"]["repo_id"] == "cella110n/cl_tagger_v2"
+    assert captured["bundle"]["version"] == "v1_02"
     assert callable(captured["bundle"]["logger"])
+
+
+def test_wdtagger_finalize_args_infers_cl_tagger_v2_threshold(monkeypatch, tmp_path):
+    sys.modules.pop("utils.wdtagger", None)
+
+    fake_torch = types.ModuleType("torch")
+    fake_cv2 = types.ModuleType("cv2")
+    fake_lance = types.ModuleType("lance")
+    fake_ort = types.ModuleType("onnxruntime")
+    fake_hf = types.ModuleType("huggingface_hub")
+    fake_lance_import = types.ModuleType("module.lanceImport")
+
+    fake_hf.hf_hub_download = lambda **kwargs: str(tmp_path / kwargs["filename"])
+    fake_lance_import.transform2lance = lambda *args, **kwargs: None
+
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
+    monkeypatch.setitem(sys.modules, "lance", fake_lance)
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+    monkeypatch.setitem(sys.modules, "module.lanceImport", fake_lance_import)
+
+    wdtagger = importlib.import_module("utils.wdtagger")
+    parser = wdtagger.setup_parser()
+
+    siglip2_args = wdtagger.finalize_args(
+        parser.parse_args(["./datasets", "--repo_id=cella110n/cl_tagger_v2", "--cl_tagger_v2_version=1.02"])
+    )
+    assert siglip2_args.cl_tagger_v2_version == "v1_02"
+    assert siglip2_args.thresh == 0.9
+    assert siglip2_args.general_threshold == 0.9
+    assert siglip2_args.character_threshold == 0.9
+
+    legacy_args = wdtagger.finalize_args(parser.parse_args(["./datasets"]))
+    assert legacy_args.thresh == 0.35

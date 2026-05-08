@@ -33,9 +33,12 @@ from module.onnx_runtime import OnnxModelSpec, load_single_model_bundle, resolve
 from utils.console_util import print_exception
 from utils.tag_highlighting import get_tag_classifier
 from utils.wdtagger_siglip2 import (
+    CL_TAGGER_V2_DEFAULT_VERSION,
     Siglip2InferenceContext,
+    default_cl_tagger_v2_threshold,
     is_cl_tagger_v2_repo,
     load_cl_tagger_v2_bundle,
+    normalize_cl_tagger_v2_version,
     process_siglip2_batch,
 )
 
@@ -321,6 +324,7 @@ def load_model_and_tags(args):
             repo_id=args.repo_id,
             model_dir=args.model_dir,
             runtime_config=runtime_config,
+            version=getattr(args, "cl_tagger_v2_version", CL_TAGGER_V2_DEFAULT_VERSION),
             force_download=args.force_download,
             logger=console.print,
         )
@@ -1067,6 +1071,12 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Force downloading WD14 tagger model",
     )
     parser.add_argument(
+        "--cl_tagger_v2_version",
+        type=str,
+        default=CL_TAGGER_V2_DEFAULT_VERSION,
+        help="cl_tagger v2 model version to download, e.g. v1_02 or 1.02",
+    )
+    parser.add_argument(
         "--batch_size",
         type=int,
         default=4,
@@ -1081,8 +1091,8 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--thresh",
         type=float,
-        default=0.35,
-        help="Default threshold for tag confidence",
+        default=None,
+        help="Default threshold for tag confidence; cl_tagger v2 defaults to the selected version recommendation",
     )
     parser.add_argument(
         "--general_threshold",
@@ -1191,14 +1201,23 @@ def setup_parser() -> argparse.ArgumentParser:
     return parser
 
 
-if __name__ == "__main__":
-    parser = setup_parser()
+def finalize_args(args: argparse.Namespace) -> argparse.Namespace:
+    args.cl_tagger_v2_version = normalize_cl_tagger_v2_version(args.cl_tagger_v2_version)
 
-    args = parser.parse_args()
+    if args.thresh is None:
+        args.thresh = default_cl_tagger_v2_threshold(args.cl_tagger_v2_version) if is_cl_tagger_v2_repo(args.repo_id) else 0.35
 
     if args.general_threshold is None:
         args.general_threshold = args.thresh
     if args.character_threshold is None:
         args.character_threshold = args.thresh
+
+    return args
+
+
+if __name__ == "__main__":
+    parser = setup_parser()
+
+    args = finalize_args(parser.parse_args())
 
     main(args)

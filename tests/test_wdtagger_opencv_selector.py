@@ -196,7 +196,9 @@ def test_probe_cv2_runtime_reports_import_error(monkeypatch):
 def test_tagger_powershell_wrapper_installs_selected_wdtagger_opencv():
     content = (ROOT / "3.tagger.ps1").read_text(encoding="utf-8")
 
-    assert '$WdtaggerExtra = if ($Config.repo_id -eq "cella110n/cl_tagger_v2") { "wdtagger-cl-tagger-v2" } else { "wdtagger" }' in content
+    assert '$ClTaggerV2Repos = @("cella110n/cl_tagger_v2", "celstk/cl-SigLIP2-lora-onnx")' in content
+    assert "$Config.repo_id -in $ClTaggerV2Repos" in content
+    assert '$WdtaggerExtra = if ($Config.repo_id -in $ClTaggerV2Repos) { "wdtagger-cl-tagger-v2" } else { "wdtagger" }' in content
     assert 'Install-UvExtraPatch @($WdtaggerExtra)' in content
     assert 'if ($env:OS -eq "Windows_NT" -and $WdtaggerExtra -eq "wdtagger")' in content
     assert 'Write-Output "runtime dependency profile: extra:$WdtaggerExtra"' in content

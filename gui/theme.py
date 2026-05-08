@@ -3,7 +3,7 @@ Qinglong Captions GUI — Unified Theme System
 Light palette from the first reference image; dark palette from the second.
 
 Single CSS Custom Properties system — no duplicate themes, no !important abuse.
-Light/dark mode switching via CSS variables on body.dark-mode class.
+Light/dark mode switching via CSS variables with html/body dark-mode sync.
 """
 
 from nicegui import ui
@@ -94,79 +94,79 @@ def _css_variables() -> str:
     return """
 /* ===== CSS Custom Properties ===== */
 :root {
-    /* Dark theme — graphite base + mint highlight + gold auxiliary */
-    --ql-bg:              #101014;
-    --ql-surface:         #17171d;
-    --ql-surface-raised:  #1f2028;
-    --ql-surface-strong:  #0c0d10;
-    --ql-overlay:         #262732;
-    --ql-inset-bg:        rgba(255, 255, 255, 0.04);
-    --ql-inset-border:    rgba(255, 255, 255, 0.08);
-    --ql-console-bg:      #0c0d10;
-    --ql-console-text:    #ebeaf3;
-    --ql-console-border:  rgba(126, 226, 165, 0.16);
+    /* Dark theme — slate ink base + mint highlight + gold auxiliary */
+    --ql-bg:              #171b22;
+    --ql-surface:         #212934;
+    --ql-surface-raised:  #2a3440;
+    --ql-surface-strong:  #141b24;
+    --ql-overlay:         #313b48;
+    --ql-inset-bg:        rgba(255, 255, 255, 0.055);
+    --ql-inset-border:    rgba(255, 255, 255, 0.11);
+    --ql-console-bg:      #10161e;
+    --ql-console-text:    #eef2f6;
+    --ql-console-border:  rgba(114, 216, 158, 0.18);
 
-    --ql-accent:          #7ee2a5;
-    --ql-accent-strong:   #5ec887;
-    --ql-accent-hover:    #9aefbc;
-    --ql-accent-muted:    rgba(126, 226, 165, 0.14);
-    --ql-accent-border:   rgba(126, 226, 165, 0.24);
-    --ql-accent-soft:     rgba(126, 226, 165, 0.10);
-    --ql-secondary:       #d7b455;
-    --ql-secondary-hover: #e4c46f;
-    --ql-secondary-muted: rgba(215, 180, 85, 0.18);
-    --ql-secondary-border: rgba(215, 180, 85, 0.26);
+    --ql-accent:          #72d89e;
+    --ql-accent-strong:   #58bf84;
+    --ql-accent-hover:    #8ce4b1;
+    --ql-accent-muted:    rgba(114, 216, 158, 0.16);
+    --ql-accent-border:   rgba(114, 216, 158, 0.28);
+    --ql-accent-soft:     rgba(114, 216, 158, 0.14);
+    --ql-secondary:       #d8b85e;
+    --ql-secondary-hover: #e5c874;
+    --ql-secondary-muted: rgba(216, 184, 94, 0.18);
+    --ql-secondary-border: rgba(216, 184, 94, 0.28);
 
-    --ql-text:            #f2f1f8;
-    --ql-text-secondary:  #c7cad7;
-    --ql-text-muted:      #9297a8;
-    --ql-text-dim:        rgba(199, 202, 215, 0.72);
-    --ql-text-faint:      rgba(199, 202, 215, 0.58);
-    --ql-text-ghost:      rgba(199, 202, 215, 0.38);
-    --ql-text-on-accent:  #101014;
+    --ql-text:            #f3f5f8;
+    --ql-text-secondary:  #c3cad6;
+    --ql-text-muted:      #8e98a9;
+    --ql-text-dim:        rgba(195, 202, 214, 0.74);
+    --ql-text-faint:      rgba(195, 202, 214, 0.58);
+    --ql-text-ghost:      rgba(195, 202, 214, 0.38);
+    --ql-text-on-accent:  #141920;
 
-    --ql-border:          #383b48;
-    --ql-border-hover:    #4d5161;
+    --ql-border:          #465262;
+    --ql-border-hover:    #5b6a7d;
 
-    --ql-success:         #7ee2a5;
-    --ql-success-soft:    rgba(126, 226, 165, 0.12);
-    --ql-success-border:  rgba(126, 226, 165, 0.22);
-    --ql-warning:         #d7b455;
-    --ql-warning-soft:    rgba(215, 180, 85, 0.14);
-    --ql-warning-border:  rgba(215, 180, 85, 0.24);
+    --ql-success:         #72d89e;
+    --ql-success-soft:    rgba(114, 216, 158, 0.12);
+    --ql-success-border:  rgba(114, 216, 158, 0.22);
+    --ql-warning:         #d8b85e;
+    --ql-warning-soft:    rgba(216, 184, 94, 0.14);
+    --ql-warning-border:  rgba(216, 184, 94, 0.24);
     --ql-error:           #c76388;
     --ql-error-hover:     #b45579;
     --ql-error-soft:      rgba(199, 99, 136, 0.14);
-    --ql-info:            #bf6c83;
-    --ql-info-soft:       rgba(191, 108, 131, 0.14);
+    --ql-info:            #c06a80;
+    --ql-info-soft:       rgba(192, 106, 128, 0.14);
 
     --ql-btn-bg:          var(--ql-secondary);
     --ql-btn-text:        #ffffff;
     --ql-btn-icon:        var(--ql-accent);
     --ql-btn-hover:       var(--ql-secondary-hover);
-    --ql-btn-border:      #e4c46f;
-    --ql-btn-shadow:      rgba(215, 180, 85, 0.28);
+    --ql-btn-border:      #e5c874;
+    --ql-btn-shadow:      rgba(216, 184, 94, 0.24);
     --ql-toggle-active-bg: var(--ql-secondary);
     --ql-toggle-active-border: var(--ql-btn-border);
     --ql-toggle-active-text: #ffffff;
-    --ql-nav-bg:          rgba(126, 226, 165, 0.10);
-    --ql-nav-hover:       rgba(126, 226, 165, 0.16);
-    --ql-nav-border:      rgba(126, 226, 165, 0.24);
-    --ql-nav-text:        #c7ead4;
+    --ql-nav-bg:          rgba(114, 216, 158, 0.06);
+    --ql-nav-hover:       rgba(114, 216, 158, 0.12);
+    --ql-nav-border:      rgba(114, 216, 158, 0.16);
+    --ql-nav-text:        #d7e4dc;
     --ql-nav-icon:        var(--ql-accent);
-    --ql-nav-active-bg:   var(--ql-accent);
-    --ql-nav-active-text: #101014;
-    --ql-nav-active-icon: var(--ql-accent);
-    --ql-nav-active-border: var(--ql-accent-strong);
-    --ql-nav-shadow:      rgba(126, 226, 165, 0.22);
+    --ql-nav-active-bg:   rgba(114, 216, 158, 0.20);
+    --ql-nav-active-text: #b7f0ce;
+    --ql-nav-active-icon: #9ce8bb;
+    --ql-nav-active-border: rgba(114, 216, 158, 0.36);
+    --ql-nav-shadow:      rgba(12, 17, 24, 0.18);
 
-    --ql-card-bg:         var(--ql-surface);
+    --ql-card-bg:         var(--ql-surface-raised);
     --ql-card-border:     var(--ql-border);
-    --ql-card-shadow:     0 10px 24px rgba(0, 0, 0, 0.22);
+    --ql-card-shadow:     0 16px 38px rgba(4, 9, 14, 0.24);
 
-    --ql-input-bg:        #121318;
+    --ql-input-bg:        #19212b;
     --ql-input-border:    var(--ql-border);
-    --ql-input-focus:     rgba(126, 226, 165, 0.22);
+    --ql-input-focus:     rgba(114, 216, 158, 0.24);
 
     --q-primary: var(--ql-accent);
     --q-color-primary: var(--ql-accent);
@@ -352,17 +352,71 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+body.dark-mode {
+    background:
+        radial-gradient(circle at top right, rgba(114, 216, 158, 0.06), transparent 18%),
+        radial-gradient(circle at bottom left, rgba(216, 184, 94, 0.05), transparent 20%),
+        linear-gradient(180deg, #090d12 0%, #0d1218 42%, #111821 100%);
+    background-attachment: fixed;
+}
+
 #app, #q-app {
     background: transparent;
 }
 
 /* ===== Page Container ===== */
 .ql-page {
-    width: 100%;
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 24px;
+    width: min(1240px, calc(100% - 104px));
+    max-width: 1240px;
+    margin: 28px auto 40px;
+    padding: 32px;
+    position: relative;
+    border-radius: 30px;
     box-sizing: border-box;
+    overflow: clip;
+}
+
+body:not(.dark-mode) .ql-page {
+    border: 1px solid rgba(210, 192, 170, 0.92);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.24) 14%, rgba(255, 255, 255, 0.10) 100%),
+        rgba(255, 250, 244, 0.96);
+    box-shadow:
+        0 24px 64px rgba(58, 47, 43, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+body.dark-mode .ql-page {
+    border: 1px solid rgba(86, 103, 125, 0.95);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.065) 0%, rgba(255, 255, 255, 0.024) 14%, rgba(255, 255, 255, 0.010) 100%),
+        rgba(31, 40, 52, 0.98);
+    box-shadow:
+        0 36px 96px rgba(2, 5, 9, 0.54),
+        inset 0 1px 0 rgba(255, 255, 255, 0.065);
+    backdrop-filter: blur(12px);
+}
+
+body:not(.dark-mode) .ql-page::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at top center, rgba(128, 97, 138, 0.05), transparent 34%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.24), transparent 24%);
+}
+
+body.dark-mode .ql-page::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at top center, rgba(114, 216, 158, 0.07), transparent 34%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 22%);
 }
 
 /* ===== Scrollbar ===== */
@@ -459,6 +513,16 @@ def _card_styles() -> str:
 
 .ql-card:hover, .modern-card:hover, .section-card:hover {
     border-color: var(--ql-border-hover);
+}
+
+body.dark-mode .ql-card,
+body.dark-mode .modern-card,
+body.dark-mode .section-card,
+body.dark-mode .q-card {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.028) 0%, rgba(255, 255, 255, 0.012) 100%),
+        var(--ql-card-bg);
+    box-shadow: var(--ql-card-shadow);
 }
 
 .ql-card--hover { cursor: pointer; }
@@ -618,6 +682,13 @@ def _input_styles() -> str:
     transition: border-color 0.15s, box-shadow 0.15s;
 }
 
+body.dark-mode .q-field__control {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.018) 0%, rgba(255, 255, 255, 0) 100%),
+        var(--ql-input-bg);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
 .q-field__control:hover {
     border-color: var(--ql-border-hover);
 }
@@ -724,6 +795,51 @@ def _tab_styles() -> str:
 .q-tab__content { display: flex; align-items: center; gap: 6px; }
 .q-tab__icon { font-size: 18px; margin: 0; }
 .q-tab__label { font-size: 13px; font-weight: 500; }
+
+.q-tabs {
+    padding: 6px;
+    border-radius: 16px;
+}
+
+.q-tab {
+    padding: 0 18px;
+}
+
+body:not(.dark-mode) .q-tabs {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.18) 100%),
+        var(--ql-surface-raised);
+    border: 1px solid var(--ql-border);
+    box-shadow: 0 10px 24px rgba(58, 47, 43, 0.06);
+}
+
+body:not(.dark-mode) .q-tab--active {
+    border: 1px solid var(--ql-accent-border);
+}
+
+body:not(.dark-mode) .q-tab__indicator {
+    opacity: 0;
+}
+
+body.dark-mode .q-tabs {
+    padding: 6px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.024) 0%, rgba(255, 255, 255, 0.01) 100%),
+        var(--ql-surface-strong);
+    border: 1px solid var(--ql-border);
+    border-radius: 16px;
+    box-shadow: 0 10px 24px rgba(7, 12, 18, 0.18);
+}
+
+body.dark-mode .q-tab--active {
+    color: #b7f0ce;
+    background: linear-gradient(180deg, rgba(114, 216, 158, 0.18), rgba(114, 216, 158, 0.10));
+    border: 1px solid var(--ql-accent-border);
+}
+
+body.dark-mode .q-tab__indicator {
+    opacity: 0;
+}
 
 /* Tab panels — transparent, no flash */
 .q-tab-panels,
@@ -1047,6 +1163,16 @@ button[class*="slider-value"]:hover {
     font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 }
 
+body.dark-mode .log-container,
+body.dark-mode .log-output,
+body.dark-mode .modern-log {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0) 100%),
+        var(--ql-console-bg);
+    border-color: var(--ql-console-border);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
 .title-glow {
     text-shadow: 0 0 20px var(--ql-accent-border);
 }
@@ -1059,6 +1185,10 @@ button[class*="slider-value"]:hover {
     border-radius: 10px;
     padding: 8px;
     border: 1px solid var(--ql-border);
+}
+
+body.dark-mode .q-stepper__header {
+    background: var(--ql-surface-raised);
 }
 
 .q-stepper__tab {
@@ -1116,6 +1246,12 @@ button[class*="slider-value"]:hover {
     border-radius: 10px;
     margin-bottom: 8px;
     overflow: hidden;
+}
+
+body.dark-mode .q-expansion-item {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.022) 0%, rgba(255, 255, 255, 0.008) 100%),
+        var(--ql-surface-raised);
 }
 
 .q-expansion-item__container { border-radius: 10px; }
@@ -1337,7 +1473,12 @@ def _responsive_styles() -> str:
 
 @media (max-width: 768px) {
     .ql-header > .row { flex-wrap: wrap; }
-    .ql-page { padding: 12px; }
+    .ql-page {
+        width: calc(100% - 16px);
+        margin: 8px auto 20px;
+        padding: 16px;
+        border-radius: 18px;
+    }
 }
 """
 
@@ -1508,33 +1649,78 @@ _PRELOAD_THEME_INIT = """<script>
 
 _PRELOAD_CSS = """<style>
 html {
-    background: #101014;
-    color: #f2f1f8;
-    --ql-accent: #7ee2a5;
-    --ql-secondary: #d7b455;
-    --ql-success: #7ee2a5;
-    --ql-warning: #d7b455;
-    --ql-info: #bf6c83;
-    --ql-text: #f2f1f8;
-    --ql-text-secondary: #c7cad7;
-    --ql-text-muted: #9297a8;
-    --ql-text-dim: rgba(199, 202, 215, 0.72);
-    --ql-text-faint: rgba(199, 202, 215, 0.58);
-    --ql-text-ghost: rgba(199, 202, 215, 0.38);
+    background: #171b22;
+    color: #f3f5f8;
+    --ql-bg: #171b22;
+    --ql-surface: #212934;
+    --ql-surface-raised: #2a3440;
+    --ql-surface-strong: #141b24;
+    --ql-overlay: #313b48;
+    --ql-border: #465262;
+    --ql-border-hover: #5b6a7d;
+    --ql-inset-bg: rgba(255, 255, 255, 0.055);
+    --ql-inset-border: rgba(255, 255, 255, 0.11);
+    --ql-console-bg: #10161e;
+    --ql-console-text: #eef2f6;
+    --ql-console-border: rgba(114, 216, 158, 0.18);
+    --ql-accent: #72d89e;
+    --ql-accent-strong: #58bf84;
+    --ql-accent-hover: #8ce4b1;
+    --ql-accent-muted: rgba(114, 216, 158, 0.16);
+    --ql-accent-border: rgba(114, 216, 158, 0.28);
+    --ql-accent-soft: rgba(114, 216, 158, 0.14);
+    --ql-secondary: #d8b85e;
+    --ql-secondary-hover: #e5c874;
+    --ql-secondary-muted: rgba(216, 184, 94, 0.18);
+    --ql-secondary-border: rgba(216, 184, 94, 0.28);
+    --ql-success: #72d89e;
+    --ql-warning: #d8b85e;
+    --ql-info: #c06a80;
+    --ql-text: #f3f5f8;
+    --ql-text-secondary: #c3cad6;
+    --ql-text-muted: #8e98a9;
+    --ql-text-dim: rgba(195, 202, 214, 0.74);
+    --ql-text-faint: rgba(195, 202, 214, 0.58);
+    --ql-text-ghost: rgba(195, 202, 214, 0.38);
     --ql-btn-text: #ffffff;
-    --ql-btn-icon: #7ee2a5;
-    --ql-nav-text: #c7ead4;
-    --ql-nav-icon: #7ee2a5;
-    --ql-nav-active-text: #101014;
-    --ql-nav-active-icon: #7ee2a5;
-    --q-primary: #7ee2a5 !important;
-    --q-color-primary: #7ee2a5 !important;
+    --ql-btn-icon: #72d89e;
+    --ql-btn-bg: #d8b85e;
+    --ql-btn-hover: #e5c874;
+    --ql-btn-border: #e5c874;
+    --ql-nav-bg: rgba(114, 216, 158, 0.06);
+    --ql-nav-hover: rgba(114, 216, 158, 0.12);
+    --ql-nav-border: rgba(114, 216, 158, 0.16);
+    --ql-nav-text: #d7e4dc;
+    --ql-nav-icon: #72d89e;
+    --ql-nav-active-bg: rgba(114, 216, 158, 0.20);
+    --ql-nav-active-text: #b7f0ce;
+    --ql-nav-active-icon: #9ce8bb;
+    --ql-nav-active-border: rgba(114, 216, 158, 0.36);
+    --ql-card-bg: #2a3440;
+    --ql-card-border: #465262;
+    --q-primary: #72d89e !important;
+    --q-color-primary: #72d89e !important;
 }
 html:not(.dark-mode) {
     background: #f7f0e6;
     color: #392f2b;
+    --ql-bg: #f7f0e6;
+    --ql-surface: #fffaf4;
+    --ql-surface-raised: #f2e8dc;
+    --ql-surface-strong: #eadfce;
+    --ql-overlay: #fffdf8;
+    --ql-border: #c6b49e;
+    --ql-border-hover: #b09d86;
     --ql-accent: #80618a;
+    --ql-accent-strong: #6d5978;
+    --ql-accent-hover: #9578a0;
+    --ql-accent-muted: rgba(128, 97, 138, 0.12);
+    --ql-accent-border: rgba(128, 97, 138, 0.22);
+    --ql-accent-soft: rgba(128, 97, 138, 0.08);
     --ql-secondary: #b88746;
+    --ql-secondary-hover: #c99955;
+    --ql-secondary-muted: rgba(184, 135, 70, 0.16);
+    --ql-secondary-border: rgba(184, 135, 70, 0.24);
     --ql-success: #567860;
     --ql-warning: #8d602f;
     --ql-info: #a65466;
@@ -1544,18 +1730,74 @@ html:not(.dark-mode) {
     --ql-text-dim: rgba(108, 95, 88, 0.72);
     --ql-text-faint: rgba(108, 95, 88, 0.58);
     --ql-text-ghost: rgba(108, 95, 88, 0.38);
+    --ql-console-bg: #f3ece3;
+    --ql-console-text: #392f2b;
+    --ql-console-border: rgba(128, 97, 138, 0.16);
     --ql-btn-text: #392f2b;
     --ql-btn-icon: #80618a;
+    --ql-btn-bg: #e4d5c0;
+    --ql-btn-hover: #dcc7aa;
+    --ql-btn-border: #c5ae8a;
+    --ql-nav-bg: rgba(128, 97, 138, 0.08);
+    --ql-nav-hover: rgba(128, 97, 138, 0.14);
+    --ql-nav-border: rgba(128, 97, 138, 0.22);
     --ql-nav-text: #6d5978;
     --ql-nav-icon: #80618a;
+    --ql-nav-active-bg: #80618a;
     --ql-nav-active-text: #ffffff;
     --ql-nav-active-icon: #80618a;
+    --ql-nav-active-border: #6d5978;
+    --ql-card-bg: #fffaf4;
+    --ql-card-border: #d2c0aa;
     --q-primary: #80618a !important;
     --q-color-primary: #80618a !important;
 }
 body {
     background: inherit;
     color: inherit;
+}
+.ql-page {
+    width: min(1240px, calc(100% - 104px));
+    max-width: 1240px;
+    margin: 28px auto 40px;
+    padding: 32px;
+    position: relative;
+    border-radius: 30px;
+    box-sizing: border-box;
+    overflow: clip;
+}
+html:not(.dark-mode) .ql-page,
+body:not(.dark-mode) .ql-page {
+    border: 1px solid rgba(210, 192, 170, 0.92);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.24) 14%, rgba(255, 255, 255, 0.10) 100%),
+        rgba(255, 250, 244, 0.96);
+    box-shadow:
+        0 24px 64px rgba(58, 47, 43, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+html.dark-mode,
+body.dark-mode {
+    background:
+        radial-gradient(circle at top right, rgba(114, 216, 158, 0.06), transparent 18%),
+        radial-gradient(circle at bottom left, rgba(216, 184, 94, 0.05), transparent 20%),
+        linear-gradient(180deg, #090d12 0%, #0d1218 42%, #111821 100%);
+}
+.dark-mode .ql-page {
+    width: min(1240px, calc(100% - 104px));
+    max-width: 1240px;
+    margin: 28px auto 40px;
+    padding: 32px;
+    position: relative;
+    border-radius: 30px;
+    border: 1px solid rgba(86, 103, 125, 0.95);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.065) 0%, rgba(255, 255, 255, 0.024) 14%, rgba(255, 255, 255, 0.010) 100%),
+        rgba(31, 40, 52, 0.98);
+    box-shadow:
+        0 36px 96px rgba(2, 5, 9, 0.54),
+        inset 0 1px 0 rgba(255, 255, 255, 0.065);
+    backdrop-filter: blur(12px);
 }
 .q-tab-panels, .q-tab-panel { background: transparent; transition: none; }
 </style>"""

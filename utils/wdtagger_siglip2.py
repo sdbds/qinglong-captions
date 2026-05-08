@@ -13,7 +13,10 @@ from module.onnx_runtime import load_session_bundle
 CL_TAGGER_V2_OPTION = "cella110n/cl_tagger_v2"
 CL_TAGGER_V2_BACKEND_REPO = "celstk/cl-SigLIP2-lora-onnx"
 CL_TAGGER_V2_PROCESSOR_REPO = "google/siglip2-so400m-patch16-naflex"
-CL_TAGGER_V2_DEFAULT_VERSION = "v1_01"
+CL_TAGGER_V2_VERSIONS = ("v1_00", "v1_01", "v1_02")
+CL_TAGGER_V2_DEFAULT_VERSION = "v1_02"
+CL_TAGGER_V2_LEGACY_DEFAULT_THRESHOLD = 0.6
+CL_TAGGER_V2_DEFAULT_THRESHOLD = 0.9
 CL_TAGGER_V2_DEFAULT_MAX_NUM_PATCHES = 256
 CL_TAGGER_V2_OUTPUT_NAME = "logits"
 _KNOWN_CATEGORY_KEYS = (
@@ -54,6 +57,7 @@ class Siglip2OnnxBundle:
     metadata_path: Path | None
     processor_repo: str
     resolved_repo_id: str
+    version: str
     cache_dir: Path
 
 
@@ -76,6 +80,33 @@ def resolve_cl_tagger_v2_backend_repo(repo_id: str) -> str:
 
 def resolve_cl_tagger_v2_cache_dir(model_dir: str | Path, repo_id: str) -> Path:
     return Path(model_dir) / str(repo_id).replace("/", "_")
+
+
+def normalize_cl_tagger_v2_version(version: str | None) -> str:
+    value = str(version or CL_TAGGER_V2_DEFAULT_VERSION).strip()
+    if not value:
+        return CL_TAGGER_V2_DEFAULT_VERSION
+
+    normalized = value.lower()
+    if normalized.startswith("v"):
+        normalized = normalized[1:]
+    normalized = normalized.replace("_", ".")
+    parts = normalized.split(".")
+    if len(parts) == 2 and all(part.isdigit() for part in parts):
+        return f"v{int(parts[0])}_{int(parts[1]):02d}"
+    return value
+
+
+def default_cl_tagger_v2_threshold(version: str | None = None) -> float:
+    normalized = normalize_cl_tagger_v2_version(version)
+    raw = normalized.lower()
+    if raw.startswith("v"):
+        raw = raw[1:]
+    raw = raw.replace("_", ".")
+    parts = raw.split(".")
+    if len(parts) == 2 and all(part.isdigit() for part in parts):
+        return CL_TAGGER_V2_DEFAULT_THRESHOLD if (int(parts[0]), int(parts[1])) >= (1, 2) else CL_TAGGER_V2_LEGACY_DEFAULT_THRESHOLD
+    return CL_TAGGER_V2_DEFAULT_THRESHOLD
 
 
 def load_cl_tagger_v2_vocabulary(vocab_path: str | Path) -> Siglip2Vocabulary:
@@ -174,6 +205,7 @@ def download_cl_tagger_v2_artifacts(
     snapshot_downloader: Callable[..., str] | None = None,
 ) -> tuple[str, Path, Path, Path, Path | None]:
     resolved_repo_id = resolve_cl_tagger_v2_backend_repo(repo_id)
+    version = normalize_cl_tagger_v2_version(version)
     local_cache_dir = resolve_cl_tagger_v2_cache_dir(model_dir, repo_id)
     snapshot_downloader = snapshot_downloader or _default_snapshot_download
     token = str(os.environ.get("HF_TOKEN", "")).strip() or None
@@ -226,6 +258,7 @@ def load_cl_tagger_v2_bundle(
     repo_id: str,
     model_dir: str | Path,
     runtime_config: Any,
+    version: str = CL_TAGGER_V2_DEFAULT_VERSION,
     force_download: bool = False,
     logger: Callable[..., Any] | None = None,
     snapshot_downloader: Callable[..., str] | None = None,
@@ -235,10 +268,12 @@ def load_cl_tagger_v2_bundle(
     resolved_repo_id, cache_dir, model_path, vocab_path, metadata_path = download_cl_tagger_v2_artifacts(
         repo_id=repo_id,
         model_dir=model_dir,
+        version=version,
         force_download=force_download,
         logger=logger,
         snapshot_downloader=snapshot_downloader,
     )
+    version = normalize_cl_tagger_v2_version(version)
     processor_repo, is_naflex = load_cl_tagger_v2_metadata(metadata_path)
     token = str(os.environ.get("HF_TOKEN", "")).strip() or None
     processor = _load_siglip2_processor(
@@ -263,6 +298,7 @@ def load_cl_tagger_v2_bundle(
         metadata_path=metadata_path,
         processor_repo=processor_repo,
         resolved_repo_id=resolved_repo_id,
+        version=version,
         cache_dir=cache_dir,
     )
 
