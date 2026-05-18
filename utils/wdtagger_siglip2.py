@@ -13,10 +13,14 @@ from module.onnx_runtime import load_session_bundle
 CL_TAGGER_V2_OPTION = "cella110n/cl_tagger_v2"
 CL_TAGGER_V2_BACKEND_REPO = "celstk/cl-SigLIP2-lora-onnx"
 CL_TAGGER_V2_PROCESSOR_REPO = "google/siglip2-so400m-patch16-naflex"
-CL_TAGGER_V2_VERSIONS = ("v1_00", "v1_01", "v1_02")
-CL_TAGGER_V2_DEFAULT_VERSION = "v1_02"
-CL_TAGGER_V2_LEGACY_DEFAULT_THRESHOLD = 0.6
-CL_TAGGER_V2_DEFAULT_THRESHOLD = 0.9
+CL_TAGGER_V2_VERSIONS = ("v1_00", "v1_01", "v1_02", "v1_03", "v1_04")
+CL_TAGGER_V2_DEFAULT_VERSION = "v1_04"
+CL_TAGGER_V2_FALLBACK_THRESHOLD = 0.5
+CL_TAGGER_V2_THRESHOLD_OVERRIDES = {
+    "v1_00": 0.6,
+    "v1_01": 0.6,
+    "v1_02": 0.9,
+}
 CL_TAGGER_V2_DEFAULT_MAX_NUM_PATCHES = 256
 CL_TAGGER_V2_OUTPUT_NAME = "logits"
 _KNOWN_CATEGORY_KEYS = (
@@ -99,22 +103,30 @@ def normalize_cl_tagger_v2_version(version: str | None) -> str:
 
 def default_cl_tagger_v2_threshold(version: str | None = None) -> float:
     normalized = normalize_cl_tagger_v2_version(version)
-    raw = normalized.lower()
-    if raw.startswith("v"):
-        raw = raw[1:]
-    raw = raw.replace("_", ".")
-    parts = raw.split(".")
-    if len(parts) == 2 and all(part.isdigit() for part in parts):
-        return CL_TAGGER_V2_DEFAULT_THRESHOLD if (int(parts[0]), int(parts[1])) >= (1, 2) else CL_TAGGER_V2_LEGACY_DEFAULT_THRESHOLD
-    return CL_TAGGER_V2_DEFAULT_THRESHOLD
+    return CL_TAGGER_V2_THRESHOLD_OVERRIDES.get(normalized, CL_TAGGER_V2_FALLBACK_THRESHOLD)
+
+
+def _vocab_get(vocab: dict[str, Any], key: str) -> dict[str, Any]:
+    if key in vocab and isinstance(vocab[key], dict):
+        return vocab[key]
+
+    suffix = f"/{key}"
+    for vocab_key, value in vocab.items():
+        if isinstance(vocab_key, str) and vocab_key.endswith(suffix) and isinstance(value, dict):
+            return value
+    return {}
 
 
 def load_cl_tagger_v2_vocabulary(vocab_path: str | Path) -> Siglip2Vocabulary:
     with Path(vocab_path).open("r", encoding="utf-8") as handle:
         vocab = json.load(handle)
 
-    idx_to_tag = {int(key): value for key, value in vocab["idx_to_tag"].items()}
-    tag_to_category = {str(tag): str(category).strip().lower() for tag, category in vocab.get("tag_to_category", {}).items()}
+    raw_idx_to_tag = _vocab_get(vocab, "idx_to_tag")
+    if not raw_idx_to_tag:
+        raise ValueError(f"'idx_to_tag' not found in {vocab_path}")
+
+    idx_to_tag = {int(key): value for key, value in raw_idx_to_tag.items()}
+    tag_to_category = {str(tag): str(category).strip().lower() for tag, category in _vocab_get(vocab, "tag_to_category").items()}
 
     max_idx = max(idx_to_tag) if idx_to_tag else -1
     names: list[Optional[str]] = [None] * (max_idx + 1)

@@ -7,12 +7,12 @@
 $Config = @{
     train_data_dir     = "./datasets"                                # Input images path | 图片输入路径
     repo_id            = "cella110n/cl_tagger_v2"                    # Model repo ID from Hugging Face
-    cl_tagger_v2_version = "v1_02"                                    # cl_tagger v2 model version
+    cl_tagger_v2_version = "v1_04"                                    # cl_tagger v2 model version
     model_dir          = "wd14_tagger_model"                         # Local model folder path | 本地模型文件夹路径
     batch_size         = 12                                          # Batch size for inference
-    thresh             = 0.9                                         # Concept threshold
-    general_threshold  = 0.9                                         # General threshold
-    character_threshold = 0.9                                       # Character threshold
+    thresh             = 0.5                                         # Concept threshold
+    general_threshold  = 0.5                                         # General threshold
+    character_threshold = 0.5                                       # Character threshold
 }
 
 # Feature flags
