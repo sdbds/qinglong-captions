@@ -289,6 +289,14 @@ gemma4-local = [
     "librosa",
     "triton-windows; sys_platform == 'win32'",
 ]
+marlin-2b-local = [
+    "qinglong-captions[torch-base]",
+    "transformers[serving]>=5.7.0",
+    "torchcodec",
+    "qwen-vl-utils>=0.0.14",
+    "av",
+    "pillow",
+]
 quantized-runtime = [
     "bitsandbytes>=0.49",
     "compressed-tensors>=0.14.0",
@@ -367,6 +375,10 @@ conflicts = [
     [
         { extra = "paddleocr" },
         { extra = "gemma4-local" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "marlin-2b-local" },
     ],
     [
         { extra = "paddleocr" },
@@ -808,6 +820,19 @@ conflicts = [
         { extra = "qwen-vl-local" },
         { extra = "hunyuan-ocr" },
         { extra = "glm-ocr" },
+    ],
+    [
+        # Marlin-2B needs Transformers >=5.7.0 and HF remote code, so keep it
+        # out of environments pinned to older or forked Transformers stacks.
+        { extra = "marlin-2b-local" },
+        { extra = "translate" },
+        { extra = "deepseek-ocr" },
+        { extra = "dots-ocr" },
+        { extra = "penguin-vl-local" },
+        { extra = "qwen-vl-local" },
+        { extra = "eureka-audio-local" },
+        { extra = "cohere-transcribe-local" },
+        { extra = "music-flamingo-local" },
     ],
     [
         # AceStep also depends on the upstream Transformers >=4.57 stack and

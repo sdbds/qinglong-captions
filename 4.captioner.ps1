@@ -51,13 +51,13 @@ $mode = "long" # all, short, long
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 $wait_time = 1
 $max_retries = 100
-$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds, other ALMs use 600 seconds
+$segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds, cohere_transcribe_local disables splitting, other routes use 600 seconds
 # OCR model configuration
 $ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "logics_ocr", "lighton_ocr", "dots_ocr", "qianfan_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image/video tasks
-$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", ""
+$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", "marlin_2b_local", ""
 
 # ALM model configuration for audio tasks
 $alm_model = ""  # Options: "music_flamingo_local", "eureka_audio_local", "acestep_transcriber_local", ""
@@ -466,6 +466,9 @@ if ($vlm_image_model) {
   }
   elseif ($vlm_image_model -eq "lfm_vl_local") {
     Add-UvExtra "lfm-vl-local"
+  }
+  elseif ($vlm_image_model -eq "marlin_2b_local") {
+    Add-UvExtra "marlin-2b-local"
   }
 }
 

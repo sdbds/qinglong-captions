@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import copy
 from pathlib import Path
 
 import lance
@@ -109,6 +110,84 @@ def _should_bypass_segmentation(args, mime: str) -> bool:
     if mime.startswith("audio"):
         return getattr(args, "alm_model", "") == "gemma4_local"
     return False
+
+
+def _coerce_float(value, default: float) -> float:
+    if value in (None, ""):
+        return float(default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _section(config, *names: str) -> dict:
+    if not config or not hasattr(config, "get"):
+        return {}
+    for name in names:
+        value = config.get(name)
+        if (isinstance(value, dict) or hasattr(value, "get")) and value:
+            return value
+    return {}
+
+
+def _marlin_video_max_seconds(config) -> float:
+    section = _section(config, "marlin_2b_local", "marlin")
+    return _coerce_float(section.get("video_max_seconds", 120.0), 120.0)
+
+
+def _marlin_safe_segment_seconds(config) -> int | None:
+    max_seconds = _marlin_video_max_seconds(config)
+    if max_seconds <= 0:
+        return None
+    return max(1, int(max_seconds) - 1)
+
+
+def _resolve_media_segment_time(args, mime: str, config):
+    segment_time = getattr(args, "segment_time", None)
+    if not mime.startswith("video") or getattr(args, "vlm_image_model", "") != "marlin_2b_local":
+        return segment_time
+
+    safe_segment_time = _marlin_safe_segment_seconds(config)
+    if safe_segment_time is None:
+        return segment_time
+    if segment_time in (None, ""):
+        return safe_segment_time
+    try:
+        requested_segment_time = int(segment_time)
+    except (TypeError, ValueError):
+        return safe_segment_time
+    if requested_segment_time <= 0:
+        return safe_segment_time
+    return min(requested_segment_time, safe_segment_time)
+
+
+def _direct_duration_limit_ms(args, mime: str, config) -> int | None:
+    if mime.startswith("video") and getattr(args, "vlm_image_model", "") == "marlin_2b_local":
+        max_seconds = _marlin_video_max_seconds(config)
+        if max_seconds > 0:
+            return int(max_seconds * 1000)
+    return None
+
+
+def _should_process_without_segmentation(args, mime: str, duration: int, segment_time, config) -> bool:
+    if mime.startswith("image") or _should_bypass_segmentation(args, mime) or segment_time is None:
+        return True
+
+    direct_limit = _direct_duration_limit_ms(args, mime, config)
+    if direct_limit is not None:
+        return duration <= direct_limit
+
+    return duration <= (segment_time + 1) * 1000
+
+
+def _with_media_segment_time(args, segment_time):
+    if getattr(args, "segment_time", None) == segment_time:
+        return args
+    media_args = copy(args)
+    setattr(media_args, "segment_time", segment_time)
+    setattr(media_args, "effective_segment_time", segment_time)
+    return media_args
 
 
 def _process_segmented_media(filepath, mime, duration, sha256hash, args, config, progress, task_id, api_process_batch_fn, console):
@@ -268,30 +347,26 @@ def process_batch(
                 if scene_detector is not None:
                     scene_detector.start_async_detection(filepath)
 
-                segment_time = getattr(args, "segment_time", None)
-                if (
-                    mime.startswith("image")
-                    or _should_bypass_segmentation(args, mime)
-                    or segment_time is None
-                    or duration <= (segment_time + 1) * 1000
-                ):
+                segment_time = _resolve_media_segment_time(args, mime, config)
+                media_args = _with_media_segment_time(args, segment_time)
+                if _should_process_without_segmentation(args, mime, duration, segment_time, config):
                     output = api_process_batch_fn(
                         uri=filepath,
                         mime=mime,
                         config=config,
-                        args=args,
+                        args=media_args,
                         sha256hash=sha256hash,
                         progress=progress,
                         task_id=task,
                     )
-                    output = postprocess_caption_content(output, filepath, args, console_obj)
+                    output = postprocess_caption_content(output, filepath, media_args, console_obj)
                 else:
                     output = _process_segmented_media(
                         filepath,
                         mime,
                         duration,
                         sha256hash,
-                        args,
+                        media_args,
                         config,
                         progress,
                         task,
@@ -306,7 +381,7 @@ def process_batch(
                             subs,
                             scene_detector,
                             filepath=filepath,
-                            segment_time=args.segment_time,
+                            segment_time=media_args.segment_time,
                             console=console_obj,
                             timeout=getattr(args, "scene_detection_timeout", None),
                         )

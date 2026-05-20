@@ -83,6 +83,7 @@ _PROVIDER_MODULES: Dict[str, str] = {
     "reka_edge_local": "module.providers.local_vlm.reka_edge_local",
     "lfm_vl_local": "module.providers.local_vlm.lfm_vl_local",
     "gemma4_local": "module.providers.local_vlm.gemma4_local",
+    "marlin_2b_local": "module.providers.local_vlm.marlin_2b_local",
     "music_flamingo_local": "module.providers.local_alm.music_flamingo_local",
     "eureka_audio_local": "module.providers.local_alm.eureka_audio_local",
     "acestep_transcriber_local": "module.providers.local_alm.acestep_transcriber_local",
@@ -156,6 +157,7 @@ class ProviderRegistry:
                 "reka_edge_local",
                 "lfm_vl_local",
                 "gemma4_local",
+                "marlin_2b_local",
                 # Local ALM
                 "music_flamingo_local",
                 "eureka_audio_local",

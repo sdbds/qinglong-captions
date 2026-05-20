@@ -33,6 +33,7 @@ def test_catalog_exposes_canonical_route_choices_only_by_default():
     assert "pixtral" not in ocr_choices
     assert "lfm_vl_local" in vlm_choices
     assert "gemma4_local" in vlm_choices
+    assert "marlin_2b_local" in vlm_choices
     assert "music_flamingo_local" in alm_choices
     assert "eureka_audio_local" in alm_choices
     assert "acestep_transcriber_local" in alm_choices
@@ -63,6 +64,28 @@ def test_catalog_keeps_legacy_alias_attrs_in_sync():
     assert args.alm_model == "music_flamingo_local"
 
 
+def test_catalog_keeps_marlin_2b_out_of_global_segment_time_defaults():
+    from providers.catalog import normalize_runtime_args
+
+    args = SimpleNamespace(vlm_image_model="marlin_2b_local", alm_model="", segment_time=None)
+
+    normalize_runtime_args(args)
+
+    assert args.segment_time == 600
+    assert args.effective_segment_time == 600
+
+
+def test_catalog_preserves_cohere_no_split_default_when_marlin_2b_is_also_selected():
+    from providers.catalog import normalize_runtime_args
+
+    args = SimpleNamespace(vlm_image_model="marlin_2b_local", alm_model="cohere_transcribe_local", segment_time=None)
+
+    normalize_runtime_args(args)
+
+    assert args.segment_time is None
+    assert args.effective_segment_time is None
+
+
 def test_catalog_config_section_candidates_cover_local_provider_compat():
     from providers.catalog import provider_config_sections
 
@@ -72,6 +95,7 @@ def test_catalog_config_section_candidates_cover_local_provider_compat():
     assert provider_config_sections("reka_edge_local") == ("reka_edge_local", "reka_edge")
     assert provider_config_sections("lfm_vl_local") == ("lfm_vl_local", "lfm_vl")
     assert provider_config_sections("gemma4_local") == ("gemma4_local",)
+    assert provider_config_sections("marlin_2b_local") == ("marlin_2b_local", "marlin")
     assert provider_config_sections("eureka_audio_local") == ("eureka_audio_local", "eureka_audio")
     assert provider_config_sections("acestep_transcriber_local") == ("acestep_transcriber_local",)
     assert provider_config_sections("cohere_transcribe_local") == ("cohere_transcribe_local",)
@@ -90,6 +114,7 @@ def test_catalog_marks_only_remote_routes_as_needing_api_config():
     assert route_requires_remote_config("vlm_image_model", "reka_edge_local") is False
     assert route_requires_remote_config("vlm_image_model", "lfm_vl_local") is False
     assert route_requires_remote_config("vlm_image_model", "gemma4_local") is False
+    assert route_requires_remote_config("vlm_image_model", "marlin_2b_local") is False
     assert route_requires_remote_config("alm_model", "music_flamingo_local") is False
     assert route_requires_remote_config("alm_model", "eureka_audio_local") is False
     assert route_requires_remote_config("alm_model", "acestep_transcriber_local") is False

@@ -319,6 +319,7 @@ class CaptionStep:
         "reka_edge_local": "reka-edge-local",
         "gemma4_local": "gemma4-local",
         "lfm_vl_local": "lfm-vl-local",
+        "marlin_2b_local": "marlin-2b-local",
     }
 
     ALM_EXTRA_MAP = {
@@ -656,6 +657,9 @@ class CaptionStep:
         self._sync_alm_language_options(selected_model)
         self._sync_alm_audio_task_options(selected_model)
         self._on_model_select_change("alm", selected_model)
+
+    def _handle_vlm_model_change(self, selected_model: Optional[str]) -> None:
+        self._on_model_select_change("vlm", selected_model)
 
     def _on_model_select_change(self, model_type: str, route_name: Optional[str]) -> None:
         panel_map = {
@@ -1088,7 +1092,7 @@ class CaptionStep:
             )
             _vlm_cfg_container = ui.column().classes("w-full")
             self._vlm_config_panel = model_config_panel_cls(_vlm_cfg_container, on_save=self._handle_model_config_saved)
-            self.vlm_image_model.on_value_change(lambda e: self._on_model_select_change("vlm", e.value))
+            self.vlm_image_model.on_value_change(lambda e: self._handle_vlm_model_change(e.value))
 
             with ui.row().classes("w-full items-center gap-2 q-mb-md q-mt-md"):
                 ui.icon("graphic_eq", size="22px").style(f"color: {COLORS['primary']};")

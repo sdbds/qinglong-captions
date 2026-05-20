@@ -822,6 +822,19 @@ video_fps = 1.0
 video_max_seconds = 60
 audio_max_seconds = 30
 
+[marlin_2b_local]
+model_id = "NemoStation/Marlin-2B"
+task = "caption"
+find_event = ""
+prompt = ""
+use_resolved_prompt = false
+max_new_tokens = 2048
+do_sample = false
+temperature = 1.0
+top_p = 1.0
+video_max_seconds = 120
+compile = false
+
 [kimi_vl]
 thinking = "enabled"  # enabled | disabled
 

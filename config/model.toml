@@ -332,6 +332,25 @@ video_fps = 1.0
 video_max_seconds = 60
 audio_max_seconds = 30
 
+# Marlin 2B local video VLM configuration
+# Model: https://huggingface.co/NemoStation/Marlin-2B
+# Requires: accept the gated Hugging Face model terms, then run `uv sync --extra marlin-2b-local`
+# Direct mode uses the model's `caption()` helper by default. Set `prompt` or
+# `use_resolved_prompt = true` only when you intentionally want to override the canonical Marlin prompt.
+[marlin_2b_local]
+model_list."Marlin 2B" = { model_id = "NemoStation/Marlin-2B", meta = { min_vram_gb = 6 } }
+model_id = "NemoStation/Marlin-2B"
+task = "caption"
+find_event = ""
+prompt = ""
+use_resolved_prompt = false
+max_new_tokens = 2048
+do_sample = false
+temperature = 1.0
+top_p = 1.0
+video_max_seconds = 120
+compile = false
+
 # Music Flamingo ALM configuration
 # Model: https://huggingface.co/henry1477/music-flamingo-2601-hf-fp8
 # Requires: uv sync --extra music-flamingo-local

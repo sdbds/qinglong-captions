@@ -53,6 +53,7 @@ class TestProviderRegistry:
             "penguin_vl_local",
             "reka_edge_local",
             "gemma4_local",
+            "marlin_2b_local",
             "acestep_transcriber_local",
             "cohere_transcribe_local",
             "mistral_ocr",

@@ -456,6 +456,116 @@ def test_process_batch_bypasses_segmentation_for_gemma4_audio(tmp_path):
     update_mock.assert_called_once()
 
 
+def test_resolve_media_segment_time_applies_marlin_default_only_to_video():
+    from types import SimpleNamespace
+
+    from module.caption_pipeline.orchestrator import _resolve_media_segment_time
+
+    args = SimpleNamespace(
+        segment_time=None,
+        segment_time_explicit=False,
+        vlm_image_model="marlin_2b_local",
+    )
+    config = {"marlin_2b_local": {"video_max_seconds": 120}}
+
+    assert _resolve_media_segment_time(args, "audio/wav", config) is None
+    assert _resolve_media_segment_time(args, "video/mp4", config) == 119
+
+
+def test_resolve_media_segment_time_caps_explicit_marlin_value_to_safe_chunk_size():
+    from types import SimpleNamespace
+
+    from module.caption_pipeline.orchestrator import _resolve_media_segment_time
+
+    args = SimpleNamespace(
+        segment_time=600,
+        segment_time_explicit=True,
+        vlm_image_model="marlin_2b_local",
+    )
+
+    assert _resolve_media_segment_time(args, "video/mp4", {"marlin": {"video_max_seconds": 90}}) == 89
+
+
+def test_process_batch_segments_marlin_video_over_hard_limit_with_media_scoped_segment_time(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from module.caption_pipeline.orchestrator import process_batch
+
+    video_path = tmp_path / "clip.mp4"
+    video_path.write_bytes(b"video")
+
+    class FakeScanner:
+        def to_batches(self):
+            return [
+                {
+                    "uris": pa.array([str(video_path)]),
+                    "mime": pa.array(["video/mp4"]),
+                    "duration": pa.array([120_500]),
+                    "hash": pa.array(["hash"]),
+                }
+            ]
+
+    class FakeDataset:
+        def scanner(self, **_kwargs):
+            return FakeScanner()
+
+        def count_rows(self):
+            return 1
+
+    segmented_calls = []
+
+    def fake_process_segmented_media(filepath, mime, duration, sha256hash, args, config, progress, task_id, api_process_batch_fn, console):
+        segmented_calls.append(
+            {
+                "filepath": filepath,
+                "mime": mime,
+                "duration": duration,
+                "segment_time": args.segment_time,
+            }
+        )
+        return {"description": "segmented marlin summary", "caption_extension": ".txt", "provider": "marlin_2b_local"}
+
+    args = SimpleNamespace(
+        dataset_dir="ignored",
+        gemini_api_key="",
+        mistral_api_key="",
+        not_clip_with_caption=True,
+        merge_batch_size=1000,
+        segment_time=600,
+        segment_time_explicit=False,
+        scene_detection_timeout=None,
+        vlm_image_model="marlin_2b_local",
+        alm_model="",
+    )
+
+    with (
+        patch("module.caption_pipeline.orchestrator._resolve_dataset", return_value=FakeDataset()),
+        patch("module.caption_pipeline.orchestrator.create_scene_detector", return_value=None),
+        patch("module.caption_pipeline.orchestrator._process_segmented_media", side_effect=fake_process_segmented_media),
+        patch("module.caption_pipeline.orchestrator.write_caption_output", return_value=(video_path.with_suffix(".txt"), None)),
+        patch("module.caption_pipeline.orchestrator.update_dataset_captions") as update_mock,
+    ):
+        process_batch(
+            args,
+            {"marlin_2b_local": {"video_max_seconds": 120}},
+            api_process_batch_fn=lambda **_kwargs: (_ for _ in ()).throw(AssertionError("should segment before direct Marlin call")),
+            transform2lance_fn=lambda **_kwargs: None,
+            extract_from_lance_fn=lambda *_args, **_kwargs: None,
+            console_obj=_quiet_console(),
+        )
+
+    assert segmented_calls == [
+        {
+            "filepath": str(video_path),
+            "mime": "video/mp4",
+            "duration": 120_500,
+            "segment_time": 119,
+        }
+    ]
+    update_mock.assert_called_once()
+
+
 def test_normalize_subtitle_timestamps_preserves_existing_hours():
     from module.caption_pipeline.postprocess import _normalize_subtitle_timestamps
 

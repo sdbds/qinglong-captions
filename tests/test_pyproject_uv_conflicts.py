@@ -135,3 +135,19 @@ def test_eureka_audio_conflicts_with_known_transformers_incompatible_extras():
 
 def test_acestep_transcriber_conflicts_with_translate():
     assert _has_extra_conflict("acestep-transcriber-local", "translate")
+
+
+def test_marlin_2b_local_conflicts_with_known_transformers_incompatible_extras():
+    expected_pairs = [
+        ("marlin-2b-local", "translate"),
+        ("marlin-2b-local", "deepseek-ocr"),
+        ("marlin-2b-local", "dots-ocr"),
+        ("marlin-2b-local", "penguin-vl-local"),
+        ("marlin-2b-local", "qwen-vl-local"),
+        ("marlin-2b-local", "eureka-audio-local"),
+        ("marlin-2b-local", "cohere-transcribe-local"),
+        ("marlin-2b-local", "music-flamingo-local"),
+    ]
+
+    for pair in expected_pairs:
+        assert _has_extra_conflict(*pair)

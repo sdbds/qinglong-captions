@@ -181,6 +181,18 @@ def test_pyproject_declares_gemma4_local_extra():
     assert "librosa" in gemma4_deps
 
 
+def test_pyproject_declares_marlin_2b_local_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "marlin-2b-local" in optional_deps
+    marlin_deps = optional_deps["marlin-2b-local"]
+    assert "qinglong-captions[torch-base]" in marlin_deps
+    assert any(dep.startswith("transformers[serving]>=5.7.0") for dep in marlin_deps)
+    assert "torchcodec" in marlin_deps
+    assert any(dep.startswith("qwen-vl-utils>=0.0.14") for dep in marlin_deps)
+
+
 def test_pyproject_declares_quantized_runtime_extra():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     optional_deps = pyproject["project"]["optional-dependencies"]
@@ -220,6 +232,25 @@ def test_caption_step_includes_lfm_extra():
     step.vlm_image_model = SimpleNamespace(value="lfm_vl_local")
 
     assert step._build_local_extra_args() == ["--extra", "lfm-vl-local"]
+
+
+def test_caption_step_includes_marlin_2b_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_marlin_2b")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="marlin_2b_local")
+
+    assert step._build_local_extra_args() == ["--extra", "marlin-2b-local"]
+
+
+def test_caption_step_keeps_marlin_2b_out_of_global_segment_time_default():
+    CaptionStep = _load_caption_step("test_step4_caption_marlin_2b_segment_time")
+
+    step = CaptionStep()
+    step.vlm_image_model = SimpleNamespace(value="marlin_2b_local")
+
+    assert step._default_segment_time() == 600
 
 
 def test_caption_step_includes_lighton_extra():
