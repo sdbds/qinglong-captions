@@ -268,6 +268,91 @@ def setup_parser() -> argparse.ArgumentParser:
         default="",
         help="Backend for local transformers providers: empty=use config, direct=in-process, openai=OpenAI-compatible local server",
     )
+    parser.add_argument(
+        "--codex_subscription",
+        action="store_true",
+        help="Use a logged-in Codex/ChatGPT subscription session for image captioning.",
+    )
+    parser.add_argument(
+        "--codex_backend",
+        type=str,
+        choices=["sdk_app_server", "exec"],
+        default="sdk_app_server",
+        help="Codex runtime backend: sdk_app_server uses the Python SDK app-server; exec uses codex exec.",
+    )
+    parser.add_argument(
+        "--codex_auth_mode",
+        type=str,
+        choices=["chatgpt", "api_key", "existing"],
+        default="chatgpt",
+        help="Codex auth mode. Default chatgpt uses subscription session and does not fall back to API keys.",
+    )
+    parser.add_argument(
+        "--codex_api_key",
+        type=str,
+        default="",
+        help="Explicit API key for --codex_auth_mode=api_key only.",
+    )
+    parser.add_argument(
+        "--codex_command",
+        type=str,
+        default="codex",
+        help="Codex CLI executable for --codex_backend=exec.",
+    )
+    parser.add_argument(
+        "--codex_model_name",
+        type=str,
+        default="gpt-5.4-mini",
+        help="Codex model for --codex_subscription.",
+    )
+    parser.add_argument(
+        "--codex_home",
+        type=str,
+        default="",
+        help="Optional CODEX_HOME for --codex_subscription.",
+    )
+    parser.add_argument(
+        "--codex_timeout",
+        type=float,
+        default=180.0,
+        help="Per-image Codex exec timeout in seconds.",
+    )
+    parser.add_argument(
+        "--codex_sandbox",
+        type=str,
+        default="read-only",
+        choices=["read-only", "workspace-write", "danger-full-access"],
+        help="Codex exec sandbox mode for --codex_subscription.",
+    )
+    parser.add_argument(
+        "--codex_isolated_cwd",
+        type=str,
+        default="",
+        help="Optional isolated working directory for Codex runs.",
+    )
+    parser.add_argument(
+        "--codex_output_schema",
+        type=str,
+        default="",
+        help="Optional JSON Schema file for Codex final output.",
+    )
+    parser.add_argument(
+        "--codex_runtime_path",
+        type=str,
+        default="",
+        help="Optional Codex runtime/binary path for the Python SDK app-server.",
+    )
+    parser.add_argument(
+        "--codex_max_concurrency",
+        type=int,
+        default=1,
+        help="Reserved concurrency limit for Codex app-server captioning.",
+    )
+    parser.add_argument(
+        "--codex_auto_install_sdk",
+        action="store_true",
+        help="Allow launcher scripts to install the optional Codex Python SDK extra.",
+    )
 
     parser.add_argument(
         "--dir_name",

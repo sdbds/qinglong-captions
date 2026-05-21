@@ -55,6 +55,7 @@ class ProviderDiscoveryError(RuntimeError):
 
 
 _PROVIDER_MODULES: Dict[str, str] = {
+    "codex_subscription": "module.providers.cloud_vlm.codex_subscription",
     "openai_compatible": "module.providers.cloud_vlm.openai_compatible",
     "stepfun": "module.providers.cloud_vlm.stepfun",
     "ark": "module.providers.cloud_vlm.ark",
@@ -127,6 +128,7 @@ class ProviderRegistry:
             # 修复 #1: kimi_code 排在 kimi_vl 之前
             # minimax_code 优先级高于 minimax_api（类似 kimi_code > kimi_vl）
             self._priority_order: List[str] = [
+                "codex_subscription",  # Explicit Codex subscription route; never auto-claims without flag
                 "openai_compatible",  # 通用 OpenAI 兼容接口（最高优先级）
                 "stepfun",
                 "ark",

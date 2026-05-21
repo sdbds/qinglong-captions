@@ -26,6 +26,20 @@ def make_provider_args(**kwargs):
         "audio_task": "",
         "gemma4_model_id": "",
         "pair_dir": "",
+        "codex_subscription": False,
+        "codex_backend": "sdk_app_server",
+        "codex_auth_mode": "chatgpt",
+        "codex_api_key": "",
+        "codex_command": "codex",
+        "codex_model_name": "gpt-5.4-mini",
+        "codex_home": "",
+        "codex_timeout": 180.0,
+        "codex_sandbox": "read-only",
+        "codex_isolated_cwd": "",
+        "codex_output_schema": "",
+        "codex_runtime_path": "",
+        "codex_max_concurrency": 1,
+        "codex_auto_install_sdk": False,
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)

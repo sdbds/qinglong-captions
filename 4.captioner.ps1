@@ -46,6 +46,23 @@ $openai_model_name = ""        # 模型名称，如：
                                # - gemma-3-4b-it
 $local_runtime_backend = ""    # "", "direct", "openai"
 
+# Codex Subscription Provider（实验性）
+# 默认使用 Codex Python SDK app-server + ChatGPT/Codex 订阅会话；不会隐式使用 OPENAI_API_KEY。
+$codex_subscription = $false
+$codex_backend = "sdk_app_server" # "sdk_app_server", "exec"
+$codex_auth_mode = "chatgpt"      # "chatgpt", "api_key", "existing"
+$codex_api_key = ""
+$codex_command = "codex"
+$codex_model_name = "gpt-5.4-mini"
+$codex_home = ""
+$codex_timeout = 180
+$codex_sandbox = "read-only"   # "read-only", "workspace-write", "danger-full-access"
+$codex_isolated_cwd = ""
+$codex_output_schema = ""
+$codex_runtime_path = ""
+$codex_max_concurrency = 1
+$codex_auto_install_sdk = $true
+
 $dir_name = $false
 $mode = "long" # all, short, long
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
@@ -372,6 +389,52 @@ if ($openai_model_name) {
 
 if ($local_runtime_backend) {
   [void]$ext_args.Add("--local_runtime_backend=$local_runtime_backend")
+}
+
+if ($codex_subscription) {
+  [void]$ext_args.Add("--codex_subscription")
+  if ($codex_backend) {
+    [void]$ext_args.Add("--codex_backend=$codex_backend")
+  }
+  if ($codex_auth_mode) {
+    [void]$ext_args.Add("--codex_auth_mode=$codex_auth_mode")
+  }
+  if ($codex_api_key -and $codex_auth_mode -eq "api_key") {
+    [void]$ext_args.Add("--codex_api_key=$codex_api_key")
+  }
+  if ($codex_command) {
+    [void]$ext_args.Add("--codex_command=$codex_command")
+  }
+  if ($codex_model_name) {
+    [void]$ext_args.Add("--codex_model_name=$codex_model_name")
+  }
+  if ($codex_home) {
+    [void]$ext_args.Add("--codex_home=$codex_home")
+  }
+  if ($codex_timeout) {
+    [void]$ext_args.Add("--codex_timeout=$codex_timeout")
+  }
+  if ($codex_sandbox) {
+    [void]$ext_args.Add("--codex_sandbox=$codex_sandbox")
+  }
+  if ($codex_isolated_cwd) {
+    [void]$ext_args.Add("--codex_isolated_cwd=$codex_isolated_cwd")
+  }
+  if ($codex_output_schema) {
+    [void]$ext_args.Add("--codex_output_schema=$codex_output_schema")
+  }
+  if ($codex_runtime_path) {
+    [void]$ext_args.Add("--codex_runtime_path=$codex_runtime_path")
+  }
+  if ($codex_max_concurrency -gt 1) {
+    [void]$ext_args.Add("--codex_max_concurrency=$codex_max_concurrency")
+  }
+  if ($codex_auto_install_sdk) {
+    [void]$ext_args.Add("--codex_auto_install_sdk")
+  }
+  if ($codex_backend -eq "sdk_app_server" -and $codex_auto_install_sdk) {
+    Add-UvExtra "codex-subscription"
+  }
 }
 
 if ($dir_name) {

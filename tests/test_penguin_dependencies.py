@@ -340,6 +340,67 @@ def test_caption_step_includes_cohere_transcribe_extra():
     assert step._build_local_extra_args() == ["--extra", "cohere-transcribe-local"]
 
 
+def test_caption_step_codex_subscription_counts_as_provider_config():
+    CaptionStep = _load_caption_step("test_step4_caption_codex_provider")
+
+    step = CaptionStep()
+    step.config["codex_subscription"] = True
+    step.api_keys = {}
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="")
+
+    assert step._has_caption_provider_config() is True
+
+
+def test_caption_step_codex_subscription_adds_only_codex_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_codex_extra")
+
+    step = CaptionStep()
+    step.config["codex_subscription"] = True
+    step.ocr_model = SimpleNamespace(value="dots_ocr")
+    step.vlm_image_model = SimpleNamespace(value="gemma4_local")
+    step.alm_model = SimpleNamespace(value="music_flamingo_local")
+
+    assert step._build_local_extra_args() == ["--extra", "codex-subscription"]
+
+
+def test_caption_step_builds_codex_subscription_args_without_api_key_fallback():
+    CaptionStep = _load_caption_step("test_step4_caption_codex_args")
+
+    step = CaptionStep()
+    step.config["codex_subscription"] = True
+    step.api_keys = {"openai_api_key": SimpleNamespace(value="sk-should-not-pass")}
+    step.mode = SimpleNamespace(value="long")
+    step.pair_dir = SimpleNamespace(value="")
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--codex_subscription" in args
+    assert "--codex_backend=sdk_app_server" in args
+    assert "--codex_auth_mode=chatgpt" in args
+    assert "--codex_model_name=gpt-5.4-mini" in args
+    assert "--codex_auto_install_sdk" in args
+    assert not any(arg.startswith("--codex_api_key=") for arg in args)
+    assert not any(arg.startswith("--openai_api_key=") for arg in args)
+
+
+def test_caption_step_codex_api_key_is_explicit_auth_mode_only():
+    CaptionStep = _load_caption_step("test_step4_caption_codex_api_key")
+
+    step = CaptionStep()
+    step.config["codex_subscription"] = True
+    step.config["codex_auth_mode"] = "api_key"
+    step.config["codex_api_key"] = "sk-explicit"
+    step.mode = SimpleNamespace(value="all")
+    step.pair_dir = SimpleNamespace(value="")
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--codex_auth_mode=api_key" in args
+    assert "--codex_api_key=sk-explicit" in args
+
+
 def test_caption_step_treats_music_flamingo_as_local_route():
     CaptionStep = _load_caption_step("test_step4_caption_local_route")
 

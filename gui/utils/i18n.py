@@ -411,7 +411,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "select_valid_input": "Please select a valid input path",
         "select_valid_dataset": "Please select a valid dataset path",
         "select_valid_lance": "Please select a valid Lance dataset file",
-        "at_least_one_api": "Configure at least one remote API (API key or OpenAI Base URL), or select a local OCR/VLM/ALM model. Mistral still requires an API key.",
+        "at_least_one_api": "Configure Codex subscription, a remote API (API key or OpenAI Base URL), or a local OCR/VLM/ALM model. Mistral still requires an API key.",
         "select_valid_train_dir": "Please select a valid training data directory",
         # Hints
         "images_per_scene_hint": "Set to 0 to skip saving images",
@@ -894,7 +894,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "select_valid_input": "请选择有效的输入路径",
         "select_valid_dataset": "请选择有效的数据集路径",
         "select_valid_lance": "请选择有效的 Lance 数据集文件",
-        "at_least_one_api": "请至少配置一个远程 API（API 密钥或 OpenAI Base URL），或选择一个本地 OCR/VLM/ALM 模型。Mistral 仍需要 API 密钥。",
+        "at_least_one_api": "请启用 Codex 订阅打标，或至少配置一个远程 API（API 密钥或 OpenAI Base URL），或选择一个本地 OCR/VLM/ALM 模型。Mistral 仍需要 API 密钥。",
         "select_valid_train_dir": "请选择有效的训练数据目录",
         # Hints
         "images_per_scene_hint": "设为 0 则不保存图片",
@@ -1336,7 +1336,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "select_valid_input": "有効な入力パスを選択してください",
         "select_valid_dataset": "有効なデータセットパスを選択してください",
         "select_valid_lance": "有効な Lance データセットファイルを選択してください",
-        "at_least_one_api": "少なくとも 1 つのリモート API（API キーまたは OpenAI Base URL）を設定するか、ローカル OCR/VLM/ALM モデルを選択してください。Mistral には API キーが必要です。",
+        "at_least_one_api": "Codex サブスクリプションを有効にするか、少なくとも 1 つのリモート API（API キーまたは OpenAI Base URL）を設定するか、ローカル OCR/VLM/ALM モデルを選択してください。Mistral には API キーが必要です。",
         "select_valid_train_dir": "有効な学習データディレクトリを選択してください",
         # Hints
         "images_per_scene_hint": "0 に設定すると画像を保存しません",
@@ -1817,7 +1817,7 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "select_valid_input": "유효한 입력 경로를 선택하세요",
         "select_valid_dataset": "유효한 데이터셋 경로를 선택하세요",
         "select_valid_lance": "유효한 Lance 데이터셋 파일을 선택하세요",
-        "at_least_one_api": "최소 하나의 원격 API(API 키 또는 OpenAI Base URL)를 설정하거나 로컬 OCR/VLM/ALM 모델을 선택하세요. Mistral에는 API 키가 필요합니다.",
+        "at_least_one_api": "Codex 구독 캡션을 활성화하거나, 최소 하나의 원격 API(API 키 또는 OpenAI Base URL)를 설정하거나 로컬 OCR/VLM/ALM 모델을 선택하세요. Mistral에는 API 키가 필요합니다.",
         "select_valid_train_dir": "유효한 학습 데이터 디렉토리를 선택하세요",
         # Hints
         "images_per_scene_hint": "0으로 설정하면 이미지를 저장하지 않습니다",

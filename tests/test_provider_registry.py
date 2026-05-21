@@ -29,6 +29,7 @@ class TestProviderRegistry:
         providers = reg.list_providers()
         assert len(providers) >= 26
         expected = [
+            "codex_subscription",
             "stepfun",
             "ark",
             "qwenvl",

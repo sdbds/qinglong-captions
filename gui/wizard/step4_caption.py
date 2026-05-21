@@ -79,6 +79,7 @@ def _load_model_config_panel_cls():
 
 class CaptionStep:
     QUANTIZED_RUNTIME_EXTRA = "quantized-runtime"
+    CODEX_SUBSCRIPTION_EXTRA = "codex-subscription"
     _BITSANDBYTES_REPO_PATTERN = re.compile(
         r"(?:^|[-_./])(?:nf4|fp8-block|bnb|bitsandbytes|4bit|8bit|int4|int8)(?:$|[-_./])"
     )
@@ -238,6 +239,20 @@ class CaptionStep:
     }
 
     MODES = ["long", "short", "all"]
+    CODEX_BACKEND_OPTIONS = {
+        "sdk_app_server": "SDK app-server (subscription)",
+        "exec": "codex exec (CLI)",
+    }
+    CODEX_AUTH_MODE_OPTIONS = {
+        "chatgpt": "ChatGPT/Codex subscription",
+        "api_key": "API key (platform billing)",
+        "existing": "Existing session only",
+    }
+    CODEX_SANDBOX_OPTIONS = {
+        "read-only": "read-only",
+        "workspace-write": "workspace-write",
+        "danger-full-access": "danger-full-access",
+    }
 
     OCR_MODELS = list(route_choices("ocr_model"))
 
@@ -350,6 +365,20 @@ class CaptionStep:
             "not_clip_with_caption": True,
             "document_image": True,
             "mistral_ocr_mode": False,
+            "codex_subscription": False,
+            "codex_backend": "sdk_app_server",
+            "codex_auth_mode": "chatgpt",
+            "codex_api_key": "",
+            "codex_command": "codex",
+            "codex_model_name": "gpt-5.4-mini",
+            "codex_home": "",
+            "codex_timeout": 180,
+            "codex_sandbox": "read-only",
+            "codex_isolated_cwd": "",
+            "codex_output_schema": "",
+            "codex_runtime_path": "",
+            "codex_max_concurrency": 1,
+            "codex_auto_install_sdk": True,
         }
         self.panel: "ExecutionPanel | None" = None
         self.api_keys = {}
@@ -701,6 +730,16 @@ class CaptionStep:
         has_openai_url = hasattr(self, "openai_base_url") and self._has_text(self.openai_base_url.value)
         return has_api or has_openai_url
 
+    def _codex_enabled(self) -> bool:
+        return bool(self.config.get("codex_subscription", False))
+
+    def _codex_value(self, key: str, default: Any = "") -> Any:
+        control = getattr(self, key, None)
+        value = getattr(control, "value", None)
+        if value not in (None, ""):
+            return value
+        return self.config.get(key, default)
+
     def _has_local_route_config(self) -> bool:
         if self._has_text(self.ocr_model.value) and not route_requires_remote_config("ocr_model", self.ocr_model.value):
             return True
@@ -711,7 +750,7 @@ class CaptionStep:
         return False
 
     def _has_caption_provider_config(self) -> bool:
-        return self._has_remote_provider_config() or self._has_local_route_config()
+        return self._codex_enabled() or self._has_remote_provider_config() or self._has_local_route_config()
 
     @staticmethod
     def _append_extra(extra_args: list[str], seen: set[str], extra_name: Optional[str]) -> None:
@@ -737,6 +776,13 @@ class CaptionStep:
         extra_args: list[str] = []
         seen: set[str] = set()
 
+        if self._codex_enabled():
+            if self._codex_value("codex_backend", "sdk_app_server") == "sdk_app_server" and bool(
+                self.config.get("codex_auto_install_sdk", True)
+            ):
+                self._append_extra(extra_args, seen, self.CODEX_SUBSCRIPTION_EXTRA)
+            return extra_args
+
         self._append_extra(extra_args, seen, self.OCR_EXTRA_MAP.get(self.ocr_model.value or ""))
         self._append_extra(extra_args, seen, self.VLM_EXTRA_MAP.get(self.vlm_image_model.value or ""))
         self._append_extra(extra_args, seen, self.ALM_EXTRA_MAP.get(self._current_alm_model()))
@@ -749,36 +795,81 @@ class CaptionStep:
 
     def _build_caption_args(self, dataset_path: str) -> list[str]:
         args = [dataset_path]
+        codex_enabled = self._codex_enabled()
 
-        for api_name, config in self.API_CONFIGS.items():
-            if config.get("is_openai_compatible"):
-                continue
+        if codex_enabled:
+            args.append("--codex_subscription")
+            codex_backend = str(self._codex_value("codex_backend", "sdk_app_server") or "sdk_app_server")
+            codex_auth_mode = str(self._codex_value("codex_auth_mode", "chatgpt") or "chatgpt")
+            args.append(f"--codex_backend={codex_backend}")
+            args.append(f"--codex_auth_mode={codex_auth_mode}")
 
-            key_input = self.api_keys.get(config["key_name"])
-            if key_input and key_input.value:
-                args.append(f"--{config['key_name']}={key_input.value}")
+            if codex_auth_mode == "api_key":
+                codex_api_key = str(self._codex_value("codex_api_key", "") or "")
+                if codex_api_key:
+                    args.append(f"--codex_api_key={codex_api_key}")
 
-                model_select = getattr(self, f"{config['key_name']}_model", None)
-                if model_select and model_select.value:
-                    args.append(f"--{config['key_name'].replace('api_key', 'model_path')}={model_select.value}")
+            codex_model_name = str(self._codex_value("codex_model_name", "gpt-5.4-mini") or "gpt-5.4-mini")
+            if codex_model_name:
+                args.append(f"--codex_model_name={codex_model_name}")
 
-                if config["supports_task"]:
-                    task_input = getattr(self, f"{config['key_name']}_task", None)
-                    if task_input and task_input.value:
-                        args.append(f"--gemini_task={task_input.value}")
+            codex_timeout = self._codex_value("codex_timeout", 180)
+            if codex_timeout:
+                args.append(f"--codex_timeout={codex_timeout}")
 
-                if api_name == "Mistral" and self.config.get("mistral_ocr_mode"):
-                    args.append("--ocr_model=mistral_ocr")
-                    if self.config["document_image"]:
-                        args.append("--document_image")
+            codex_sandbox = str(self._codex_value("codex_sandbox", "read-only") or "read-only")
+            if codex_sandbox:
+                args.append(f"--codex_sandbox={codex_sandbox}")
 
-        if hasattr(self, "openai_base_url") and self.openai_base_url.value:
-            args.append(f"--openai_base_url={self.openai_base_url.value}")
-            openai_key = self.api_keys.get("openai_api_key")
-            if openai_key and openai_key.value:
-                args.append(f"--openai_api_key={openai_key.value}")
-            if hasattr(self, "openai_model_name") and self.openai_model_name.value:
-                args.append(f"--openai_model_name={self.openai_model_name.value}")
+            for key in ("codex_home", "codex_isolated_cwd", "codex_output_schema", "codex_runtime_path"):
+                value = str(self._codex_value(key, "") or "").strip()
+                if value:
+                    args.append(f"--{key}={value}")
+
+            if codex_backend == "exec":
+                codex_command = str(self._codex_value("codex_command", "codex") or "codex")
+                if codex_command:
+                    args.append(f"--codex_command={codex_command}")
+
+            try:
+                codex_max_concurrency = int(self._codex_value("codex_max_concurrency", 1) or 1)
+            except (TypeError, ValueError):
+                codex_max_concurrency = 1
+            if codex_max_concurrency > 1:
+                args.append(f"--codex_max_concurrency={codex_max_concurrency}")
+
+            if bool(self.config.get("codex_auto_install_sdk", True)):
+                args.append("--codex_auto_install_sdk")
+        else:
+            for api_name, config in self.API_CONFIGS.items():
+                if config.get("is_openai_compatible"):
+                    continue
+
+                key_input = self.api_keys.get(config["key_name"])
+                if key_input and key_input.value:
+                    args.append(f"--{config['key_name']}={key_input.value}")
+
+                    model_select = getattr(self, f"{config['key_name']}_model", None)
+                    if model_select and model_select.value:
+                        args.append(f"--{config['key_name'].replace('api_key', 'model_path')}={model_select.value}")
+
+                    if config["supports_task"]:
+                        task_input = getattr(self, f"{config['key_name']}_task", None)
+                        if task_input and task_input.value:
+                            args.append(f"--gemini_task={task_input.value}")
+
+                    if api_name == "Mistral" and self.config.get("mistral_ocr_mode"):
+                        args.append("--ocr_model=mistral_ocr")
+                        if self.config["document_image"]:
+                            args.append("--document_image")
+
+            if hasattr(self, "openai_base_url") and self.openai_base_url.value:
+                args.append(f"--openai_base_url={self.openai_base_url.value}")
+                openai_key = self.api_keys.get("openai_api_key")
+                if openai_key and openai_key.value:
+                    args.append(f"--openai_api_key={openai_key.value}")
+                if hasattr(self, "openai_model_name") and self.openai_model_name.value:
+                    args.append(f"--openai_model_name={self.openai_model_name.value}")
 
         if self.pair_dir.value:
             args.append(f"--pair_dir={self.pair_dir.value}")
@@ -800,17 +891,17 @@ class CaptionStep:
         if self.config["tags_highlightrate"] != 0.38:
             args.append(f"--tags_highlightrate={self.config['tags_highlightrate']}")
 
-        if self.ocr_model.value:
+        if not codex_enabled and self.ocr_model.value:
             ocr_arg = f"--ocr_model={self.ocr_model.value}"
             if ocr_arg not in args:
                 args.append(ocr_arg)
             if self.config["document_image"] and "--document_image" not in args:
                 args.append("--document_image")
 
-        if self.vlm_image_model.value:
+        if not codex_enabled and self.vlm_image_model.value:
             args.append(f"--vlm_image_model={self.vlm_image_model.value}")
 
-        if self._current_alm_model():
+        if not codex_enabled and self._current_alm_model():
             args.append(f"--alm_model={self._current_alm_model()}")
             alm_language = getattr(getattr(self, "alm_language", None), "value", "")
             if self._alm_requires_language() and self._has_text(alm_language):
@@ -823,6 +914,8 @@ class CaptionStep:
 
     def _build_job_name(self) -> str:
         """构建 Job 显示名（包含主要 provider 信息）"""
+        if self._codex_enabled():
+            return "Caption (Codex Subscription)"
         for api_name, config in self.API_CONFIGS.items():
             if config.get("is_openai_compatible"):
                 continue
@@ -838,6 +931,149 @@ class CaptionStep:
         if self._current_alm_model():
             return f"Caption (ALM: {self._current_alm_model()})"
         return "Caption"
+
+    def _on_codex_auth_mode_change(self, auth_mode: Optional[str]) -> None:
+        self.config["codex_auth_mode"] = auth_mode or "chatgpt"
+        container = getattr(self, "_codex_api_key_container", None)
+        if container is not None:
+            container.set_visibility(self.config["codex_auth_mode"] == "api_key")
+
+    def _render_codex_settings(self):
+        with ui.expansion("Codex Subscription").classes("w-full q-mb-md"):
+            with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
+                ui.label(
+                    "Use the Codex Python SDK app-server with a ChatGPT/Codex subscription session. "
+                    "API keys are only used when API key auth is explicitly selected."
+                ).classes("text-caption q-mb-sm").style("color: var(--color-text-secondary);")
+
+                toggle_switch(
+                    "codex_subscription",
+                    self.config,
+                    "codex_subscription",
+                    label_default="Use Codex subscription",
+                )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    self.codex_backend = styled_select(
+                        options=self.CODEX_BACKEND_OPTIONS,
+                        value=self.config["codex_backend"],
+                        label="Codex backend",
+                        icon="hub",
+                        icon_color=COLORS["primary"],
+                        searchable=False,
+                        flex=1,
+                    )
+                    self.codex_auth_mode = styled_select(
+                        options=self.CODEX_AUTH_MODE_OPTIONS,
+                        value=self.config["codex_auth_mode"],
+                        label="Auth mode",
+                        icon="account_circle",
+                        icon_color=COLORS["info"],
+                        searchable=False,
+                        flex=1,
+                        on_change=self._on_codex_auth_mode_change,
+                    )
+
+                self._codex_api_key_container = ui.column().classes("w-full q-mt-md")
+                self._codex_api_key_container.set_visibility(self.config["codex_auth_mode"] == "api_key")
+                with self._codex_api_key_container:
+                    self.codex_api_key = styled_input(
+                        value=self.config["codex_api_key"],
+                        label="Codex API key",
+                        icon="key",
+                        icon_color=COLORS["warning"],
+                        placeholder="Only used with API key auth; not subscription billing",
+                        password=True,
+                    )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    self.codex_model_name = styled_input(
+                        value=self.config["codex_model_name"],
+                        label="Codex model",
+                        icon="smart_toy",
+                        icon_color=COLORS["primary"],
+                        placeholder="gpt-5.4-mini",
+                        flex=1,
+                    )
+                    self.codex_timeout = styled_input(
+                        value=str(self.config["codex_timeout"]),
+                        label="Timeout seconds",
+                        icon="timer",
+                        icon_color=COLORS["info"],
+                        placeholder="180",
+                        flex=1,
+                    )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    self.codex_sandbox = styled_select(
+                        options=self.CODEX_SANDBOX_OPTIONS,
+                        value=self.config["codex_sandbox"],
+                        label="Sandbox",
+                        icon="shield",
+                        icon_color=COLORS["success"],
+                        searchable=False,
+                        flex=1,
+                    )
+                    self.codex_max_concurrency = styled_input(
+                        value=str(self.config["codex_max_concurrency"]),
+                        label="Max concurrency",
+                        icon="speed",
+                        icon_color=COLORS["secondary"],
+                        placeholder="1",
+                        flex=1,
+                    )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    self.codex_home = styled_input(
+                        value=self.config["codex_home"],
+                        label="CODEX_HOME",
+                        icon="folder",
+                        icon_color=COLORS["info"],
+                        placeholder="Optional",
+                        flex=1,
+                    )
+                    self.codex_runtime_path = styled_input(
+                        value=self.config["codex_runtime_path"],
+                        label="Runtime path",
+                        icon="terminal",
+                        icon_color=COLORS["secondary"],
+                        placeholder="Optional Codex binary path",
+                        flex=1,
+                    )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    self.codex_isolated_cwd = styled_input(
+                        value=self.config["codex_isolated_cwd"],
+                        label="Isolated cwd",
+                        icon="folder_special",
+                        icon_color=COLORS["info"],
+                        placeholder="Optional",
+                        flex=1,
+                    )
+                    self.codex_output_schema = styled_input(
+                        value=self.config["codex_output_schema"],
+                        label="Output schema",
+                        icon="data_object",
+                        icon_color=COLORS["primary"],
+                        placeholder="Optional JSON schema path",
+                        flex=1,
+                    )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    self.codex_command = styled_input(
+                        value=self.config["codex_command"],
+                        label="codex command",
+                        icon="terminal",
+                        icon_color=COLORS["secondary"],
+                        placeholder="Only used by exec backend",
+                        flex=1,
+                    )
+                    toggle_switch(
+                        "codex_auto_install_sdk",
+                        self.config,
+                        "codex_auto_install_sdk",
+                        label_default="Auto install SDK extra",
+                    )
 
     def render(self):
         """渲染页面"""
@@ -943,6 +1179,8 @@ class CaptionStep:
 
     def _render_api_settings(self):
         """渲染 API 设置"""
+        self._render_codex_settings()
+
         for api_name, config in self.API_CONFIGS.items():
             with ui.expansion(f"{api_name} API").classes("w-full q-mb-md"):
                 with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
