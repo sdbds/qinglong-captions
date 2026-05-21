@@ -80,6 +80,7 @@ series_exclude_list = [
     "kenjuku",
     "pc-98",
     "mooncancer",
+    "post shibuya",
 ]
 
 [reward_model]

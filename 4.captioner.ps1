@@ -74,7 +74,7 @@ $ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "logics_ocr", "lighto
 $document_image = $true
 
 # VLM model configuration for image/video tasks
-$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", "marlin_2b_local", ""
+$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "penguin_vl_local", "reka_edge_local", "lfm_vl_local", "gemma4_local", "marlin_2b_local", ""
 
 # ALM model configuration for audio tasks
 $alm_model = ""  # Options: "music_flamingo_local", "eureka_audio_local", "acestep_transcriber_local", ""
@@ -529,6 +529,9 @@ if ($vlm_image_model) {
   }
   elseif ($vlm_image_model -eq "lfm_vl_local") {
     Add-UvExtra "lfm-vl-local"
+  }
+  elseif ($vlm_image_model -eq "gemma4_local") {
+    Add-UvExtra "gemma4-local"
   }
   elseif ($vlm_image_model -eq "marlin_2b_local") {
     Add-UvExtra "marlin-2b-local"
