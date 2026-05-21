@@ -330,7 +330,7 @@ class SettingsDialog:
         btn.style(
             "color: var(--color-text-secondary); opacity: 0.5; margin-left: 4px;"
         )
-        btn.tooltip(f"Delete '{key}'")
+        btn.tooltip(t("delete_item").format(name=key))
 
     def _render_list_field(
         self,
@@ -350,7 +350,7 @@ class SettingsDialog:
         if all(isinstance(v, str) for v in items):
             with ui.column().classes("w-full gap-1").style(self._ROW_STYLE):
                 with ui.row().classes("w-full items-center"):
-                    ui.label(f"{key}  ({len(items)} items)").classes(
+                    ui.label(f"{key}  ({t('items_count').format(count=len(items))})").classes(
                         "text-body2 text-weight-medium"
                     ).style("color: var(--color-text); flex: 1;")
                     if show_delete:
@@ -412,7 +412,7 @@ class SettingsDialog:
         field_names = list(items[0].keys())
         with ui.column().classes("w-full gap-1").style(self._ROW_STYLE):
             with ui.row().classes("w-full items-center"):
-                ui.label(f"{key}  ({len(items)} items)").classes(
+                ui.label(f"{key}  ({t('items_count').format(count=len(items))})").classes(
                     "text-body2 text-weight-medium"
                 ).style("color: var(--color-text); flex: 1;")
                 if show_delete:
@@ -639,7 +639,7 @@ class SettingsDialog:
                         ).style("color: var(--color-text);")
 
                         key_input = (
-                            ui.input(label="Key", placeholder="new_key")
+                            ui.input(label=t("key"), placeholder="new_key")
                             .props("dense outlined")
                             .classes("w-full")
                         )
@@ -647,14 +647,14 @@ class SettingsDialog:
                         type_select = (
                             ui.select(
                                 {
-                                    "str": "String",
-                                    "int": "Integer",
-                                    "float": "Float",
-                                    "bool": "Boolean",
-                                    "dict": "Section {}",
+                                    "str": t("string_type"),
+                                    "int": t("integer_type"),
+                                    "float": t("float_type"),
+                                    "bool": t("boolean_type"),
+                                    "dict": t("section_type"),
                                 },
                                 value="str",
-                                label="Type",
+                                label=t("type"),
                             )
                             .props("outlined")
                             .classes("w-full q-mt-sm")
@@ -677,7 +677,7 @@ class SettingsDialog:
                                 name = (ki.value or "").strip()
                                 if not name or name in dd:
                                     ui.notify(
-                                        "Key empty or already exists",
+                                        t("key_empty_or_exists"),
                                         type="warning",
                                     )
                                     return
@@ -710,7 +710,7 @@ class SettingsDialog:
                         "border: 1px dashed var(--card-border); "
                         "opacity: 0.7;"
                     )
-                    add_btn.tooltip("Add new item")
+                    add_btn.tooltip(t("add_new_item"))
 
     # ── Tab renderer ─────────────────────────────────────────────────
 
@@ -833,7 +833,7 @@ class SettingsDialog:
 
                         key_input = (
                             ui.input(
-                                label="Key",
+                                label=t("key"),
                                 placeholder="MY_ENV_VAR",
                             )
                             .props("dense outlined")
@@ -841,7 +841,7 @@ class SettingsDialog:
                         )
                         val_input = (
                             ui.input(
-                                label="Value",
+                                label=t("value"),
                                 placeholder=t("env_empty_hint"),
                             )
                             .props("dense outlined")
@@ -861,13 +861,13 @@ class SettingsDialog:
                                 name = (ki.value or "").strip()
                                 if not name:
                                     ui.notify(
-                                        "Key cannot be empty",
+                                        t("key_cannot_be_empty"),
                                         type="warning",
                                     )
                                     return
                                 if name in self.env_data:
                                     ui.notify(
-                                        f"'{name}' already exists",
+                                        t("name_already_exists").format(name=name),
                                         type="warning",
                                     )
                                     return
@@ -940,7 +940,7 @@ class SettingsDialog:
                     "color: var(--color-text-secondary); "
                     "opacity: 0.5; margin-left: 4px;"
                 )
-                del_btn.tooltip(f"Delete '{env_key}'")
+                del_btn.tooltip(t("delete_item").format(name=env_key))
 
         # Description hint (for predefined vars)
         if desc:

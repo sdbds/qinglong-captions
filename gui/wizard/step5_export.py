@@ -136,7 +136,7 @@ class ExportStep:
         await self.panel.run_job(
             "module.lanceexport",
             args,
-            name="Export",
+            name=t("job_name_export"),
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("export_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("export_failed"), type="negative"),

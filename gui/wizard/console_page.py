@@ -89,11 +89,11 @@ def render_console_page():
             back_btn.props("flat dense").style("color: var(--color-text-secondary);")
             back_btn.tooltip(t("close", "Close"))
 
-            ui.html('<span class="console-title"><span class="dot dot-green"></span>Console</span>')
+            ui.html(f'<span class="console-title"><span class="dot dot-green"></span>{t("console")}</span>')
 
         # 右侧: 自动滚动开关 + 清屏
         with ui.row().classes("items-center gap-3"):
-            scroll_switch = ui.switch("Auto Scroll", value=True).props("dense")
+            scroll_switch = ui.switch(t("auto_scroll"), value=True).props("dense")
             scroll_switch.style("color: var(--color-text); font-size: 12px;")
 
             def on_scroll_change(e):
@@ -102,7 +102,7 @@ def render_console_page():
 
             clear_btn = ui.button(icon="delete_sweep", on_click=lambda: log_container.clear())
             clear_btn.props("flat dense").style("color: var(--color-text-secondary);")
-            clear_btn.tooltip("Clear Screen")
+            clear_btn.tooltip(t("clear_screen"))
 
     # 终端区域 — 背景色与 log_viewer 保持一致
     scroll_area = ui.scroll_area().classes("w-full").style(

@@ -12,14 +12,15 @@ class PathSelector:
 
     def __init__(
         self,
-        label: str = "路径",
+        label: Optional[str] = None,
         default_path: str = "",
         selection_type: str = "file",
         file_filter: Optional[str] = None,
         on_change: Optional[Callable[[str], None]] = None,
-        placeholder: str = "点击选择路径...",
+        placeholder: Optional[str] = None,
     ):
-        self.label = label
+        self.label = label if label is not None else t("path")
+        self.placeholder = placeholder if placeholder is not None else t("path_click_select")
         self.selection_type = selection_type
         self.file_filter = file_filter
         self.on_change = on_change
@@ -28,11 +29,11 @@ class PathSelector:
             # 标签
             with ui.row().classes("items-center gap-2"):
                 ui.icon("folder_open", size="18px").style(f"color: {COLORS['primary']};")
-                ui.label(label).classes("text-caption text-weight-medium").style("color: var(--color-text);")
+                ui.label(self.label).classes("text-caption text-weight-medium").style("color: var(--color-text);")
 
             with ui.row().classes("w-full items-center gap-2"):
                 # 输入框 - 现代化面包屑样式
-                self.input = ui.input(value=default_path, placeholder=t("path_placeholder"))
+                self.input = ui.input(value=default_path, placeholder=self.placeholder)
                 self.input.classes("flex-grow modern-input path-input")
                 self.input.props("dense")
                 if on_change:
@@ -97,7 +98,7 @@ class PathSelector:
     def _copy_path(self):
         """复制路径到剪贴板"""
         ui.run_javascript(f"navigator.clipboard.writeText(`{self.input.value}`)")
-        ui.notify("✅ 路径已复制", type="positive")
+        ui.notify(t("path_copied"), type="positive")
 
     def _open_folder(self):
         """在文件管理器中打开文件夹"""
@@ -109,7 +110,7 @@ class PathSelector:
             path = path.parent
 
         if not path.exists():
-            ui.notify("⚠️ 路径不存在", type="warning")
+            ui.notify(t("path_not_found"), type="warning")
             return
 
         system = platform.system()
@@ -121,7 +122,7 @@ class PathSelector:
             else:
                 subprocess.run(["xdg-open", str(path)])
         except Exception as e:
-            ui.notify(f"❌ 打开失败: {e}", type="negative")
+            ui.notify(t("open_failed").format(error=e), type="negative")
 
     def _clear(self):
         """清空路径"""

@@ -152,7 +152,7 @@ class ImportStep:
         await self.panel.run_job(
             "module.lanceImport",
             args,
-            name="Import",
+            name=t("job_name_import"),
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("import_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("import_failed"), type="negative"),

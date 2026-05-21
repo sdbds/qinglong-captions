@@ -38,7 +38,7 @@ def _load_app_version() -> str:
 
 
 # 页面标题和样式
-APP_TITLE = "青龙字幕工具"
+APP_TITLE = t("app_title")
 APP_TITLE_EN = "Qinglong Captions"
 APP_VERSION = _load_app_version()
 
@@ -190,7 +190,7 @@ def create_header(job_drawer=None):
                 if job_drawer is not None:
                     job_btn = ui.button(icon="assignment", on_click=job_drawer.toggle).props("flat round dense")
                     job_btn.style("color: var(--ql-text-secondary);")
-                    job_btn.tooltip("任务列表")
+                    job_btn.tooltip(t("job_list_title"))
                     job_badge = ui.badge("0", color="red").props("floating").style("display: none;")
                     job_drawer.set_badge(job_badge)
 

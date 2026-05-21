@@ -258,7 +258,7 @@ def searchable_select(
     label_key: str = None,
     label_default: str = None,
     placeholder_key: str = None,
-    placeholder_default: str = "Search or select...",
+    placeholder_default: str = None,
     on_change: Callable = None,
     classes: str = "",
     style: str = "",
@@ -291,7 +291,12 @@ def searchable_select(
 
         # Enable search/filter functionality
         select.props('use-input fill-input hide-selected input-debounce="0" dropdown-icon="search"')
-        select.props(f'placeholder="{t(placeholder_key, placeholder_default)}"')
+        placeholder_text = (
+            t(placeholder_key, placeholder_default or t("search_or_select"))
+            if placeholder_key
+            else (placeholder_default or t("search_or_select"))
+        )
+        select.props(f'placeholder="{placeholder_text}"')
 
         def on_value_change(e):
             value_ref[value_key] = e.value
@@ -343,7 +348,7 @@ def styled_select(
     label: str = "",
     icon: str = "arrow_drop_down",
     icon_color: str = None,
-    placeholder: str = "Search or select...",
+    placeholder: str = None,
     on_change: Callable = None,
     flex: int = None,
     new_value_mode: str = None,
@@ -381,7 +386,8 @@ def styled_select(
 
         # 不使用 outlined，避免 Quasar 默认深色背景
         dropdown_icon = "search" if searchable else "arrow_drop_down"
-        props = f'dense stack-label dropdown-icon="{dropdown_icon}" placeholder="{placeholder}"'
+        placeholder_text = placeholder or t("search_or_select")
+        props = f'dense stack-label dropdown-icon="{dropdown_icon}" placeholder="{placeholder_text}"'
         if searchable:
             props += ' use-input fill-input hide-selected input-debounce="0"'
         if new_value_mode:

@@ -915,22 +915,22 @@ class CaptionStep:
     def _build_job_name(self) -> str:
         """构建 Job 显示名（包含主要 provider 信息）"""
         if self._codex_enabled():
-            return "Caption (Codex Subscription)"
+            return f"{t('job_name_caption')} ({t('codex_subscription')})"
         for api_name, config in self.API_CONFIGS.items():
             if config.get("is_openai_compatible"):
                 continue
             key_input = self.api_keys.get(config["key_name"])
             if key_input and key_input.value:
-                return f"Caption ({api_name})"
+                return f"{t('job_name_caption')} ({api_name})"
         if hasattr(self, "openai_base_url") and self.openai_base_url.value:
-            return "Caption (OpenAI-Compatible)"
+            return f"{t('job_name_caption')} (OpenAI-Compatible)"
         if self.ocr_model.value:
-            return f"Caption (OCR: {self.ocr_model.value})"
+            return f"{t('job_name_caption')} (OCR: {self.ocr_model.value})"
         if self.vlm_image_model.value:
-            return f"Caption (VLM: {self.vlm_image_model.value})"
+            return f"{t('job_name_caption')} (VLM: {self.vlm_image_model.value})"
         if self._current_alm_model():
-            return f"Caption (ALM: {self._current_alm_model()})"
-        return "Caption"
+            return f"{t('job_name_caption')} (ALM: {self._current_alm_model()})"
+        return t("job_name_caption")
 
     def _on_codex_auth_mode_change(self, auth_mode: Optional[str]) -> None:
         self.config["codex_auth_mode"] = auth_mode or "chatgpt"
@@ -939,25 +939,21 @@ class CaptionStep:
             container.set_visibility(self.config["codex_auth_mode"] == "api_key")
 
     def _render_codex_settings(self):
-        with ui.expansion("Codex Subscription").classes("w-full q-mb-md"):
+        with ui.expansion(t("codex_subscription")).classes("w-full q-mb-md"):
             with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
-                ui.label(
-                    "Use the Codex Python SDK app-server with a ChatGPT/Codex subscription session. "
-                    "API keys are only used when API key auth is explicitly selected."
-                ).classes("text-caption q-mb-sm").style("color: var(--color-text-secondary);")
+                ui.label(t("codex_subscription_desc")).classes("text-caption q-mb-sm").style("color: var(--color-text-secondary);")
 
                 toggle_switch(
-                    "codex_subscription",
+                    "use_codex_subscription",
                     self.config,
                     "codex_subscription",
-                    label_default="Use Codex subscription",
                 )
 
                 with ui.row().classes("w-full gap-4 q-mt-md"):
                     self.codex_backend = styled_select(
                         options=self.CODEX_BACKEND_OPTIONS,
                         value=self.config["codex_backend"],
-                        label="Codex backend",
+                        label=t("codex_backend"),
                         icon="hub",
                         icon_color=COLORS["primary"],
                         searchable=False,
@@ -966,7 +962,7 @@ class CaptionStep:
                     self.codex_auth_mode = styled_select(
                         options=self.CODEX_AUTH_MODE_OPTIONS,
                         value=self.config["codex_auth_mode"],
-                        label="Auth mode",
+                        label=t("codex_auth_mode"),
                         icon="account_circle",
                         icon_color=COLORS["info"],
                         searchable=False,
@@ -979,17 +975,17 @@ class CaptionStep:
                 with self._codex_api_key_container:
                     self.codex_api_key = styled_input(
                         value=self.config["codex_api_key"],
-                        label="Codex API key",
+                        label=t("codex_api_key"),
                         icon="key",
                         icon_color=COLORS["warning"],
-                        placeholder="Only used with API key auth; not subscription billing",
+                        placeholder=t("codex_api_key_placeholder"),
                         password=True,
                     )
 
                 with ui.row().classes("w-full gap-4 q-mt-md"):
                     self.codex_model_name = styled_input(
                         value=self.config["codex_model_name"],
-                        label="Codex model",
+                        label=t("codex_model"),
                         icon="smart_toy",
                         icon_color=COLORS["primary"],
                         placeholder="gpt-5.4-mini",
@@ -997,7 +993,7 @@ class CaptionStep:
                     )
                     self.codex_timeout = styled_input(
                         value=str(self.config["codex_timeout"]),
-                        label="Timeout seconds",
+                        label=t("codex_timeout_seconds"),
                         icon="timer",
                         icon_color=COLORS["info"],
                         placeholder="180",
@@ -1008,7 +1004,7 @@ class CaptionStep:
                     self.codex_sandbox = styled_select(
                         options=self.CODEX_SANDBOX_OPTIONS,
                         value=self.config["codex_sandbox"],
-                        label="Sandbox",
+                        label=t("codex_sandbox"),
                         icon="shield",
                         icon_color=COLORS["success"],
                         searchable=False,
@@ -1016,7 +1012,7 @@ class CaptionStep:
                     )
                     self.codex_max_concurrency = styled_input(
                         value=str(self.config["codex_max_concurrency"]),
-                        label="Max concurrency",
+                        label=t("codex_max_concurrency"),
                         icon="speed",
                         icon_color=COLORS["secondary"],
                         placeholder="1",
@@ -1029,50 +1025,50 @@ class CaptionStep:
                         label="CODEX_HOME",
                         icon="folder",
                         icon_color=COLORS["info"],
-                        placeholder="Optional",
+                        placeholder=t("optional"),
                         flex=1,
                     )
                     self.codex_runtime_path = styled_input(
                         value=self.config["codex_runtime_path"],
-                        label="Runtime path",
+                        label=t("codex_runtime_path"),
                         icon="terminal",
                         icon_color=COLORS["secondary"],
-                        placeholder="Optional Codex binary path",
+                        placeholder=t("codex_runtime_path_placeholder"),
                         flex=1,
                     )
 
                 with ui.row().classes("w-full gap-4 q-mt-md"):
                     self.codex_isolated_cwd = styled_input(
                         value=self.config["codex_isolated_cwd"],
-                        label="Isolated cwd",
+                        label=t("codex_isolated_cwd"),
                         icon="folder_special",
                         icon_color=COLORS["info"],
-                        placeholder="Optional",
+                        placeholder=t("optional"),
                         flex=1,
                     )
                     self.codex_output_schema = styled_input(
                         value=self.config["codex_output_schema"],
-                        label="Output schema",
+                        label=t("codex_output_schema"),
                         icon="data_object",
                         icon_color=COLORS["primary"],
-                        placeholder="Optional JSON schema path",
+                        placeholder=t("codex_output_schema_placeholder"),
                         flex=1,
                     )
 
                 with ui.row().classes("w-full gap-4 q-mt-md"):
                     self.codex_command = styled_input(
                         value=self.config["codex_command"],
-                        label="codex command",
+                        label=t("codex_command"),
                         icon="terminal",
                         icon_color=COLORS["secondary"],
-                        placeholder="Only used by exec backend",
+                        placeholder=t("codex_command_placeholder"),
                         flex=1,
                     )
                     toggle_switch(
                         "codex_auto_install_sdk",
                         self.config,
                         "codex_auto_install_sdk",
-                        label_default="Auto install SDK extra",
+                        label_default=t("codex_auto_install_sdk_extra"),
                     )
 
     def render(self):
@@ -1263,7 +1259,7 @@ class CaptionStep:
         # Base URL（必填）
         self.openai_base_url = styled_input(
             value="",
-            label="Base URL",
+            label=t("base_url"),
             icon="dns",
             icon_color=COLORS["info"],
             placeholder="http://localhost:8000/v1",
@@ -1272,7 +1268,7 @@ class CaptionStep:
         with ui.row().classes("w-full gap-4"):
             # API Key（可选）
             key_input = ui.input(
-                label=f"{api_name} API Key",
+                label=f"{api_name} {t('api_key')}",
                 placeholder=t("openai_no_key_hint"),
                 password=True,
             )
@@ -1355,7 +1351,7 @@ class CaptionStep:
                     label=t("alm_language"),
                     icon="translate",
                     icon_color=COLORS["primary"],
-                    placeholder="Select transcription language",
+                    placeholder=t("select_transcription_language"),
                     searchable=False,
                 )
             self._alm_language_container.set_visibility(False)
@@ -1367,7 +1363,7 @@ class CaptionStep:
                     label=t("audio_task"),
                     icon="subtitles",
                     icon_color=COLORS["primary"],
-                    placeholder="Select audio task",
+                    placeholder=t("select_audio_task"),
                     searchable=False,
                     on_change=self._handle_audio_task_change,
                 )

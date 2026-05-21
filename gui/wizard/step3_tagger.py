@@ -256,7 +256,7 @@ class TaggerStep:
         await self.panel.run_job(
             "utils.wdtagger",
             args,
-            name="Tagger (WD14)",
+            name=t("job_name_tagger"),
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("tagging_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("tagging_failed"), type="negative"),

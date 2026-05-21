@@ -2,6 +2,7 @@
 
 from nicegui import ui
 from gui.utils.job_manager import job_manager, JobStatus, Job
+from gui.utils.i18n import t
 from gui.theme import COLORS
 
 
@@ -14,12 +15,12 @@ _STATUS_ICON = {
     JobStatus.CANCELLED: ("cancel",       COLORS.get("warning", "var(--ql-warning)")),
 }
 
-_STATUS_LABEL = {
-    JobStatus.PENDING:   "等待中",
-    JobStatus.RUNNING:   "运行中",
-    JobStatus.SUCCESS:   "成功",
-    JobStatus.ERROR:     "失败",
-    JobStatus.CANCELLED: "已取消",
+_STATUS_LABEL_KEY = {
+    JobStatus.PENDING: "job_status_pending",
+    JobStatus.RUNNING: "job_status_running",
+    JobStatus.SUCCESS: "job_status_success",
+    JobStatus.ERROR: "job_status_error",
+    JobStatus.CANCELLED: "job_status_cancelled",
 }
 
 
@@ -54,11 +55,11 @@ class JobListDrawer:
             ):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("assignment", size="22px").style(f"color: {COLORS['primary']};")
-                    ui.label("任务列表").classes("text-subtitle1 text-weight-bold").style("color: var(--color-text);")
+                    ui.label(t("job_list_title")).classes("text-subtitle1 text-weight-bold").style("color: var(--color-text);")
 
                 # 清除已完成按钮
                 clear_btn = ui.button(icon="delete_sweep", on_click=self._clear_finished)
-                clear_btn.props('flat round dense').tooltip("清除已完成任务")
+                clear_btn.props('flat round dense').tooltip(t("job_list_clear_finished"))
                 clear_btn.style(f"color: {COLORS['accent']};")
 
             # Job 列表（可滚动）
@@ -78,7 +79,7 @@ class JobListDrawer:
             with self._job_list_container:
                 with ui.column().classes("w-full items-center q-pa-xl gap-3"):
                     ui.icon("inbox", size="48px").style("color: var(--ql-text-ghost);")
-                    ui.label("暂无任务").classes("text-body2").style("color: var(--ql-text-faint);")
+                    ui.label(t("job_list_empty")).classes("text-body2").style("color: var(--ql-text-faint);")
             return
 
         with self._job_list_container:
@@ -88,7 +89,7 @@ class JobListDrawer:
     def _render_job_card(self, job: Job):
         """渲染单个 Job 卡片"""
         icon_name, icon_color = _STATUS_ICON.get(job.status, ("help", "var(--ql-text-muted)"))
-        status_label = _STATUS_LABEL.get(job.status, str(job.status.value))
+        status_label = t(_STATUS_LABEL_KEY.get(job.status, ""), str(job.status.value))
         elapsed = job_manager.elapsed_str(job)
         is_active = job.status in (JobStatus.PENDING, JobStatus.RUNNING)
 
@@ -115,17 +116,17 @@ class JobListDrawer:
                 # 操作按钮
                 if is_active:
                     stop_btn = ui.button(icon="stop", on_click=lambda j=job: self._stop_job(j.id))
-                    stop_btn.props("flat round dense").tooltip("停止任务")
+                    stop_btn.props("flat round dense").tooltip(t("job_list_stop_task"))
                     stop_btn.style(f"color: {COLORS['error']};")
                 else:
                     remove_btn = ui.button(icon="delete", on_click=lambda j=job: self._remove_job(j.id))
-                    remove_btn.props("flat round dense").tooltip("移除记录")
+                    remove_btn.props("flat round dense").tooltip(t("job_list_remove_record"))
                     remove_btn.style("color: var(--ql-text-faint);")
 
     def _stop_job(self, job_id: str):
         """停止指定任务"""
         job_manager.cancel(job_id)
-        ui.notify("任务已停止", type="info")
+        ui.notify(t("job_stopped"), type="info")
 
     def _remove_job(self, job_id: str):
         """移除已完成的任务记录"""
@@ -138,7 +139,7 @@ class JobListDrawer:
             if job.status not in (JobStatus.PENDING, JobStatus.RUNNING):
                 job_manager.remove_job(job.id)
         self._render_job_list()
-        ui.notify("已清除完成任务", type="positive")
+        ui.notify(t("job_finished_cleared"), type="positive")
 
     def _deactivate_timer(self):
         """页面断连时停止定时器"""

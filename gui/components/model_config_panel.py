@@ -359,7 +359,7 @@ class ModelConfigPanel:
                 "color: var(--color-text-secondary); min-width: 160px; flex-shrink: 0;"
             )
             inp = (
-                ui.input(value=value, placeholder="HuggingFace repo ID...")
+                ui.input(value=value, placeholder=t("hf_repo_id_placeholder"))
                 .classes("flex-1")
                 .props(f'dense outlined list="{dl_id}"')
                 .style("font-size: 13px; font-family: monospace;")
@@ -393,7 +393,7 @@ class ModelConfigPanel:
                 .classes("flex-1 modern-select force-light-bg")
                 .props(
                     'dense use-input fill-input hide-selected clearable '
-                    'dropdown-icon="search" placeholder="Search product model..."'
+                    f'dropdown-icon="search" placeholder="{t("search_product_model")}"'
                 )
                 .style("font-size: 13px;")
             )
@@ -406,7 +406,7 @@ class ModelConfigPanel:
                 "color: var(--color-text-secondary); min-width: 160px; flex-shrink: 0;"
             )
             model_id_inp = (
-                ui.input(value=model_id_value, placeholder="HuggingFace repo ID...")
+                ui.input(value=model_id_value, placeholder=t("hf_repo_id_placeholder"))
                 .classes("flex-1")
                 .props(f'dense outlined list="{dl_id}"')
                 .style("font-size: 13px; font-family: monospace;")

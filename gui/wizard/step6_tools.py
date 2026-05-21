@@ -1266,7 +1266,7 @@ class ToolsStep:
         await panel.run_job(
             "module.see_through.cli",
             args,
-            name="See-through",
+            name=t("job_name_see_through"),
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("see_through_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("see_through_failed"), type="negative"),
@@ -1315,7 +1315,7 @@ class ToolsStep:
         await panel.run_job(
             "module.texttranslate",
             args,
-            name="Translate",
+            name=t("job_name_translate"),
             runner_kwargs={"uv_extra": "translate"},
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("translate_success"), type="positive"),
@@ -1347,7 +1347,7 @@ class ToolsStep:
         await panel.run_job(
             "module.waterdetect",
             args,
-            name="Watermark",
+            name=t("job_name_watermark"),
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("watermark_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("watermark_failed"), type="negative"),
@@ -1395,7 +1395,7 @@ class ToolsStep:
         await panel.run_job(
             "utils.preprocess_datasets",
             args,
-            name="Preprocess",
+            name=t("job_name_preprocess"),
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("preprocess_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("preprocess_failed"), type="negative"),
@@ -1424,7 +1424,7 @@ class ToolsStep:
         await panel.run_job(
             "module.rewardmodel",
             args,
-            name="Reward",
+            name=t("job_name_reward"),
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("scoring_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("scoring_failed"), type="negative"),
@@ -1471,7 +1471,7 @@ class ToolsStep:
         await panel.run_job(
             "module.audio_separator",
             args,
-            name="Audio Separator",
+            name=t("job_name_audio_separator"),
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("audio_separator_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("audio_separator_failed"), type="negative"),

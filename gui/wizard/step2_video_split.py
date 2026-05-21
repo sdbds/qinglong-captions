@@ -211,7 +211,7 @@ class VideoSplitStep:
         await self.panel.run_job(
             "module.videospilter",
             args,
-            name="Video Split",
+            name=t("job_name_video_split"),
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("split_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("split_failed"), type="negative"),
