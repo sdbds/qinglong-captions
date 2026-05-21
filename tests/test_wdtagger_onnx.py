@@ -193,3 +193,54 @@ def test_wdtagger_finalize_args_infers_cl_tagger_v2_threshold(monkeypatch, tmp_p
 
     legacy_args = wdtagger.finalize_args(parser.parse_args(["./datasets"]))
     assert legacy_args.thresh == 0.35
+
+
+def test_wdtagger_get_tags_official_preserves_dynamic_categories(monkeypatch, tmp_path):
+    sys.modules.pop("utils.wdtagger", None)
+
+    fake_torch = types.ModuleType("torch")
+    fake_cv2 = types.ModuleType("cv2")
+    fake_lance = types.ModuleType("lance")
+    fake_ort = types.ModuleType("onnxruntime")
+    fake_hf = types.ModuleType("huggingface_hub")
+    fake_lance_import = types.ModuleType("module.lanceImport")
+
+    fake_hf.hf_hub_download = lambda **kwargs: str(tmp_path / kwargs["filename"])
+    fake_lance_import.transform2lance = lambda *args, **kwargs: None
+
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
+    monkeypatch.setitem(sys.modules, "lance", fake_lance)
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+    monkeypatch.setitem(sys.modules, "module.lanceImport", fake_lance_import)
+
+    wdtagger = importlib.import_module("utils.wdtagger")
+    labels = wdtagger.LabelData(
+        names=["1girl", "unclassified_tag"],
+        category_indices={
+            "general": np.array([0], dtype=np.int64),
+            "unknown": np.array([1], dtype=np.int64),
+        },
+        tag_index_to_category={0: "general", 1: "unknown"},
+    )
+
+    result = wdtagger.get_tags_official(
+        np.array([0.9, 0.95], dtype=np.float32),
+        labels,
+        gen_threshold=0.5,
+        char_threshold=0.5,
+        use_rating_tags=False,
+        use_quality_tags=False,
+        use_model_tags=False,
+    )
+
+    assert result["general"] == [("1girl", float(np.float32(0.9)))]
+    assert result["unknown"] == [("unclassified_tag", float(np.float32(0.95)))]
+
+    tags_json = wdtagger.assemble_tags_json(
+        result,
+        add_tags_threshold=False,
+        remove_parents_tag=False,
+    )
+    assert tags_json["unknown"] == ["unclassified_tag"]

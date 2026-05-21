@@ -270,7 +270,7 @@ def get_tags_official(
                 confidence = category_probs[best_local_idx]
                 global_idx = valid_indices[best_local_idx]
                 tag_name = tag_names[global_idx]
-                result[category_name].append((tag_name, float(confidence)))
+                result.setdefault(category_name, []).append((tag_name, float(confidence)))
 
     # --- Above-threshold categories (general, character, etc.) ---
     # Dynamically create the map from the available categories in LabelData
@@ -301,7 +301,7 @@ def get_tags_official(
                 if idx < len(tag_names) and tag_names[idx] is not None:
                     tag_name = tag_names[idx]
                     confidence = probs[idx]
-                    result[category_name].append((tag_name, float(confidence)))
+                    result.setdefault(category_name, []).append((tag_name, float(confidence)))
 
     # Sort all results by confidence
     for k in result:
@@ -712,7 +712,7 @@ def assemble_tags_json(
     category_to_tags: Dict[str, List[str]] = {}
     flat_tags_set: set = set()  # for parent removal
 
-    all_categories = [
+    base_categories = [
         "rating",
         "general",
         "character",
@@ -722,6 +722,7 @@ def assemble_tags_json(
         "quality",
         "model",
     ]
+    all_categories = base_categories + sorted(category for category in tags_result if category not in base_categories)
 
     for category in all_categories:
         tags_with_conf = tags_result.get(category, [])
