@@ -15,8 +15,9 @@ from utils.lance_blob import take_blob_files
 
 
 class NewSignatureDataset:
-    def take_blobs(self, blob_column, ids=None):
-        return [f"{blob_column}:{row_id}" for row_id in ids]
+    def take_blobs(self, blob_column, ids=None, addresses=None, indices=None):
+        values = indices if indices is not None else ids if ids is not None else addresses
+        return [f"{blob_column}:{row_id}" for row_id in values]
 
 
 class OldSignatureDataset:
@@ -26,6 +27,10 @@ class OldSignatureDataset:
 
 def test_take_blob_files_supports_new_signature():
     assert take_blob_files(NewSignatureDataset(), [1, 2], "blob") == ["blob:1", "blob:2"]
+
+
+def test_take_blob_files_supports_new_signature_ids():
+    assert take_blob_files(NewSignatureDataset(), ids=[5, 6], blob_column="blob") == ["blob:5", "blob:6"]
 
 
 def test_take_blob_files_supports_legacy_signature():

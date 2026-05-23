@@ -15,8 +15,8 @@ from config.config import get_supported_extensions
 from module.lanceImport import transform2lance
 from module.lanceexport import save_caption
 from module.providers.local_llm.hy_mt import HYMTProvider
-from utils.lance_blob import take_blob_files
 from utils.doc_normalize import NormalizationError, normalize_asset
+from utils.lance_blob import build_lance_value_array, take_blob_files
 from utils.lance_utils import build_version_tag, get_latest_version_number, sanitize_tag_component, update_or_create_tag
 from utils.text_chunker import compute_chunk_offsets, slice_by_offsets
 
@@ -114,7 +114,7 @@ def build_record_batch(
             arrays.append(pa.array(chunk_offsets, type=field.type))
         elif field.name == "blob":
             values = blob_values if blob_values is not None else [None] * len(batch)
-            arrays.append(pa.array(values, type=field.type))
+            arrays.append(build_lance_value_array(values, field))
         elif field.name in batch_field_names:
             arrays.append(batch.column(field.name))
         else:
@@ -352,7 +352,13 @@ def normalize_dataset(
                 row_offset += len(batch)
 
     reader = pa.RecordBatchReader.from_batches(target_schema, batches())
-    dataset = lance.write_dataset(reader, str(dataset_path), target_schema, mode="overwrite")
+    dataset = lance.write_dataset(
+        reader,
+        str(dataset_path),
+        target_schema,
+        mode="overwrite",
+        data_storage_version=getattr(source_ds, "data_storage_version", None),
+    )
     update_or_create_tag(dataset, norm_tag)
 
 

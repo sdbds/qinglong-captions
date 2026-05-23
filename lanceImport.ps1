@@ -6,6 +6,7 @@ $no_save_binary = $false # Don't save binary data | 不保存二进制数据
 $not_save_disk = $false # Load into memory only | 仅加载到内存
 $import_mode = 0 # Video import mode: 0=All, 1=Video only, 2=Audio only, 3=Split | 视频导入模式
 $tag = "gemini" # Dataset tag | 数据集标签
+$data_storage_version = "2.2" # Lance storage format; 2.2+ uses Blob v2 | Lance 存储格式，2.2+ 使用 Blob v2
 
 # Activate virtual environment
 Set-Location $PSScriptRoot
@@ -38,6 +39,7 @@ if ($no_save_binary) { $args += "--no_save_binary" }
 if ($not_save_disk) { $args += "--not_save_disk" }
 $args += "--import_mode=$import_mode"
 $args += "--tag=$tag"
+$args += "--data_storage_version=$data_storage_version"
 
 python -m module.lanceImport @args
 

@@ -12,6 +12,12 @@ import pyarrow as pa
 from rich.console import Console
 
 from utils.console_util import print_exception
+from utils.lance_blob import (
+    DEFAULT_BLOB_DATA_STORAGE_VERSION,
+    build_lance_schema,
+    build_lance_value_array,
+    is_blob_v2_field,
+)
 from utils.lance_utils import build_version_tag, update_or_create_tag
 from utils.rich_progress import create_caption_progress
 from .model_manager import SeeThroughModelManager
@@ -99,15 +105,9 @@ def backup_input_dataset_to_lance(
     dataset_path = Path(input_dir) / f"{BACKUP_DATASET_NAME}.lance"
     backup_tag = build_version_tag("raw", "see_through", "backup")
 
-    schema = pa.schema(
-        [
-            pa.field(
-                name,
-                pa_type,
-                metadata={b"lance-encoding:blob": b"true"} if name == "blob" else None,
-            )
-            for name, pa_type in DATASET_SCHEMA
-        ]
+    schema = build_lance_schema(
+        DATASET_SCHEMA,
+        data_storage_version=DEFAULT_BLOB_DATA_STORAGE_VERSION,
     )
 
     processor = FileProcessor()
@@ -131,7 +131,9 @@ def backup_input_dataset_to_lance(
                     raise RuntimeError(f"Failed to read source for Lance backup: {source_path}")
 
                 arrays = []
-                for field_name, field_type in DATASET_SCHEMA:
+                for field in schema:
+                    field_name = field.name
+                    field_type = field.type
                     if field_name == "filepath":
                         value = str(Path(source_path).absolute())
                     elif field_name == "captions":
@@ -140,6 +142,8 @@ def backup_input_dataset_to_lance(
                         value = []
                     else:
                         value = getattr(metadata, field_name)
+                        if field_name == "blob" and is_blob_v2_field(field) and value == b"":
+                            value = None
                         if value is None:
                             if pa.types.is_integer(field_type):
                                 value = 0
@@ -149,7 +153,7 @@ def backup_input_dataset_to_lance(
                                 value = False
                             elif pa.types.is_string(field_type):
                                 value = ""
-                    arrays.append(pa.array([value], type=field_type))
+                    arrays.append(build_lance_value_array([value], field))
 
                 yield pa.RecordBatch.from_arrays(
                     arrays,
@@ -159,7 +163,13 @@ def backup_input_dataset_to_lance(
                 progress.update(task_id, advance=1)
 
     reader = pa.RecordBatchReader.from_batches(schema, _iter_batches())
-    dataset = lance.write_dataset(reader, str(dataset_path), schema, mode="overwrite")
+    dataset = lance.write_dataset(
+        reader,
+        str(dataset_path),
+        schema,
+        mode="overwrite",
+        data_storage_version=DEFAULT_BLOB_DATA_STORAGE_VERSION,
+    )
     version = update_or_create_tag(dataset, backup_tag)
     if log_ready:
         resolved_console.print(

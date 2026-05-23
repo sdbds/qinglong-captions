@@ -52,6 +52,12 @@ from config.config import (
     get_supported_extensions,
 )
 from utils.console_util import print_exception
+from utils.lance_blob import (
+    DEFAULT_BLOB_DATA_STORAGE_VERSION,
+    build_lance_schema,
+    build_lance_value_array,
+    is_blob_v2_field,
+)
 from utils.lance_utils import update_or_create_tag
 
 console = Console(color_system="truecolor", force_terminal=True)
@@ -574,6 +580,7 @@ def process(
     data: List[Dict[str, Any]],
     save_binary: bool = True,
     import_mode: VideoImportMode = VideoImportMode.ALL,
+    schema: Optional[pa.Schema] = None,
 ) -> pa.RecordBatch:
     """
     Process image-caption pairs into Lance format.
@@ -591,6 +598,10 @@ def process(
         A PyArrow RecordBatch containing the processed data.
     """
     processor = FileProcessor()
+    target_schema = schema or build_lance_schema(
+        DATASET_SCHEMA,
+        data_storage_version="2.1",
+    )
 
     with Progress(
         "[progress.description]{task.description}",
@@ -654,18 +665,20 @@ def process(
                 continue
 
             # Get field names and create arrays
-            field_names = [field[0] for field in DATASET_SCHEMA]
             arrays = []
-            for field_name, field_type in DATASET_SCHEMA:
+            for field in target_schema:
+                field_name = field.name
+                field_type = field.type
                 if field_name == "filepath":
                     value = str(Path(file_path).absolute())
-                    array = pa.array([value], type=field_type)
                 elif field_name == "captions":
-                    array = pa.array([caption], type=field_type)
+                    value = caption
                 elif field_name in item:
-                    array = pa.array([item[field_name]], type=field_type)
+                    value = item[field_name]
                 elif field_name == "blob":
-                    array = pa.array([getattr(metadata, field_name)], type=field_type)
+                    value = getattr(metadata, field_name)
+                    if is_blob_v2_field(field) and value == b"":
+                        value = None
                 else:
                     value = getattr(metadata, field_name)
                     # Convert None to appropriate default value based on type
@@ -678,12 +691,12 @@ def process(
                             value = False
                         elif pa.types.is_string(field_type):
                             value = ""
-                    array = pa.array([value], type=field_type)
+                array = build_lance_value_array([value], field)
                 arrays.append(array)
 
             batch = pa.RecordBatch.from_arrays(
                 arrays,
-                names=field_names,
+                schema=target_schema,
             )
 
             yield batch
@@ -700,6 +713,7 @@ def transform2lance(
     tag: str = "gemini",
     load_condition: Callable[..., List[Dict[str, Any]]] = load_data,
     include_text_assets: bool = True,
+    data_storage_version: str = DEFAULT_BLOB_DATA_STORAGE_VERSION,
 ) -> Optional[lance.LanceDataset]:
     """
     Transform dataset assets into Lance format.
@@ -709,28 +723,17 @@ def transform2lance(
     except TypeError:
         data = load_condition(dataset_dir, caption_dir)
 
-    schema = pa.schema(
-        [
-            pa.field(
-                name,
-                pa_type,
-                metadata={b"lance-encoding:blob": b"true"} if name == "blob" else None,
-            )
-            for name, pa_type in DATASET_SCHEMA
-        ]
-    )
-
     try:
-        reader = pa.RecordBatchReader.from_batches(schema, process(data, save_binary, import_mode))
-
         dataset_path = Path(dataset_dir) / f"{output_name}.lance"
-        mode = "append" if dataset_path.exists() and not not_save_disk else "create"
+        schema = build_lance_schema(DATASET_SCHEMA, data_storage_version=data_storage_version)
+        reader = pa.RecordBatchReader.from_batches(schema, process(data, save_binary, import_mode, schema=schema))
 
         lancedataset = lance.write_dataset(
             reader,
             str(dataset_path),
             schema,
-            mode=mode if not_save_disk else "overwrite",
+            mode="create" if not_save_disk else "overwrite",
+            data_storage_version=data_storage_version,
         )
         update_or_create_tag(lancedataset, tag)
         return lancedataset
@@ -759,6 +762,12 @@ def setup_parser() -> argparse.ArgumentParser:
         "--not_save_disk",
         action="store_true",
         help="Load dataset into memory instead of saving to disk",
+    )
+    parser.add_argument(
+        "--data_storage_version",
+        type=str,
+        default=DEFAULT_BLOB_DATA_STORAGE_VERSION,
+        help="Lance data storage version for newly written datasets (default: 2.2 for Blob v2)",
     )
     parser.add_argument(
         "--import_mode",
@@ -802,4 +811,5 @@ if __name__ == "__main__":
         import_mode=VideoImportMode.from_int(args.import_mode),
         tag=args.tag,
         include_text_assets=args.include_text_assets,
+        data_storage_version=args.data_storage_version,
     )
