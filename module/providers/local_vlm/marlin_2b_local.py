@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+import tempfile
 import time
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -50,15 +53,19 @@ class Marlin2BLocalProvider(LocalVLMProvider):
     default_model_id = "NemoStation/Marlin-2B"
     capabilities = ProviderCapabilities(
         supports_streaming=False,
-        supports_images=False,
+        supports_images=True,
         supports_video=True,
     )
 
     @classmethod
     def can_handle(cls, args: Any, mime: str) -> bool:
-        return getattr(args, "vlm_image_model", "") == "marlin_2b_local" and mime.startswith("video")
+        return getattr(args, "vlm_image_model", "") == "marlin_2b_local" and (
+            mime.startswith("video") or mime.startswith("image")
+        )
 
     def prepare_media(self, uri: str, mime: str, args: Any) -> MediaContext:
+        if mime.startswith("image"):
+            self._register_optional_image_decoders()
         media = super().prepare_media(uri, mime, args)
         if not mime.startswith("video"):
             return media
@@ -166,6 +173,10 @@ class Marlin2BLocalProvider(LocalVLMProvider):
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         start_time = time.time()
+        task = self._resolve_task()
+
+        if media.mime.startswith("image") and task == "find":
+            raise RuntimeError("MARLIN2B_FIND_REQUIRES_VIDEO: temporal grounding is only available for video media.")
 
         if self.get_runtime_backend().is_openai:
             result = self.attempt_via_openai_backend(
@@ -174,7 +185,7 @@ class Marlin2BLocalProvider(LocalVLMProvider):
                 user_prompt=self._runtime_prompt(prompts),
             )
             output = self._parse_runtime_output(result.raw)
-            if self._resolve_task() == "find":
+            if task == "find":
                 payload = self._normalize_find_payload(output, self._resolve_find_event(prompts))
             else:
                 payload = self._normalize_caption_payload(output)
@@ -192,20 +203,18 @@ class Marlin2BLocalProvider(LocalVLMProvider):
         model = cached["model"]
         torch = cached["torch"]
 
-        task = self._resolve_task()
-        video_path = str(Path(media.uri).resolve())
-
-        with torch.inference_mode():
-            if task == "find":
-                event = self._resolve_find_event(prompts)
-                output = self._call_find(model, video_path, event)
-                payload = self._normalize_find_payload(output, event)
-            else:
-                output = self._call_caption(model, video_path, prompts)
-                payload = self._normalize_caption_payload(output)
+        with self._local_caption_input_path(media) as input_path:
+            with torch.inference_mode():
+                if task == "find":
+                    event = self._resolve_find_event(prompts)
+                    output = self._call_find(model, input_path, event)
+                    payload = self._normalize_find_payload(output, event)
+                else:
+                    output = self._call_caption(model, input_path, prompts)
+                    payload = self._normalize_caption_payload(output)
 
         elapsed_time = time.time() - start_time
-        self.log(f"Marlin 2B video analysis took: {elapsed_time:.2f} seconds", "blue")
+        self.log(f"Marlin 2B media analysis took: {elapsed_time:.2f} seconds", "blue")
 
         description = str(payload.get("description") or payload.get("caption") or payload.get("raw") or "").strip()
         if description:
@@ -221,6 +230,70 @@ class Marlin2BLocalProvider(LocalVLMProvider):
                 "runtime_loader": str(cached.get("model_loader") or ""),
             },
         )
+
+    @contextmanager
+    def _local_caption_input_path(self, media: MediaContext):
+        if not media.mime.startswith("image"):
+            yield str(Path(media.uri).resolve())
+            return
+
+        with tempfile.TemporaryDirectory(prefix="marlin_2b_image_") as tmp_dir:
+            video_path = Path(tmp_dir) / "still-image.mp4"
+            self._write_image_as_video(media.uri, video_path)
+            yield str(video_path)
+
+    def _write_image_as_video(self, image_uri: str, output_path: Path) -> None:
+        from PIL import Image
+        import imageio_ffmpeg
+
+        self._register_optional_image_decoders()
+        source_path = Path(image_uri)
+        frame_path = output_path.with_suffix(".png")
+        with Image.open(source_path) as image:
+            image.convert("RGB").save(frame_path, format="PNG")
+
+        duration = max(0.1, _coerce_float(self.model_config.get("image_video_seconds"), 1.0))
+        cmd = [
+            imageio_ffmpeg.get_ffmpeg_exe(),
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-loop",
+            "1",
+            "-i",
+            str(frame_path),
+            "-t",
+            f"{duration:.3f}",
+            "-r",
+            "1",
+            "-vf",
+            "pad=ceil(iw/2)*2:ceil(ih/2)*2,format=yuv420p",
+            "-an",
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        if result.returncode != 0:
+            detail = result.stderr.decode("utf-8", errors="replace").strip() or "unknown ffmpeg error"
+            raise RuntimeError(f"MARLIN2B_IMAGE_VIDEO_ENCODE_FAILED: {detail}") from None
+        if not output_path.exists():
+            raise RuntimeError("MARLIN2B_IMAGE_VIDEO_ENCODE_FAILED: ffmpeg did not create output video.")
+
+    @staticmethod
+    def _register_optional_image_decoders() -> None:
+        try:
+            import pillow_jxl  # noqa: F401
+        except ImportError:
+            pass
+
+        try:
+            from pillow_heif import register_heif_opener
+
+            register_heif_opener()
+        except ImportError:
+            pass
 
     def _resolve_task(self) -> str:
         raw_task = str(self.model_config.get("task", self.model_config.get("mode", "caption")) or "").strip().lower()

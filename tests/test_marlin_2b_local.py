@@ -43,6 +43,16 @@ def _video_media(video_path: Path) -> MediaContext:
     )
 
 
+def _image_media(image_path: Path, *, mime: str = "image/avif") -> MediaContext:
+    return MediaContext(
+        uri=str(image_path),
+        mime=mime,
+        sha256hash="",
+        modality=MediaModality.IMAGE,
+        blob="image-blob",
+    )
+
+
 def test_marlin_2b_model_toml_defaults():
     model_config = tomllib.loads((ROOT / "config" / "model.toml").read_text(encoding="utf-8"))
     marlin = model_config["marlin_2b_local"]
@@ -53,11 +63,12 @@ def test_marlin_2b_model_toml_defaults():
     assert marlin["model_list"]["Marlin 2B"]["meta"]["min_vram_gb"] == 6
 
 
-def test_marlin_2b_can_handle_video_only():
+def test_marlin_2b_can_handle_video_and_image():
     args = make_provider_args(vlm_image_model="marlin_2b_local")
 
     assert Marlin2BLocalProvider.can_handle(args, "video/mp4") is True
-    assert Marlin2BLocalProvider.can_handle(args, "image/jpeg") is False
+    assert Marlin2BLocalProvider.can_handle(args, "image/jpeg") is True
+    assert Marlin2BLocalProvider.can_handle(args, "image/avif") is True
 
 
 def test_marlin_2b_prepare_media_rejects_over_limit(tmp_path, monkeypatch):
@@ -73,6 +84,22 @@ def test_marlin_2b_prepare_media_rejects_over_limit(tmp_path, monkeypatch):
         assert "MARLIN2B_VIDEO_TOO_LONG" in str(exc)
     else:
         raise AssertionError("Expected long Marlin videos to be rejected before model inference")
+
+
+def test_marlin_2b_prepare_media_registers_image_decoders(tmp_path, monkeypatch):
+    image_path = tmp_path / "sample.avif"
+    image_path.write_bytes(b"image")
+    provider = _make_provider(args=make_provider_args(vlm_image_model="marlin_2b_local"))
+    called = []
+
+    monkeypatch.setattr(provider, "_register_optional_image_decoders", lambda: called.append(True))
+    monkeypatch.setattr("module.providers.local_vlm_base.encode_image_to_blob", lambda *args, **kwargs: ("blob", "pixels"))
+
+    media = provider.prepare_media(str(image_path), "image/avif", provider.ctx.args)
+
+    assert called == [True]
+    assert media.blob == "blob"
+    assert media.pixels == "pixels"
 
 
 def test_marlin_2b_caption_uses_canonical_prompt_by_default(tmp_path, monkeypatch):
@@ -107,6 +134,87 @@ def test_marlin_2b_caption_uses_canonical_prompt_by_default(tmp_path, monkeypatc
     assert result.parsed["provider"] == "marlin_2b_local"
     assert result.parsed["events"][0]["start"] == 0.0
     assert result.raw.startswith("Scene: room")
+
+
+def test_marlin_2b_caption_wraps_image_as_temporary_video(tmp_path, monkeypatch):
+    image_path = tmp_path / "sample.avif"
+    image_path.write_bytes(b"image")
+    provider = _make_provider(args=make_provider_args(vlm_image_model="marlin_2b_local"))
+    captured = {}
+
+    def fake_write_image_as_video(image_uri, output_path):
+        captured["image_uri"] = image_uri
+        Path(output_path).write_bytes(b"video")
+
+    class FakeModel:
+        def caption(self, path, **kwargs):
+            captured["path"] = path
+            captured["exists_during_caption"] = Path(path).exists()
+            return {"caption": "single frame caption", "scene": "", "events": []}
+
+    fake_torch = SimpleNamespace(inference_mode=lambda: nullcontext())
+    monkeypatch.setattr(provider, "_write_image_as_video", fake_write_image_as_video)
+    monkeypatch.setattr(
+        provider,
+        "_get_or_load_model",
+        lambda: {"model": FakeModel(), "torch": fake_torch, "model_loader": "FakeLoader"},
+    )
+
+    result = provider.attempt(_image_media(image_path), PromptContext(system="system", user="caption this image"))
+
+    assert captured["image_uri"] == str(image_path)
+    assert captured["path"].endswith(".mp4")
+    assert captured["exists_during_caption"] is True
+    assert result.raw == "single frame caption"
+
+
+def test_marlin_2b_find_rejects_image_media(tmp_path, monkeypatch):
+    image_path = tmp_path / "sample.avif"
+    image_path.write_bytes(b"image")
+    provider = _make_provider(
+        config={"marlin_2b_local": {"task": "find", "find_event": "person enters"}},
+        args=make_provider_args(vlm_image_model="marlin_2b_local"),
+    )
+    monkeypatch.setattr(
+        provider,
+        "_get_or_load_model",
+        lambda: (_ for _ in ()).throw(AssertionError("image find should reject before model load")),
+    )
+
+    try:
+        provider.attempt(_image_media(image_path), PromptContext(system="", user="ignored"))
+    except RuntimeError as exc:
+        assert "MARLIN2B_FIND_REQUIRES_VIDEO" in str(exc)
+    else:
+        raise AssertionError("Expected Marlin temporal grounding to reject image media")
+
+
+def test_marlin_2b_find_rejects_image_media_before_openai_runtime(tmp_path, monkeypatch):
+    image_path = tmp_path / "sample.avif"
+    image_path.write_bytes(b"image")
+    provider = _make_provider(
+        config={"marlin_2b_local": {"task": "find", "find_event": "person enters"}},
+        args=make_provider_args(vlm_image_model="marlin_2b_local"),
+    )
+    monkeypatch.setattr(
+        provider,
+        "get_runtime_backend",
+        lambda: SimpleNamespace(is_openai=True, mode="openai", model_id="runtime/marlin"),
+    )
+    monkeypatch.setattr(
+        provider,
+        "attempt_via_openai_backend",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("image find should reject before OpenAI runtime")
+        ),
+    )
+
+    try:
+        provider.attempt(_image_media(image_path), PromptContext(system="", user="ignored"))
+    except RuntimeError as exc:
+        assert "MARLIN2B_FIND_REQUIRES_VIDEO" in str(exc)
+    else:
+        raise AssertionError("Expected Marlin temporal grounding to reject image media")
 
 
 def test_marlin_2b_caption_allows_configured_prompt_override(tmp_path, monkeypatch):

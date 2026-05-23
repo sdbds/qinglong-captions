@@ -266,6 +266,14 @@ class TestFindProvider:
         provider = reg.find_provider(args, "video/mp4")
         assert provider is not None and provider.name == "marlin_2b_local"
 
+    def test_marlin_2b_local_image_avif(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(vlm_image_model="marlin_2b_local")
+        provider = reg.find_provider(args, "image/avif")
+        assert provider is not None and provider.name == "marlin_2b_local"
+
     def test_music_flamingo_local_audio(self):
         from providers.registry import get_registry
 
