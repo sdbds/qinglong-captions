@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -43,10 +44,16 @@ _PROGRESS_BYTES_RE = re.compile(
     re.IGNORECASE,
 )
 _PROGRESS_TIME_RE = re.compile(r"(?:\b(?:\d+:)?\d{1,2}:\d{2}\b|-:--:--|-:--)")
+_PROGRESS_VERB_RE = re.compile(
+    r"\b(?:building|built|checking|compiling|downloading|fetching|installing|loading|preparing|resolving|syncing)\b",
+    re.IGNORECASE,
+)
 _LEADING_NON_SGR_ANSI_RE = re.compile(
     r"^(?:(?:\x1b\[[0-9;?]*[A-LN-Za-ln-z])|(?:\x1b\][^\x07]*\x07))+"
 )
 _LEADING_BARE_CSI_RE = re.compile(r"^(?:\[[0-9;?]*[A-LN-Za-ln-z])+")
+_STREAM_READ_CHUNK_SIZE = 4096
+_STREAM_PROGRESS_HEARTBEAT_SECONDS = 8.0
 _UV_TORCH_EXTRAS = frozenset(
     {
         "translate",
@@ -71,6 +78,7 @@ _UV_TORCH_EXTRAS = frozenset(
         "penguin-vl-local",
         "reka-edge-local",
         "gemma4-local",
+        "marlin-2b-local",
         "lfm-vl-local",
         "music-flamingo-local",
         "eureka-audio-local",
@@ -256,6 +264,8 @@ class ProcessRunner:
         self._tail_pending_cr = False
         self._tail_line_overwritten = False
         self._task_divider_emitted = False
+        self._last_stream_progress_text = ""
+        self._last_stream_progress_at = 0.0
 
     def set_callbacks(
         self,
@@ -628,6 +638,11 @@ class ProcessRunner:
         self._tail_pending_cr = False
         self._tail_line_overwritten = False
 
+    def _reset_stream_progress_state(self):
+        """重置流式进度快照节流状态。"""
+        self._last_stream_progress_text = ""
+        self._last_stream_progress_at = 0.0
+
     @staticmethod
     def _is_transient_console_update(line: str) -> bool:
         """判断是否为仅用于终端刷新的瞬时进度帧。"""
@@ -669,6 +684,63 @@ class ProcessRunner:
         if not raw:
             return
         self._log_buffer.push(raw)
+
+    @staticmethod
+    def _clean_progress_snapshot(raw: str) -> str:
+        normalized = _LEADING_NON_SGR_ANSI_RE.sub("", raw)
+        normalized = _LEADING_BARE_CSI_RE.sub("", normalized)
+        plain = strip_ansi(normalized).strip()
+        plain = _LEADING_BARE_CSI_RE.sub("", plain).strip()
+        if plain and plain[0] in _TRANSIENT_SPINNER_FRAMES:
+            plain = plain[1:].strip()
+        return re.sub(r"\s+", " ", plain)
+
+    @classmethod
+    def _extract_progress_snapshot(cls, text: str) -> Optional[str]:
+        """从终端刷新片段中提取一条可读进度，避免 GUI 长时间无声。"""
+        best = ""
+        for raw in text.replace("\r\n", "\n").replace("\r", "\n").splitlines():
+            plain = cls._clean_progress_snapshot(raw)
+            if not plain:
+                continue
+            if (
+                _PROGRESS_PERCENT_RE.search(plain)
+                or _PROGRESS_BAR_RE.search(plain)
+                or _PROGRESS_BYTES_RE.search(plain)
+                or _PROGRESS_TIME_RE.search(plain)
+                or _PROGRESS_VERB_RE.search(plain)
+            ):
+                best = plain
+
+        if not best:
+            return None
+        return best[:300]
+
+    def _maybe_publish_progress_snapshot(self, text: str):
+        snapshot = self._extract_progress_snapshot(text)
+        if not snapshot:
+            return
+
+        now = time.monotonic()
+        if (
+            self._last_stream_progress_at
+            and now - self._last_stream_progress_at < _STREAM_PROGRESS_HEARTBEAT_SECONDS
+        ):
+            return
+        if snapshot == self._last_stream_progress_text and self._last_stream_progress_at:
+            return
+
+        self._last_stream_progress_text = snapshot
+        self._last_stream_progress_at = now
+        self._publish_tailed_line(f"进度更新: {snapshot}")
+
+    def _publish_stream_text(self, text: str, *, final_flush: bool = False):
+        """按终端语义发布子进程输出，并为覆盖式进度条提供节流快照。"""
+        lines = self._consume_native_log_chunk(text, final_flush=final_flush)
+        for line in lines:
+            self._publish_tailed_line(line.rstrip())
+        if not final_flush and ("\r" in text or not lines):
+            self._maybe_publish_progress_snapshot(text)
 
     def _consume_native_log_chunk(self, text: str, *, final_flush: bool = False) -> list[str]:
         """按终端语义解析原生控制台输出。
@@ -713,26 +785,43 @@ class ProcessRunner:
     #  非阻塞读取子进程输出
     # ------------------------------------------------------------------
     async def _stream_output(self, proc: asyncio.subprocess.Process):
-        """非阻塞逐行读取 stdout 并回调日志"""
+        """非阻塞按块读取 stdout，避免覆盖式进度条长时间不刷新。"""
         assert proc.stdout is not None
+        self._reset_tail_state()
+        self._reset_stream_progress_state()
         while True:
-            line_bytes = await proc.stdout.readline()
-            if not line_bytes:
+            chunk = await proc.stdout.read(_STREAM_READ_CHUNK_SIZE)
+            if not chunk:
                 break
             try:
-                line = line_bytes.decode("utf-8", errors="replace").rstrip()
+                text = chunk.decode("utf-8", errors="replace")
             except Exception:
-                line = str(line_bytes)
-            self._notify_log(line)
+                text = str(chunk)
+            self._publish_stream_text(text)
+        self._publish_stream_text("", final_flush=True)
+
+    @staticmethod
+    def _read_popen_chunk(stream, size: int = _STREAM_READ_CHUNK_SIZE):
+        read1 = getattr(stream, "read1", None)
+        if callable(read1):
+            return read1(size)
+        return stream.read(size)
 
     async def _stream_output_popen(self, proc: subprocess.Popen):
         """在 selector event loop 下通过线程读取 Popen 输出。"""
         assert proc.stdout is not None
+        self._reset_tail_state()
+        self._reset_stream_progress_state()
         while True:
-            line = await asyncio.to_thread(proc.stdout.readline)
-            if not line:
+            chunk = await asyncio.to_thread(self._read_popen_chunk, proc.stdout)
+            if not chunk:
                 break
-            self._notify_log(str(line).rstrip())
+            if isinstance(chunk, bytes):
+                text = chunk.decode("utf-8", errors="replace")
+            else:
+                text = str(chunk)
+            self._publish_stream_text(text)
+        self._publish_stream_text("", final_flush=True)
 
     @staticmethod
     def _requires_threaded_subprocess() -> bool:
@@ -748,10 +837,7 @@ class ProcessRunner:
             stderr=subprocess.STDOUT,
             cwd=str(work_dir),
             env=env,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
+            bufsize=0,
         )
         await self._stream_output_popen(self.process)
         return await asyncio.to_thread(self.process.wait)
@@ -975,6 +1061,7 @@ class ProcessRunner:
         """异步尾随日志文件，原始 ANSI 推送到 log_buffer，纯文本回传 GUI"""
         offset = 0
         self._reset_tail_state()
+        self._reset_stream_progress_state()
         try:
             while self._running:
                 try:
@@ -985,8 +1072,7 @@ class ProcessRunner:
                             if new_data:
                                 offset += len(new_data)
                                 text = new_data.decode("utf-8", errors="replace")
-                                for line in self._consume_native_log_chunk(text):
-                                    self._publish_tailed_line(line.rstrip())
+                                self._publish_stream_text(text)
                 except Exception:
                     pass
                 await asyncio.sleep(0.5)
@@ -997,14 +1083,11 @@ class ProcessRunner:
                     remaining = f.read()
                 offset += len(remaining)
                 text = remaining.decode("utf-8", errors="replace") if remaining else ""
-                for line in self._consume_native_log_chunk(text, final_flush=True):
-                    self._publish_tailed_line(line.rstrip())
+                self._publish_stream_text(text, final_flush=True)
             else:
-                for line in self._consume_native_log_chunk("", final_flush=True):
-                    self._publish_tailed_line(line.rstrip())
+                self._publish_stream_text("", final_flush=True)
         except asyncio.CancelledError:
-            for line in self._consume_native_log_chunk("", final_flush=True):
-                self._publish_tailed_line(line.rstrip())
+            self._publish_stream_text("", final_flush=True)
 
     # ------------------------------------------------------------------
     #  主要运行方法

@@ -1,6 +1,8 @@
+import asyncio
 import io
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -16,6 +18,7 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 
+from gui.utils.log_buffer import LogBuffer
 from gui.utils.process_runner import ProcessRunner
 
 
@@ -115,3 +118,46 @@ def test_bare_cursor_up_artifact_is_ignored():
         "Loading weights:   0%|          | 0/196 [00:00<?, ?it/s]",
         "Loading weights: 100%|##########| 196/196 [00:00<00:00, 2143.70it/s]",
     ]
+
+
+def test_stream_output_publishes_carriage_return_progress_before_newline():
+    class FakeStdout:
+        def __init__(self):
+            self.chunks = [
+                b"Downloading torch 10% 100/1000 MB\r",
+                b"Downloading torch 50% 500/1000 MB\r",
+                b"install complete\n",
+            ]
+
+        async def read(self, size):
+            if self.chunks:
+                return self.chunks.pop(0)
+            return b""
+
+    log_buffer = LogBuffer()
+    runner = ProcessRunner(log_buffer=log_buffer)
+
+    asyncio.run(runner._stream_output(SimpleNamespace(stdout=FakeStdout())))
+
+    lines = [line for _, line in log_buffer.get_all_lines()]
+    assert lines[0] == "进度更新: Downloading torch 10% 100/1000 MB"
+    assert "install complete" in lines
+
+
+def test_stream_output_does_not_duplicate_normal_newline_logs():
+    class FakeStdout:
+        def __init__(self):
+            self.chunks = [b"Resolving Hugging Face model\n", b""]
+
+        async def read(self, size):
+            if self.chunks:
+                return self.chunks.pop(0)
+            return b""
+
+    log_buffer = LogBuffer()
+    runner = ProcessRunner(log_buffer=log_buffer)
+
+    asyncio.run(runner._stream_output(SimpleNamespace(stdout=FakeStdout())))
+
+    lines = [line for _, line in log_buffer.get_all_lines()]
+    assert lines == ["Resolving Hugging Face model"]

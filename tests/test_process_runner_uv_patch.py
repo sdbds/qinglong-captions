@@ -238,6 +238,45 @@ def test_patch_shared_environment_treats_gemma4_local_as_torch_vision_profile(tm
     assert install_cmd[install_cmd.index("--extra") + 1] == "gemma4-local"
 
 
+def test_patch_shared_environment_treats_marlin_2b_local_as_torch_profile(tmp_path, monkeypatch):
+    _write_project(tmp_path, with_lock=True, optional_deps={"marlin-2b-local": ["torch==2.11.0", "torchcodec"]})
+    runner = ProcessRunner()
+    commands: list[list[str]] = []
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+    monkeypatch.setattr(runner, "_inspect_installed_torch_backend", lambda python_path, env: "cpu", raising=False)
+
+    result = asyncio.run(
+        runner._patch_shared_environment(
+            "uv",
+            tmp_path,
+            {
+                "UV_EXTRA_INDEX_URL": (
+                    "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/ "
+                    "https://download.pytorch.org/whl/cu130"
+                )
+            },
+            "test-env",
+            ["marlin-2b-local"],
+            [],
+        ),
+    )
+
+    assert result is None
+    assert len(commands) == 1
+
+    install_cmd = commands[0]
+    assert "--torch-backend" in install_cmd
+    assert install_cmd[install_cmd.index("--torch-backend") + 1] == "cu130"
+    assert install_cmd.count("--reinstall-package") == 1
+    assert install_cmd[install_cmd.index("--reinstall-package") + 1] == "torch"
+    assert install_cmd[install_cmd.index("--extra") + 1] == "marlin-2b-local"
+
+
 def test_patch_shared_environment_installs_multiple_extras_in_one_uv_command(tmp_path, monkeypatch):
     _write_project(
         tmp_path,
