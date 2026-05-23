@@ -52,6 +52,7 @@ _UV_TORCH_EXTRAS = frozenset(
         "translate",
         "wdtagger",
         "wdtagger-cl-tagger-v2",
+        "reward-model",
         "moondream",
         "olmocr",
         "deepseek-ocr",
@@ -82,6 +83,7 @@ _UV_TORCHVISION_EXTRAS = frozenset(
         "translate",
         "wdtagger",
         "wdtagger-cl-tagger-v2",
+        "reward-model",
         "olmocr",
         "deepseek-ocr",
         "logics-ocr",
@@ -210,7 +212,7 @@ SCRIPT_REGISTRY = {
     "module.audio_separator": ("./module/audio_separator.py", "vocal-midi"),
     "module.see_through.cli": ("./module/see_through/cli.py", "see-through"),
     "utils.preprocess_datasets": ("./utils/preprocess_datasets.py", None),
-    "module.rewardmodel": ("./module/rewardmodel.py", None),
+    "module.rewardmodel": ("./module/rewardmodel.py", "reward-model"),
     "module.texttranslate": ("./module/texttranslate.py", "translate"),
 }
 

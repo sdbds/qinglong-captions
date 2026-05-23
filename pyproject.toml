@@ -57,6 +57,13 @@ video-split = [
 image-align = [
     "vismatch",
 ]
+reward-model = [
+    "qinglong-captions[torch-base]",
+    "pillow>=11.3",
+    "transformers[serving]==4.57.6",
+    "scipy",
+    "imscore",
+]
 translate = [
     "docling",
     "markitdown[all]",
@@ -370,6 +377,10 @@ conflicts = [
     [
         { extra = "paddleocr" },
         { extra = "wdtagger-cl-tagger-v2" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "reward-model" },
     ],
     [
         { extra = "paddleocr" },

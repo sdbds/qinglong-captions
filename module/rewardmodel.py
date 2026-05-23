@@ -9,7 +9,7 @@
 #   "toml",
 #   "huggingface_hub[hf_xet]>=0.35.2",
 #   "torch==2.11.0",
-#   "transformers>4.50",
+#   "transformers[serving]==4.57.6",
 #   "torchvision",
 #   "scipy",
 #   "imscore",
