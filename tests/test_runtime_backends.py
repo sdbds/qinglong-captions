@@ -362,6 +362,56 @@ def test_attempt_qwenvl_local_normalizes_file_image_uris(tmp_path):
     assert captured["messages"][1]["content"][0]["image"] == str(image_path.resolve())
 
 
+def test_qwen_vl_local_transcodes_unsupported_images_to_temp_jpeg(tmp_path):
+    from PIL import Image
+
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.local_vlm.qwen_vl_local import QwenVLLocalProvider
+
+    image_path = tmp_path / "sample.avif"
+    pair_dir = tmp_path / "pair"
+    pair_dir.mkdir()
+    pair_path = pair_dir / image_path.name
+    Image.new("RGB", (8, 8), "white").save(image_path, format="PNG")
+    Image.new("RGB", (8, 8), "black").save(pair_path, format="PNG")
+
+    captured = {}
+
+    def fake_attempt_qwenvl(**kwargs):
+        image_refs = [
+            item["image"]
+            for item in kwargs["messages"][1]["content"]
+            if isinstance(item, dict) and "image" in item
+        ]
+        image_paths = [Path(ref.removeprefix("file://")) for ref in image_refs]
+        captured["image_paths"] = image_paths
+        captured["exists_during_call"] = [path.exists() for path in image_paths]
+        return "caption"
+
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO(), force_terminal=False),
+        config={"media": {"image_quality": 77}},
+        args=SimpleNamespace(),
+    )
+    provider = QwenVLLocalProvider(ctx)
+    media = MediaContext(
+        uri=str(image_path),
+        mime="image/avif",
+        sha256hash="",
+        modality=MediaModality.IMAGE,
+        extras={"pair_uri": str(pair_path)},
+    )
+
+    with patch("module.providers.cloud_vlm.qwenvl.attempt_qwenvl", side_effect=fake_attempt_qwenvl):
+        result = provider.attempt(media, PromptContext(system="system", user="describe"))
+
+    assert result.raw == "caption"
+    assert len(captured["image_paths"]) == 2
+    assert all(path.suffix.lower() == ".jpg" for path in captured["image_paths"])
+    assert all(captured["exists_during_call"])
+    assert all(not path.exists() for path in captured["image_paths"])
+
+
 def test_attempt_chandra_ocr_uses_chandra2_hf_contract(tmp_path):
     from PIL import Image
 
