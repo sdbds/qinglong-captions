@@ -70,12 +70,13 @@ class VisionAPIProvider(Provider):
         extras: Dict[str, Any] = {}
 
         if mime.startswith("image"):
-            blob, pixels = encode_image_to_blob(uri, to_rgb=True)
+            image_quality = self.get_image_quality()
+            blob, pixels = encode_image_to_blob(uri, to_rgb=True, quality=image_quality)
             pair_dir = getattr(args, "pair_dir", "")
             if pair_dir and blob:
                 pair_uri = (Path(pair_dir) / file_path.name).resolve()
                 if pair_uri.exists():
-                    pair_blob, pair_pixels = encode_image_to_blob(str(pair_uri), to_rgb=True)
+                    pair_blob, pair_pixels = encode_image_to_blob(str(pair_uri), to_rgb=True, quality=image_quality)
                     extras["pair_uri"] = str(pair_uri)
                     pair_extras = self._scan_pair_extras(uri, pair_dir)
         elif mime.startswith("audio") and file_size < 20 * 1024 * 1024:
@@ -198,9 +199,10 @@ class VisionAPIProvider(Provider):
         extras_paths.sort(key=lambda item: item[0])
 
         encoded: List[str] = []
+        image_quality = self.get_image_quality()
         for _, path in extras_paths:
             try:
-                extra_blob, _ = encode_image_to_blob(str(path), to_rgb=True)
+                extra_blob, _ = encode_image_to_blob(str(path), to_rgb=True, quality=image_quality)
                 if extra_blob:
                     encoded.append(extra_blob)
                     self.log(f"Paired extra: {path.name}", "blue")

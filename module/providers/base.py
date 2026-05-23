@@ -288,6 +288,12 @@ class Provider(ABC):
             base_wait=getattr(args, "wait_time", 1.0),
         )
 
+    def get_image_quality(self) -> int:
+        """Resolve shared JPEG quality for API-bound image encoding."""
+        from .utils import resolve_image_quality
+
+        return resolve_image_quality(self.ctx.config, self.ctx.args)
+
     def resolve_prompts(self, uri: str, mime: str, media: Optional[MediaContext] = None) -> PromptContext:
         """解析 provider 执行所需的 prompt。"""
         from .resolver import PromptResolver

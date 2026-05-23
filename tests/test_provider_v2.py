@@ -652,6 +652,19 @@ class TestBuildVisionMessages:
         assert len(content) == 2  # text + image only
 
 
+class TestImageQualityConfig:
+
+    def test_default_image_quality_is_85(self):
+        from providers.utils import resolve_image_quality
+
+        assert resolve_image_quality({}) == 85
+
+    def test_media_image_quality_overrides_default(self):
+        from providers.utils import resolve_image_quality
+
+        assert resolve_image_quality({"media": {"image_quality": 73}}) == 73
+
+
 # ──────────────────────────────────────────────
 #  OCRProvider.can_handle 基类逻辑
 # ──────────────────────────────────────────────

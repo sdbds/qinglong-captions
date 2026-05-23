@@ -176,6 +176,44 @@ def test_local_vlm_prepare_media_populates_pair_image(tmp_path):
     assert media.extras["pair_uri"] == str(pair_path.resolve())
 
 
+def test_cloud_vlm_prepare_media_uses_configured_image_quality(tmp_path):
+    from providers.base import CaptionResult, ProviderContext
+    from providers.cloud_vlm_base import CloudVLMProvider
+
+    image_path = tmp_path / "sample.png"
+    image_path.write_bytes(b"image")
+    pair_dir = tmp_path / "pair"
+    pair_dir.mkdir()
+    (pair_dir / image_path.name).write_bytes(b"pair")
+
+    class DummyCloudVLM(CloudVLMProvider):
+        name = "dummy_cloud_vlm"
+
+        @classmethod
+        def can_handle(cls, args, mime):
+            return True
+
+        def attempt(self, media, prompts):
+            return CaptionResult(raw="")
+
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO(), force_terminal=False),
+        config={"media": {"image_quality": 73}},
+        args=SimpleNamespace(pair_dir=str(pair_dir)),
+    )
+
+    with patch(
+        "providers.cloud_vlm_base.encode_image_to_blob",
+        side_effect=[("primary-blob", "primary-pixels"), ("pair-blob", "pair-pixels")],
+    ) as encode_mock:
+        media = DummyCloudVLM(ctx).prepare_media(str(image_path), "image/png", ctx.args)
+
+    assert media.blob == "primary-blob"
+    assert media.pair_blob == "pair-blob"
+    assert encode_mock.call_args_list[0].kwargs["quality"] == 73
+    assert encode_mock.call_args_list[1].kwargs["quality"] == 73
+
+
 def test_local_vlm_prepare_media_preserves_video_metadata(tmp_path):
     from providers.base import CaptionResult, MediaModality, ProviderContext
     from providers.local_vlm_base import LocalVLMProvider

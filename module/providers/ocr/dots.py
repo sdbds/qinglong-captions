@@ -457,7 +457,7 @@ class DotsOCRProvider(OCRProvider):
         blob = None
         pixels = None
         if mime.startswith("image") and self.get_runtime_backend().is_openai:
-            blob, pixels = encode_image_to_blob(uri, to_rgb=True)
+            blob, pixels = encode_image_to_blob(uri, to_rgb=True, quality=self.get_image_quality())
 
         output_dir = Path(uri).with_suffix("")
 

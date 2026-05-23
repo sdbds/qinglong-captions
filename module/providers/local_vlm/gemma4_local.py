@@ -253,12 +253,13 @@ class Gemma4LocalProvider(LocalVLMProvider):
         duration_ms = 0
 
         if mime.startswith("image"):
-            blob, pixels = encode_image_to_blob(uri, to_rgb=True)
+            image_quality = self.get_image_quality()
+            blob, pixels = encode_image_to_blob(uri, to_rgb=True, quality=image_quality)
             pair_dir = getattr(args, "pair_dir", "")
             if pair_dir:
                 pair_path = (Path(pair_dir) / file_path.name).resolve()
                 if pair_path.exists():
-                    pair_blob, pair_pixels = encode_image_to_blob(str(pair_path), to_rgb=True)
+                    pair_blob, pair_pixels = encode_image_to_blob(str(pair_path), to_rgb=True, quality=image_quality)
                     extras["pair_uri"] = str(pair_path)
             modality = MediaModality.IMAGE
         elif mime.startswith("video"):

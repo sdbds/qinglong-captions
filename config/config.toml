@@ -1,3 +1,6 @@
+[media]
+image_quality = 85
+
 # System prompt configuration
 [prompts]
 system_prompt = """

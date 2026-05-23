@@ -13,12 +13,13 @@ def test_runtime_config_loads_split_files(tmp_path):
     from config.runtime_config import load_runtime_config
 
     (tmp_path / "prompts.toml").write_text("[prompts]\nsystem_prompt = 'sys'\n", encoding="utf-8")
-    (tmp_path / "general.toml").write_text("[colors]\nimage = 'green'\n", encoding="utf-8")
+    (tmp_path / "general.toml").write_text("[media]\nimage_quality = 82\n[colors]\nimage = 'green'\n", encoding="utf-8")
     (tmp_path / "model.toml").write_text("[gemini]\nmodel_id = 'gemini-test'\n", encoding="utf-8")
 
     config = load_runtime_config(str(tmp_path))
 
     assert config["gemini"]["model_id"] == "gemini-test"
+    assert config["media"]["image_quality"] == 82
     assert config.prompts["system_prompt"] == "sys"
     assert config.colors["image"] == "green"
 

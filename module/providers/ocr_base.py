@@ -72,7 +72,7 @@ class OCRProvider(Provider):
 
         # 编码图像（如果是图像）
         if mime.startswith("image"):
-            blob, pixels = encode_image_to_blob(uri, to_rgb=True)
+            blob, pixels = encode_image_to_blob(uri, to_rgb=True, quality=self.get_image_quality())
 
         output_dir = Path(uri).with_suffix("")
 
@@ -186,7 +186,7 @@ class OCRProvider(Provider):
                     except Exception:
                         continue
 
-                page_blob, _ = encode_image_to_blob(str(page_img_path), to_rgb=True)
+                page_blob, _ = encode_image_to_blob(str(page_img_path), to_rgb=True, quality=self.get_image_quality())
                 if not page_blob:
                     continue
                 page_content = infer_from_blob(page_blob)

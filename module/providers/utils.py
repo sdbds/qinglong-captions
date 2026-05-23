@@ -13,6 +13,7 @@ import random
 import re
 import time
 import traceback
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable, Optional, Tuple
 
@@ -20,14 +21,42 @@ from PIL import Image
 from rich.console import Console
 from utils.console_util import print_exception
 
+DEFAULT_IMAGE_QUALITY = 85
+
 try:
     from rich_pixels import Pixels
 except ImportError:
     Pixels = Any  # 降级处理
 
 
+def resolve_image_quality(
+    config: Optional[Mapping[str, Any]] = None,
+    args: Any = None,
+    default: int = DEFAULT_IMAGE_QUALITY,
+) -> int:
+    """Resolve shared JPEG quality for API-bound image encoding."""
+    value = None
+
+    if args is not None:
+        value = getattr(args, "image_quality", None)
+
+    if value in (None, "") and config is not None:
+        media_config = config.get("media", {}) if hasattr(config, "get") else {}
+        if isinstance(media_config, Mapping):
+            value = media_config.get("image_quality")
+        if value in (None, "") and hasattr(config, "get"):
+            value = config.get("image_quality")
+
+    try:
+        quality = int(value) if value not in (None, "") else int(default)
+    except (TypeError, ValueError):
+        quality = int(default)
+
+    return max(1, min(100, quality))
+
+
 def encode_image_to_blob(
-    image_path: str, to_rgb: bool = False, max_size: int = 1024, quality: int = 95
+    image_path: str, to_rgb: bool = False, max_size: int = 1024, quality: int = DEFAULT_IMAGE_QUALITY
 ) -> Tuple[Optional[str], Optional[Pixels]]:
     """
     编码图像为 base64，带尺寸优化

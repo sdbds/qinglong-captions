@@ -1,3 +1,6 @@
+[media]
+image_quality = 85
+
 # Dataset schema configuration
 [schema]
 fields = [

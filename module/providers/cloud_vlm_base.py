@@ -74,14 +74,15 @@ class CloudVLMProvider(Provider):
 
         # 图像处理
         if mime.startswith("image"):
-            blob, pixels = encode_image_to_blob(uri, to_rgb=True)
+            image_quality = self.get_image_quality()
+            blob, pixels = encode_image_to_blob(uri, to_rgb=True, quality=image_quality)
 
             # Pair 图像处理
             pair_dir = getattr(args, "pair_dir", "")
             if pair_dir and blob:
                 pair_uri = Path(pair_dir) / file_path.name
                 if pair_uri.exists():
-                    pair_blob, pair_pixels = encode_image_to_blob(str(pair_uri), to_rgb=True)
+                    pair_blob, pair_pixels = encode_image_to_blob(str(pair_uri), to_rgb=True, quality=image_quality)
                     # 扫描额外配对图
                     pair_extras = self._scan_pair_extras(uri, pair_dir)
 
@@ -316,9 +317,10 @@ class CloudVLMProvider(Provider):
 
         # 编码所有额外图片
         result = []
+        image_quality = self.get_image_quality()
         for _, pth in extras_paths:
             try:
-                blob, _ = encode_image_to_blob(str(pth), to_rgb=True)
+                blob, _ = encode_image_to_blob(str(pth), to_rgb=True, quality=image_quality)
                 if blob:
                     result.append(blob)
                     self.log(f"Paired extra: {pth.name}", "blue")
