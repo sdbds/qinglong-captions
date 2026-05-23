@@ -355,9 +355,27 @@ def process_batch(pixel_tensors, model, prompts):
 
 
 def _normalize_device_dtype(args):
-    device = getattr(args, "device", "auto")
-    if device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+    raw_device = str(getattr(args, "device", "auto") or "auto").strip().lower()
+    if raw_device == "auto":
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    elif raw_device == "cuda":
+        device = "cuda:0"
+    elif raw_device == "cpu":
+        device = "cpu"
+    elif raw_device.startswith("cuda:"):
+        device = raw_device
+    else:
+        raise ValueError(f"Unsupported device: {raw_device}. Use auto, cpu, cuda, or cuda:<index>.")
+
+    if device.startswith("cuda"):
+        if not torch.cuda.is_available():
+            raise ValueError(f"CUDA device requested but CUDA is not available: {device}")
+        cuda_device = torch.device(device)
+        cuda_index = 0 if cuda_device.index is None else cuda_device.index
+        cuda_count = torch.cuda.device_count()
+        if cuda_index < 0 or cuda_index >= cuda_count:
+            raise ValueError(f"CUDA device index out of range: {device}; available count={cuda_count}")
+        torch.cuda.set_device(cuda_index)
 
     dtype_opt = getattr(args, "dtype", "auto")
     repo_id = getattr(args, "repo_id", "") or ""
@@ -365,7 +383,7 @@ def _normalize_device_dtype(args):
         if repo_id.endswith("hpsv3"):
             inferred = torch.bfloat16 if device != "cpu" else torch.float32
         else:
-            inferred = torch.float16 if (device.startswith("cuda") and torch.cuda.is_available()) else torch.float32
+            inferred = torch.float16 if device.startswith("cuda") else torch.float32
     elif dtype_opt in ("float16", "fp16"):
         inferred = torch.float16
     elif dtype_opt in ("bfloat16", "bf16"):
@@ -454,7 +472,7 @@ def load_model(args, device, dtype):
         if "low_cpu_mem_usage" in sig.parameters:
             kw["low_cpu_mem_usage"] = True
         if "device_map" in sig.parameters:
-            kw["device_map"] = "auto"
+            kw["device_map"] = {"": device}
         model = cls.from_pretrained(args.repo_id, **kw)
     except Exception:
         model = cls.from_pretrained(args.repo_id)
@@ -775,8 +793,7 @@ def setup_parser() -> argparse.ArgumentParser:
         "--device",
         type=str,
         default="auto",
-        choices=["auto", "cuda", "cpu"],
-        help="Device to use for inference",
+        help="Device to use for inference: auto, cpu, cuda, or cuda:<index>",
     )
     parser.add_argument(
         "--dtype",

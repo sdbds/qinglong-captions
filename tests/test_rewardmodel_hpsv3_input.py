@@ -117,3 +117,37 @@ def test_hpsv3_process_batch_passes_numpy_as_tensor_list(rewardmodel):
     assert isinstance(images, list)
     assert tuple(images[0].shape) == (3, 8, 9)
     assert images[0].dtype == torch.float32
+
+
+def test_reward_parser_accepts_indexed_cuda_device(rewardmodel):
+    args = rewardmodel.setup_parser().parse_args(["datasets", "--device=cuda:1"])
+
+    assert args.device == "cuda:1"
+
+
+def test_normalize_device_dtype_uses_explicit_cuda_index(rewardmodel, monkeypatch):
+    calls = []
+    monkeypatch.setattr(rewardmodel.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(rewardmodel.torch.cuda, "device_count", lambda: 2)
+    monkeypatch.setattr(rewardmodel.torch.cuda, "set_device", lambda index: calls.append(index))
+    args = types.SimpleNamespace(device="cuda:1", dtype="auto", repo_id="RE-N-Y/pickscore")
+
+    device, dtype = rewardmodel._normalize_device_dtype(args)
+
+    assert device == "cuda:1"
+    assert dtype == torch.float16
+    assert calls == [1]
+
+
+def test_normalize_device_dtype_auto_uses_cuda_zero_for_hpsv3(rewardmodel, monkeypatch):
+    calls = []
+    monkeypatch.setattr(rewardmodel.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(rewardmodel.torch.cuda, "device_count", lambda: 2)
+    monkeypatch.setattr(rewardmodel.torch.cuda, "set_device", lambda index: calls.append(index))
+    args = types.SimpleNamespace(device="auto", dtype="auto", repo_id="RE-N-Y/hpsv3")
+
+    device, dtype = rewardmodel._normalize_device_dtype(args)
+
+    assert device == "cuda:0"
+    assert dtype == torch.bfloat16
+    assert calls == [0]

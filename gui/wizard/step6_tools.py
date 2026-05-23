@@ -89,6 +89,28 @@ def _resolve_see_through_repo_ids(
     )
 
 
+def _reward_device_options() -> Dict[str, str]:
+    options = {"auto": "Auto", "cpu": "CPU"}
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            for index in range(torch.cuda.device_count()):
+                try:
+                    name = torch.cuda.get_device_name(index)
+                except Exception:
+                    name = ""
+                label = f"CUDA {index}"
+                if name:
+                    label = f"{label} - {name}"
+                options[f"cuda:{index}"] = label
+        else:
+            options["cuda"] = "CUDA"
+    except Exception:
+        options["cuda"] = "CUDA"
+    return options
+
+
 def _default_see_through_recommendation() -> _SeeThroughRecommendation:
     repo_id_layerdiff, repo_id_depth = _resolve_see_through_repo_ids(quant_mode="none")
     return _SeeThroughRecommendation(
@@ -708,8 +730,8 @@ class ToolsStep:
             with ui.row().classes("w-full gap-4 q-mt-md"):
                 # 设备 - 带图标的现代化下拉框
                 self.reward_device = styled_select(
-                    options={"cuda": "CUDA", "cpu": "CPU"},
-                    value="cuda",
+                    options=_reward_device_options(),
+                    value="auto",
                     label=t("device"),
                     icon="memory",
                     icon_color=COLORS["primary"],
