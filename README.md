@@ -199,7 +199,7 @@
 - 使用 Lance 版本控制保存原始导入、规范化 Markdown、翻译结果
 - standalone `.txt/.md` 可直接导入为主资产
 - 文档先规范化为 Markdown，再按 `chunk_offsets` 分块喂给本地翻译模型
-- 默认本地模型：`tencent/HY-MT1.5-7B`
+- 默认本地模型：`tencent/Hy-MT2-7B`；轻量 FP8 变体：`tencent/Hy-MT2-1.8B-FP8`
 - 导出结果统一为 `*_lang.md`，避免覆盖原文件
 
 ### 音频分轨 (`audio_separator.py`)
@@ -739,7 +739,7 @@ At the same time, the millisecond-level alignment function has been updated. Aft
 - Uses Lance version tags to store imported raw assets, normalized markdown, and translated output
 - Supports standalone `.txt/.md` assets as primary inputs
 - Normalizes documents into Markdown before chunked local-model translation
-- Default local model: `tencent/HY-MT1.5-7B`
+- Default local model: `tencent/Hy-MT2-7B`; lightweight FP8 variant: `tencent/Hy-MT2-1.8B-FP8`
 - Exports translated files as `*_lang.md` instead of overwriting the source
 
 ### Audio Separation (`audio_separator.py`)

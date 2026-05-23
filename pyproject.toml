@@ -69,7 +69,8 @@ translate = [
     "markitdown[all]",
     "sentencepiece",
     "qinglong-captions[torch-base]",
-    "transformers[serving]==4.56.0",
+    "transformers[serving]>=5.6.0",
+    "compressed-tensors>=0.14.0",
     "matplotlib",
     "einops",
     "addict",
@@ -525,6 +526,10 @@ conflicts = [
     [
         { extra = "translate" },
         { extra = "acestep-transcriber-local" },
+    ],
+    [
+        { extra = "translate" },
+        { extra = "cohere-transcribe-local" },
     ],
     [
         { extra = "penguin-vl-local" },

@@ -56,7 +56,10 @@ def build_translation_prompt(
 
 
 class HYMTProvider(LocalLLMProvider):
-    default_model_id = "tencent/HY-MT1.5-7B"
+    default_model_id = "tencent/Hy-MT2-7B"
+
+    def __init__(self, *args, max_new_tokens: int = 4096, **kwargs) -> None:
+        super().__init__(*args, max_new_tokens=max_new_tokens, **kwargs)
 
     def _generate_hy_mt(self, prompt: str) -> str:
         tokenizer, model = self._get_or_load_components()
@@ -65,7 +68,7 @@ class HYMTProvider(LocalLLMProvider):
         tokenized = tokenizer.apply_chat_template(
             messages,
             tokenize=True,
-            add_generation_prompt=False,
+            add_generation_prompt=True,
             return_tensors="pt",
         )
 

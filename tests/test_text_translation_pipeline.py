@@ -22,6 +22,7 @@ from module.texttranslate import (
     preserve_chunk_whitespace,
     resolve_translated_markdown_path,
     restore_placeholders,
+    setup_parser,
     translate_dataset,
 )
 from utils.doc_normalize import normalize_text_asset
@@ -255,3 +256,10 @@ def test_resolve_translated_markdown_path_preserves_relative_directories(tmp_pat
 
     assert first == export_root / 'a' / 'readme_zh_cn.md'
     assert second == export_root / 'b' / 'readme_zh_cn.md'
+
+
+def test_texttranslate_parser_defaults_to_hy_mt2():
+    args = setup_parser().parse_args(['./datasets'])
+
+    assert args.model_id == 'tencent/Hy-MT2-7B'
+    assert args.max_new_tokens == 4096

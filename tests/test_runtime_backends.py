@@ -492,6 +492,90 @@ def test_hy_mt_openai_backend_uses_chat_runtime():
     assert request["messages"][0]["role"] == "user"
 
 
+def test_local_llm_direct_loader_uses_transformers_v5_dtype_kwarg():
+    from module.providers.local_llm_base import LocalLLMProvider
+
+    captured = {}
+
+    class DummyLocalLLM(LocalLLMProvider):
+        def translate(self, text, source_lang, target_lang, *, context="", glossary=""):
+            return text
+
+    class FakeTokenizer:
+        pad_token_id = None
+        eos_token_id = 2
+
+    class FakeModel:
+        def eval(self):
+            return self
+
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoTokenizer = type("FakeAutoTokenizer", (), {})
+    fake_transformers.AutoModelForCausalLM = type("FakeAutoModelForCausalLM", (), {})
+
+    def fake_load_pretrained_component(component_cls, repo_id, **kwargs):
+        if component_cls is fake_transformers.AutoModelForCausalLM:
+            captured["model_kwargs"] = kwargs
+            return FakeModel()
+        return FakeTokenizer()
+
+    with (
+        patch.dict(sys.modules, {"transformers": fake_transformers}),
+        patch.object(transformer_loader_module, "resolve_device_dtype", return_value=("cpu", "bfloat16", "eager")),
+        patch.object(transformer_loader_module, "load_pretrained_component", side_effect=fake_load_pretrained_component),
+    ):
+        DummyLocalLLM(model_id="dummy/model")._load_components()
+
+    assert captured["model_kwargs"]["dtype"] == "bfloat16"
+    assert "torch_dtype" not in captured["model_kwargs"]
+
+
+def test_hy_mt_direct_backend_uses_hy_mt2_chat_template():
+    import torch
+
+    from module.providers.local_llm.hy_mt import HYMTProvider
+
+    captured = {}
+
+    class FakeTokenizer:
+        pad_token_id = 0
+        eos_token_id = 2
+
+        def apply_chat_template(self, messages, **kwargs):
+            captured["messages"] = messages
+            captured["chat_kwargs"] = kwargs
+            return {"input_ids": torch.tensor([[11, 12]])}
+
+        def decode(self, ids, skip_special_tokens=True):
+            captured["decoded_ids"] = ids.tolist()
+            captured["skip_special_tokens"] = skip_special_tokens
+            return "translated output"
+
+    class FakeModel:
+        def parameters(self):
+            return iter([torch.nn.Parameter(torch.empty(0))])
+
+        def generate(self, **kwargs):
+            captured["generate_kwargs"] = kwargs
+            return torch.tensor([[11, 12, 21, 22]])
+
+    provider = HYMTProvider(console=Console(file=io.StringIO(), force_terminal=False))
+
+    with patch.object(provider, "_get_or_load_components", return_value=(FakeTokenizer(), FakeModel())):
+        result = provider.translate("Hello", "en", "zh_cn")
+
+    assert provider.model_id == "tencent/Hy-MT2-7B"
+    assert result == "translated output"
+    assert captured["messages"][0]["role"] == "user"
+    assert captured["chat_kwargs"]["tokenize"] is True
+    assert captured["chat_kwargs"]["add_generation_prompt"] is True
+    assert captured["chat_kwargs"]["return_tensors"] == "pt"
+    assert captured["generate_kwargs"]["max_new_tokens"] == 4096
+    assert captured["generate_kwargs"]["do_sample"] is False
+    assert captured["decoded_ids"] == [21, 22]
+    assert captured["skip_special_tokens"] is True
+
+
 def test_reka_edge_local_prefers_fp16_on_cuda():
     import torch
 

@@ -493,7 +493,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Normalize and translate text/document assets stored in Lance.")
     parser.add_argument("input_path", help="Dataset directory or .lance path")
     parser.add_argument("--output_name", default="dataset", help="Lance dataset name when importing a directory")
-    parser.add_argument("--model_id", default="tencent/HY-MT1.5-7B", help="Translation model id")
+    parser.add_argument("--model_id", default="tencent/Hy-MT2-7B", help="Translation model id")
     parser.add_argument(
         "--runtime_backend",
         choices=["direct", "openai"],
@@ -511,7 +511,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target_lang", default="zh_cn", help="Target language code used for tags and file suffixes")
     parser.add_argument("--max_chars", type=int, default=2200, help="Maximum characters per translation chunk")
     parser.add_argument("--context_chars", type=int, default=300, help="Characters of previous chunk passed as translation context")
-    parser.add_argument("--max_new_tokens", type=int, default=2048, help="Maximum new tokens generated per chunk")
+    parser.add_argument("--max_new_tokens", type=int, default=4096, help="Maximum new tokens generated per chunk")
     parser.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature for the translation model")
     parser.add_argument("--glossary_file", default="", help="Optional glossary text file passed to the model")
     parser.add_argument("--source_version", default="", help="Source Lance tag/version to read from")

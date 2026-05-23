@@ -1,11 +1,11 @@
 $input_path = "./datasets"                 # 数据集目录或 .lance 路径
 $output_name = "dataset"                   # 目录导入时生成的 Lance 名称
-$model_id = "tencent/HY-MT1.5-7B"          # 本地翻译模型
+$model_id = "tencent/Hy-MT2-7B"            # 本地翻译模型，可选: tencent/Hy-MT2-7B, tencent/Hy-MT2-1.8B-FP8
 $source_lang = "auto"                      # 源语言
 $target_lang = "zh_cn"                     # 目标语言，同时用于导出文件后缀
 $max_chars = 2200                          # 每个翻译分块的最大字符数
 $context_chars = 300                       # 给下一个 chunk 的上下文字符数
-$max_new_tokens = 2048                     # 每块最大生成 token
+$max_new_tokens = 4096                     # 每块最大生成 token
 $temperature = 0.0                         # 0 为贪心解码
 $glossary_file = ""                        # 可选术语表文件
 $source_version = ""                       # 指定读取的 Lance tag/version
@@ -180,7 +180,7 @@ if ((Has-Value $context_chars) -and $context_chars -ne 300) {
   [void]$ext_args.Add("--context_chars=$context_chars")
 }
 
-if ((Has-Value $max_new_tokens) -and $max_new_tokens -ne 2048) {
+if ((Has-Value $max_new_tokens) -and $max_new_tokens -ne 4096) {
   [void]$ext_args.Add("--max_new_tokens=$max_new_tokens")
 }
 

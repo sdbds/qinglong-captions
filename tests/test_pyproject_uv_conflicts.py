@@ -77,6 +77,13 @@ def test_lighton_ocr_conflicts_with_translate():
     assert _has_extra_conflict("lighton-ocr", "translate")
 
 
+def test_translate_extra_uses_hy_mt2_dependency_stack():
+    translate_deps = _load_optional_dependencies()["translate"]
+
+    assert "transformers[serving]>=5.6.0" in translate_deps
+    assert "compressed-tensors>=0.14.0" in translate_deps
+
+
 def test_lighton_ocr_conflicts_with_paddleocr():
     assert _has_extra_conflict("lighton-ocr", "paddleocr")
 
@@ -135,6 +142,10 @@ def test_eureka_audio_conflicts_with_known_transformers_incompatible_extras():
 
 def test_acestep_transcriber_conflicts_with_translate():
     assert _has_extra_conflict("acestep-transcriber-local", "translate")
+
+
+def test_cohere_transcribe_conflicts_with_translate():
+    assert _has_extra_conflict("cohere-transcribe-local", "translate")
 
 
 def test_marlin_2b_local_conflicts_with_known_transformers_incompatible_extras():

@@ -85,7 +85,7 @@ class LocalLLMProvider(ABC):
             "trust_remote_code": self.trust_remote_code,
             "low_cpu_mem_usage": True,
             "device_map": "auto",
-            "torch_dtype": dtype,
+            "dtype": dtype,
         }
         if attn_impl != "eager":
             model_kwargs["attn_implementation"] = attn_impl

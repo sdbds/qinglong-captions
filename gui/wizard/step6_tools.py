@@ -215,8 +215,8 @@ class ToolsStep:
 
     # 翻译模型
     TRANSLATE_MODELS = [
-        "tencent/HY-MT1.5-7B",
-        "tencent/HY-MT1.5-1.8B",
+        "tencent/Hy-MT2-7B",
+        "tencent/Hy-MT2-1.8B-FP8",
     ]
 
     # 翻译支持的语言
@@ -272,7 +272,7 @@ class ToolsStep:
             "audio_separator_vocal_midi_est_threshold": DEFAULT_VOCAL_MIDI_EST_THRESHOLD,
             "translate_max_chars": 2200,
             "translate_context_chars": 300,
-            "translate_max_new_tokens": 2048,
+            "translate_max_new_tokens": 4096,
             "translate_temperature": 0.0,
             "translate_skip_normalize": False,
             "translate_normalize_only": False,
