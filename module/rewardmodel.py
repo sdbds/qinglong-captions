@@ -20,6 +20,7 @@ import concurrent.futures
 import gc
 import inspect
 import json
+import math
 import shutil
 from pathlib import Path
 
@@ -66,6 +67,8 @@ from module.lanceImport import transform2lance
 from utils.console_util import print_exception
 
 console = Console(color_system="truecolor", force_terminal=True)
+
+HPSV3_MAX_ASPECT_RATIO = 199.0
 
 
 def preprocess_image(image):
@@ -114,6 +117,121 @@ def load_and_preprocess_batch(uris):
     return images, indices
 
 
+def _pixel_input_description(px) -> str:
+    if isinstance(px, np.ndarray):
+        return f"ndarray shape={px.shape}, dtype={px.dtype}"
+    if isinstance(px, torch.Tensor):
+        return f"tensor shape={tuple(px.shape)}, dtype={px.dtype}, device={px.device}"
+    if isinstance(px, Image.Image):
+        return f"PIL size={px.size}, mode={px.mode}"
+    return f"type={type(px).__name__}"
+
+
+def _aspect_ratio(width: int, height: int) -> float:
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Invalid image size: {width}x{height}")
+    return max(width / height, height / width)
+
+
+def _array_to_rgb_pil(arr: np.ndarray) -> Image.Image:
+    arr = np.asarray(arr)
+    if arr.ndim == 3 and arr.shape[0] in (1, 3, 4) and arr.shape[-1] not in (1, 3, 4):
+        arr = np.moveaxis(arr, 0, -1)
+    if arr.ndim not in (2, 3):
+        raise ValueError(f"Expected image array with 2 or 3 dims, got shape={arr.shape}")
+    if arr.ndim == 3 and arr.shape[-1] not in (1, 3, 4):
+        raise ValueError(f"Expected image array channels in last dim, got shape={arr.shape}")
+
+    if arr.dtype == np.uint8:
+        arr8 = arr
+    elif np.issubdtype(arr.dtype, np.floating):
+        arr = np.nan_to_num(arr.astype(np.float32, copy=False), nan=0.0, posinf=255.0, neginf=0.0)
+        if arr.size and float(arr.max()) <= 1.0:
+            arr = arr * 255.0
+        arr8 = np.clip(arr, 0, 255).astype(np.uint8)
+    elif np.issubdtype(arr.dtype, np.integer):
+        arr8 = np.clip(arr, 0, 255).astype(np.uint8)
+    else:
+        raise TypeError(f"Unsupported image array dtype: {arr.dtype}")
+
+    if arr8.ndim == 3 and arr8.shape[-1] == 1:
+        arr8 = arr8[..., 0]
+    return Image.fromarray(np.ascontiguousarray(arr8)).convert("RGB")
+
+
+def _tensor_to_rgb_pil(tensor: torch.Tensor) -> Image.Image:
+    tensor = tensor.detach()
+    if tensor.dim() == 4:
+        if tensor.shape[0] < 1:
+            raise ValueError(f"Expected non-empty tensor batch, got shape={tuple(tensor.shape)}")
+        tensor = tensor[0]
+    if tensor.dim() not in (2, 3):
+        raise ValueError(f"Expected image tensor CHW/HWC or HW, got shape={tuple(tensor.shape)}")
+
+    tensor = tensor.to(device="cpu", dtype=torch.float32)
+    if tensor.dim() == 3:
+        shape = tuple(tensor.shape)
+        if shape[0] in (1, 3, 4) and shape[-1] not in (1, 3, 4):
+            tensor = tensor.permute(1, 2, 0)
+        elif shape[-1] not in (1, 3, 4):
+            raise ValueError(f"Expected tensor channels in CHW or HWC layout, got shape={shape}")
+
+    return _array_to_rgb_pil(tensor.contiguous().numpy())
+
+
+def _normalize_hpsv3_image(px) -> Image.Image:
+    """Return an RGB PIL image before converting to HPSv3's tensor contract."""
+    if isinstance(px, Image.Image):
+        return px.convert("RGB")
+    if isinstance(px, np.ndarray):
+        return _array_to_rgb_pil(px)
+    if isinstance(px, torch.Tensor):
+        return _tensor_to_rgb_pil(px)
+    raise TypeError(f"Unsupported pixel type for HPSv3: {type(px)}")
+
+
+def _constrain_hpsv3_aspect_ratio(image: Image.Image, max_ratio: float = HPSV3_MAX_ASPECT_RATIO) -> Image.Image:
+    """Pad extreme images so Qwen2-VL's image processor accepts them."""
+    image = image.convert("RGB")
+    width, height = image.size
+    if _aspect_ratio(width, height) <= max_ratio:
+        return image
+
+    if width >= height:
+        new_width = width
+        new_height = max(height, math.ceil(width / max_ratio))
+    else:
+        new_width = max(width, math.ceil(height / max_ratio))
+        new_height = height
+
+    fill = image.resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))
+    padded = Image.new("RGB", (new_width, new_height), fill)
+    padded.paste(image, ((new_width - width) // 2, (new_height - height) // 2))
+    return padded
+
+
+def _hpsv3_tensor_from_image(image: Image.Image) -> torch.Tensor:
+    arr = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    return torch.from_numpy(arr).permute(2, 0, 1).contiguous()
+
+
+def _prepare_hpsv3_score_input(px):
+    original_desc = _pixel_input_description(px)
+    image = _normalize_hpsv3_image(px)
+    original_size = image.size
+    original_ratio = _aspect_ratio(*original_size)
+    image = _constrain_hpsv3_aspect_ratio(image)
+    final_size = image.size
+    final_ratio = _aspect_ratio(*final_size)
+    return _hpsv3_tensor_from_image(image), {
+        "input": original_desc,
+        "original_size": original_size,
+        "original_aspect_ratio": original_ratio,
+        "final_pil_size": final_size,
+        "final_aspect_ratio": final_ratio,
+    }
+
+
 @torch.inference_mode()
 def process_batch(pixel_tensors, model, prompts):
     """使用奖励模型计算分数（逐张处理，避免尺寸不一致拼接）。
@@ -134,150 +252,84 @@ def process_batch(pixel_tensors, model, prompts):
 
         for px, pr in zip(pixel_tensors, prompts):
             # sanitize prompt: ensure non-empty string for models that require text
-            was_empty_prompt = not (isinstance(pr, str) and pr.strip())
             model_name = type(model).__name__
             if not isinstance(pr, str):
                 pr = "" if pr is None else str(pr)
             if not pr.strip():
                 pr = " "
-            # 统一为 torch.FloatTensor [C,H,W] on model_device, 0..1
+            score_debug = None
             try:
-                if isinstance(px, torch.Tensor):
-                    t = px
-                    if t.dim() == 3 and t.shape[-1] == 3:
-                        # HWC -> CHW
-                        t = t.permute(2, 0, 1)
-                    elif t.dim() == 4:
-                        # [N,C,H,W] -> take first
-                        t = t[0]
-                    t = t.to(dtype=torch.float32)
-                    if t.max() > 1.0:
-                        t = t / 255.0
-                elif isinstance(px, np.ndarray):
-                    if px.ndim != 3 or px.shape[2] != 3:
-                        raise ValueError(f"Expected ndarray HxWx3, got shape={px.shape}")
-                    t = torch.from_numpy(px).permute(2, 0, 1).contiguous().to(dtype=torch.float32) / 255.0
-                elif isinstance(px, Image.Image):
-                    arr = np.array(px.convert("RGB"), dtype=np.float32)
-                    t = torch.from_numpy(arr).permute(2, 0, 1).contiguous() / 255.0
-                else:
-                    raise TypeError(f"Unsupported pixel type: {type(px)}")
-
-                # align dtype with model parameters to avoid mixed precision issues
-                try:
-                    target_dtype = next(model.parameters()).dtype  # type: ignore[attr-defined]
-                except Exception:
-                    target_dtype = t.dtype
-                t = t.to(model_device, dtype=target_dtype, non_blocking=True)
-                # 增加 batch 维度 -> [1,C,H,W]
-                if t.dim() == 3:
-                    t = t.unsqueeze(0)
-
-                # 仅走单样本张量路径，满足 PickScorer/CLIP 家族对 4D 的要求
-                if model_name == "HPSv3" and was_empty_prompt:
-                    _calls = [
-                        # tensor, no/empty text
-                        lambda: model.score(t),
-                        lambda: model.score(t, None),
-                        lambda: model.score(t, ""),
-                        # list[tensor], no/empty text
-                        lambda: model.score([t]),
-                        lambda: model.score([t], None),
-                        lambda: model.score([t], [""]),
-                    ]
-                    # also try ndarray HWC path (uint8 preferred)
-                    if isinstance(px, np.ndarray):
-                        _px = px if px.dtype == np.uint8 else px.astype(np.uint8)
-                        _calls.extend(
-                            [
-                                lambda: model.score(_px),
-                                lambda: model.score(_px, None),
-                                lambda: model.score(_px, ""),
-                                lambda: model.score([_px]),
-                                lambda: model.score([_px], None),
-                                lambda: model.score([_px], [""]),
-                            ]
+                if model_name == "HPSv3":
+                    t, score_debug = _prepare_hpsv3_score_input(px)
+                    if score_debug["original_size"] != score_debug["final_pil_size"]:
+                        console.print(
+                            "[yellow]HPSv3 padded extreme aspect ratio "
+                            f"{score_debug['original_aspect_ratio']:.3f} -> "
+                            f"{score_debug['final_aspect_ratio']:.3f}, "
+                            f"size {score_debug['original_size']} -> {score_debug['final_pil_size']}[/yellow]"
                         )
-                    _last_err = None
-                    s = None
-                    for _fn in _calls:
-                        try:
-                            s = _fn()
-                            break
-                        except Exception as _e:
-                            if _last_err is None:
-                                _last_err = _e
-                    if s is None:
-                        raise (_last_err if _last_err is not None else Exception("HPSv3 empty prompt scoring failed"))
+                    s = model.score([t], [pr])
                 else:
+                    # 统一为 torch.FloatTensor [C,H,W] on model_device, 0..1
+                    if isinstance(px, torch.Tensor):
+                        t = px
+                        if t.dim() == 3 and t.shape[-1] == 3:
+                            # HWC -> CHW
+                            t = t.permute(2, 0, 1)
+                        elif t.dim() == 4:
+                            # [N,C,H,W] -> take first
+                            t = t[0]
+                        t = t.to(dtype=torch.float32)
+                        if t.max() > 1.0:
+                            t = t / 255.0
+                    elif isinstance(px, np.ndarray):
+                        if px.ndim != 3 or px.shape[2] != 3:
+                            raise ValueError(f"Expected ndarray HxWx3, got shape={px.shape}")
+                        t = torch.from_numpy(px).permute(2, 0, 1).contiguous().to(dtype=torch.float32) / 255.0
+                    elif isinstance(px, Image.Image):
+                        arr = np.array(px.convert("RGB"), dtype=np.float32)
+                        t = torch.from_numpy(arr).permute(2, 0, 1).contiguous() / 255.0
+                    else:
+                        raise TypeError(f"Unsupported pixel type: {type(px)}")
+
+                    # align dtype with model parameters to avoid mixed precision issues
+                    try:
+                        target_dtype = next(model.parameters()).dtype  # type: ignore[attr-defined]
+                    except Exception:
+                        target_dtype = t.dtype
+                    t = t.to(model_device, dtype=target_dtype, non_blocking=True)
+                    # 增加 batch 维度 -> [1,C,H,W]
+                    if t.dim() == 3:
+                        t = t.unsqueeze(0)
                     s = model.score(t, pr)
             except Exception as e:
                 print_exception(
                     console,
                     e,
                     prefix=(
-                        "score(tensor single) failed "
+                        "score(single) failed "
                         f"model={type(model).__name__}, px_type={type(px).__name__}, "
                         f"pr_type={type(pr).__name__}, device={model_device}"
                     ),
                 )
-                if isinstance(px, np.ndarray):
-                    console.print(f"[yellow]ndarray shape={px.shape}, dtype={px.dtype}[/yellow]")
-                elif isinstance(px, torch.Tensor):
-                    console.print(f"[yellow]tensor shape={tuple(px.shape)}, dtype={px.dtype}, device={px.device}[/yellow]")
+                if score_debug:
+                    console.print(
+                        "[yellow]HPSv3 input="
+                        f"{score_debug['input']}, "
+                        f"original_size={score_debug['original_size']}, "
+                        f"original_aspect_ratio={score_debug['original_aspect_ratio']:.3f}, "
+                        f"final_pil_size={score_debug['final_pil_size']}, "
+                        f"final_aspect_ratio={score_debug['final_aspect_ratio']:.3f}[/yellow]"
+                    )
+                else:
+                    console.print(f"[yellow]{_pixel_input_description(px)}[/yellow]")
+                if model_name == "HPSv3":
+                    raise
                 # 最后兜底：再尝试原始对象（可能某些实现内部做转换）
                 try:
-                    if model_name == "HPSv3" and was_empty_prompt:
-                        _calls = []
-                        if isinstance(px, np.ndarray):
-                            _px = px if px.dtype == np.uint8 else px.astype(np.uint8)
-                            _calls.extend(
-                                [
-                                    lambda: model.score(_px),
-                                    lambda: model.score(_px, None),
-                                    lambda: model.score(_px, ""),
-                                    lambda: model.score([_px]),
-                                    lambda: model.score([_px], None),
-                                    lambda: model.score([_px], [""]),
-                                ]
-                            )
-                        if isinstance(px, torch.Tensor):
-                            _tx = px
-                            if _tx.dim() == 3 and _tx.shape[-1] == 3:
-                                _tx = _tx.permute(2, 0, 1)
-                            elif _tx.dim() == 4:
-                                _tx = _tx[0]
-                            _tx = _tx.to(dtype=torch.float32)
-                            if _tx.max() > 1.0:
-                                _tx = _tx / 255.0
-                            _tx = _tx.to(model_device, dtype=target_dtype, non_blocking=True)
-                            if _tx.dim() == 3:
-                                _tx = _tx.unsqueeze(0)
-                            _calls.extend(
-                                [
-                                    lambda: model.score(_tx),
-                                    lambda: model.score(_tx, None),
-                                    lambda: model.score(_tx, ""),
-                                    lambda: model.score([_tx]),
-                                    lambda: model.score([_tx], None),
-                                    lambda: model.score([_tx], [""]),
-                                ]
-                            )
-                        _last_err = None
-                        s = None
-                        for _fn in _calls:
-                            try:
-                                s = _fn()
-                                break
-                            except Exception as _e:
-                                if _last_err is None:
-                                    _last_err = _e
-                        if s is None:
-                            raise (_last_err if _last_err is not None else Exception("HPSv3 empty prompt scoring fallback failed"))
-                    else:
-                        s = model.score(px, pr)
+                    s = model.score(px, pr)
                 except Exception:
-                    raise Exception
+                    raise
             console.print(f"[bold green]Score: {s}[/bold green]")
             if isinstance(s, torch.Tensor):
                 s = (
