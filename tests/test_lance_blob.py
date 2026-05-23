@@ -5,6 +5,7 @@ import types
 from pathlib import Path
 
 import pytest
+import pyarrow as pa
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -25,6 +26,15 @@ class OldSignatureDataset:
         return [f"{blob_column}:{row_id}" for row_id in ids]
 
 
+class NullSkippingDataset:
+    def take_blobs(self, blob_column, ids=None, addresses=None, indices=None):
+        return [f"{blob_column}:{row_id}" for row_id in indices if row_id == 1]
+
+    def take(self, indices, columns=None):
+        values = [{"size": 3 if row_id == 1 else 0} for row_id in indices]
+        return pa.table({"blob": values})
+
+
 def test_take_blob_files_supports_new_signature():
     assert take_blob_files(NewSignatureDataset(), [1, 2], "blob") == ["blob:1", "blob:2"]
 
@@ -35,6 +45,10 @@ def test_take_blob_files_supports_new_signature_ids():
 
 def test_take_blob_files_supports_legacy_signature():
     assert take_blob_files(OldSignatureDataset(), [3, 4], "blob") == ["blob:3", "blob:4"]
+
+
+def test_take_blob_files_aligns_null_skipping_results():
+    assert take_blob_files(NullSkippingDataset(), [0, 1, 2], "blob") == [None, "blob:1", None]
 
 
 def _load_module_without_lance_runtime_types(monkeypatch, module_name: str):
@@ -54,6 +68,16 @@ def test_lanceexport_imports_without_blobfile_runtime_symbol(monkeypatch):
 def test_lanceimport_imports_without_lancedataset_runtime_symbol(monkeypatch):
     module = _load_module_without_lance_runtime_types(monkeypatch, "module.lanceImport")
     assert hasattr(module, "transform2lance")
+
+
+def test_lanceimport_cli_defaults_to_no_binary_save():
+    from module.lanceImport import setup_parser
+
+    parser = setup_parser()
+
+    assert parser.parse_args(["dataset"]).save_binary is False
+    assert parser.parse_args(["dataset", "--no_save_binary"]).save_binary is False
+    assert parser.parse_args(["dataset", "--save_binary"]).save_binary is True
 
 
 class ReadableBlob:

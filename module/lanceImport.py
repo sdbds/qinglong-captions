@@ -578,7 +578,7 @@ def load_data(datasets_dir: str, texts_dir: Optional[str] = None, include_text_a
 
 def process(
     data: List[Dict[str, Any]],
-    save_binary: bool = True,
+    save_binary: bool = False,
     import_mode: VideoImportMode = VideoImportMode.ALL,
     schema: Optional[pa.Schema] = None,
 ) -> pa.RecordBatch:
@@ -707,7 +707,7 @@ def transform2lance(
     dataset_dir: str,
     caption_dir: Optional[str] = None,
     output_name: str = "dataset",
-    save_binary: bool = True,
+    save_binary: bool = False,
     not_save_disk: bool = False,
     import_mode: VideoImportMode = VideoImportMode.ALL,
     tag: str = "gemini",
@@ -753,10 +753,20 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Directory containing caption files",
     )
     parser.add_argument("--output_name", type=str, default="dataset", help="Name of output dataset")
-    parser.add_argument(
-        "--no_save_binary",
+    binary_group = parser.add_mutually_exclusive_group()
+    binary_group.add_argument(
+        "--save_binary",
+        dest="save_binary",
         action="store_true",
-        help="Don't save binary data in the dataset",
+        default=False,
+        help="Save binary data in the dataset",
+    )
+    binary_group.add_argument(
+        "--no_save_binary",
+        dest="save_binary",
+        action="store_false",
+        default=False,
+        help="Don't save binary data in the dataset (default)",
     )
     parser.add_argument(
         "--not_save_disk",
@@ -806,7 +816,7 @@ if __name__ == "__main__":
         dataset_dir=args.dataset_dir,
         caption_dir=args.caption_dir,
         output_name=args.output_name,
-        save_binary=not args.no_save_binary,
+        save_binary=args.save_binary,
         not_save_disk=args.not_save_disk,
         import_mode=VideoImportMode.from_int(args.import_mode),
         tag=args.tag,

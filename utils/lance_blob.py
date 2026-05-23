@@ -88,6 +88,30 @@ def _resolve_first_arg_name(method: Any) -> str:
     return params[0] if params else "blob_column"
 
 
+def _align_blob_files_by_indices(
+    dataset: Any,
+    blob_column: str,
+    indices: list[int],
+    blob_files: list[Optional[Any]],
+) -> list[Optional[Any]]:
+    if len(blob_files) == len(indices):
+        return blob_files
+
+    try:
+        metadata = dataset.take(indices, columns=[blob_column]).column(blob_column).to_pylist()
+    except Exception:
+        if not blob_files:
+            return [None] * len(indices)
+        return blob_files
+
+    blob_iter = iter(blob_files)
+    aligned: list[Optional[Any]] = []
+    for item in metadata:
+        size = item.get("size", 0) if isinstance(item, dict) else 0
+        aligned.append(next(blob_iter, None) if size else None)
+    return aligned
+
+
 def take_blob_files(
     dataset: Any,
     indices: Optional[Iterable[int]] = None,
@@ -109,7 +133,10 @@ def take_blob_files(
     first_arg = _resolve_first_arg_name(method)
     if first_arg == "blob_column":
         try:
-            return list(method(blob_column, **selectors))
+            blob_files = list(method(blob_column, **selectors))
+            if "indices" in selectors:
+                return _align_blob_files_by_indices(dataset, blob_column, selectors["indices"], blob_files)
+            return blob_files
         except TypeError:
             pass
 
