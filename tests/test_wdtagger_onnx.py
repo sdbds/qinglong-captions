@@ -244,3 +244,21 @@ def test_wdtagger_get_tags_official_preserves_dynamic_categories(monkeypatch, tm
         remove_parents_tag=False,
     )
     assert tags_json["unknown"] == ["unclassified_tag"]
+
+    final_tags = wdtagger.assemble_final_tags(
+        result,
+        SimpleNamespace(
+            add_tags_threshold=False,
+            use_quality_tags=False,
+            use_rating_tags=False,
+            use_model_tags=False,
+            use_rating_tags_as_last_tag=False,
+            character_tags_first=False,
+            frequency_tags=False,
+            always_first_tags="",
+            remove_parents_tag=False,
+        ),
+        parent_to_child_map={},
+        tag_freq={},
+    )
+    assert final_tags == ["1girl"]

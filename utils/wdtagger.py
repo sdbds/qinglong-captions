@@ -592,6 +592,9 @@ def assemble_final_tags(
     for category, tags_with_conf in tags_result.items():
         if not tags_with_conf:
             continue
+        # Match CL Tagger V2 display behavior: keep unknown in JSON/debug data, not final captions.
+        if category == "unknown":
+            continue
         # Respect switches: skip disabled categories so they won't leak in via remaining categories
         if category == "quality" and not args.use_quality_tags:
             continue
