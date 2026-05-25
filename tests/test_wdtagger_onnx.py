@@ -1,4 +1,5 @@
 import importlib
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -313,6 +314,37 @@ def test_wdtagger_finalize_args_infers_cl_tagger_v2_threshold(monkeypatch, tmp_p
 
     legacy_args = wdtagger.finalize_args(parser.parse_args(["./datasets"]))
     assert legacy_args.thresh == 0.35
+    assert legacy_args.lance_update_mode == "rebuild"
+
+
+def test_wdtagger_shim_exports_legacy_api(monkeypatch, tmp_path):
+    wdtagger = _import_wdtagger_with_stubbed_runtime(monkeypatch, tmp_path)
+
+    for name in (
+        "LabelData",
+        "Siglip2InferenceContext",
+        "load_model_and_tags",
+        "get_tags_official",
+        "assemble_final_tags",
+        "assemble_tags_json",
+        "setup_parser",
+        "finalize_args",
+        "_scan_wdtagger_candidate_batches",
+        "_count_wdtagger_candidate_rows",
+    ):
+        assert hasattr(wdtagger, name)
+
+
+def test_wdtagger_script_help_runs():
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "utils" / "wdtagger.py"), "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "train_data_dir" in result.stdout
+    assert "--lance_update_mode" in result.stdout
 
 
 def test_wdtagger_get_tags_official_preserves_dynamic_categories(monkeypatch, tmp_path):

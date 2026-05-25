@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "av",
-    "pylance>=2.0.1",
+    "pylance>=6.0.1",
     "rich",
     "rich_pixels",
     "pandas",
