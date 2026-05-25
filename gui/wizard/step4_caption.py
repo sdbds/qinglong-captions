@@ -2,14 +2,14 @@
 
 import asyncio
 import re
-from typing import TYPE_CHECKING
-
-from nicegui import ui
 from pathlib import Path
-from typing import Optional, Dict, Any
-from gui.theme import get_classes, COLORS
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+from components.advanced_inputs import editable_slider, styled_input, styled_select, toggle_switch
 from components.path_selector import create_path_selector
-from components.advanced_inputs import editable_slider, toggle_switch, styled_select, styled_input
+from nicegui import ui
+
+from gui.theme import COLORS, get_classes
 from gui.utils.i18n import t
 from gui.utils.toml_helpers import assess_current_model_fit as assess_current_model_fit_from_toml
 from gui.utils.toml_helpers import load_current_route_model_ids as load_current_route_model_ids_from_toml
@@ -343,6 +343,7 @@ class CaptionStep:
         "eureka_audio_local": "eureka-audio-local",
         "acestep_transcriber_local": "acestep-transcriber-local",
         "cohere_transcribe_local": "cohere-transcribe-local",
+        "mega_asr_local": "mega-asr-local",
     }
 
     ALM_AUDIO_TASK_OPTIONS = {
@@ -743,7 +744,9 @@ class CaptionStep:
     def _has_local_route_config(self) -> bool:
         if self._has_text(self.ocr_model.value) and not route_requires_remote_config("ocr_model", self.ocr_model.value):
             return True
-        if self._has_text(self.vlm_image_model.value) and not route_requires_remote_config("vlm_image_model", self.vlm_image_model.value):
+        if self._has_text(self.vlm_image_model.value) and not route_requires_remote_config(
+            "vlm_image_model", self.vlm_image_model.value
+        ):
             return True
         if self._has_text(self._current_alm_model()) and not route_requires_remote_config("alm_model", self._current_alm_model()):
             return True

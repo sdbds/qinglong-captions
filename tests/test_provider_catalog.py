@@ -38,6 +38,7 @@ def test_catalog_exposes_canonical_route_choices_only_by_default():
     assert "eureka_audio_local" in alm_choices
     assert "acestep_transcriber_local" in alm_choices
     assert "cohere_transcribe_local" in alm_choices
+    assert "mega_asr_local" in alm_choices
     assert "gemma4_local" in alm_choices
 
 
@@ -99,6 +100,7 @@ def test_catalog_config_section_candidates_cover_local_provider_compat():
     assert provider_config_sections("eureka_audio_local") == ("eureka_audio_local", "eureka_audio")
     assert provider_config_sections("acestep_transcriber_local") == ("acestep_transcriber_local",)
     assert provider_config_sections("cohere_transcribe_local") == ("cohere_transcribe_local",)
+    assert provider_config_sections("mega_asr_local") == ("mega_asr_local", "mega_asr")
 
 
 def test_catalog_marks_only_remote_routes_as_needing_api_config():
@@ -119,4 +121,5 @@ def test_catalog_marks_only_remote_routes_as_needing_api_config():
     assert route_requires_remote_config("alm_model", "eureka_audio_local") is False
     assert route_requires_remote_config("alm_model", "acestep_transcriber_local") is False
     assert route_requires_remote_config("alm_model", "cohere_transcribe_local") is False
+    assert route_requires_remote_config("alm_model", "mega_asr_local") is False
     assert route_requires_remote_config("alm_model", "gemma4_local") is False

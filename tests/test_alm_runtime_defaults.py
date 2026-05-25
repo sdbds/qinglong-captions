@@ -128,6 +128,23 @@ def test_cohere_transcribe_keeps_generic_default_segment_time():
     assert args.segment_time is None
 
 
+def test_mega_asr_keeps_generic_default_segment_time():
+    from providers.catalog import normalize_runtime_args
+
+    args = SimpleNamespace(
+        segment_time=None,
+        alm_model="mega_asr_local",
+        ocr_model="",
+        vlm_image_model="",
+    )
+
+    normalize_runtime_args(args)
+
+    assert args.segment_time_explicit is False
+    assert args.effective_segment_time == 600
+    assert args.segment_time == 600
+
+
 def test_explicit_segment_time_overrides_music_flamingo_default():
     from providers.catalog import normalize_runtime_args
 

@@ -314,6 +314,22 @@ class TestFindProvider:
         provider = reg.find_provider(args, "audio/wav")
         assert provider is not None and provider.name == "cohere_transcribe_local"
 
+    def test_mega_asr_local_audio(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(alm_model="mega_asr_local")
+        provider = reg.find_provider(args, "audio/wav")
+        assert provider is not None and provider.name == "mega_asr_local"
+
+    def test_mega_asr_local_ignores_non_audio(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(alm_model="mega_asr_local")
+        provider = reg.find_provider(args, "image/jpeg")
+        assert provider is None or provider.name != "mega_asr_local"
+
     def test_gemma4_local_audio(self):
         from providers.registry import get_registry
 

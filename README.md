@@ -77,6 +77,10 @@
    - 支持 `audio/*` 输入
    - 走官方 `AutoModelForSpeechSeq2Seq + model.transcribe()` 推理路径
    - 需要先在 Hugging Face 接受 gated 模型条款，并在 `config/model.toml` 指定 `language`
+12. 新增转写专用本地 ALM `mega_asr_local`：
+   - 默认权重：`zhifeixie/Mega-ASR`
+   - 支持 `audio/*` 输入并输出结构化 `.txt` 转写文本
+   - 本项目直接加载 Qwen3-ASR backbone、Mega-ASR LoRA 权重和可选 router，权重下载到 `huggingface/Mega-ASR`
 
 ### 4.0 - Provider V2 架构重构
 
@@ -416,6 +420,10 @@ A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation,
    - Supports `audio/*` inputs
    - Uses the official `AutoModelForSpeechSeq2Seq + model.transcribe()` inference path
    - Requires accepting the gated Hugging Face model terms and setting `language` in `config/model.toml`
+11. Added transcription-only local ALM `mega_asr_local`:
+   - Default weights: `zhifeixie/Mega-ASR`
+   - Supports `audio/*` inputs and emits structured `.txt` transcript output
+   - Loads the Qwen3-ASR backbone, Mega-ASR LoRA weights, and optional router directly in this project; weights are downloaded to `huggingface/Mega-ASR`
 
 ### 4.0 - Provider V2 Architecture Refactoring
 

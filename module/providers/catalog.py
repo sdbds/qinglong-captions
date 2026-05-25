@@ -96,6 +96,10 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
         canonical_name="cohere_transcribe_local",
         config_sections=("cohere_transcribe_local",),
     ),
+    "mega_asr_local": ProviderSpec(
+        canonical_name="mega_asr_local",
+        config_sections=("mega_asr_local", "mega_asr"),
+    ),
 }
 
 ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
@@ -130,6 +134,7 @@ ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
         RouteSpec("eureka_audio_local", "eureka_audio_local"),
         RouteSpec("acestep_transcriber_local", "acestep_transcriber_local"),
         RouteSpec("cohere_transcribe_local", "cohere_transcribe_local"),
+        RouteSpec("mega_asr_local", "mega_asr_local"),
         RouteSpec("gemma4_local", "gemma4_local"),
     ),
 }

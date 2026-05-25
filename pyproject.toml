@@ -348,6 +348,15 @@ cohere-transcribe-local = [
     "sentencepiece",
     "protobuf",
 ]
+mega-asr-local = [
+    "qinglong-captions[torch-base]",
+    "qwen-asr",
+    "torchaudio",
+    "safetensors",
+    "soundfile",
+    "scipy",
+    "psutil",
+]
 vocal-midi = [
     "qinglong-captions[onnx-base]",
     "mido>=1.3.0",
@@ -530,6 +539,10 @@ conflicts = [
     [
         { extra = "translate" },
         { extra = "cohere-transcribe-local" },
+    ],
+    [
+        { extra = "translate" },
+        { extra = "mega-asr-local" },
     ],
     [
         { extra = "penguin-vl-local" },
@@ -859,6 +872,21 @@ conflicts = [
         { extra = "acestep-transcriber-local" },
         { extra = "music-flamingo-local" },
         { extra = "translate" },
+        { extra = "deepseek-ocr" },
+        { extra = "dots-ocr" },
+        { extra = "penguin-vl-local" },
+        { extra = "qwen-vl-local" },
+        { extra = "hunyuan-ocr" },
+        { extra = "glm-ocr" },
+    ],
+    [
+        # Mega-ASR loads Qwen3-ASR plus LoRA/router weights and should stay
+        # isolated from known Transformers forks / pins.
+        { extra = "mega-asr-local" },
+        { extra = "music-flamingo-local" },
+        { extra = "eureka-audio-local" },
+        { extra = "acestep-transcriber-local" },
+        { extra = "cohere-transcribe-local" },
         { extra = "deepseek-ocr" },
         { extra = "dots-ocr" },
         { extra = "penguin-vl-local" },

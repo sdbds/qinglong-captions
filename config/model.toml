@@ -402,6 +402,25 @@ punctuation = true
 compile = false
 pipeline_detokenization = false
 
+# Mega-ASR local transcription configuration
+# Model weights: https://huggingface.co/zhifeixie/Mega-ASR
+# Requires: uv sync --extra mega-asr-local
+# The provider loads Qwen3-ASR, Mega-ASR LoRA weights, and the optional router
+# directly in this project without requiring the upstream source checkout.
+[mega_asr_local]
+model_list."Mega-ASR" = { model_id = "zhifeixie/Mega-ASR", meta = { min_vram_gb = 8 } }
+model_id = "zhifeixie/Mega-ASR"
+ckpt_dir = "huggingface/Mega-ASR"
+routing = true
+threshold = 0.5
+device_map = ""
+quality_device = ""
+dtype = ""
+max_inference_batch_size = 32
+max_new_tokens = 256
+keep_delta_on_gpu = true
+language = ""
+
 [kimi_vl]
 thinking = "enabled"  # enabled | disabled
 

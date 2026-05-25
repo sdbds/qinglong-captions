@@ -89,6 +89,7 @@ _PROVIDER_MODULES: Dict[str, str] = {
     "eureka_audio_local": "module.providers.local_alm.eureka_audio_local",
     "acestep_transcriber_local": "module.providers.local_alm.acestep_transcriber_local",
     "cohere_transcribe_local": "module.providers.local_alm.cohere_transcribe_local",
+    "mega_asr_local": "module.providers.local_alm.mega_asr_local",
     "mistral_ocr": "module.providers.vision_api.pixtral",
     "gemini": "module.providers.vision_api.gemini",
 }
@@ -165,6 +166,7 @@ class ProviderRegistry:
                 "eureka_audio_local",
                 "acestep_transcriber_local",
                 "cohere_transcribe_local",
+                "mega_asr_local",
                 # Vision API
                 "mistral_ocr",
                 "gemini",
@@ -322,8 +324,12 @@ class ProviderRegistry:
             if failure is not None:
                 if not require_match:
                     continue
+                message = (
+                    f"Explicit provider '{provider_name}' selected via {route_name}='{route_value}' failed to import."
+                    f"\n\n{failure.traceback}"
+                )
                 raise ProviderImportError(
-                    f"Explicit provider '{provider_name}' selected via {route_name}='{route_value}' failed to import.\n\n{failure.traceback}"
+                    message
                 ) from failure.error
 
             provider_class = self._providers.get(provider_name)

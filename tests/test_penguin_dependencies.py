@@ -167,6 +167,20 @@ def test_pyproject_declares_cohere_transcribe_local_extra():
     assert "protobuf" in cohere_transcribe_deps
 
 
+def test_pyproject_declares_mega_asr_local_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "mega-asr-local" in optional_deps
+    mega_asr_deps = optional_deps["mega-asr-local"]
+    assert "qinglong-captions[torch-base]" in mega_asr_deps
+    assert "qwen-asr" in mega_asr_deps
+    assert any(dep.startswith("torchaudio") for dep in mega_asr_deps)
+    assert "safetensors" in mega_asr_deps
+    assert "soundfile" in mega_asr_deps
+    assert "scipy" in mega_asr_deps
+
+
 def test_pyproject_declares_gemma4_local_extra():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     optional_deps = pyproject["project"]["optional-dependencies"]
@@ -340,6 +354,17 @@ def test_caption_step_includes_cohere_transcribe_extra():
     assert step._build_local_extra_args() == ["--extra", "cohere-transcribe-local"]
 
 
+def test_caption_step_includes_mega_asr_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_mega_asr")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="mega_asr_local")
+
+    assert step._build_local_extra_args() == ["--extra", "mega-asr-local"]
+
+
 def test_caption_step_codex_subscription_counts_as_provider_config():
     CaptionStep = _load_caption_step("test_step4_caption_codex_provider")
 
@@ -441,6 +466,17 @@ def test_caption_step_treats_cohere_transcribe_as_local_route():
     step.ocr_model = SimpleNamespace(value="")
     step.vlm_image_model = SimpleNamespace(value="")
     step.alm_model = SimpleNamespace(value="cohere_transcribe_local")
+
+    assert step._has_local_route_config() is True
+
+
+def test_caption_step_treats_mega_asr_as_local_route():
+    CaptionStep = _load_caption_step("test_step4_caption_local_route_mega_asr")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="mega_asr_local")
 
     assert step._has_local_route_config() is True
 
@@ -745,6 +781,13 @@ def test_run_ps1_mentions_cohere_transcribe_extra():
 
     assert '"cohere_transcribe_local"' in content
     assert 'Add-UvExtra "cohere-transcribe-local"' in content
+
+
+def test_run_ps1_mentions_mega_asr_extra():
+    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+
+    assert '"mega_asr_local"' in content
+    assert 'Add-UvExtra "mega-asr-local"' in content
 
 
 def test_run_ps1_mentions_alm_language_passthrough():
