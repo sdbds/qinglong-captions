@@ -23,6 +23,7 @@ def _import_wdtagger_with_stubbed_runtime(monkeypatch, tmp_path):
     fake_lance_import = types.ModuleType("module.lanceImport")
 
     fake_hf.hf_hub_download = lambda **kwargs: str(tmp_path / kwargs["filename"])
+    fake_lance_import.load_data = lambda *args, **kwargs: []
     fake_lance_import.transform2lance = lambda *args, **kwargs: None
 
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
@@ -37,10 +38,13 @@ def _import_wdtagger_with_stubbed_runtime(monkeypatch, tmp_path):
 
 def test_wdtagger_scans_caption_state_in_python(monkeypatch, tmp_path):
     wdtagger = _import_wdtagger_with_stubbed_runtime(monkeypatch, tmp_path)
+    image_a = tmp_path / "a.jpg"
+    image_b = tmp_path / "b.jpg"
+    image_c = tmp_path / "c.jpg"
 
     batch = pa.record_batch(
         {
-            "uris": pa.array(["a.jpg", "b.jpg", "c.jpg"]),
+            "uris": pa.array([str(image_a), str(image_b), str(image_c)]),
             "mime": pa.array(["image/jpeg", "image/jpeg", "image/png"]),
             "captions": pa.array([[], ["already tagged"], None], type=pa.list_(pa.string())),
         }
@@ -60,11 +64,40 @@ def test_wdtagger_scans_caption_state_in_python(monkeypatch, tmp_path):
 
     batches = list(wdtagger._scan_wdtagger_candidate_batches(FakeDataset(), args))
 
-    assert batches[0]["uris"].to_pylist() == ["a.jpg", "c.jpg"]
+    assert batches[0]["uris"].to_pylist() == [str(image_a), str(image_c)]
     assert scanner_kwargs[0]["columns"] == ["uris", "mime", "captions"]
     assert scanner_kwargs[0]["filter"] == "mime LIKE 'image/%'"
     assert "array_length" not in scanner_kwargs[0]["filter"]
     assert scanner_kwargs[0]["late_materialization"] is False
+
+
+def test_wdtagger_scan_skips_existing_sidecar_captions(monkeypatch, tmp_path):
+    wdtagger = _import_wdtagger_with_stubbed_runtime(monkeypatch, tmp_path)
+    image_a = tmp_path / "a.jpg"
+    image_b = tmp_path / "b.jpg"
+    image_a.with_suffix(".txt").write_text("already tagged", encoding="utf-8")
+
+    batch = pa.record_batch(
+        {
+            "uris": pa.array([str(image_a), str(image_b)]),
+            "mime": pa.array(["image/jpeg", "image/png"]),
+            "captions": pa.array([[], []], type=pa.list_(pa.string())),
+        }
+    )
+
+    class FakeScanner:
+        def to_batches(self):
+            return [batch]
+
+    class FakeDataset:
+        def scanner(self, **_kwargs):
+            return FakeScanner()
+
+    args = SimpleNamespace(batch_size=32, overwrite=False, caption_extension=".txt")
+
+    batches = list(wdtagger._scan_wdtagger_candidate_batches(FakeDataset(), args))
+
+    assert batches[0]["uris"].to_pylist() == [str(image_b)]
 
 
 def test_wdtagger_overwrite_scan_does_not_read_captions(monkeypatch, tmp_path):
@@ -106,6 +139,7 @@ def test_wdtagger_load_model_and_tags_uses_single_model_bundle(monkeypatch, tmp_
     fake_lance_import = types.ModuleType("module.lanceImport")
 
     fake_hf.hf_hub_download = lambda **kwargs: str(tmp_path / kwargs["filename"])
+    fake_lance_import.load_data = lambda *args, **kwargs: []
     fake_lance_import.transform2lance = lambda *args, **kwargs: None
 
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
@@ -167,6 +201,7 @@ def test_wdtagger_load_model_and_tags_uses_siglip2_bundle_for_explicit_cl_tagger
     fake_lance_import = types.ModuleType("module.lanceImport")
 
     fake_hf.hf_hub_download = lambda **kwargs: str(tmp_path / kwargs["filename"])
+    fake_lance_import.load_data = lambda *args, **kwargs: []
     fake_lance_import.transform2lance = lambda *args, **kwargs: None
 
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
@@ -249,6 +284,7 @@ def test_wdtagger_finalize_args_infers_cl_tagger_v2_threshold(monkeypatch, tmp_p
     fake_lance_import = types.ModuleType("module.lanceImport")
 
     fake_hf.hf_hub_download = lambda **kwargs: str(tmp_path / kwargs["filename"])
+    fake_lance_import.load_data = lambda *args, **kwargs: []
     fake_lance_import.transform2lance = lambda *args, **kwargs: None
 
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
@@ -290,6 +326,7 @@ def test_wdtagger_get_tags_official_preserves_dynamic_categories(monkeypatch, tm
     fake_lance_import = types.ModuleType("module.lanceImport")
 
     fake_hf.hf_hub_download = lambda **kwargs: str(tmp_path / kwargs["filename"])
+    fake_lance_import.load_data = lambda *args, **kwargs: []
     fake_lance_import.transform2lance = lambda *args, **kwargs: None
 
     monkeypatch.setitem(sys.modules, "torch", fake_torch)

@@ -28,9 +28,10 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 
-from module.lanceImport import transform2lance
+from module.lanceImport import load_data, transform2lance
 from module.onnx_runtime import OnnxModelSpec, load_single_model_bundle, resolve_tool_runtime_config
 from utils.console_util import print_exception
+from utils.lance_utils import update_or_create_tag
 from utils.tag_highlighting import get_tag_classifier
 from utils.wdtagger_siglip2 import (
     CL_TAGGER_V2_DEFAULT_VERSION,
@@ -774,9 +775,41 @@ def _is_empty_caption_list(captions: Optional[List[str]]) -> bool:
     return captions is None or len(captions) == 0
 
 
-def _filter_uncaptioned_batch(batch: pa.RecordBatch) -> Optional[pa.RecordBatch]:
+def _has_sidecar_caption(uri: str, caption_extension: str) -> bool:
+    caption_path = Path(uri).with_suffix(caption_extension)
+    if not caption_path.exists():
+        return False
+
+    try:
+        return bool(caption_path.read_text(encoding="utf-8").strip())
+    except OSError:
+        return False
+
+
+def _read_sidecar_caption(uri: str, caption_extension: str) -> List[str]:
+    caption_path = Path(uri).with_suffix(caption_extension)
+    if not caption_path.exists():
+        return []
+
+    try:
+        content = caption_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    return content.splitlines() if caption_extension.lower() == ".txt" else [content]
+
+
+def _filter_uncaptioned_batch(batch: pa.RecordBatch, args: argparse.Namespace) -> Optional[pa.RecordBatch]:
     captions = batch["captions"].to_pylist()
-    indices = [index for index, value in enumerate(captions) if _is_empty_caption_list(value)]
+    uris = batch["uris"].to_pylist()
+    should_skip_sidecars = not getattr(args, "append_tags", False)
+    caption_extension = getattr(args, "caption_extension", ".txt")
+    indices = [
+        index
+        for index, value in enumerate(captions)
+        if _is_empty_caption_list(value)
+        and not (should_skip_sidecars and _has_sidecar_caption(str(uris[index]), caption_extension))
+    ]
 
     if len(indices) == batch.num_rows:
         return batch
@@ -804,7 +837,7 @@ def _scan_wdtagger_candidate_batches(dataset: Any, args: argparse.Namespace) -> 
             yield batch
             continue
 
-        filtered_batch = _filter_uncaptioned_batch(batch)
+        filtered_batch = _filter_uncaptioned_batch(batch, args)
         if filtered_batch is not None and filtered_batch.num_rows > 0:
             yield filtered_batch
 
@@ -813,15 +846,91 @@ def _count_wdtagger_candidate_rows(dataset: Any, args: argparse.Namespace) -> in
     return sum(batch.num_rows for batch in _scan_wdtagger_candidate_batches(dataset, args))
 
 
+def _resolve_lance_rebuild_source(train_data_dir: Any, dataset_path: Optional[Path]) -> Optional[Path]:
+    if not isinstance(train_data_dir, str):
+        return None
+
+    input_path = Path(train_data_dir)
+    if input_path.suffix == ".lance":
+        return input_path.parent
+    if input_path.is_dir():
+        return input_path
+    if dataset_path is not None:
+        return dataset_path.parent
+    return None
+
+
+def _load_rebuild_data(source_dir: Optional[Path], dataset: Any, caption_extension: str) -> List[Dict[str, Any]]:
+    if source_dir is not None:
+        data = load_data(str(source_dir))
+        if data:
+            return data
+
+    if dataset is None:
+        return []
+
+    data = []
+    scanner = dataset.scanner(
+        columns=["uris"],
+        scan_in_order=True,
+        batch_size=1024,
+        late_materialization=False,
+    )
+    for batch in scanner.to_batches():
+        for uri in batch["uris"].to_pylist():
+            data.append(
+                {
+                    "file_path": str(uri),
+                    "caption": _read_sidecar_caption(str(uri), caption_extension),
+                    "chunk_offsets": [],
+                }
+            )
+    return data
+
+
+def _rebuild_lance_from_sidecars(
+    source_dir: Optional[Path],
+    output_name: str,
+    dataset: Any,
+    caption_extension: str,
+) -> Optional[Any]:
+    if source_dir is None:
+        console.print("[yellow]Skipping Lance rebuild: source directory is unavailable.[/yellow]")
+        return None
+
+    data = _load_rebuild_data(source_dir, dataset, caption_extension)
+    if not data:
+        console.print("[yellow]Skipping Lance rebuild: no source media rows were found.[/yellow]")
+        return None
+
+    console.print("[yellow]Rebuilding Lance dataset from sidecar caption files...[/yellow]")
+    rebuilt_dataset = transform2lance(
+        str(source_dir),
+        output_name=output_name,
+        save_binary=False,
+        not_save_disk=False,
+        tag="WDtagger",
+        load_condition=lambda *_args, **_kwargs: data,
+    )
+    if rebuilt_dataset is None:
+        console.print("[yellow]Lance rebuild did not return a dataset; sidecar captions were still written.[/yellow]")
+    else:
+        console.print("[green]Lance dataset rebuilt from sidecar caption files[/green]")
+    return rebuilt_dataset
+
+
 def main(args):
     global console
 
     # 初始化 Lance 数据集
+    dataset_path: Optional[Path] = None
     if not isinstance(args.train_data_dir, lance.LanceDataset):
         if args.train_data_dir.endswith(".lance"):
+            dataset_path = Path(args.train_data_dir)
             dataset = lance.dataset(args.train_data_dir)
         elif any(file.suffix == ".lance" for file in Path(args.train_data_dir).glob("*")):
             lance_file = next(file for file in Path(args.train_data_dir).glob("*") if file.suffix == ".lance")
+            dataset_path = lance_file
             dataset = lance.dataset(str(lance_file))
         else:
             console.print("[yellow]Converting dataset to Lance format...[/yellow]")
@@ -832,11 +941,19 @@ def main(args):
                 not_save_disk=False,
                 tag="WDtagger",
             )
+            dataset_path = Path(args.train_data_dir) / "dataset.lance"
             console.print("[green]Dataset converted to Lance format[/green]")
 
     else:
         dataset = args.train_data_dir
         console.print("[green]Using existing Lance dataset[/green]")
+
+    lance_update_mode = getattr(args, "lance_update_mode", "rebuild")
+    rebuild_source_dir = _resolve_lance_rebuild_source(args.train_data_dir, dataset_path)
+    rebuild_output_name = dataset_path.stem if dataset_path is not None else "dataset"
+    if lance_update_mode == "rebuild" and rebuild_source_dir is None:
+        console.print("[yellow]Lance rebuild source unavailable; using merge_insert updates.[/yellow]")
+        lance_update_mode = "merge"
 
     # Load model, tags, and parent-child map
     ort_sess, input_name, label_data, parent_to_child_map = load_model_and_tags(args)
@@ -854,7 +971,12 @@ def main(args):
     all_json_tags: Dict[str, Dict[str, List[str]]] = {}
 
     def flush_merge_insert() -> None:
+        nonlocal lance_update_mode
+
         if not results:
+            return
+        if lance_update_mode != "merge":
+            results.clear()
             return
 
         table = pa.table(
@@ -867,7 +989,15 @@ def main(args):
             }
         )
 
-        dataset.merge_insert(on="uris").when_matched_update_all().execute(table)
+        try:
+            dataset.merge_insert(on="uris").when_matched_update_all().execute(table)
+        except Exception as e:
+            console.print(
+                "[yellow]Lance merge_insert failed; continuing with sidecar captions "
+                "and rebuilding the dataset at the end.[/yellow]"
+            )
+            print_exception(console, e, prefix="Lance merge_insert failed")
+            lance_update_mode = "rebuild" if rebuild_source_dir is not None else "none"
         results.clear()
 
     with Progress(
@@ -975,12 +1105,25 @@ def main(args):
 
     flush_merge_insert()
 
-    try:
-        dataset.tags.create("WDtagger", 1)
-    except Exception:
-        dataset.tags.update("WDtagger", 1)
+    lance_dataset_updated = False
+    if lance_update_mode == "rebuild":
+        rebuilt_dataset = _rebuild_lance_from_sidecars(
+            rebuild_source_dir,
+            rebuild_output_name,
+            dataset,
+            args.caption_extension,
+        )
+        if rebuilt_dataset is not None:
+            dataset = rebuilt_dataset
+            lance_dataset_updated = True
+    elif lance_update_mode == "merge":
+        update_or_create_tag(dataset, "WDtagger")
+        lance_dataset_updated = True
 
-    console.print("[green]Successfully updated dataset with new captions[/green]")
+    if lance_dataset_updated:
+        console.print("[green]Successfully updated dataset with new captions[/green]")
+    else:
+        console.print("[green]Successfully wrote sidecar captions; Lance update was skipped[/green]")
 
 
 def split_name_series(names: str) -> str:
@@ -1221,7 +1364,16 @@ def setup_parser() -> argparse.ArgumentParser:
         "--merge_batch_size",
         type=int,
         default=100,
-        help="Batch size for merge_insert to avoid memory overflow on large datasets (default: 100)",
+        help="Batch size for merge_insert when --lance_update_mode=merge (default: 100)",
+    )
+    parser.add_argument(
+        "--lance_update_mode",
+        choices=("rebuild", "merge", "none"),
+        default="rebuild",
+        help=(
+            "How to write captions back to Lance: rebuild from sidecar files after tagging "
+            "(default), use Lance merge_insert incrementally, or skip Lance writes."
+        ),
     )
 
     return parser
