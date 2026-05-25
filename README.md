@@ -3,9 +3,47 @@
 <details>
 <summary>中文说明（点击展开）</summary>
 
-# 青龙字幕工具 (4.3.0)
+# 青龙字幕工具 (4.4.0)
 
 ## 更新日志
+
+### 4.4 - 本地模型、GUI 与 WDTagger 更新
+
+1. 新增和扩展本地 Provider：
+   - 新增 `marlin_2b_local`，支持本地视频 VLM，并补齐图片输入与 GUI 进度日志
+   - 新增 `mega_asr_local`，用于 Mega-ASR 音频转写
+   - 新增 `codex_subscription`，支持使用已登录 Codex / ChatGPT 订阅会话进行图像字幕生成，并提供 `sdk_app_server` 与 `exec` 两种后端路径
+   - `gemma4_local` 的图片与配对图片编码现在会遵守全局 `image_quality` 配置
+2. 本地运行时和依赖矩阵更新：
+   - PyTorch / ONNX 安装源改为显式 CUDA 13 索引，`onnx-base` 增加 TensorRT CUDA 13 依赖
+   - `translate` 依赖升级到 Transformers 5.6+ 并补齐 `compressed-tensors`
+   - `translate` 默认模型更新为 `tencent/Hy-MT2-7B`，并保留轻量 FP8 变体
+   - 基础依赖更新到 `pylance>=6.0.1`、`imageio>=2.37.3`、`imageio-ffmpeg>=0.6.0`、`mistralai>=2.4.5`、`google-genai>=2.6.0`、`scenedetect>=0.7`
+3. WDTagger / CL Tagger 路径更新：
+   - `cl_tagger_v2` 默认更新到 `v1_04`
+   - 支持动态 tag category，并过滤未知分类的 wdtagger caption
+   - WDTagger 主实现拆分为 `module/wdtagger/` 包，保留 `utils/wdtagger.py` 兼容入口
+   - 修复 Lance caption 扫描和 merge update 路径，避免 wdtagger 写入时触发不必要的 Lance 合并更新
+4. Lance 与数据导入行为更新：
+   - Lance 依赖升级到 `pylance>=6.0.1`
+   - Blob v2 读写逻辑重做，导出与翻译流程可正确读取 Lance BlobFile
+   - Lance 导入默认不再保存原始二进制 blob，降低默认数据集体积
+5. GUI 和脚本工作流更新：
+   - GUI 改为从 `pyproject.toml` 读取版本号
+   - Caption 页面新增本地模型显存适配提示、多 GPU 摘要和延迟 GPU 探测
+   - Tools 页面新增 see-through 显存推荐与多 GPU 明细
+   - 模型配置面板、共享标签本地化、日志视图、任务列表、启动脚本默认值与独立 GUI venv 逻辑同步更新
+   - 各 `.ps1` 入口移除过时 `uv.lock` 依赖，按当前 profile 增量安装
+6. 质量评分、媒体处理和 Provider 稳定性更新：
+   - Reward model 独立为 `reward-model` extra，修复 HPSv3 输入规范化、Transformers 版本 pin 和 GPU 选择
+   - 新增全局 `image_quality` 配置，Provider 编码图片时可统一控制 JPEG 质量
+   - 修复 Qwen 本地模型不支持图片输入时的路由行为
+   - 更新 Kimi Code 模型配置路径
+   - `Marlin-2B` 视频超长时按模型上限自动分段，图片输入绕开视频分段逻辑
+   - `see-through` 默认 seed 调整为 `1026`，LayerDiff / Marigold / postprocess 抽取层补齐更多单元测试和异常边界
+7. 测试覆盖扩展：
+   - 新增 Codex subscription、Marlin-2B、Mega-ASR、WDTagger ONNX / SigLIP2、GPU profile、模型配置面板、运行时依赖冲突、Caption pipeline 等测试
+   - Provider V2、运行时后端、Lance blob、输出写入、文本翻译和 GUI i18n 测试同步更新
 
 ### 4.3 - Image2PSD / See-through
 
@@ -350,11 +388,49 @@ python -m gui.launch --native --port 7899
 
 </details>
 
-# qinglong-captioner (4.3.0)
+# qinglong-captioner (4.4.0)
 
 A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation, audio separation, and cloud / local provider routing.
 
 ## Changelog
+
+### 4.4 - Local Models, GUI, And WDTagger Updates
+
+1. Added and expanded local Providers:
+   - Added `marlin_2b_local` for local video VLM use, with image input support and GUI progress logging
+   - Added `mega_asr_local` for Mega-ASR audio transcription
+   - Added `codex_subscription` for image captioning through a logged-in Codex / ChatGPT subscription session, with both `sdk_app_server` and `exec` backend paths
+   - `gemma4_local` image and pair-image encoding now respects the global `image_quality` setting
+2. Updated local runtime and dependency profiles:
+   - Moved PyTorch / ONNX installation metadata to explicit CUDA 13 indexes and added TensorRT CUDA 13 support to `onnx-base`
+   - Upgraded `translate` to Transformers 5.6+ and added `compressed-tensors`
+   - Updated the default translation model to `tencent/Hy-MT2-7B`, while keeping the lightweight FP8 variant
+   - Updated base dependencies to `pylance>=6.0.1`, `imageio>=2.37.3`, `imageio-ffmpeg>=0.6.0`, `mistralai>=2.4.5`, `google-genai>=2.6.0`, and `scenedetect>=0.7`
+3. Updated WDTagger / CL Tagger handling:
+   - Updated the default `cl_tagger_v2` snapshot to `v1_04`
+   - Added dynamic tag category handling and filtered unknown wdtagger caption categories
+   - Split the WDTagger implementation into the `module/wdtagger/` package while keeping `utils/wdtagger.py` as a compatibility entrypoint
+   - Fixed Lance caption scanning and avoided unnecessary Lance merge updates during wdtagger writes
+4. Updated Lance and import behavior:
+   - Upgraded Lance support to `pylance>=6.0.1`
+   - Reworked Blob v2 read / write handling so export and translation flows can read Lance BlobFile values correctly
+   - Made Lance imports skip raw binary blob storage by default to reduce default dataset size
+5. Updated GUI and script workflows:
+   - GUI now reads the displayed app version from `pyproject.toml`
+   - Caption page now exposes local model fit hints, multi-GPU summaries, and lazy GPU probing
+   - Tools page now exposes see-through VRAM recommendations and multi-GPU details
+   - Refreshed the model config panel, shared label localization, log viewer, job list, launcher defaults, and isolated GUI venv behavior
+   - Updated `.ps1` entrypoints to avoid stale `uv.lock` assumptions and install the active profile incrementally
+6. Improved quality scoring, media handling, and Provider stability:
+   - Split reward scoring into the `reward-model` extra and fixed HPSv3 input normalization, Transformers pinning, and GPU selection
+   - Added global `image_quality` configuration for consistent Provider image encoding quality
+   - Fixed Qwen local routing when image inputs are not supported
+   - Updated the Kimi Code model configuration path
+   - Made `Marlin-2B` segment long videos according to model limits while bypassing video segmentation for image inputs
+   - Changed the default `see-through` seed to `1026` and added more tests and boundary handling around the extracted LayerDiff / Marigold / postprocess layers
+7. Expanded test coverage:
+   - Added tests for Codex subscription, Marlin-2B, Mega-ASR, WDTagger ONNX / SigLIP2, GPU profile, model config panel, runtime dependency conflicts, and the caption pipeline
+   - Updated Provider V2, runtime backend, Lance blob, output writer, text translation, and GUI i18n tests
 
 ### 4.3 - Image2PSD / See-through
 

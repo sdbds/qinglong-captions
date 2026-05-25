@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qinglong-captions"
-version = "4.3.0"
+version = "4.4.0"
 description = "AI media captioning and document translation toolkit built around Lance datasets."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
@@ -18,12 +18,12 @@ dependencies = [
     "pillow-jxl-plugin",
     "pysrt",
     "toml",
-    "imageio>=2.31.1",
-    "imageio-ffmpeg>=0.4.8",
+    "imageio>=2.37.3",
+    "imageio-ffmpeg>=0.6.0",
     "pymediainfo",
     "mutagen",
-    "mistralai>=2.1.2",
-    "google-genai>=1.52.0",
+    "mistralai>=2.4.5",
+    "google-genai>=2.6.0",
     "openai",
     "dashscope",
     "pyanimeinfo",
@@ -32,7 +32,7 @@ dependencies = [
     "wheel_stub",
     "setuptools",
     "opencv-python",
-    "scenedetect>=0.6.6",
+    "scenedetect>=0.7",
     "nicegui[native]",
     "tomlkit",
 ]
@@ -407,6 +407,10 @@ conflicts = [
     [
         { extra = "paddleocr" },
         { extra = "cohere-transcribe-local" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "mega-asr-local" },
     ],
     [
         { extra = "deepseek-ocr" },
