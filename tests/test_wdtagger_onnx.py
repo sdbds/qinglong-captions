@@ -5,10 +5,94 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pyarrow as pa
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "module"))
+
+
+def _import_wdtagger_with_stubbed_runtime(monkeypatch, tmp_path):
+    sys.modules.pop("utils.wdtagger", None)
+
+    fake_torch = types.ModuleType("torch")
+    fake_cv2 = types.ModuleType("cv2")
+    fake_lance = types.ModuleType("lance")
+    fake_ort = types.ModuleType("onnxruntime")
+    fake_hf = types.ModuleType("huggingface_hub")
+    fake_lance_import = types.ModuleType("module.lanceImport")
+
+    fake_hf.hf_hub_download = lambda **kwargs: str(tmp_path / kwargs["filename"])
+    fake_lance_import.transform2lance = lambda *args, **kwargs: None
+
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
+    monkeypatch.setitem(sys.modules, "lance", fake_lance)
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+    monkeypatch.setitem(sys.modules, "module.lanceImport", fake_lance_import)
+
+    return importlib.import_module("utils.wdtagger")
+
+
+def test_wdtagger_scans_caption_state_in_python(monkeypatch, tmp_path):
+    wdtagger = _import_wdtagger_with_stubbed_runtime(monkeypatch, tmp_path)
+
+    batch = pa.record_batch(
+        {
+            "uris": pa.array(["a.jpg", "b.jpg", "c.jpg"]),
+            "mime": pa.array(["image/jpeg", "image/jpeg", "image/png"]),
+            "captions": pa.array([[], ["already tagged"], None], type=pa.list_(pa.string())),
+        }
+    )
+    scanner_kwargs = []
+
+    class FakeScanner:
+        def to_batches(self):
+            return [batch]
+
+    class FakeDataset:
+        def scanner(self, **kwargs):
+            scanner_kwargs.append(kwargs)
+            return FakeScanner()
+
+    args = SimpleNamespace(batch_size=32, overwrite=False)
+
+    batches = list(wdtagger._scan_wdtagger_candidate_batches(FakeDataset(), args))
+
+    assert batches[0]["uris"].to_pylist() == ["a.jpg", "c.jpg"]
+    assert scanner_kwargs[0]["columns"] == ["uris", "mime", "captions"]
+    assert scanner_kwargs[0]["filter"] == "mime LIKE 'image/%'"
+    assert "array_length" not in scanner_kwargs[0]["filter"]
+    assert scanner_kwargs[0]["late_materialization"] is False
+
+
+def test_wdtagger_overwrite_scan_does_not_read_captions(monkeypatch, tmp_path):
+    wdtagger = _import_wdtagger_with_stubbed_runtime(monkeypatch, tmp_path)
+
+    batch = pa.record_batch(
+        {
+            "uris": pa.array(["a.jpg", "b.jpg"]),
+            "mime": pa.array(["image/jpeg", "image/png"]),
+        }
+    )
+    scanner_kwargs = []
+
+    class FakeScanner:
+        def to_batches(self):
+            return [batch]
+
+    class FakeDataset:
+        def scanner(self, **kwargs):
+            scanner_kwargs.append(kwargs)
+            return FakeScanner()
+
+    args = SimpleNamespace(batch_size=32, overwrite=True)
+
+    assert wdtagger._count_wdtagger_candidate_rows(FakeDataset(), args) == 2
+    assert scanner_kwargs[0]["columns"] == ["uris", "mime"]
+    assert scanner_kwargs[0]["filter"] == "mime LIKE 'image/%'"
+    assert scanner_kwargs[0]["late_materialization"] is False
 
 
 def test_wdtagger_load_model_and_tags_uses_single_model_bundle(monkeypatch, tmp_path):

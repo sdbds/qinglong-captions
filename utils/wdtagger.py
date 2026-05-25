@@ -6,7 +6,7 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import torch
 import cv2
@@ -43,6 +43,7 @@ from utils.wdtagger_siglip2 import (
 )
 
 console = Console(color_system="truecolor", force_terminal=True)
+IMAGE_MIME_FILTER = "mime LIKE 'image/%'"
 
 # --- Config Loading ---
 # Load configuration from split TOML files (general.toml contains wdtagger section).
@@ -769,6 +770,49 @@ def assemble_tags_json(
     return category_to_tags
 
 
+def _is_empty_caption_list(captions: Optional[List[str]]) -> bool:
+    return captions is None or len(captions) == 0
+
+
+def _filter_uncaptioned_batch(batch: pa.RecordBatch) -> Optional[pa.RecordBatch]:
+    captions = batch["captions"].to_pylist()
+    indices = [index for index, value in enumerate(captions) if _is_empty_caption_list(value)]
+
+    if len(indices) == batch.num_rows:
+        return batch
+    if not indices:
+        return None
+
+    return batch.take(pa.array(indices, type=pa.int64()))
+
+
+def _scan_wdtagger_candidate_batches(dataset: Any, args: argparse.Namespace) -> Iterator[pa.RecordBatch]:
+    columns = ["uris", "mime"] if args.overwrite else ["uris", "mime", "captions"]
+    scanner = dataset.scanner(
+        columns=columns,
+        filter=IMAGE_MIME_FILTER,
+        scan_in_order=True,
+        batch_size=args.batch_size,
+        batch_readahead=16,
+        fragment_readahead=4,
+        io_buffer_size=32 * 1024 * 1024,  # 32MB buffer
+        late_materialization=False,
+    )
+
+    for batch in scanner.to_batches():
+        if args.overwrite:
+            yield batch
+            continue
+
+        filtered_batch = _filter_uncaptioned_batch(batch)
+        if filtered_batch is not None and filtered_batch.num_rows > 0:
+            yield filtered_batch
+
+
+def _count_wdtagger_candidate_rows(dataset: Any, args: argparse.Namespace) -> int:
+    return sum(batch.num_rows for batch in _scan_wdtagger_candidate_batches(dataset, args))
+
+
 def main(args):
     global console
 
@@ -802,29 +846,7 @@ def main(args):
 
     # 使用 Lance 扫描器处理图像
     tag_freq = {}
-    total_images = len(
-        dataset.to_table(
-            columns=["mime", "captions"],
-            filter=(
-                "mime LIKE 'image/%'"
-                if args.overwrite
-                else "mime LIKE 'image/%' and (captions IS NULL OR array_length(captions) = 0)"
-            ),
-        )
-    )
-
-    scanner = dataset.scanner(
-        columns=["uris", "mime", "captions"],
-        filter=(
-            "mime LIKE 'image/%'" if args.overwrite else "mime LIKE 'image/%' and (captions IS NULL OR array_length(captions) = 0)"
-        ),
-        scan_in_order=True,
-        batch_size=args.batch_size,
-        batch_readahead=16,
-        fragment_readahead=4,
-        io_buffer_size=32 * 1024 * 1024,  # 32MB buffer
-        late_materialization=True,
-    )
+    total_images = _count_wdtagger_candidate_rows(dataset, args)
 
     merge_batch_size = getattr(args, "merge_batch_size", 100)
     results = []
@@ -867,7 +889,7 @@ def main(args):
 
         console = progress.console
 
-        for batch in scanner.to_batches():
+        for batch in _scan_wdtagger_candidate_batches(dataset, args):
             uris = batch["uris"].to_pylist()
 
             # 使用并行处理加载和预处理图像
