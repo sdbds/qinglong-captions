@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from rich.console import Console
 from rich.progress import Progress
+
 from utils.parse_display import display_caption_and_rate
 
 
@@ -271,6 +272,10 @@ class Provider(ABC):
         """
         pass
 
+    def get_response_skip_reason(self, result: CaptionResult, media: MediaContext, args: Any) -> str:
+        """Return a skip reason for provider-specific non-caption responses."""
+        return ""
+
     def post_validate(self, result: CaptionResult, media: MediaContext, args: Any) -> CaptionResult:
         """
         后验证钩子
@@ -278,6 +283,16 @@ class Provider(ABC):
         子类可以覆盖此方法实现自定义验证/重试逻辑
         （如 Pixtral 的角色名校验）
         """
+        skip_reason = self.get_response_skip_reason(result, media, args)
+        if skip_reason:
+            metadata = dict(result.metadata)
+            metadata.setdefault("provider", self.name)
+            metadata["skip_reason"] = skip_reason
+            try:
+                self.log(f"Skipping {Path(media.uri).name}: {skip_reason}", "yellow")
+            except Exception:
+                pass
+            return CaptionResult(raw="", parsed=None, metadata=metadata)
         return result
 
     def get_retry_config(self) -> RetryConfig:

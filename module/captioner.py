@@ -117,6 +117,26 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Base URL for Kimi-Code API",
     )
 
+    # Xiaomi MiMo (OpenAI-compatible API)
+    parser.add_argument(
+        "--mimo_api_key",
+        type=str,
+        default="",
+        help="API key for Xiaomi MiMo OpenAI-compatible API",
+    )
+    parser.add_argument(
+        "--mimo_model_path",
+        type=str,
+        default="mimo-v2.5",
+        help="Model name for MiMo (default: mimo-v2.5)",
+    )
+    parser.add_argument(
+        "--mimo_base_url",
+        type=str,
+        default="https://token-plan-sgp.xiaomimimo.com/v1",
+        help="Base URL for Xiaomi MiMo OpenAI-compatible API",
+    )
+
     # MiniMax API
     parser.add_argument(
         "--minimax_api_key",

@@ -183,6 +183,9 @@ def attempt_kimi_vl(
     pair_pixels: Optional[Pixels] = None,
     thinking: str = "enabled",
     mode: str = "all",
+    max_tokens: int = 8192,
+    max_tokens_param: str = "max_tokens",
+    temperature: Optional[float] = None,
 ) -> str:
     start_time = time.time()
 
@@ -204,17 +207,23 @@ def attempt_kimi_vl(
     messages = _inject_tags_into_messages(messages, merged_tags)
 
     extra_body = {"thinking": {"type": thinking}} if thinking in ("enabled", "disabled") else None
-    temperature = 0.6 if thinking == "disabled" else 1.0
+    if temperature is None:
+        temperature = 0.6 if thinking == "disabled" else 1.0
 
-    completion = client.chat.completions.create(
-        model=model_path,
-        messages=messages,
-        temperature=temperature,
-        top_p=0.95,
-        max_tokens=8192,
-        stream=True,
-        extra_body=extra_body,
-    )
+    request_params: dict[str, Any] = {
+        "model": model_path,
+        "messages": messages,
+        "temperature": temperature,
+        "top_p": 0.95,
+        "stream": True,
+        "extra_body": extra_body,
+    }
+    if max_tokens_param == "max_completion_tokens":
+        request_params["max_completion_tokens"] = max_tokens
+    else:
+        request_params["max_tokens"] = max_tokens
+
+    completion = client.chat.completions.create(**request_params)
 
     if progress and task_id is not None:
         progress.update(task_id, description="Generating captions")

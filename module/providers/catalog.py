@@ -51,6 +51,11 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
         config_sections=("infinity_parser2_ocr",),
         prompt_prefixes=("infinity_parser2",),
     ),
+    "mimo": ProviderSpec(
+        canonical_name="mimo",
+        config_sections=("mimo",),
+        prompt_prefixes=("kimi",),
+    ),
     "qwen_vl_local": ProviderSpec(
         canonical_name="qwen_vl_local",
         config_sections=("qwen_vl_local", "qwen"),

@@ -39,6 +39,7 @@
    - 新增全局 `image_quality` 配置，Provider 编码图片时可统一控制 JPEG 质量
    - 修复 Qwen 本地模型不支持图片输入时的路由行为
    - 更新 Kimi Code 模型配置路径
+   - 新增 Xiaomi MiMo OpenAI 兼容 Provider，支持 `--mimo_api_key`、`--mimo_model_path`、`--mimo_base_url`
    - `Marlin-2B` 视频超长时按模型上限自动分段，图片输入绕开视频分段逻辑
    - `see-through` 默认 seed 调整为 `1026`，LayerDiff / Marigold / postprocess 抽取层补齐更多单元测试和异常边界
 7. 测试覆盖扩展：
@@ -426,6 +427,7 @@ A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation,
    - Added global `image_quality` configuration for consistent Provider image encoding quality
    - Fixed Qwen local routing when image inputs are not supported
    - Updated the Kimi Code model configuration path
+   - Added a Xiaomi MiMo OpenAI-compatible Provider with `--mimo_api_key`, `--mimo_model_path`, and `--mimo_base_url`
    - Made `Marlin-2B` segment long videos according to model limits while bypassing video segmentation for image inputs
    - Changed the default `see-through` seed to `1026` and added more tests and boundary handling around the extracted LayerDiff / Marigold / postprocess layers
 7. Expanded test coverage:

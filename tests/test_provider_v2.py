@@ -987,6 +987,7 @@ class TestAPIRetryConfig:
             ("module.providers.cloud_vlm.glm", "GLMProvider", {"glm_api_key": "sk-test"}),
             ("module.providers.cloud_vlm.kimi_code", "KimiCodeProvider", {"kimi_code_api_key": "sk-test"}),
             ("module.providers.cloud_vlm.kimi_vl", "KimiVLProvider", {"kimi_api_key": "sk-test"}),
+            ("module.providers.cloud_vlm.mimo", "MimoProvider", {"mimo_api_key": "sk-test"}),
             ("module.providers.cloud_vlm.minimax_api", "MiniMaxAPIProvider", {}),
             ("module.providers.cloud_vlm.minimax_code", "MiniMaxCodeProvider", {}),
             (
@@ -1171,6 +1172,7 @@ class TestProviderBase:
         d = Dummy(ctx)
         r = CaptionResult(raw="result")
         m = MediaContext(uri="/a", mime="image/jpeg", sha256hash="", modality=MediaModality.IMAGE)
+        assert d.get_response_skip_reason(r, m, ctx.args) == ""
         assert d.post_validate(r, m, ctx.args) is r
 
     def test_execute_propagates_sha256hash(self):

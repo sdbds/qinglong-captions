@@ -308,6 +308,7 @@ def home_page():
                     ("Qwen-VL", model_list["qwen"]),
                     ("Kimi", model_list["kimi"]),
                     ("Kimi-Code", model_list["kimi_code"]),
+                    ("MiMo", model_list["mimo"]),
                     ("MiniMax", model_list["minimax"]),
                     ("MiniMax-Code", model_list["minimax_code"]),
                     ("GLM", model_list["glm"]),

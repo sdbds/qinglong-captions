@@ -58,6 +58,14 @@ class TestFindProvider:
         provider = reg.find_provider(args, "image/jpeg")
         assert provider.name == "kimi_vl"
 
+    def test_mimo_image(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        args = make_provider_args(mimo_api_key="mm-xxx")
+        provider = reg.find_provider(args, "image/jpeg")
+        assert provider is not None and provider.name == "mimo"
+
     def test_gemini(self):
         from providers.registry import get_registry
 

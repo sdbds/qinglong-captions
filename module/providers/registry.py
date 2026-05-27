@@ -63,6 +63,7 @@ _PROVIDER_MODULES: Dict[str, str] = {
     "glm": "module.providers.cloud_vlm.glm",
     "kimi_code": "module.providers.cloud_vlm.kimi_code",
     "kimi_vl": "module.providers.cloud_vlm.kimi_vl",
+    "mimo": "module.providers.cloud_vlm.mimo",
     "minimax_code": "module.providers.cloud_vlm.minimax_code",
     "minimax_api": "module.providers.cloud_vlm.minimax_api",
     "deepseek_ocr": "module.providers.ocr.deepseek",
@@ -138,6 +139,7 @@ class ProviderRegistry:
                 "glm",
                 "kimi_code",  # 优先级高于 kimi_vl
                 "kimi_vl",
+                "mimo",
                 "minimax_code",  # 优先级高于 minimax_api
                 "minimax_api",
                 # OCR models

@@ -36,6 +36,7 @@ class TestProviderRegistry:
             "glm",
             "kimi_code",
             "kimi_vl",
+            "mimo",
             "infinity_parser2_ocr",
             "deepseek_ocr",
             "logics_ocr",
@@ -333,6 +334,13 @@ class TestPriorityOrder:
         reg = get_registry()
         order = reg._priority_order
         assert order.index("kimi_code") < order.index("kimi_vl")
+
+    def test_mimo_after_kimi_vl_before_minimax(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        order = reg._priority_order
+        assert order.index("kimi_vl") < order.index("mimo") < order.index("minimax_code")
 
 
 def test_find_provider_returns_none_when_no_provider_matches():

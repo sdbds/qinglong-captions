@@ -171,6 +171,16 @@ class CaptionStep:
             "supports_video": True,
             "supports_task": False,
         },
+        "MiMo": {
+            "key_name": "mimo_api_key",
+            "models": [
+                "mimo-v2.5",
+                "mimo-v2-omni",
+            ],
+            "default_model": "mimo-v2.5",
+            "supports_video": True,
+            "supports_task": False,
+        },
         "MiniMax": {
             "key_name": "minimax_api_key",
             "models": [

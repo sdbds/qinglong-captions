@@ -14,6 +14,11 @@ $kimi_code_api_key = ""
 $kimi_code_model_path = "kimi-for-coding"
 $kimi_code_base_url = "https://api.kimi.com/coding/v1"
 
+# Xiaomi MiMo API 配置（OpenAI 兼容接口）
+$mimo_api_key = ""              # MiMo API 密钥 (从 platform.xiaomimimo.com 获取)
+$mimo_model_path = "mimo-v2.5"  # 图像/视频 caption 默认使用多模态模型
+$mimo_base_url = "https://token-plan-sgp.xiaomimimo.com/v1"
+
 # MiniMax API 配置
 $minimax_api_key = ""              # MiniMax API 密钥 (从 platform.minimaxi.com 获取)
 $minimax_model_path = "MiniMax-M2.5"  # 可选: MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1, MiniMax-M2.1-highspeed, MiniMax-M2
@@ -322,6 +327,19 @@ if ($kimi_code_model_path -and $kimi_code_model_path -ne "kimi-for-coding") {
 
 if ($kimi_code_base_url) {
   [void]$ext_args.Add("--kimi_code_base_url=$kimi_code_base_url")
+}
+
+# MiMo API 参数
+if ($mimo_api_key) {
+  [void]$ext_args.Add("--mimo_api_key=$mimo_api_key")
+}
+
+if ($mimo_model_path) {
+  [void]$ext_args.Add("--mimo_model_path=$mimo_model_path")
+}
+
+if ($mimo_base_url) {
+  [void]$ext_args.Add("--mimo_base_url=$mimo_base_url")
 }
 
 # MiniMax API 参数

@@ -855,6 +855,10 @@ compile = false
 [kimi_vl]
 thinking = "enabled"  # enabled | disabled
 
+[mimo]
+thinking = "disabled"  # enabled | disabled
+max_completion_tokens = 8192
+
 [onnx_runtime.defaults]
 execution_provider = "auto"
 force_download = false

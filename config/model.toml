@@ -440,6 +440,10 @@ language = ""
 [kimi_vl]
 thinking = "enabled"  # enabled | disabled
 
+[mimo]
+thinking = "disabled"  # enabled | disabled
+max_completion_tokens = 8192
+
 [scene_detection]
 detector = "AdaptiveDetector"
 threshold = 0.0
