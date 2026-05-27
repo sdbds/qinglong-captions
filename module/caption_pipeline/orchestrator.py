@@ -190,6 +190,15 @@ def _with_media_segment_time(args, segment_time):
     return media_args
 
 
+def _with_directory_name_source_uri(args, source_uri):
+    source_uri = str(source_uri)
+    if getattr(args, "directory_name_source_uri", "") == source_uri:
+        return args
+    media_args = copy(args)
+    setattr(media_args, "directory_name_source_uri", source_uri)
+    return media_args
+
+
 def _process_segmented_media(filepath, mime, duration, sha256hash, args, config, progress, task_id, api_process_batch_fn, console):
     console.print(f"[blue]{filepath} video > {args.segment_time} seconds[/blue]")
     console.print("[blue]split video[/blue]")
@@ -233,6 +242,7 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
     structured_task_kind: str | None = None
     total_duration = 0
     clip_task = progress.add_task("[cyan]Processing clips...", total=num_chunks)
+    clip_args = _with_directory_name_source_uri(args, filepath)
 
     for index in range(num_chunks):
         start_time = index * chunk_duration
@@ -242,12 +252,12 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
             uri=uri,
             mime=mime,
             config=config,
-            args=args,
+            args=clip_args,
             sha256hash=sha256hash,
             progress=progress,
             task_id=task_id,
         )
-        chunk_output = postprocess_caption_content(chunk_output, uri, args, console)
+        chunk_output = postprocess_caption_content(chunk_output, uri, clip_args, console)
 
         if isinstance(chunk_output, dict):
             if subtitle_mode is None:

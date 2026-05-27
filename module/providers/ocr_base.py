@@ -101,13 +101,21 @@ class OCRProvider(Provider):
 
     def resolve_prompts(self, uri: str, mime: str, media: Optional[MediaContext] = None) -> PromptContext:
         """OCR provider 直接使用自己的 prompt 配置，而不是通用 PromptResolver。"""
+        from .directory_name_context import resolve_directory_name_context
+
         system, user = self.get_prompts(mime)
-        char_name, char_prompt = self._get_character_prompt(uri)
+        directory_context = resolve_directory_name_context(
+            args=self.ctx.args,
+            uri=uri,
+            mime=mime,
+            provider_name=self.name,
+            media=media,
+        )
         return PromptContext(
             system=system,
             user=user,
-            character_name=char_name,
-            character_prompt=char_prompt,
+            character_name=directory_context.character_name,
+            character_prompt=directory_context.character_prompt,
         )
 
     def get_runtime_backend(self):

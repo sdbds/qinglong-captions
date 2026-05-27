@@ -136,6 +136,62 @@ def test_process_segmented_media_only_merges_sidecar_once(tmp_path):
     assert "chunk1" in merged
 
 
+def test_process_segmented_media_passes_original_path_as_directory_name_source(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from module.caption_pipeline.orchestrator import _process_segmented_media
+
+    source_dir = tmp_path / "Alice (Wonderland)"
+    video_path = source_dir / "movie.mp4"
+    video_path.parent.mkdir()
+    video_path.write_bytes(b"video")
+
+    clip_dir = source_dir / "movie_clip"
+    clip_dir.mkdir()
+    for index in range(2):
+        (clip_dir / f"movie_{index}.mp4").write_bytes(b"chunk")
+
+    class DummyProgress:
+        def add_task(self, *_args, **_kwargs):
+            return "task"
+
+        def update(self, *_args, **_kwargs):
+            return None
+
+    seen_sources = []
+    seen_uris = []
+
+    def fake_api_process_batch_fn(**kwargs):
+        seen_uris.append(Path(kwargs["uri"]))
+        seen_sources.append(getattr(kwargs["args"], "directory_name_source_uri", ""))
+        return "1\n00:00:00,000 --> 00:00:01,000\nchunk\n"
+
+    args = SimpleNamespace(segment_time=1, dir_name=True)
+
+    with (
+        patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", lambda *a, **k: None),
+        patch("module.caption_pipeline.orchestrator.get_video_duration", lambda *_a, **_k: 1000),
+    ):
+        _process_segmented_media(
+            str(video_path),
+            "video/mp4",
+            2000,
+            "hash",
+            args,
+            {},
+            DummyProgress(),
+            "task",
+            fake_api_process_batch_fn,
+            _quiet_console(),
+        )
+
+    assert seen_uris
+    assert all(uri.parent.name == "movie_clip" for uri in seen_uris)
+    assert seen_sources == [str(video_path), str(video_path)]
+    assert not hasattr(args, "directory_name_source_uri")
+
+
 def test_process_segmented_media_merges_structured_summaries_into_txt_payload(tmp_path):
     from types import SimpleNamespace
     from unittest.mock import patch

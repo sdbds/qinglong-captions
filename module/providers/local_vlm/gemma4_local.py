@@ -19,6 +19,7 @@ from module.providers.backends import OpenAIChatRuntime, find_model_config_secti
 from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
 from module.providers.capabilities import ProviderCapabilities
 from module.providers.catalog import provider_config_sections
+from module.providers.directory_name_context import resolve_directory_name_context
 from module.providers.local_vlm_base import LocalVLMProvider
 from module.providers.registry import register_provider
 from module.providers.utils import build_vision_messages, encode_image_to_blob
@@ -217,7 +218,13 @@ class Gemma4LocalProvider(LocalVLMProvider):
 
         prompts = self.ctx.config.get("prompts", {})
         task = self._resolve_audio_task(required=True)
-        char_name, char_prompt = self._get_character_prompt(uri)
+        directory_context = resolve_directory_name_context(
+            args=self.ctx.args,
+            uri=uri,
+            mime=mime,
+            provider_name=self.name,
+            media=media,
+        )
 
         system = self._first_prompt(
             prompts,
@@ -231,13 +238,11 @@ class Gemma4LocalProvider(LocalVLMProvider):
             "gemma4_audio_prompt",
             "audio_prompt",
         )
-        if char_prompt:
-            user = char_prompt + user
         return PromptContext(
             system=system,
             user=user,
-            character_name=char_name,
-            character_prompt=char_prompt,
+            character_name=directory_context.character_name,
+            character_prompt=directory_context.character_prompt,
         )
 
     def prepare_media(self, uri: str, mime: str, args: Any) -> MediaContext:

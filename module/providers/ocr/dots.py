@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw
 from importlib import metadata as importlib_metadata
 from module.providers.backends import OpenAIChatRuntime, find_model_config_section, resolve_runtime_backend
 from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
+from module.providers.directory_name_context import resolve_directory_name_context
 from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from module.providers.utils import build_vision_messages, encode_image_to_blob
@@ -475,12 +476,18 @@ class DotsOCRProvider(OCRProvider):
 
     def resolve_prompts(self, uri: str, mime: str, media: MediaContext | None = None) -> PromptContext:
         _, prompt_text = self._resolve_prompt_mode_and_prompt()
-        char_name, char_prompt = self._get_character_prompt(uri)
+        directory_context = resolve_directory_name_context(
+            args=self.ctx.args,
+            uri=uri,
+            mime=mime,
+            provider_name=self.name,
+            media=media,
+        )
         return PromptContext(
             system="",
-            user=f"{char_prompt}{prompt_text}" if char_prompt else prompt_text,
-            character_name=char_name,
-            character_prompt=char_prompt,
+            user=prompt_text,
+            character_name=directory_context.character_name,
+            character_prompt=directory_context.character_prompt,
         )
 
     def _resolve_prompt_mode_and_prompt(self) -> tuple[str, str]:

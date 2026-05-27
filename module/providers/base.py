@@ -296,15 +296,22 @@ class Provider(ABC):
 
     def resolve_prompts(self, uri: str, mime: str, media: Optional[MediaContext] = None) -> PromptContext:
         """解析 provider 执行所需的 prompt。"""
+        from .directory_name_context import resolve_directory_name_context
         from .resolver import PromptResolver
 
         resolver = PromptResolver(self.ctx.config, self.name)
-        char_name, char_prompt = self._get_character_prompt(uri)
+        directory_context = resolve_directory_name_context(
+            args=self.ctx.args,
+            uri=uri,
+            mime=mime,
+            provider_name=self.name,
+            media=media,
+        )
         return resolver.resolve(
             mime,
             self.ctx.args,
-            character_prompt=char_prompt,
-            character_name=char_name,
+            character_prompt=directory_context.character_prompt,
+            character_name=directory_context.character_name,
             media=media,
         )
 
@@ -347,20 +354,18 @@ class Provider(ABC):
 
         return result
 
-    def _get_character_prompt(self, uri: str) -> Tuple[str, str]:
-        """获取角色 prompt"""
-        args = self.ctx.args
-        if not getattr(args, "dir_name", False):
-            return "", ""
+    def _get_character_prompt(self, uri: str, mime: str = "", media: Optional[MediaContext] = None) -> Tuple[str, str]:
+        """Compatibility wrapper for legacy callers; new code should use directory_name_context."""
+        from .directory_name_context import resolve_directory_name_context
 
-        from pathlib import Path
-        from utils.stream_util import split_name_series
-
-        dir_name = Path(uri).parent.name or ""
-        char_name = split_name_series(dir_name)
-        if char_name:
-            return char_name, f"If there is a person/character or more in the image you must refer to them as {char_name}.\n"
-        return "", ""
+        context = resolve_directory_name_context(
+            args=self.ctx.args,
+            uri=uri,
+            mime=mime,
+            provider_name=self.name,
+            media=media,
+        )
+        return context.character_name, context.character_prompt
 
     def log(self, msg: str, style: str = ""):
         """便捷日志方法"""
