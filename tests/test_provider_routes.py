@@ -351,6 +351,7 @@ class TestFindProvider:
 
         reg = get_registry()
         for name in (
+            "infinity_parser2_ocr",
             "deepseek_ocr",
             "logics_ocr",
             "dots_ocr",
@@ -366,3 +367,14 @@ class TestFindProvider:
         ):
             provider = reg.find_provider(make_provider_args(ocr_model=name), "application/pdf")
             assert provider is not None and provider.name == name, f"OCR provider {name} not found for PDF"
+
+    def test_infinity_parser2_ocr_handles_document_images(self):
+        from providers.registry import get_registry
+
+        reg = get_registry()
+        provider = reg.find_provider(
+            make_provider_args(ocr_model="infinity_parser2_ocr", document_image=True),
+            "image/png",
+        )
+
+        assert provider is not None and provider.name == "infinity_parser2_ocr"

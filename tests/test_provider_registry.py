@@ -36,6 +36,7 @@ class TestProviderRegistry:
             "glm",
             "kimi_code",
             "kimi_vl",
+            "infinity_parser2_ocr",
             "deepseek_ocr",
             "logics_ocr",
             "dots_ocr",

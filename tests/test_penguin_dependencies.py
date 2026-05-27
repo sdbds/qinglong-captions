@@ -112,6 +112,19 @@ def test_pyproject_declares_qianfan_ocr_extra():
     assert "img2pdf" in qianfan_deps
 
 
+def test_pyproject_declares_infinity_parser2_ocr_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "infinity-parser2-ocr" in optional_deps
+    deps = optional_deps["infinity-parser2-ocr"]
+    assert "qinglong-captions[torch-base]" in deps
+    assert any(dep.startswith("transformers[serving]>=5.3.0") for dep in deps)
+    assert any(dep.startswith("qwen-vl-utils>=0.0.14") for dep in deps)
+    assert "PyMuPDF" in deps
+    assert "img2pdf" in deps
+
+
 def test_pyproject_declares_music_flamingo_local_extra():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     optional_deps = pyproject["project"]["optional-dependencies"]
@@ -275,6 +288,17 @@ def test_caption_step_includes_lighton_extra():
     step.vlm_image_model = SimpleNamespace(value="")
 
     assert step._build_local_extra_args() == ["--extra", "lighton-ocr"]
+
+
+def test_caption_step_includes_infinity_parser2_ocr_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_infinity_parser2")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="infinity_parser2_ocr")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="")
+
+    assert step._build_local_extra_args() == ["--extra", "infinity-parser2-ocr"]
 
 
 def test_caption_step_includes_logics_ocr_extra():
@@ -749,6 +773,19 @@ def test_run_ps1_mentions_qianfan_ocr_extra():
     assert 'Add-UvExtra "qianfan-ocr"' in content
 
 
+def test_run_ps1_mentions_infinity_parser2_ocr_extra():
+    captioner_content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
+
+    contents = [captioner_content]
+    run_path = ROOT / "4、run.ps1"
+    if run_path.exists():
+        contents.append(run_path.read_text(encoding="utf-8"))
+
+    for content in contents:
+        assert '"infinity_parser2_ocr"' in content
+        assert 'Add-UvExtra "infinity-parser2-ocr"' in content
+
+
 def test_run_ps1_uses_generic_extra_fallback_for_music_flamingo():
     content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
 
@@ -857,6 +894,31 @@ def test_config_declares_qianfan_ocr_defaults():
     assert "max_new_tokens = 16384" in runtime_toml
     assert "input_size = 448" in runtime_toml
     assert "max_num = 12" in runtime_toml
+
+
+def test_config_declares_infinity_parser2_ocr_defaults():
+    model_toml = (ROOT / "config" / "model.toml").read_text(encoding="utf-8")
+    runtime_toml = (ROOT / "config" / "config.toml").read_text(encoding="utf-8")
+    prompts_toml = (ROOT / "config" / "prompts.toml").read_text(encoding="utf-8")
+
+    assert "[infinity_parser2_ocr]" in model_toml
+    assert 'model_id = "infly/Infinity-Parser2-Flash"' in model_toml
+    assert 'model_id = "infly/Infinity-Parser2-Pro"' in model_toml
+    assert 'task_type = "doc2md"' in model_toml
+    assert "max_new_tokens = 32768" in model_toml
+    assert "min_pixels = 2048" in model_toml
+    assert "max_pixels = 16777216" in model_toml
+    assert "image_patch_size = 16" in model_toml
+
+    assert "[infinity_parser2_ocr]" in runtime_toml
+    assert 'model_id = "infly/Infinity-Parser2-Flash"' in runtime_toml
+    assert 'task_type = "doc2md"' in runtime_toml
+    assert "max_new_tokens = 32768" in runtime_toml
+    assert "min_pixels = 2048" in runtime_toml
+    assert "max_pixels = 16777216" in runtime_toml
+    assert "image_patch_size = 16" in runtime_toml
+
+    assert "infinity_parser2_ocr_prompt" in prompts_toml
 
 
 def test_config_declares_logics_ocr_defaults():

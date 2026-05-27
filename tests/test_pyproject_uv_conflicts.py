@@ -162,3 +162,19 @@ def test_marlin_2b_local_conflicts_with_known_transformers_incompatible_extras()
 
     for pair in expected_pairs:
         assert _has_extra_conflict(*pair)
+
+
+def test_infinity_parser2_ocr_conflicts_with_known_transformers_incompatible_extras():
+    expected_pairs = [
+        ("infinity-parser2-ocr", "paddleocr"),
+        ("infinity-parser2-ocr", "deepseek-ocr"),
+        ("infinity-parser2-ocr", "dots-ocr"),
+        ("infinity-parser2-ocr", "penguin-vl-local"),
+        ("infinity-parser2-ocr", "eureka-audio-local"),
+        ("infinity-parser2-ocr", "cohere-transcribe-local"),
+        ("infinity-parser2-ocr", "reward-model"),
+        ("infinity-parser2-ocr", "music-flamingo-local"),
+    ]
+
+    for pair in expected_pairs:
+        assert _has_extra_conflict(*pair)

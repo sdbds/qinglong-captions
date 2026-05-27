@@ -681,6 +681,20 @@ max_new_tokens = 16384
 min_pixels = 3136
 max_pixels = 7372800
 
+# Infinity Parser2 OCR configuration
+# Flash: https://huggingface.co/infly/Infinity-Parser2-Flash
+# Pro: https://huggingface.co/infly/Infinity-Parser2-Pro
+[infinity_parser2_ocr]
+model_id = "infly/Infinity-Parser2-Flash"
+task_type = "doc2md"
+prompt = ""
+max_new_tokens = 32768
+temperature = 0.0
+top_p = 1.0
+min_pixels = 2048
+max_pixels = 16777216
+image_patch_size = 16
+
 # LightOnOCR-2 configuration
 # Model: https://huggingface.co/lightonai/LightOnOCR-2-1B
 # Requires: transformers[serving]>=5.0.0

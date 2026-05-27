@@ -469,7 +469,10 @@ if ($ocr_model) {
   }
   
   # Model-specific extras
-  if ($ocr_model -eq "paddle_ocr") {
+  if ($ocr_model -eq "infinity_parser2_ocr") {
+    Add-UvExtra "infinity-parser2-ocr"
+  }
+  elseif ($ocr_model -eq "paddle_ocr") {
     Add-UvExtra "paddleocr"
   }
   elseif ($ocr_model -eq "deepseek_ocr") {

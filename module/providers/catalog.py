@@ -46,6 +46,11 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
         config_sections=("mistral_ocr", "pixtral"),
         prompt_prefixes=("mistral_ocr", "pixtral"),
     ),
+    "infinity_parser2_ocr": ProviderSpec(
+        canonical_name="infinity_parser2_ocr",
+        config_sections=("infinity_parser2_ocr",),
+        prompt_prefixes=("infinity_parser2",),
+    ),
     "qwen_vl_local": ProviderSpec(
         canonical_name="qwen_vl_local",
         config_sections=("qwen_vl_local", "qwen"),
@@ -104,6 +109,7 @@ PROVIDER_SPECS: Dict[str, ProviderSpec] = {
 
 ROUTE_SPECS: Dict[str, Tuple[RouteSpec, ...]] = {
     "ocr_model": (
+        RouteSpec("infinity_parser2_ocr", "infinity_parser2_ocr"),  # #1, 86.0
         RouteSpec("chandra_ocr", "chandra_ocr"),   # #1, 85.9
         RouteSpec("dots_ocr", "dots_ocr"),          # #2, 83.9
         RouteSpec("lighton_ocr", "lighton_ocr"),    # #3, 83.2

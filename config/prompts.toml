@@ -35,6 +35,10 @@ deepseek_ocr_prompt = """
 # Logics-Parsing-v2 prompt (official default)
 logics_ocr_prompt = """QwenVL HTML"""
 
+# Infinity Parser2 OCR prompt override (empty uses the provider's doc2md prompt)
+infinity_parser2_ocr_prompt = """
+"""
+
 # HunyuanOCR prompt (Chinese document parsing by default)
 # Leave empty to use provider's default prompt
 hunyuan_ocr_prompt = """

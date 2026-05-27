@@ -239,6 +239,18 @@ qianfan-ocr = [
     "PyMuPDF",
     "img2pdf",
 ]
+infinity-parser2-ocr = [
+    "qinglong-captions[torch-base]",
+    "transformers[serving]>=5.3.0",
+    "tokenizers>=0.22.2",
+    "qwen-vl-utils>=0.0.14",
+    "Pillow>=12",
+    "PyMuPDF",
+    "img2pdf",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
+    "triton-windows; sys_platform == 'win32'",
+    "flash-attn @ https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.11'",
+]
 chandra-ocr = [
     "qinglong-captions[torch-base]",
     "transformers[serving]",
@@ -498,6 +510,19 @@ conflicts = [
     ],
     [
         { extra = "qianfan-ocr" },
+        { extra = "music-flamingo-local" },
+    ],
+    [
+        # Infinity Parser2 uses Transformers >=5.3.0; keep it away from
+        # pinned older stacks, <5.3 caps, and forked Transformers runtimes.
+        { extra = "infinity-parser2-ocr" },
+        { extra = "paddleocr" },
+        { extra = "deepseek-ocr" },
+        { extra = "dots-ocr" },
+        { extra = "penguin-vl-local" },
+        { extra = "eureka-audio-local" },
+        { extra = "cohere-transcribe-local" },
+        { extra = "reward-model" },
         { extra = "music-flamingo-local" },
     ],
     [

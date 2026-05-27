@@ -258,6 +258,7 @@ class CaptionStep:
 
     # OCR 榜单排名 + model_id 显示标签
     _OCR_RANK_SCORES = {
+        "infinity_parser2_ocr": ("#1", "86.0"),
         "chandra_ocr": ("#1", "85.9"),
         "dots_ocr": ("#2", "83.9"),
         "lighton_ocr": ("#3", "83.2"),
@@ -311,6 +312,7 @@ class CaptionStep:
     }
 
     OCR_EXTRA_MAP = {
+        "infinity_parser2_ocr": "infinity-parser2-ocr",
         "paddle_ocr": "paddleocr",
         "deepseek_ocr": "deepseek-ocr",
         "logics_ocr": "logics-ocr",
