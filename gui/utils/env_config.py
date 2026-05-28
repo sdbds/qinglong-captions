@@ -15,6 +15,13 @@ from gui.utils.i18n import _detect_system_language
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "env_vars.json"
 
+UV_ALIYUN_INDEX_URL = "https://mirrors.aliyun.com/pypi/simple/"
+UV_LEGACY_TUNA_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple/"
+UV_LEGACY_USTC_INDEX_URL = "https://pypi.mirrors.ustc.edu.cn/simple"
+UV_ONNX_CUDA13_EXTRA_INDEX_URL = "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/"
+UV_PYTORCH_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu130"
+UV_EXTRA_INDEX_URL_DEFAULT = f"{UV_ONNX_CUDA13_EXTRA_INDEX_URL} {UV_PYTORCH_EXTRA_INDEX_URL}"
+
 # 环境变量定义：key, 默认值, 分组
 # 分组: runtime / uv / network
 ENV_VAR_DEFINITIONS: list[dict] = [
@@ -33,9 +40,9 @@ ENV_VAR_DEFINITIONS: list[dict] = [
     {"key": "CUDA_VISIBLE_DEVICES", "default": "", "group": "runtime",
      "desc_en": "GPU device IDs (e.g. 0, 0,1, -1 for CPU)", "desc_zh": "GPU 设备号 (如 0, 0,1, -1 表示 CPU)"},
     # ── UV Package Manager ──
-    {"key": "UV_INDEX_URL", "default": "", "group": "uv",
+    {"key": "UV_INDEX_URL", "default": UV_ALIYUN_INDEX_URL, "group": "uv",
      "desc_en": "UV primary index URL (PyPI mirror)", "desc_zh": "UV 主索引地址 (PyPI 镜像)"},
-    {"key": "UV_EXTRA_INDEX_URL", "default": "", "group": "uv",
+    {"key": "UV_EXTRA_INDEX_URL", "default": UV_EXTRA_INDEX_URL_DEFAULT, "group": "uv",
      "desc_en": "UV extra index URLs (advanced)",
      "desc_zh": "UV 额外索引地址 (高级选项)"},
     {"key": "UV_CACHE_DIR", "default": "", "group": "uv",
@@ -59,12 +66,31 @@ ENV_VAR_DEFINITIONS: list[dict] = [
 def _defaults() -> Dict[str, str]:
     """返回所有环境变量的默认值字典"""
     d = {item["key"]: item["default"] for item in ENV_VAR_DEFINITIONS}
+    if not d.get("UV_INDEX_URL"):
+        d["UV_INDEX_URL"] = UV_ALIYUN_INDEX_URL
     if _detect_system_language() == "zh":
         if not d.get("HF_ENDPOINT"):
             d["HF_ENDPOINT"] = "https://hf-mirror.com"
-        if not d.get("UV_INDEX_URL"):
-            d["UV_INDEX_URL"] = "https://pypi.tuna.tsinghua.edu.cn/simple/"
     return d
+
+
+def _normalize_uv_extra_index(value: str) -> str:
+    stripped = value.strip()
+    if stripped == UV_PYTORCH_EXTRA_INDEX_URL:
+        return UV_EXTRA_INDEX_URL_DEFAULT
+    return value
+
+
+def _normalize_uv_index(value: str) -> str:
+    stripped = value.strip()
+    normalized = stripped.rstrip("/")
+    legacy_indexes = {
+        UV_LEGACY_TUNA_INDEX_URL.rstrip("/"),
+        UV_LEGACY_USTC_INDEX_URL.rstrip("/"),
+    }
+    if not stripped or normalized in legacy_indexes:
+        return UV_ALIYUN_INDEX_URL
+    return value
 
 
 def load_env_config() -> Dict[str, str]:
@@ -74,6 +100,10 @@ def load_env_config() -> Dict[str, str]:
         try:
             saved = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
             if isinstance(saved, dict):
+                if "UV_INDEX_URL" in saved and isinstance(saved["UV_INDEX_URL"], str):
+                    saved["UV_INDEX_URL"] = _normalize_uv_index(saved["UV_INDEX_URL"])
+                if "UV_EXTRA_INDEX_URL" in saved and isinstance(saved["UV_EXTRA_INDEX_URL"], str):
+                    saved["UV_EXTRA_INDEX_URL"] = _normalize_uv_extra_index(saved["UV_EXTRA_INDEX_URL"])
                 data.update(saved)
         except (json.JSONDecodeError, OSError):
             pass

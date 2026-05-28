@@ -18,7 +18,7 @@
    - PyTorch / ONNX 安装源改为显式 CUDA 13 索引，`onnx-base` 增加 TensorRT CUDA 13 依赖
    - `translate` 依赖升级到 Transformers 5.6+ 并补齐 `compressed-tensors`
    - `translate` 默认模型更新为 `tencent/Hy-MT2-7B`，并保留轻量 FP8 变体
-   - 基础依赖更新到 `pylance>=6.0.1`、`imageio>=2.37.3`、`imageio-ffmpeg>=0.6.0`、`mistralai>=2.4.5`、`google-genai>=2.6.0`、`scenedetect>=0.7`
+   - 基础依赖更新到 `pylance>=6.0.1`、`imageio>=2.37.3`、`imageio-ffmpeg>=0.6.0`、`mistralai>=2.4.7`、`google-genai>=2.6.0`、`scenedetect>=0.7`
 3. WDTagger / CL Tagger 路径更新：
    - `cl_tagger_v2` 默认更新到 `v1_04`
    - 支持动态 tag category，并过滤未知分类的 wdtagger caption
@@ -406,7 +406,7 @@ A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation,
    - Moved PyTorch / ONNX installation metadata to explicit CUDA 13 indexes and added TensorRT CUDA 13 support to `onnx-base`
    - Upgraded `translate` to Transformers 5.6+ and added `compressed-tensors`
    - Updated the default translation model to `tencent/Hy-MT2-7B`, while keeping the lightweight FP8 variant
-   - Updated base dependencies to `pylance>=6.0.1`, `imageio>=2.37.3`, `imageio-ffmpeg>=0.6.0`, `mistralai>=2.4.5`, `google-genai>=2.6.0`, and `scenedetect>=0.7`
+   - Updated base dependencies to `pylance>=6.0.1`, `imageio>=2.37.3`, `imageio-ffmpeg>=0.6.0`, `mistralai>=2.4.7`, `google-genai>=2.6.0`, and `scenedetect>=0.7`
 3. Updated WDTagger / CL Tagger handling:
    - Updated the default `cl_tagger_v2` snapshot to `v1_04`
    - Added dynamic tag category handling and filtered unknown wdtagger caption categories

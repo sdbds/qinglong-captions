@@ -26,6 +26,46 @@ def test_load_env_config_migrates_legacy_single_pytorch_extra_index(tmp_path, mo
     assert loaded["UV_EXTRA_INDEX_URL"] == env_config.UV_EXTRA_INDEX_URL_DEFAULT
 
 
+def test_load_env_config_migrates_empty_uv_index_to_aliyun(tmp_path, monkeypatch):
+    config_path = tmp_path / "env_vars.json"
+    config_path.write_text('{"UV_INDEX_URL": ""}', encoding="utf-8")
+
+    monkeypatch.setattr(env_config, "CONFIG_PATH", Path(config_path))
+    monkeypatch.setattr(env_config, "_detect_system_language", lambda: "en")
+
+    loaded = env_config.load_env_config()
+
+    assert loaded["UV_INDEX_URL"] == env_config.UV_ALIYUN_INDEX_URL
+
+
+def test_load_env_config_migrates_legacy_tuna_uv_index_to_aliyun(tmp_path, monkeypatch):
+    config_path = tmp_path / "env_vars.json"
+    config_path.write_text(
+        '{"UV_INDEX_URL": "https://pypi.tuna.tsinghua.edu.cn/simple/"}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(env_config, "CONFIG_PATH", Path(config_path))
+    monkeypatch.setattr(env_config, "_detect_system_language", lambda: "en")
+
+    loaded = env_config.load_env_config()
+
+    assert loaded["UV_INDEX_URL"] == env_config.UV_ALIYUN_INDEX_URL
+
+
+def test_load_env_config_preserves_custom_uv_index(tmp_path, monkeypatch):
+    custom_value = "https://pypi.org/simple"
+    config_path = tmp_path / "env_vars.json"
+    config_path.write_text(f'{{"UV_INDEX_URL": "{custom_value}"}}', encoding="utf-8")
+
+    monkeypatch.setattr(env_config, "CONFIG_PATH", Path(config_path))
+    monkeypatch.setattr(env_config, "_detect_system_language", lambda: "en")
+
+    loaded = env_config.load_env_config()
+
+    assert loaded["UV_INDEX_URL"] == custom_value
+
+
 def test_load_env_config_preserves_custom_extra_index(tmp_path, monkeypatch):
     custom_value = "https://example.invalid/simple/"
     config_path = tmp_path / "env_vars.json"

@@ -36,7 +36,7 @@ foreach ($Path in $VenvPaths) {
 #region Build Arguments
 $Env:HF_HOME = "huggingface"
 #$Env:HF_ENDPOINT = "https://hf-mirror.com"
-#$Env:UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple/"
+#$Env:UV_INDEX_URL="https://mirrors.aliyun.com/pypi/simple/"
 $Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
 $Env:UV_NO_BUILD_ISOLATION = "1"
 $Env:UV_NO_CACHE = "0"
