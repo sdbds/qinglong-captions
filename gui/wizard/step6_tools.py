@@ -277,6 +277,8 @@ class ToolsStep:
             "watermark_thresh": 1.0,
             "preprocess_workers": 8,
             "max_long_edge": 2048,
+            "max_short_edge": 0,
+            "max_pixels": 0,
             "crop_transparent": True,
             "preprocess_recursive": True,
             "reward_batch_size": 1,
@@ -653,9 +655,30 @@ class ToolsStep:
                     label_key="max_long_edge",
                     value_ref=self.config,
                     value_key="max_long_edge",
-                    min_val=64,
+                    min_val=0,
                     max_val=8192,
                     step=64,
+                    decimals=0,
+                )
+
+                editable_slider(
+                    label_key="max_short_edge",
+                    value_ref=self.config,
+                    value_key="max_short_edge",
+                    min_val=0,
+                    max_val=8192,
+                    step=64,
+                    decimals=0,
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                editable_slider(
+                    label_key="max_pixels",
+                    value_ref=self.config,
+                    value_key="max_pixels",
+                    min_val=0,
+                    max_val=67108864,
+                    step=262144,
                     decimals=0,
                 )
 
@@ -1390,6 +1413,12 @@ class ToolsStep:
 
         if self.config["max_long_edge"]:
             args.append(f"--max-long-edge={int(self.config['max_long_edge'])}")
+
+        if self.config["max_short_edge"]:
+            args.append(f"--max-short-edge={int(self.config['max_short_edge'])}")
+
+        if self.config["max_pixels"]:
+            args.append(f"--max-pixels={int(self.config['max_pixels'])}")
 
         if self.config["preprocess_workers"]:
             args.append(f"--workers={int(self.config['preprocess_workers'])}")
