@@ -20,7 +20,7 @@
    - `translate` 默认模型更新为 `tencent/Hy-MT2-7B`，并保留轻量 FP8 变体
    - 基础依赖更新到 `pylance>=6.0.1`、`imageio>=2.37.3`、`imageio-ffmpeg>=0.6.0`、`mistralai>=2.4.7`、`google-genai>=2.6.0`、`scenedetect>=0.7`
 3. WDTagger / CL Tagger 路径更新：
-   - `cl_tagger_v2` 默认更新到 `v1_04`
+   - `cl_tagger_v2` 默认更新到 `v1_05`
    - 支持动态 tag category，并过滤未知分类的 wdtagger caption
    - WDTagger 主实现拆分为 `module/wdtagger/` 包，保留 `utils/wdtagger.py` 兼容入口
    - 修复 Lance caption 扫描和 merge update 路径，避免 wdtagger 写入时触发不必要的 Lance 合并更新
@@ -408,7 +408,7 @@ A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation,
    - Updated the default translation model to `tencent/Hy-MT2-7B`, while keeping the lightweight FP8 variant
    - Updated base dependencies to `pylance>=6.0.1`, `imageio>=2.37.3`, `imageio-ffmpeg>=0.6.0`, `mistralai>=2.4.7`, `google-genai>=2.6.0`, and `scenedetect>=0.7`
 3. Updated WDTagger / CL Tagger handling:
-   - Updated the default `cl_tagger_v2` snapshot to `v1_04`
+   - Updated the default `cl_tagger_v2` snapshot to `v1_05`
    - Added dynamic tag category handling and filtered unknown wdtagger caption categories
    - Split the WDTagger implementation into the `module/wdtagger/` package while keeping `utils/wdtagger.py` as a compatibility entrypoint
    - Fixed Lance caption scanning and avoided unnecessary Lance merge updates during wdtagger writes

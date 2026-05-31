@@ -70,13 +70,15 @@ def _install_fake_transformer_loader(monkeypatch, **attrs):
 
 
 def test_cl_tagger_v2_defaults_track_current_space_version():
-    assert CL_TAGGER_V2_DEFAULT_VERSION == "v1_04"
+    assert CL_TAGGER_V2_DEFAULT_VERSION == "v1_05"
+    assert normalize_cl_tagger_v2_version("1.05") == "v1_05"
     assert normalize_cl_tagger_v2_version("1.04") == "v1_04"
     assert normalize_cl_tagger_v2_version("v1_4") == "v1_04"
     assert default_cl_tagger_v2_threshold("v1_01") == 0.6
     assert default_cl_tagger_v2_threshold("v1_02") == 0.9
     assert default_cl_tagger_v2_threshold("v1_03") == 0.5
     assert default_cl_tagger_v2_threshold("v1_04") == 0.5
+    assert default_cl_tagger_v2_threshold("v1_05") == 0.5
     assert default_cl_tagger_v2_threshold("v2_00") == 0.5
 
 
@@ -136,8 +138,8 @@ def test_download_cl_tagger_v2_artifacts_uses_explicit_v2_cache_dir(tmp_path, mo
 
     assert resolved_repo_id == CL_TAGGER_V2_BACKEND_REPO
     assert cache_dir == tmp_path / "cella110n_cl_tagger_v2"
-    assert model_path == cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_205161.onnx"
-    assert vocab_path == cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_205161_vocabulary.json"
+    assert model_path == cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_270385.onnx"
+    assert vocab_path == cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_270385_vocabulary.json"
     assert metadata_path is None
     assert captured["snapshot"]["repo_id"] == CL_TAGGER_V2_BACKEND_REPO
     assert captured["snapshot"]["allow_patterns"] == [f"{CL_TAGGER_V2_DEFAULT_VERSION}/*"]
@@ -291,7 +293,7 @@ def test_load_cl_tagger_v2_bundle_loads_processor_vocab_and_session(tmp_path):
     assert bundle.vocabulary.category_indices["general"].tolist() == [1]
     assert bundle.vocabulary.category_indices["character"].tolist() == [2]
     assert bundle.vocabulary.category_indices["rating"].tolist() == [3]
-    assert bundle.metadata_path == bundle.cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_205161_metadata.json"
+    assert bundle.metadata_path == bundle.cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_270385_metadata.json"
     assert bundle.processor_repo == "google/siglip2-base-patch16-224"
     assert captured["processor_calls"] == [("google/siglip2-base-patch16-224", True, None)]
     assert captured["session_bundle"]["bundle_key"] == f"wdtagger:{CL_TAGGER_V2_OPTION}"

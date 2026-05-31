@@ -16,7 +16,7 @@ class TaggerStep:
     """数据集打标页面"""
 
     DEFAULT_MODEL = "cella110n/cl_tagger_v2"
-    DEFAULT_CL_TAGGER_V2_VERSION = "v1_04"
+    DEFAULT_CL_TAGGER_V2_VERSION = "v1_05"
     DEFAULT_CL_TAGGER_V2_THRESHOLD = 0.5
     DEFAULT_MODELS = [
         "cella110n/cl_tagger",
@@ -80,6 +80,7 @@ class TaggerStep:
 
                         self.cl_tagger_v2_version = styled_select(
                             options={
+                                "v1_05": "v1.05",
                                 "v1_04": "v1.04",
                                 "v1_03": "v1.03",
                                 "v1_02": "v1.02",

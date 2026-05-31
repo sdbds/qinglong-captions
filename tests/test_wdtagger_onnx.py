@@ -270,7 +270,7 @@ def test_wdtagger_load_model_and_tags_uses_siglip2_bundle_for_explicit_cl_tagger
     assert label_data.category_indices["quality"].tolist() == [0]
     assert parent_to_child_map == {}
     assert captured["bundle"]["repo_id"] == "cella110n/cl_tagger_v2"
-    assert captured["bundle"]["version"] == "v1_04"
+    assert captured["bundle"]["version"] == "v1_05"
     assert callable(captured["bundle"]["logger"])
 
 
@@ -299,7 +299,7 @@ def test_wdtagger_finalize_args_infers_cl_tagger_v2_threshold(monkeypatch, tmp_p
     parser = wdtagger.setup_parser()
 
     current_siglip2_args = wdtagger.finalize_args(parser.parse_args(["./datasets", "--repo_id=cella110n/cl_tagger_v2"]))
-    assert current_siglip2_args.cl_tagger_v2_version == "v1_04"
+    assert current_siglip2_args.cl_tagger_v2_version == "v1_05"
     assert current_siglip2_args.thresh == 0.5
     assert current_siglip2_args.general_threshold == 0.5
     assert current_siglip2_args.character_threshold == 0.5
