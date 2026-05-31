@@ -6,7 +6,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def test_runtime_config_loads_split_files(tmp_path):

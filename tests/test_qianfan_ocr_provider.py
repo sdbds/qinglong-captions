@@ -9,11 +9,10 @@ from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
-import providers.ocr.qianfan as qianfan_module
-from providers.base import ProviderContext
-from providers.ocr.qianfan import QianfanOCRProvider
+import module.providers.ocr.qianfan as qianfan_module
+from module.providers.base import ProviderContext
+from module.providers.ocr.qianfan import QianfanOCRProvider
 
 
 def make_ctx(config=None):

@@ -16,11 +16,10 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def test_eureka_audio_defaults_to_official_model_id():
-    from providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
+    from module.providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
 
     model_config = tomllib.loads((ROOT / "config" / "model.toml").read_text(encoding="utf-8"))
 
@@ -39,7 +38,7 @@ def test_shipped_prompt_files_declare_eureka_audio_defaults():
 
 
 def test_eureka_audio_can_handle_audio_only():
-    from providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
+    from module.providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
 
     args = SimpleNamespace(alm_model="eureka_audio_local")
 
@@ -48,7 +47,7 @@ def test_eureka_audio_can_handle_audio_only():
 
 
 def test_prompt_resolver_prefers_eureka_audio_prompts():
-    from providers.resolver import PromptResolver
+    from module.providers.resolver import PromptResolver
 
     config = {
         "prompts": {
@@ -69,8 +68,8 @@ def test_prompt_resolver_prefers_eureka_audio_prompts():
 
 
 def test_eureka_audio_post_validate_returns_structured_summary_payload(tmp_path):
-    from providers.base import CaptionResult, ProviderContext
-    from providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
+    from module.providers.base import CaptionResult, ProviderContext
+    from module.providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -102,8 +101,8 @@ Soft rain ambience sits under a calm piano melody.
 
 
 def test_eureka_audio_attempt_builds_upstream_messages_and_calls_generate(monkeypatch, tmp_path):
-    from providers.base import PromptContext, ProviderContext
-    from providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
+    from module.providers.base import PromptContext, ProviderContext
+    from module.providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -155,8 +154,8 @@ def test_eureka_audio_attempt_builds_upstream_messages_and_calls_generate(monkey
 
 
 def test_eureka_audio_attempt_preserves_sampling_controls_when_sampling_enabled(monkeypatch, tmp_path):
-    from providers.base import PromptContext, ProviderContext
-    from providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
+    from module.providers.base import PromptContext, ProviderContext
+    from module.providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -198,8 +197,8 @@ def test_eureka_audio_attempt_preserves_sampling_controls_when_sampling_enabled(
 
 
 def test_eureka_audio_load_uses_official_wrapper(monkeypatch):
-    from providers.base import ProviderContext
-    from providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
 
     captured = {}
 
@@ -231,8 +230,8 @@ def test_eureka_audio_load_uses_official_wrapper(monkeypatch):
 
 
 def test_eureka_audio_load_preserves_nonzero_cuda_device(monkeypatch):
-    from providers.base import ProviderContext
-    from providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_alm.eureka_audio_local import EurekaAudioLocalProvider
 
     captured = {}
 

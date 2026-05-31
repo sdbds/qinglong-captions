@@ -67,7 +67,7 @@ class TestApiHandlerV2:
         assert "paddle_ocr import failed: RuntimeError: boom" in message
 
     def test_with_provider_calls_execute(self):
-        from providers.base import CaptionResult
+        from module.providers.base import CaptionResult
         from module.api_handler_v2 import api_process_batch
 
         args = make_provider_args(
@@ -78,7 +78,7 @@ class TestApiHandlerV2:
         )
 
         fake_result = CaptionResult(raw="mocked caption")
-        with patch("providers.base.Provider.execute", return_value=fake_result):
+        with patch("module.providers.base.Provider.execute", return_value=fake_result):
             result = api_process_batch(
                 uri="/fake.jpg",
                 mime="image/jpeg",
@@ -90,7 +90,7 @@ class TestApiHandlerV2:
         assert result.raw == "mocked caption"
 
     def test_gemini_provider_instantiates_through_api_handler(self):
-        from providers.base import CaptionResult
+        from module.providers.base import CaptionResult
         from module.api_handler_v2 import api_process_batch
 
         args = make_provider_args(
@@ -103,7 +103,7 @@ class TestApiHandlerV2:
         )
 
         fake_result = CaptionResult(raw="mocked gemini")
-        with patch("providers.base.Provider.execute", return_value=fake_result):
+        with patch("module.providers.base.Provider.execute", return_value=fake_result):
             result = api_process_batch(
                 uri="/fake.jpg",
                 mime="image/jpeg",
@@ -114,7 +114,7 @@ class TestApiHandlerV2:
         assert result.raw == "mocked gemini"
 
     def test_api_handler_logs_effective_mistral_provider_name_for_standard_image_mode(self):
-        from providers.base import CaptionResult
+        from module.providers.base import CaptionResult
         from module.api_handler_v2 import api_process_batch
         from module.providers.vision_api.pixtral import MistralOCRProvider
 
@@ -134,7 +134,7 @@ class TestApiHandlerV2:
         with (
             patch("module.api_handler_v2.Console", return_value=console),
             patch("module.api_handler_v2.get_registry", return_value=StubRegistry()),
-            patch("providers.base.Provider.execute", return_value=CaptionResult(raw="mocked mistral")),
+            patch("module.providers.base.Provider.execute", return_value=CaptionResult(raw="mocked mistral")),
         ):
             result = api_process_batch(
                 uri="/fake.jpg",
@@ -173,7 +173,7 @@ class TestApiHandlerV2:
 
         with (
             patch("module.api_handler_v2.Console", return_value=console),
-            patch("providers.base.Provider.execute", side_effect=execute_boom),
+            patch("module.providers.base.Provider.execute", side_effect=execute_boom),
             pytest.raises(RuntimeError, match="execute-fail"),
         ):
             api_process_batch(
@@ -225,16 +225,18 @@ class TestApiHandlerV2:
 
 
 class TestCaptionerV2Switch:
-    def test_v2_wrapper_unwraps_caption_result(self):
-        from providers.base import CaptionResult
+    def test_captioner_wrapper_preserves_caption_result(self):
+        import module.captioner as captioner
+        from module.providers.base import CaptionResult
 
-        def unwrap(result):
-            if hasattr(result, "parsed") and result.parsed is not None:
-                return result.parsed
-            if hasattr(result, "raw"):
-                return result.raw
-            return result
+        fake_result = CaptionResult(raw="plain text")
+        with patch.object(captioner, "_api_process_batch_v2", return_value=fake_result):
+            result = captioner.api_process_batch(
+                uri="a.png",
+                mime="image/png",
+                config={},
+                args=object(),
+                sha256hash="hash",
+            )
 
-        assert unwrap(CaptionResult(raw="plain text")) == "plain text"
-        assert unwrap(CaptionResult(raw='{"desc": "hi"}', parsed={"desc": "hi"})) == {"desc": "hi"}
-        assert unwrap(CaptionResult(raw="")) == ""
+        assert result is fake_result

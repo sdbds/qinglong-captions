@@ -16,7 +16,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def test_lfm_model_config_defaults_match_vl_recommendations():
@@ -54,7 +53,7 @@ def test_lfm_provider_imports_with_repo_root_only_pythonpath():
 
 
 def test_lfm_provider_loads_expected_artifact_bundle(monkeypatch):
-    from providers.base import ProviderContext
+    from module.providers.base import ProviderContext
 
     captured = {}
     console_buffer = io.StringIO()
@@ -76,7 +75,7 @@ def test_lfm_provider_loads_expected_artifact_bundle(monkeypatch):
     fake_transformer_loader.load_pretrained_component = fake_load_pretrained_component
     monkeypatch.setitem(sys.modules, "utils.transformer_loader", fake_transformer_loader)
 
-    from providers.local_vlm.lfm_vl_local import LFMVLLocalProvider
+    from module.providers.local_vlm.lfm_vl_local import LFMVLLocalProvider
 
     def fake_download(repo_id, artifacts, **kwargs):
         captured["download"] = (repo_id, artifacts, kwargs)
@@ -86,8 +85,8 @@ def test_lfm_provider_loads_expected_artifact_bundle(monkeypatch):
         captured["bundle"] = kwargs
         return SimpleNamespace(sessions={"decoder": "decoder-session"}, providers=("CPUExecutionProvider",))
 
-    monkeypatch.setattr("providers.local_vlm.lfm_vl_local.download_onnx_artifact_set", fake_download, raising=False)
-    monkeypatch.setattr("providers.local_vlm.lfm_vl_local.load_session_bundle", fake_load_bundle, raising=False)
+    monkeypatch.setattr("module.providers.local_vlm.lfm_vl_local.download_onnx_artifact_set", fake_download, raising=False)
+    monkeypatch.setattr("module.providers.local_vlm.lfm_vl_local.load_session_bundle", fake_load_bundle, raising=False)
 
     ctx = ProviderContext(
         console=Console(file=console_buffer, force_terminal=False),
@@ -122,7 +121,7 @@ def test_lfm_provider_loads_expected_artifact_bundle(monkeypatch):
 
 
 def test_lfm_runtime_config_prefers_onnx_section_over_model_section(monkeypatch):
-    from providers.base import ProviderContext
+    from module.providers.base import ProviderContext
 
     captured = {}
 
@@ -142,7 +141,7 @@ def test_lfm_runtime_config_prefers_onnx_section_over_model_section(monkeypatch)
     fake_transformer_loader.load_pretrained_component = fake_load_pretrained_component
     monkeypatch.setitem(sys.modules, "utils.transformer_loader", fake_transformer_loader)
 
-    from providers.local_vlm.lfm_vl_local import LFMVLLocalProvider
+    from module.providers.local_vlm.lfm_vl_local import LFMVLLocalProvider
 
     def fake_download(repo_id, artifacts, **kwargs):
         return {name: Path(f"C:/models/{Path(path).name}") for name, path in artifacts.items()}
@@ -151,8 +150,8 @@ def test_lfm_runtime_config_prefers_onnx_section_over_model_section(monkeypatch)
         captured["runtime"] = kwargs["runtime_config"]
         return SimpleNamespace(sessions={"decoder": "decoder-session"}, providers=("CPUExecutionProvider",))
 
-    monkeypatch.setattr("providers.local_vlm.lfm_vl_local.download_onnx_artifact_set", fake_download, raising=False)
-    monkeypatch.setattr("providers.local_vlm.lfm_vl_local.load_session_bundle", fake_load_bundle, raising=False)
+    monkeypatch.setattr("module.providers.local_vlm.lfm_vl_local.download_onnx_artifact_set", fake_download, raising=False)
+    monkeypatch.setattr("module.providers.local_vlm.lfm_vl_local.load_session_bundle", fake_load_bundle, raising=False)
 
     ctx = ProviderContext(
         console=Console(file=io.StringIO(), force_terminal=False),
@@ -181,8 +180,8 @@ def test_lfm_runtime_config_prefers_onnx_section_over_model_section(monkeypatch)
 
 
 def test_lfm_provider_attempt_merges_image_embeddings_and_decodes_until_eos(tmp_path, monkeypatch):
-    from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
-    from providers.local_vlm.lfm_vl_local import LFMVLLocalProvider
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.local_vlm.lfm_vl_local import LFMVLLocalProvider
 
     image_path = tmp_path / "sample.png"
     image_path.write_bytes(b"fake-image")

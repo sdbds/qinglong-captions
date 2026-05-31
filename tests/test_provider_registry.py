@@ -9,20 +9,20 @@ from tests.provider_v2_helpers import make_provider_args
 
 class TestProviderRegistry:
     def test_singleton(self):
-        from providers.registry import ProviderRegistry
+        from module.providers.registry import ProviderRegistry
 
         r1 = ProviderRegistry()
         r2 = ProviderRegistry()
         assert r1 is r2
 
     def test_get_registry(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
 
         reg = get_registry()
         assert reg is not None
 
     def test_discover_all_22(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
 
         reg = get_registry()
         reg.discover()
@@ -67,7 +67,7 @@ class TestProviderRegistry:
             assert name in providers, f"Missing provider: {name}"
 
     def test_registered_providers_are_concrete(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
 
         reg = get_registry()
         reg.discover()
@@ -75,7 +75,7 @@ class TestProviderRegistry:
         assert not abstract, f"Abstract providers leaked into registry: {abstract}"
 
     def test_get_provider_by_name(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
 
         reg = get_registry()
         cls = reg.get_provider("gemini")
@@ -83,14 +83,14 @@ class TestProviderRegistry:
         assert cls.name == "gemini"
 
     def test_get_provider_unknown(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
 
         reg = get_registry()
         assert reg.get_provider("nonexistent_provider") is None
 
     def test_register_custom(self):
-        from providers.base import CaptionResult, MediaContext, Provider
-        from providers.registry import get_registry
+        from module.providers.base import CaptionResult, MediaContext, Provider
+        from module.providers.registry import get_registry
 
         class FakeProvider(Provider):
             name = "fake_test"
@@ -100,7 +100,7 @@ class TestProviderRegistry:
                 return getattr(args, "fake", False)
 
             def prepare_media(self, uri, mime, args):
-                from providers.base import MediaModality
+                from module.providers.base import MediaModality
 
                 return MediaContext(uri=uri, mime=mime, sha256hash="", modality=MediaModality.IMAGE)
 
@@ -113,7 +113,7 @@ class TestProviderRegistry:
         reg._providers.pop("fake_test", None)
 
     def test_discover_strict_raises_with_full_import_traceback(self):
-        from providers.registry import ProviderDiscoveryError, get_registry
+        from module.providers.registry import ProviderDiscoveryError, get_registry
 
         reg = get_registry()
         original_providers = dict(reg._providers)
@@ -130,7 +130,7 @@ class TestProviderRegistry:
             reg._providers = {}
             reg._discovered = False
             reg._import_failures = {}
-            with patch("providers.registry.importlib.import_module", side_effect=fake_import_module):
+            with patch("module.providers.registry.importlib.import_module", side_effect=fake_import_module):
                 with pytest.raises(ProviderDiscoveryError, match="paddle_ocr"):
                     reg.discover(strict=True)
 
@@ -144,7 +144,8 @@ class TestProviderRegistry:
             reg._import_failures = original_failures
 
     def test_find_provider_lazy_loads_explicit_audio_provider_before_full_discovery(self, monkeypatch):
-        from providers.registry import _PROVIDER_MODULES, get_registry
+        from module.providers.catalog import provider_module_path
+        from module.providers.registry import get_registry
 
         reg = get_registry()
         original_providers = dict(reg._providers)
@@ -178,14 +179,15 @@ class TestProviderRegistry:
             provider = reg.find_provider(make_provider_args(alm_model="eureka_audio_local"), "audio/wav")
 
             assert provider is FakeProvider
-            assert calls == [("eureka_audio_local", _PROVIDER_MODULES["eureka_audio_local"])]
+            assert calls == [("eureka_audio_local", provider_module_path("eureka_audio_local"))]
         finally:
             reg._providers = original_providers
             reg._discovered = original_discovered
             reg._import_failures = original_failures
 
     def test_find_provider_lazy_loads_explicit_acestep_audio_provider_before_full_discovery(self, monkeypatch):
-        from providers.registry import _PROVIDER_MODULES, get_registry
+        from module.providers.catalog import provider_module_path
+        from module.providers.registry import get_registry
 
         reg = get_registry()
         original_providers = dict(reg._providers)
@@ -219,14 +221,15 @@ class TestProviderRegistry:
             provider = reg.find_provider(make_provider_args(alm_model="acestep_transcriber_local"), "audio/wav")
 
             assert provider is FakeProvider
-            assert calls == [("acestep_transcriber_local", _PROVIDER_MODULES["acestep_transcriber_local"])]
+            assert calls == [("acestep_transcriber_local", provider_module_path("acestep_transcriber_local"))]
         finally:
             reg._providers = original_providers
             reg._discovered = original_discovered
             reg._import_failures = original_failures
 
     def test_find_provider_lazy_loads_explicit_cohere_audio_provider_before_full_discovery(self, monkeypatch):
-        from providers.registry import _PROVIDER_MODULES, get_registry
+        from module.providers.catalog import provider_module_path
+        from module.providers.registry import get_registry
 
         reg = get_registry()
         original_providers = dict(reg._providers)
@@ -260,14 +263,15 @@ class TestProviderRegistry:
             provider = reg.find_provider(make_provider_args(alm_model="cohere_transcribe_local"), "audio/wav")
 
             assert provider is FakeProvider
-            assert calls == [("cohere_transcribe_local", _PROVIDER_MODULES["cohere_transcribe_local"])]
+            assert calls == [("cohere_transcribe_local", provider_module_path("cohere_transcribe_local"))]
         finally:
             reg._providers = original_providers
             reg._discovered = original_discovered
             reg._import_failures = original_failures
 
     def test_find_provider_lazy_loads_explicit_mega_asr_audio_provider_before_full_discovery(self, monkeypatch):
-        from providers.registry import _PROVIDER_MODULES, get_registry
+        from module.providers.catalog import provider_module_path
+        from module.providers.registry import get_registry
 
         reg = get_registry()
         original_providers = dict(reg._providers)
@@ -301,7 +305,7 @@ class TestProviderRegistry:
             provider = reg.find_provider(make_provider_args(alm_model="mega_asr_local"), "audio/wav")
 
             assert provider is FakeProvider
-            assert calls == [("mega_asr_local", _PROVIDER_MODULES["mega_asr_local"])]
+            assert calls == [("mega_asr_local", provider_module_path("mega_asr_local"))]
         finally:
             reg._providers = original_providers
             reg._discovered = original_discovered
@@ -310,41 +314,41 @@ class TestProviderRegistry:
 
 class TestPriorityOrder:
     def test_all_registered_in_priority(self):
-        from providers.registry import get_registry
+        from module.providers.catalog import provider_priority_order
+        from module.providers.registry import get_registry
 
         reg = get_registry()
         reg.discover()
         registered = set(reg.list_providers())
-        priority = set(reg._priority_order)
+        priority = set(provider_priority_order())
         missing = registered - priority
         assert not missing, f"Registered but not in priority: {missing}"
 
     def test_no_phantom_in_priority(self):
-        from providers.registry import get_registry
+        from module.providers.catalog import provider_priority_order
+        from module.providers.registry import get_registry
 
         reg = get_registry()
         reg.discover()
         registered = set(reg.list_providers())
-        for name in reg._priority_order:
+        for name in provider_priority_order():
             assert name in registered, f"Priority entry '{name}' not registered"
 
     def test_kimi_code_before_kimi_vl(self):
-        from providers.registry import get_registry
+        from module.providers.catalog import provider_priority_order
 
-        reg = get_registry()
-        order = reg._priority_order
+        order = provider_priority_order()
         assert order.index("kimi_code") < order.index("kimi_vl")
 
     def test_mimo_after_kimi_vl_before_minimax(self):
-        from providers.registry import get_registry
+        from module.providers.catalog import provider_priority_order
 
-        reg = get_registry()
-        order = reg._priority_order
+        order = provider_priority_order()
         assert order.index("kimi_vl") < order.index("mimo") < order.index("minimax_code")
 
 
 def test_find_provider_returns_none_when_no_provider_matches():
-    from providers.registry import get_registry
+    from module.providers.registry import get_registry
 
     provider = get_registry().find_provider(make_provider_args(), "image/jpeg")
     assert provider is None

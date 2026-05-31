@@ -16,11 +16,10 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def test_cohere_transcribe_defaults_to_official_model_id():
-    from providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
+    from module.providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
 
     model_config = tomllib.loads((ROOT / "config" / "model.toml").read_text(encoding="utf-8"))
 
@@ -30,7 +29,7 @@ def test_cohere_transcribe_defaults_to_official_model_id():
 
 
 def test_cohere_transcribe_can_handle_audio_only():
-    from providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
+    from module.providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
 
     args = SimpleNamespace(alm_model="cohere_transcribe_local")
 
@@ -39,8 +38,8 @@ def test_cohere_transcribe_can_handle_audio_only():
 
 
 def test_cohere_transcribe_post_validate_returns_structured_transcript_payload(tmp_path):
-    from providers.base import CaptionResult, ProviderContext
-    from providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
+    from module.providers.base import CaptionResult, ProviderContext
+    from module.providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -75,7 +74,7 @@ def test_cohere_transcribe_post_validate_returns_structured_transcript_payload(t
 
 
 def test_cohere_transcribe_declares_transcribe_task_contract():
-    from providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
+    from module.providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
 
     assert CohereTranscribeLocalProvider.task_contract.task_kind == "transcribe"
     assert CohereTranscribeLocalProvider.task_contract.consumes_prompts is False
@@ -83,8 +82,8 @@ def test_cohere_transcribe_declares_transcribe_task_contract():
 
 
 def test_cohere_transcribe_attempt_calls_model_transcribe_with_configured_kwargs(monkeypatch, tmp_path):
-    from providers.base import PromptContext, ProviderContext
-    from providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
+    from module.providers.base import PromptContext, ProviderContext
+    from module.providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -132,8 +131,8 @@ def test_cohere_transcribe_attempt_calls_model_transcribe_with_configured_kwargs
 
 
 def test_cohere_transcribe_prefers_runtime_alm_language_over_model_config(monkeypatch, tmp_path):
-    from providers.base import PromptContext, ProviderContext
-    from providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
+    from module.providers.base import PromptContext, ProviderContext
+    from module.providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -160,8 +159,8 @@ def test_cohere_transcribe_prefers_runtime_alm_language_over_model_config(monkey
 
 
 def test_cohere_transcribe_requires_explicit_language_when_no_runtime_or_config_value(tmp_path):
-    from providers.base import ProviderContext
-    from providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
 
     ctx = ProviderContext(
         console=Console(file=io.StringIO(), force_terminal=False),
@@ -175,8 +174,8 @@ def test_cohere_transcribe_requires_explicit_language_when_no_runtime_or_config_
 
 
 def test_cohere_transcribe_load_uses_speech_seq2seq_and_processor(monkeypatch):
-    from providers.base import ProviderContext
-    from providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_alm.cohere_transcribe_local import CohereTranscribeLocalProvider
 
     captured = {}
 

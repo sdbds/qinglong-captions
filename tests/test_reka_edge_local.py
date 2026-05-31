@@ -7,12 +7,11 @@ from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def test_reka_build_messages_wraps_system_prompt_as_text_blocks():
-    from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
-    from providers.local_vlm.reka_edge_local import RekaEdgeLocalProvider
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.local_vlm.reka_edge_local import RekaEdgeLocalProvider
 
     ctx = ProviderContext(
         console=Console(file=io.StringIO(), force_terminal=False),

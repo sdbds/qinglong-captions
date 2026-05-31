@@ -6,22 +6,24 @@ ProviderRegistry - 自动发现和路由
 """
 
 import importlib
-import sys
 import threading
 import traceback
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple, Type
 
-from .catalog import canonicalize_provider_name, route_provider_name
+from .capabilities import ProviderCapabilities
+from .catalog import (
+    canonicalize_provider_name,
+    provider_module_path,
+    provider_module_paths,
+    provider_priority_order,
+    register_provider_declaration,
+    route_provider_name,
+)
+from .declarations import ProviderDeclaration, ProviderRouteDeclaration
 
 if TYPE_CHECKING:
     from .base import Provider
-
-
-if __name__ == "providers.registry":
-    sys.modules.setdefault("module.providers.registry", sys.modules[__name__])
-elif __name__ == "module.providers.registry":
-    sys.modules.setdefault("providers.registry", sys.modules[__name__])
 
 
 @dataclass(frozen=True)
@@ -52,49 +54,6 @@ class ProviderDiscoveryError(RuntimeError):
             f"[{failure.provider_name}] {failure.module_path}\n{failure.traceback.strip()}" for failure in failures
         )
         super().__init__(f"Provider discovery failed for {len(failures)} provider(s):\n\n{joined}")
-
-
-_PROVIDER_MODULES: Dict[str, str] = {
-    "codex_subscription": "module.providers.cloud_vlm.codex_subscription",
-    "openai_compatible": "module.providers.cloud_vlm.openai_compatible",
-    "stepfun": "module.providers.cloud_vlm.stepfun",
-    "ark": "module.providers.cloud_vlm.ark",
-    "qwenvl": "module.providers.cloud_vlm.qwenvl",
-    "glm": "module.providers.cloud_vlm.glm",
-    "kimi_code": "module.providers.cloud_vlm.kimi_code",
-    "kimi_vl": "module.providers.cloud_vlm.kimi_vl",
-    "mimo": "module.providers.cloud_vlm.mimo",
-    "minimax_code": "module.providers.cloud_vlm.minimax_code",
-    "minimax_api": "module.providers.cloud_vlm.minimax_api",
-    "deepseek_ocr": "module.providers.ocr.deepseek",
-    "logics_ocr": "module.providers.ocr.logics",
-    "infinity_parser2_ocr": "module.providers.ocr.infinity_parser2",
-    "dots_ocr": "module.providers.ocr.dots",
-    "qianfan_ocr": "module.providers.ocr.qianfan",
-    "lighton_ocr": "module.providers.ocr.lighton",
-    "hunyuan_ocr": "module.providers.ocr.hunyuan",
-    "glm_ocr": "module.providers.ocr.glm",
-    "chandra_ocr": "module.providers.ocr.chandra",
-    "olmocr": "module.providers.ocr.olmocr",
-    "paddle_ocr": "module.providers.ocr.paddle",
-    "nanonets_ocr": "module.providers.ocr.nanonets",
-    "firered_ocr": "module.providers.ocr.firered",
-    "moondream": "module.providers.local_vlm.moondream",
-    "qwen_vl_local": "module.providers.local_vlm.qwen_vl_local",
-    "step_vl_local": "module.providers.local_vlm.step_vl_local",
-    "penguin_vl_local": "module.providers.local_vlm.penguin_vl_local",
-    "reka_edge_local": "module.providers.local_vlm.reka_edge_local",
-    "lfm_vl_local": "module.providers.local_vlm.lfm_vl_local",
-    "gemma4_local": "module.providers.local_vlm.gemma4_local",
-    "marlin_2b_local": "module.providers.local_vlm.marlin_2b_local",
-    "music_flamingo_local": "module.providers.local_alm.music_flamingo_local",
-    "eureka_audio_local": "module.providers.local_alm.eureka_audio_local",
-    "acestep_transcriber_local": "module.providers.local_alm.acestep_transcriber_local",
-    "cohere_transcribe_local": "module.providers.local_alm.cohere_transcribe_local",
-    "mega_asr_local": "module.providers.local_alm.mega_asr_local",
-    "mistral_ocr": "module.providers.vision_api.pixtral",
-    "gemini": "module.providers.vision_api.gemini",
-}
 
 
 class ProviderRegistry:
@@ -128,54 +87,6 @@ class ProviderRegistry:
             self._import_failures: Dict[str, ProviderImportFailure] = {}
             self._discovered = False
 
-            # 修复 #1: kimi_code 排在 kimi_vl 之前
-            # minimax_code 优先级高于 minimax_api（类似 kimi_code > kimi_vl）
-            self._priority_order: List[str] = [
-                "codex_subscription",  # Explicit Codex subscription route; never auto-claims without flag
-                "openai_compatible",  # 通用 OpenAI 兼容接口（最高优先级）
-                "stepfun",
-                "ark",
-                "qwenvl",
-                "glm",
-                "kimi_code",  # 优先级高于 kimi_vl
-                "kimi_vl",
-                "mimo",
-                "minimax_code",  # 优先级高于 minimax_api
-                "minimax_api",
-                # OCR models
-                "infinity_parser2_ocr",
-                "deepseek_ocr",
-                "logics_ocr",
-                "dots_ocr",
-                "qianfan_ocr",
-                "lighton_ocr",
-                "hunyuan_ocr",
-                "glm_ocr",
-                "chandra_ocr",
-                "olmocr",
-                "paddle_ocr",
-                "nanonets_ocr",
-                "firered_ocr",
-                # Local VLM
-                "moondream",
-                "qwen_vl_local",
-                "step_vl_local",
-                "penguin_vl_local",
-                "reka_edge_local",
-                "lfm_vl_local",
-                "gemma4_local",
-                "marlin_2b_local",
-                # Local ALM
-                "music_flamingo_local",
-                "eureka_audio_local",
-                "acestep_transcriber_local",
-                "cohere_transcribe_local",
-                "mega_asr_local",
-                # Vision API
-                "mistral_ocr",
-                "gemini",
-            ]
-
             ProviderRegistry._initialized = True
 
     def discover(self, *, strict: bool = False) -> None:
@@ -194,7 +105,7 @@ class ProviderRegistry:
                 return
 
             self._import_failures = {}
-            for provider_name, module_path in _PROVIDER_MODULES.items():
+            for provider_name, module_path in provider_module_paths().items():
                 self._discover_provider_module(provider_name, module_path)
 
             self._discovered = True
@@ -269,7 +180,7 @@ class ProviderRegistry:
         if canonical_name in self._providers or canonical_name in self._import_failures:
             return
 
-        module_path = _PROVIDER_MODULES.get(canonical_name)
+        module_path = provider_module_path(canonical_name)
         if not module_path:
             return
 
@@ -290,7 +201,8 @@ class ProviderRegistry:
         if explicit_provider is not None:
             return explicit_provider
 
-        for name in self._priority_order:
+        priority_order = provider_priority_order()
+        for name in priority_order:
             provider_class = self._providers.get(name)
             if not provider_class:
                 continue
@@ -304,7 +216,7 @@ class ProviderRegistry:
                 pass
 
         for name, provider_class in self._providers.items():
-            if name in self._priority_order:
+            if name in priority_order:
                 continue
 
             try:
@@ -423,7 +335,17 @@ def _flush_pending_registrations():
 
 
 # 装饰器语法糖
-def register_provider(name: str):
+def register_provider(
+    name: str,
+    *,
+    module_path: str = "",
+    priority: int = 0,
+    routes: Iterable[ProviderRouteDeclaration] = (),
+    aliases: Iterable[str] = (),
+    config_sections: Iterable[str] = (),
+    prompt_prefixes: Iterable[str] = (),
+    capabilities: ProviderCapabilities | None = None,
+):
     """
     装饰器：@register_provider("stepfun")
 
@@ -433,6 +355,20 @@ def register_provider(name: str):
 
     def decorator(cls: Type["Provider"]):
         cls.name = name
+        declaration = None
+        if module_path or priority or routes or aliases or config_sections or prompt_prefixes or capabilities is not None:
+            declaration = ProviderDeclaration(
+                name=name,
+                module_path=module_path or cls.__module__,
+                priority=priority,
+                routes=tuple(routes),
+                aliases=tuple(aliases),
+                config_sections=tuple(config_sections),
+                prompt_prefixes=tuple(prompt_prefixes),
+                capabilities=capabilities or getattr(cls, "capabilities", ProviderCapabilities()),
+            )
+            cls.provider_declaration = declaration
+            register_provider_declaration(declaration)
         # 添加到待注册队列
         _pending_registrations.append((name, cls))
         return cls

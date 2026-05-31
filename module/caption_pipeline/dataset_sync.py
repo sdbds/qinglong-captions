@@ -4,6 +4,8 @@ import json
 
 import pyarrow as pa
 
+from module.providers.base import CaptionResult
+
 
 def update_dataset_captions(dataset, processed_filepaths, results, merge_batch_size: int, console, tag_name: str = "gemini") -> None:
     if not results:
@@ -11,7 +13,9 @@ def update_dataset_captions(dataset, processed_filepaths, results, merge_batch_s
 
     processed_captions = []
     for caption in results:
-        if isinstance(caption, list):
+        if isinstance(caption, CaptionResult):
+            processed_captions.append(caption.to_dataset_caption())
+        elif isinstance(caption, list):
             processed_captions.append("\n".join(caption))
         elif isinstance(caption, dict):
             processed_captions.append(json.dumps(caption, ensure_ascii=False))

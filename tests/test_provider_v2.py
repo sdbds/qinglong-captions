@@ -35,7 +35,6 @@ import pytest
 # 确保 module 路径可导入
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 # ──────────────────────────────────────────────
@@ -45,7 +44,7 @@ sys.path.insert(0, str(ROOT / "module"))
 class TestCaptionResult:
 
     def test_plain_text(self):
-        from providers.base import CaptionResult
+        from module.providers.base import CaptionResult
         r = CaptionResult(raw="hello world")
         assert r.raw == "hello world"
         assert r.description == "hello world"
@@ -54,7 +53,7 @@ class TestCaptionResult:
         assert r.get("key", 42) == 42
 
     def test_structured_long_description(self):
-        from providers.base import CaptionResult
+        from module.providers.base import CaptionResult
         parsed = {"long_description": "long", "short_description": "short"}
         r = CaptionResult(raw=json.dumps(parsed), parsed=parsed)
         assert r.is_structured
@@ -62,34 +61,34 @@ class TestCaptionResult:
         assert r.get("short_description") == "short"
 
     def test_structured_description_fallback(self):
-        from providers.base import CaptionResult
+        from module.providers.base import CaptionResult
         r = CaptionResult(raw="raw", parsed={"description": "desc"})
         assert r.description == "desc"
 
     def test_structured_transcript_fallback(self):
-        from providers.base import CaptionResult
+        from module.providers.base import CaptionResult
         r = CaptionResult(raw="raw", parsed={"task_kind": "transcribe", "transcript": "verbatim"})
         assert r.description == "verbatim"
 
     def test_structured_short_description_fallback(self):
-        from providers.base import CaptionResult
+        from module.providers.base import CaptionResult
         r = CaptionResult(raw="raw", parsed={"short_description": "short"})
         assert r.description == "short"
 
     def test_structured_raw_fallback(self):
-        from providers.base import CaptionResult
+        from module.providers.base import CaptionResult
         r = CaptionResult(raw="raw_fallback", parsed={"other_key": "val"})
         assert r.description == "raw_fallback"
 
     def test_empty_raw(self):
-        from providers.base import CaptionResult
+        from module.providers.base import CaptionResult
         r = CaptionResult(raw="")
         assert r.description == ""
         assert not r.is_structured
 
     def test_local_alm_provider_can_skip_prompt_resolution_via_task_contract(self, monkeypatch, tmp_path):
-        from providers.base import CaptionResult, ProviderContext
-        from providers.local_alm_base import ALMTaskContract, LocalALMProvider
+        from module.providers.base import CaptionResult, ProviderContext
+        from module.providers.local_alm_base import ALMTaskContract, LocalALMProvider
 
         audio_path = tmp_path / "sample.wav"
         audio_path.write_bytes(b"fake")
@@ -120,12 +119,12 @@ class TestCaptionResult:
         assert result.raw == "ok"
 
     def test_metadata(self):
-        from providers.base import CaptionResult
+        from module.providers.base import CaptionResult
         r = CaptionResult(raw="x", metadata={"provider": "test"})
         assert r.metadata["provider"] == "test"
 
     def test_default_metadata(self):
-        from providers.base import CaptionResult
+        from module.providers.base import CaptionResult
         r = CaptionResult(raw="x")
         assert r.metadata == {}
 
@@ -137,13 +136,13 @@ class TestCaptionResult:
 class TestMediaContext:
 
     def test_immutable(self):
-        from providers.base import MediaContext, MediaModality
+        from module.providers.base import MediaContext, MediaModality
         m = MediaContext(uri="/a.jpg", mime="image/jpeg", sha256hash="abc", modality=MediaModality.IMAGE)
         with pytest.raises(AttributeError):
             m.uri = "/b.jpg"
 
     def test_is_large_file(self):
-        from providers.base import MediaContext, MediaModality
+        from module.providers.base import MediaContext, MediaModality
         small = MediaContext(uri="/a.jpg", mime="image/jpeg", sha256hash="", modality=MediaModality.IMAGE, file_size=100)
         assert not small.is_large_file
         large = MediaContext(
@@ -153,7 +152,7 @@ class TestMediaContext:
         assert large.is_large_file
 
     def test_default_fields(self):
-        from providers.base import MediaContext, MediaModality
+        from module.providers.base import MediaContext, MediaModality
         m = MediaContext(uri="/a", mime="image/png", sha256hash="", modality=MediaModality.IMAGE)
         assert m.blob is None
         assert m.pixels is None
@@ -169,14 +168,14 @@ class TestMediaContext:
 class TestPromptContext:
 
     def test_basic(self):
-        from providers.base import PromptContext
+        from module.providers.base import PromptContext
         p = PromptContext(system="sys", user="usr")
         assert p.system == "sys"
         assert p.user == "usr"
         assert p.character_name == ""
 
     def test_with_character(self):
-        from providers.base import PromptContext
+        from module.providers.base import PromptContext
         p = PromptContext(system="sys", user="describe")
         p2 = p.with_character("Alice", "This is Alice. ")
         assert p2.character_name == "Alice"
@@ -186,7 +185,7 @@ class TestPromptContext:
         assert p.user == "describe"
 
     def test_immutable(self):
-        from providers.base import PromptContext
+        from module.providers.base import PromptContext
         p = PromptContext(system="s", user="u")
         with pytest.raises(AttributeError):
             p.system = "new"
@@ -199,7 +198,7 @@ class TestPromptContext:
 class TestRetryConfig:
 
     def test_defaults(self):
-        from providers.base import RetryConfig
+        from module.providers.base import RetryConfig
         r = RetryConfig()
         assert r.max_retries == 10
         assert r.base_wait == 1.0
@@ -207,7 +206,7 @@ class TestRetryConfig:
         assert r.on_exhausted is None
 
     def test_custom(self):
-        from providers.base import RetryConfig
+        from module.providers.base import RetryConfig
         fn = lambda e: 5.0
         r = RetryConfig(max_retries=3, base_wait=2.0, classify_error=fn)
         assert r.max_retries == 3
@@ -221,7 +220,7 @@ class TestRetryConfig:
 class TestProviderCapabilities:
 
     def test_defaults(self):
-        from providers.capabilities import ProviderCapabilities
+        from module.providers.capabilities import ProviderCapabilities
         cap = ProviderCapabilities()
         assert not cap.supports_streaming
         assert not cap.supports_structured_output
@@ -234,7 +233,7 @@ class TestProviderCapabilities:
         assert cap.supported_mimes is None
 
     def test_cloud_vlm_caps(self):
-        from providers.cloud_vlm_base import CloudVLMProvider
+        from module.providers.cloud_vlm_base import CloudVLMProvider
         assert CloudVLMProvider.capabilities.supports_streaming
         assert CloudVLMProvider.capabilities.supports_video
         assert CloudVLMProvider.capabilities.supports_images
@@ -242,14 +241,14 @@ class TestProviderCapabilities:
         assert CloudVLMProvider.capabilities.supports_cloud_concurrency
 
     def test_ocr_caps(self):
-        from providers.ocr_base import OCRProvider
+        from module.providers.ocr_base import OCRProvider
         assert OCRProvider.capabilities.supports_documents
         assert OCRProvider.capabilities.supports_images
         assert not OCRProvider.capabilities.supports_streaming
         assert not OCRProvider.capabilities.supports_cloud_concurrency
 
     def test_vision_api_caps_support_cloud_concurrency(self):
-        from providers.vision_api_base import VisionAPIProvider
+        from module.providers.vision_api_base import VisionAPIProvider
         assert VisionAPIProvider.capabilities.supports_cloud_concurrency
 
     def test_codex_subscription_caps_support_cloud_concurrency(self):
@@ -268,7 +267,7 @@ class TestPromptResolver:
         return {"prompts": prompts}
 
     def test_image_basic(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "system_prompt": "default_sys",
             "image_system_prompt": "image_sys",
@@ -281,7 +280,7 @@ class TestPromptResolver:
         assert "describe image" in p.user
 
     def test_video_basic(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "system_prompt": "default_sys",
             "video_system_prompt": "video_sys",
@@ -294,7 +293,7 @@ class TestPromptResolver:
         assert "describe video" in p.user
 
     def test_audio_basic(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "system_prompt": "default_sys",
             "audio_system_prompt": "audio_sys",
@@ -307,7 +306,7 @@ class TestPromptResolver:
         assert "transcribe audio" in p.user
 
     def test_fallback_to_default(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "system_prompt": "default_sys",
             "prompt": "default_prompt",
@@ -319,7 +318,7 @@ class TestPromptResolver:
         assert p.user == "default_prompt"
 
     def test_provider_specific_override(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "system_prompt": "default_sys",
             "image_system_prompt": "generic_img_sys",
@@ -334,7 +333,7 @@ class TestPromptResolver:
         assert p.user == "stepfun_vprompt"
 
     def test_gemma4_image_keeps_generic_prompt_when_mistral_fallback_exists(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "image_system_prompt": "generic_img_sys",
             "image_prompt": "generic_img_prompt",
@@ -350,7 +349,7 @@ class TestPromptResolver:
         assert p.user == "generic_img_prompt"
 
     def test_gemma4_video_keeps_generic_prompt_when_step_fallback_exists(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "video_system_prompt": "generic_video_sys",
             "video_prompt": "generic_video_prompt",
@@ -366,7 +365,7 @@ class TestPromptResolver:
         assert p.user == "generic_video_prompt"
 
     def test_mistral_ocr_image_still_accepts_legacy_pixtral_fallback(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "image_system_prompt": "generic_img_sys",
             "image_prompt": "generic_img_prompt",
@@ -382,7 +381,7 @@ class TestPromptResolver:
         assert p.user == "pixtral_img_prompt"
 
     def test_stepfun_video_still_accepts_legacy_step_fallback(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "video_system_prompt": "generic_video_sys",
             "video_prompt": "generic_video_prompt",
@@ -398,7 +397,7 @@ class TestPromptResolver:
         assert p.user == "step_video_prompt"
 
     def test_resolver_does_not_use_underscore_stripped_provider_prefixes(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "image_system_prompt": "generic_img_sys",
             "image_prompt": "generic_img_prompt",
@@ -414,7 +413,7 @@ class TestPromptResolver:
         assert p.user == "generic_img_prompt"
 
     def test_pair_mode(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "system_prompt": "sys",
             "image_prompt": "img_prompt",
@@ -428,7 +427,7 @@ class TestPromptResolver:
         assert p.user == "pair_prompt"
 
     def test_pair_mode_uses_prepared_media_state_when_available(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "image_system_prompt": "generic_sys",
             "image_prompt": "generic_prompt",
@@ -449,7 +448,7 @@ class TestPromptResolver:
         assert p2.user == "pair_prompt"
 
     def test_pair_mode_does_not_override_video_prompt(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "video_prompt": "video prompt",
             "pair_image_prompt": "pair prompt",
@@ -460,7 +459,7 @@ class TestPromptResolver:
         assert p.user == "video prompt"
 
     def test_character_prompt_injection(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "system_prompt": "sys",
             "image_prompt": "describe",
@@ -473,7 +472,7 @@ class TestPromptResolver:
         assert p.character_name == "Alice"
 
     def test_gemini_task_template(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         config = self._config({
             "system_prompt": "sys",
             "image_prompt": "base",
@@ -487,7 +486,7 @@ class TestPromptResolver:
         assert "Transform cat into dog" in p.user
 
     def test_empty_config(self):
-        from providers.resolver import PromptResolver
+        from module.providers.resolver import PromptResolver
         resolver = PromptResolver({}, "test")
         args = SimpleNamespace(pair_dir="")
         p = resolver.resolve("image/jpeg", args)
@@ -502,8 +501,8 @@ class TestPromptResolver:
 class TestWithRetryImpl:
 
     def test_success_no_retry(self):
-        from providers.base import RetryConfig
-        from providers.utils import with_retry_impl
+        from module.providers.base import RetryConfig
+        from module.providers.utils import with_retry_impl
         counter = {"n": 0}
 
         def fn():
@@ -515,8 +514,8 @@ class TestWithRetryImpl:
         assert counter["n"] == 1
 
     def test_retry_on_429(self):
-        from providers.base import RetryConfig
-        from providers.utils import with_retry_impl
+        from module.providers.base import RetryConfig
+        from module.providers.utils import with_retry_impl
         counter = {"n": 0}
 
         def fn():
@@ -525,7 +524,7 @@ class TestWithRetryImpl:
                 raise Exception("Error 429 rate limited")
             return "ok"
 
-        with patch("providers.utils.time.sleep") as mock_sleep:
+        with patch("module.providers.utils.time.sleep") as mock_sleep:
             result = with_retry_impl(fn, RetryConfig(max_retries=5, base_wait=0.01))
 
         assert result == "ok"
@@ -533,8 +532,8 @@ class TestWithRetryImpl:
         assert mock_sleep.call_count == 2
 
     def test_no_retry_on_unknown_error(self):
-        from providers.base import RetryConfig
-        from providers.utils import with_retry_impl
+        from module.providers.base import RetryConfig
+        from module.providers.utils import with_retry_impl
 
         def fn():
             raise ValueError("some unknown error")
@@ -543,8 +542,8 @@ class TestWithRetryImpl:
             with_retry_impl(fn, RetryConfig(max_retries=3, base_wait=0.01))
 
     def test_custom_classifier(self):
-        from providers.base import RetryConfig
-        from providers.utils import with_retry_impl
+        from module.providers.base import RetryConfig
+        from module.providers.utils import with_retry_impl
         counter = {"n": 0}
 
         def classifier(e):
@@ -564,8 +563,8 @@ class TestWithRetryImpl:
         assert counter["n"] == 2
 
     def test_exhausted_callback(self):
-        from providers.base import RetryConfig
-        from providers.utils import with_retry_impl
+        from module.providers.base import RetryConfig
+        from module.providers.utils import with_retry_impl
 
         def always_fail():
             raise Exception("Error 502 server error")
@@ -579,8 +578,8 @@ class TestWithRetryImpl:
         assert result == "fallback_value"
 
     def test_exhausted_raises_when_no_callback(self):
-        from providers.base import RetryConfig
-        from providers.utils import with_retry_impl
+        from module.providers.base import RetryConfig
+        from module.providers.utils import with_retry_impl
 
         def always_fail():
             raise Exception("Error 502 server error")
@@ -591,8 +590,8 @@ class TestWithRetryImpl:
 
     def test_403_not_retried_by_default(self):
         """默认 classifier 对 403 不重试"""
-        from providers.base import RetryConfig
-        from providers.utils import with_retry_impl
+        from module.providers.base import RetryConfig
+        from module.providers.utils import with_retry_impl
         counter = {"n": 0}
 
         def fn():
@@ -604,8 +603,8 @@ class TestWithRetryImpl:
         assert counter["n"] == 1
 
     def test_logs_full_traceback_to_console(self):
-        from providers.base import RetryConfig
-        from providers.utils import with_retry_impl
+        from module.providers.base import RetryConfig
+        from module.providers.utils import with_retry_impl
         from rich.console import Console
 
         buf = io.StringIO()
@@ -630,7 +629,7 @@ class TestWithRetryImpl:
 class TestBuildVisionMessages:
 
     def test_text_first(self):
-        from providers.utils import build_vision_messages
+        from module.providers.utils import build_vision_messages
         msgs = build_vision_messages("sys", "usr", "base64blob", text_first=True)
         assert len(msgs) == 2
         assert msgs[0]["role"] == "system"
@@ -641,14 +640,14 @@ class TestBuildVisionMessages:
         assert "base64blob" in content[1]["image_url"]["url"]
 
     def test_text_last(self):
-        from providers.utils import build_vision_messages
+        from module.providers.utils import build_vision_messages
         msgs = build_vision_messages("sys", "usr", "blob", text_first=False)
         content = msgs[1]["content"]
         assert content[0]["type"] == "image_url"
         assert content[-1]["type"] == "text"
 
     def test_with_pair(self):
-        from providers.utils import build_vision_messages
+        from module.providers.utils import build_vision_messages
         msgs = build_vision_messages("sys", "usr", "main_blob", pair_blob="pair_blob", text_first=True)
         content = msgs[1]["content"]
         # text + main image + pair image
@@ -658,7 +657,7 @@ class TestBuildVisionMessages:
         assert "pair_blob" in content[2]["image_url"]["url"]
 
     def test_no_pair(self):
-        from providers.utils import build_vision_messages
+        from module.providers.utils import build_vision_messages
         msgs = build_vision_messages("sys", "usr", "blob")
         content = msgs[1]["content"]
         assert len(content) == 2  # text + image only
@@ -667,12 +666,12 @@ class TestBuildVisionMessages:
 class TestImageQualityConfig:
 
     def test_default_image_quality_is_85(self):
-        from providers.utils import resolve_image_quality
+        from module.providers.utils import resolve_image_quality
 
         assert resolve_image_quality({}) == 85
 
     def test_media_image_quality_overrides_default(self):
-        from providers.utils import resolve_image_quality
+        from module.providers.utils import resolve_image_quality
 
         assert resolve_image_quality({"media": {"image_quality": 73}}) == 73
 
@@ -684,35 +683,35 @@ class TestImageQualityConfig:
 class TestOCRProviderCanHandle:
 
     def test_ocr_pdf(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
         reg = get_registry()
         cls = reg.get_provider("deepseek_ocr")
         args = SimpleNamespace(ocr_model="deepseek_ocr", document_image=False)
         assert cls.can_handle(args, "application/pdf")
 
     def test_ocr_image_with_document_image(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
         reg = get_registry()
         cls = reg.get_provider("deepseek_ocr")
         args = SimpleNamespace(ocr_model="deepseek_ocr", document_image=True)
         assert cls.can_handle(args, "image/png")
 
     def test_ocr_image_without_document_image(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
         reg = get_registry()
         cls = reg.get_provider("deepseek_ocr")
         args = SimpleNamespace(ocr_model="deepseek_ocr", document_image=False)
         assert not cls.can_handle(args, "image/png")
 
     def test_ocr_wrong_model_name(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
         reg = get_registry()
         cls = reg.get_provider("deepseek_ocr")
         args = SimpleNamespace(ocr_model="hunyuan_ocr", document_image=True)
         assert not cls.can_handle(args, "image/png")
 
     def test_ocr_video_not_handled(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
         reg = get_registry()
         cls = reg.get_provider("deepseek_ocr")
         args = SimpleNamespace(ocr_model="deepseek_ocr", document_image=True)
@@ -726,7 +725,7 @@ class TestOCRProviderCanHandle:
 class TestProviderClassAttributes:
 
     def test_all_providers_have_name(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
         reg = get_registry()
         for name in reg.list_providers():
             cls = reg.get_provider(name)
@@ -734,7 +733,7 @@ class TestProviderClassAttributes:
             assert cls.name == name, f"{name}: .name mismatch ({cls.name})"
 
     def test_all_providers_have_can_handle(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
         reg = get_registry()
         for name in reg.list_providers():
             cls = reg.get_provider(name)
@@ -742,7 +741,7 @@ class TestProviderClassAttributes:
             assert callable(cls.can_handle), f"{name}: can_handle not callable"
 
     def test_all_providers_have_attempt(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
         reg = get_registry()
         for name in reg.list_providers():
             cls = reg.get_provider(name)
@@ -751,8 +750,8 @@ class TestProviderClassAttributes:
     def test_all_providers_instantiable(self):
         """所有 Provider 都可以正常实例化（使用 mock context），跳过含未实现抽象方法的"""
         import inspect
-        from providers.base import ProviderContext
-        from providers.registry import get_registry
+        from module.providers.base import ProviderContext
+        from module.providers.registry import get_registry
         from rich.console import Console
 
         reg = get_registry()
@@ -787,7 +786,7 @@ class TestProviderClassAttributes:
 class TestKimiCodeUserAgent:
 
     def test_kimi_code_has_user_agent_constant(self):
-        from providers.registry import get_registry
+        from module.providers.registry import get_registry
         reg = get_registry()
         cls = reg.get_provider("kimi_code")
         assert hasattr(cls, "KIMI_CODE_USER_AGENT")
@@ -795,8 +794,8 @@ class TestKimiCodeUserAgent:
 
     def test_kimi_code_openai_client_receives_header(self):
         """验证 OpenAI client 创建时包含 User-Agent header"""
-        from providers.base import CaptionResult, MediaContext, MediaModality, PromptContext, ProviderContext
-        from providers.registry import get_registry
+        from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext, ProviderContext
+        from module.providers.registry import get_registry
         from rich.console import Console
 
         reg = get_registry()
@@ -846,8 +845,8 @@ class TestKimiCodeUserAgent:
                 sys.modules.pop("module.providers.kimi_vl_provider", None)
 
     def test_kimi_code_image_prompt_requests_short_and_long(self):
-        from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
-        from providers.registry import get_registry
+        from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+        from module.providers.registry import get_registry
         from rich.console import Console
         import module.providers.cloud_vlm.kimi_vl as kimi_vl_module
 
@@ -943,8 +942,8 @@ class TestKimiFolderNamePrompting:
         ],
     )
     def test_kimi_passes_folder_input_name_into_prompts_when_dir_name_enabled(self, tmp_path, provider_name, provider_args):
-        from providers.base import CaptionResult, MediaContext, MediaModality, ProviderContext
-        from providers.registry import get_registry
+        from module.providers.base import CaptionResult, MediaContext, MediaModality, ProviderContext
+        from module.providers.registry import get_registry
 
         folder = tmp_path / "Alice (Wonderland)"
         image_path = folder / "sample.jpg"
@@ -1023,7 +1022,7 @@ class TestAPIRetryConfig:
         from importlib import import_module
 
         from rich.console import Console
-        from providers.base import ProviderContext
+        from module.providers.base import ProviderContext
         from tests.provider_v2_helpers import make_provider_args
 
         provider_cls = getattr(import_module(module_name), class_name)
@@ -1051,7 +1050,7 @@ class TestAPIRetryConfig:
 
     def test_gemini_fast_fails_unsupported_mime(self):
         from rich.console import Console
-        from providers.base import ProviderContext
+        from module.providers.base import ProviderContext
         from module.providers.vision_api.gemini import GeminiProvider
         from tests.provider_v2_helpers import make_provider_args
 
@@ -1079,7 +1078,7 @@ class TestAPIRetryConfig:
 class TestProviderBase:
 
     def test_message_builder_static_helpers(self):
-        from providers.base import Provider, build_chat_text_message
+        from module.providers.base import Provider, build_chat_text_message
 
         assert Provider.build_text_part("describe") == {"type": "text", "text": "describe"}
         assert Provider.build_image_part("C:/tmp/image.png") == {"type": "image", "image": "C:/tmp/image.png"}
@@ -1113,7 +1112,7 @@ class TestProviderBase:
         }
 
     def test_get_retry_config_defaults(self):
-        from providers.base import Provider, ProviderContext, CaptionResult, MediaContext, PromptContext
+        from module.providers.base import Provider, ProviderContext, CaptionResult, MediaContext, PromptContext
         from rich.console import Console
 
         class Dummy(Provider):
@@ -1122,7 +1121,7 @@ class TestProviderBase:
             def can_handle(cls, args, mime):
                 return True
             def prepare_media(self, uri, mime, args):
-                from providers.base import MediaModality
+                from module.providers.base import MediaModality
                 return MediaContext(uri=uri, mime=mime, sha256hash="", modality=MediaModality.IMAGE)
             def attempt(self, media, prompts):
                 return CaptionResult(raw="ok")
@@ -1137,7 +1136,7 @@ class TestProviderBase:
         assert cfg.base_wait == 2.0
 
     def test_log_method(self):
-        from providers.base import Provider, ProviderContext, CaptionResult, MediaContext, PromptContext
+        from module.providers.base import Provider, ProviderContext, CaptionResult, MediaContext, PromptContext
         from rich.console import Console
 
         class Dummy(Provider):
@@ -1146,7 +1145,7 @@ class TestProviderBase:
             def can_handle(cls, args, mime):
                 return True
             def prepare_media(self, uri, mime, args):
-                from providers.base import MediaModality
+                from module.providers.base import MediaModality
                 return MediaContext(uri=uri, mime=mime, sha256hash="", modality=MediaModality.IMAGE)
             def attempt(self, media, prompts):
                 return CaptionResult(raw="ok")
@@ -1164,7 +1163,7 @@ class TestProviderBase:
         assert "plain message" in output
 
     def test_post_validate_default(self):
-        from providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality, PromptContext
+        from module.providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality, PromptContext
         from rich.console import Console
 
         class Dummy(Provider):
@@ -1188,7 +1187,7 @@ class TestProviderBase:
         assert d.post_validate(r, m, ctx.args) is r
 
     def test_execute_propagates_sha256hash(self):
-        from providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality
+        from module.providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality
         from rich.console import Console
 
         captured = {}
@@ -1216,7 +1215,7 @@ class TestProviderBase:
         assert captured["sha256hash"] == "hash-123"
 
     def test_execute_displays_structured_single_image_result(self):
-        from providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality
+        from module.providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality
         from rich.console import Console
 
         pixels = object()
@@ -1249,7 +1248,7 @@ class TestProviderBase:
             args=SimpleNamespace(max_retries=1, wait_time=0.01, dir_name=False, pair_dir="", gemini_task=""),
         )
 
-        with patch("providers.base.display_caption_and_rate") as mocked_display:
+        with patch("module.providers.base.display_caption_and_rate") as mocked_display:
             result = Dummy(ctx).execute("C:/images/frame.jpg", "image/jpeg", "hash-123")
 
         assert result.parsed == payload
@@ -1262,7 +1261,7 @@ class TestProviderBase:
         assert kwargs["pixels"] is pixels
 
     def test_execute_skips_shared_display_for_pair_images(self):
-        from providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality
+        from module.providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality
         from rich.console import Console
 
         class Dummy(Provider):
@@ -1300,13 +1299,13 @@ class TestProviderBase:
             args=SimpleNamespace(max_retries=1, wait_time=0.01, dir_name=False, pair_dir="", gemini_task=""),
         )
 
-        with patch("providers.base.display_caption_and_rate") as mocked_display:
+        with patch("module.providers.base.display_caption_and_rate") as mocked_display:
             Dummy(ctx).execute("C:/images/frame.jpg", "image/jpeg", "hash-123")
 
         mocked_display.assert_not_called()
 
     def test_execute_resolves_pair_prompt_from_prepared_media_not_raw_args(self):
-        from providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality
+        from module.providers.base import Provider, ProviderContext, CaptionResult, MediaContext, MediaModality
         from rich.console import Console
 
         captured = {}
@@ -1358,8 +1357,8 @@ class TestProviderBase:
 class TestOCRProviderBase:
 
     def test_get_prompts_default(self):
-        from providers.base import ProviderContext
-        from providers.ocr_base import OCRProvider
+        from module.providers.base import ProviderContext
+        from module.providers.ocr_base import OCRProvider
         from rich.console import Console
 
         class FakeOCR(OCRProvider):
@@ -1379,8 +1378,8 @@ class TestOCRProviderBase:
         assert usr == "default ocr prompt"
 
     def test_get_prompts_from_config(self):
-        from providers.base import ProviderContext
-        from providers.ocr_base import OCRProvider
+        from module.providers.base import ProviderContext
+        from module.providers.ocr_base import OCRProvider
         from rich.console import Console
 
         class FakeOCR(OCRProvider):
@@ -1399,8 +1398,8 @@ class TestOCRProviderBase:
         assert usr == "config prompt"
 
     def test_retry_config_only_retries_transport_errors(self):
-        from providers.base import ProviderContext
-        from providers.ocr_base import OCRProvider
+        from module.providers.base import ProviderContext
+        from module.providers.ocr_base import OCRProvider
         from rich.console import Console
 
         class FakeOCR(OCRProvider):
@@ -1424,8 +1423,8 @@ class TestOCRProviderBase:
         assert cfg.classify_error(Exception("400 Bad Request: invalid parameter")) is None
 
     def test_get_model_config(self):
-        from providers.base import ProviderContext
-        from providers.ocr_base import OCRProvider
+        from module.providers.base import ProviderContext
+        from module.providers.ocr_base import OCRProvider
         from rich.console import Console
 
         class FakeOCR(OCRProvider):
@@ -1444,8 +1443,8 @@ class TestOCRProviderBase:
         assert p._get_model_config("missing_key", "default") == "default"
 
     def test_execute_uses_provider_specific_prompt(self, tmp_path):
-        from providers.base import CaptionResult, ProviderContext
-        from providers.ocr_base import OCRProvider
+        from module.providers.base import CaptionResult, ProviderContext
+        from module.providers.ocr_base import OCRProvider
         from rich.console import Console
 
         doc_path = tmp_path / "sample.pdf"
@@ -1467,8 +1466,8 @@ class TestOCRProviderBase:
         assert result.raw == "config prompt"
 
     def test_execute_empty_result_does_not_create_output_dir(self, tmp_path):
-        from providers.base import CaptionResult, ProviderContext
-        from providers.ocr_base import OCRProvider
+        from module.providers.base import CaptionResult, ProviderContext
+        from module.providers.ocr_base import OCRProvider
         from rich.console import Console
 
         doc_path = tmp_path / "sample.pdf"
@@ -1495,7 +1494,7 @@ class TestOCRProviderBase:
 class TestVisionAPIProviders:
 
     def test_mistral_prepare_media_uses_vision_api_base_for_images(self, tmp_path):
-        from providers.base import MediaModality, ProviderContext
+        from module.providers.base import MediaModality, ProviderContext
         from module.providers.vision_api.pixtral import MistralOCRProvider
         from rich.console import Console
 
@@ -1515,7 +1514,7 @@ class TestVisionAPIProviders:
             ),
         )
 
-        with patch("providers.vision_api_base.encode_image_to_blob", return_value=("blob", "pixels")):
+        with patch("module.providers.vision_api_base.encode_image_to_blob", return_value=("blob", "pixels")):
             media = MistralOCRProvider(ctx).prepare_media(str(image_path), "image/png", ctx.args)
 
         assert media is not None
@@ -1524,7 +1523,7 @@ class TestVisionAPIProviders:
         assert media.pixels == "pixels"
 
     def test_mistral_attempt_uses_v2_client_import(self):
-        from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+        from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
         from module.providers.vision_api.pixtral import MistralOCRProvider
         from rich.console import Console
 
@@ -1567,7 +1566,7 @@ class TestVisionAPIProviders:
         assert result.metadata["provider"] == "mistral"
 
     def test_mistral_attempt_reports_ocr_provider_in_ocr_mode(self):
-        from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+        from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
         from module.providers.vision_api.pixtral import MistralOCRProvider
         from rich.console import Console
 
@@ -1608,7 +1607,7 @@ class TestVisionAPIProviders:
         assert result.metadata["provider"] == "mistral_ocr"
 
     def test_gemini_attempt_uploads_large_media(self):
-        from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+        from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
         from module.providers.vision_api.gemini import GeminiProvider
         from rich.console import Console
 
@@ -1638,7 +1637,7 @@ class TestVisionAPIProviders:
         fake_files = [SimpleNamespace(uri="gs://uploaded-file")]
         with (
             patch("google.genai.Client", return_value=fake_client),
-            patch("providers.gemini_utils.upload_or_get", return_value=(True, fake_files)) as mock_upload,
+            patch("module.providers.gemini_utils.upload_or_get", return_value=(True, fake_files)) as mock_upload,
             patch("module.providers.vision_api.gemini.attempt_gemini", return_value="{}") as mock_attempt,
         ):
             provider.attempt(media, prompts)
@@ -1655,13 +1654,13 @@ class TestVisionAPIProviders:
 class TestEnums:
 
     def test_media_modality(self):
-        from providers.base import MediaModality
+        from module.providers.base import MediaModality
         assert MediaModality.IMAGE != MediaModality.VIDEO
         assert MediaModality.AUDIO != MediaModality.DOCUMENT
         assert MediaModality.UNKNOWN is not None
 
     def test_provider_type(self):
-        from providers.base import ProviderType
+        from module.providers.base import ProviderType
         assert ProviderType.CLOUD_VLM != ProviderType.LOCAL_VLM
         assert ProviderType.OCR != ProviderType.VISION_API
 
@@ -1673,7 +1672,7 @@ class TestEnums:
 class TestRegisterProviderDecorator:
 
     def test_sets_name(self):
-        from providers.registry import register_provider
+        from module.providers.registry import register_provider
 
         @register_provider("test_deco_provider")
         class TestProv:
@@ -1682,7 +1681,7 @@ class TestRegisterProviderDecorator:
         assert TestProv.name == "test_deco_provider"
 
     def test_find_provider_falls_back_to_registered_non_priority_provider(self):
-        from providers import registry as registry_module
+        from module.providers import registry as registry_module
 
         class DummyProvider:
             name = "dummy_fallback"
@@ -1693,16 +1692,16 @@ class TestRegisterProviderDecorator:
 
         reg = registry_module.ProviderRegistry()
         original_providers = reg._providers
-        original_priority = reg._priority_order
+        original_discovered = reg._discovered
 
         try:
             reg._providers = {"dummy_fallback": DummyProvider}
-            reg._priority_order = []
+            reg._discovered = True
             provider = reg.find_provider(SimpleNamespace(), "image/png")
             assert provider is DummyProvider
         finally:
             reg._providers = original_providers
-            reg._priority_order = original_priority
+            reg._discovered = original_discovered
 
 
 if __name__ == "__main__":

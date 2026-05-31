@@ -6,10 +6,10 @@ PromptResolver - 集中化的 Prompt 选择逻辑
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Type
 
-from .catalog import canonicalize_provider_name, provider_prompt_prefixes
-from .base import PromptContext
+from .base import PromptContext, Provider
+from .catalog import canonicalize_provider_name, provider_prompt_fallback_keys, provider_prompt_prefixes
 
 
 @dataclass
@@ -36,9 +36,10 @@ class PromptResolver:
     5. Character prompt 注入
     """
 
-    def __init__(self, config: Dict[str, Any], provider_name: str):
+    def __init__(self, config: Dict[str, Any], provider_name: str, provider_class: Type[Provider] | None = None):
         self.config = config
         self.provider_name = canonicalize_provider_name(provider_name)
+        self.provider_class = provider_class
         self.prompts = config.get("prompts", {})
 
     def resolve(
@@ -100,62 +101,28 @@ class PromptResolver:
 
         if mime.startswith("video"):
             system_keys = [f"{name}_video_system_prompt" for name in provider_names]
-            if self.provider_name in {"stepfun", "step_vl_local"}:
-                system = self._get_with_fallback(*system_keys, "step_video_system_prompt", system)
-            else:
-                system = self._get_with_fallback(*system_keys, system)
+            system = self._get_with_fallback(*system_keys, *self._provider_fallback_keys(mime, "system"), system)
 
             user_keys = [f"{name}_video_prompt" for name in provider_names]
-            if self.provider_name in {"stepfun", "step_vl_local"}:
-                user = self._get_with_fallback(*user_keys, "step_video_prompt", user)
-            else:
-                user = self._get_with_fallback(*user_keys, user)
+            user = self._get_with_fallback(*user_keys, *self._provider_fallback_keys(mime, "user"), user)
         elif mime.startswith("image"):
-            # 修复：kimi_code/kimi_vl/minimax 兼容性，添加特定 fallback
-            kimi_fallback = ""
-            if self.provider_name in ("kimi_code", "kimi_vl"):
-                kimi_fallback = "kimi_image_system_prompt"
-
-            mistral_system_fallbacks = ()
-            if self.provider_name == "mistral_ocr":
-                mistral_system_fallbacks = ("mistral_ocr_image_system_prompt", "pixtral_image_system_prompt")
-
             system_keys = [f"{name}_image_system_prompt" for name in provider_names]
-            system = self._get_with_fallback(
-                *system_keys,
-                kimi_fallback,
-                *mistral_system_fallbacks,
-                system,
-            )
-
-            # 修复：kimi_code/kimi_vl/minimax 兼容性，添加特定 fallback
-            kimi_prompt_fallback = ""
-            if self.provider_name in ("kimi_code", "kimi_vl"):
-                kimi_prompt_fallback = "kimi_image_prompt"
-            # minimax_code 可以回退到 minimax_api 的 prompt
-            minimax_fallback = ""
-            if self.provider_name == "minimax_code":
-                minimax_fallback = "minimax_api_image_prompt"
-
-            mistral_prompt_fallbacks = ()
-            if self.provider_name == "mistral_ocr":
-                mistral_prompt_fallbacks = ("mistral_ocr_image_prompt", "pixtral_image_prompt")
+            system = self._get_with_fallback(*system_keys, *self._provider_fallback_keys(mime, "system"), system)
 
             user_keys = [f"{name}_image_prompt" for name in provider_names]
-            user = self._get_with_fallback(
-                *user_keys,
-                kimi_prompt_fallback,
-                minimax_fallback,
-                *mistral_prompt_fallbacks,
-                user,
-            )
+            user = self._get_with_fallback(*user_keys, *self._provider_fallback_keys(mime, "user"), user)
         elif mime.startswith("audio"):
             system_keys = [f"{name}_audio_system_prompt" for name in provider_names]
             user_keys = [f"{name}_audio_prompt" for name in provider_names]
-            system = self._get_with_fallback(*system_keys, system)
-            user = self._get_with_fallback(*user_keys, user)
+            system = self._get_with_fallback(*system_keys, *self._provider_fallback_keys(mime, "system"), system)
+            user = self._get_with_fallback(*user_keys, *self._provider_fallback_keys(mime, "user"), user)
 
         return system, user
+
+    def _provider_fallback_keys(self, mime: str, field: str) -> Tuple[str, ...]:
+        if self.provider_class is not None:
+            return tuple(self.provider_class.prompt_fallback_keys(mime, field))
+        return provider_prompt_fallback_keys(self.provider_name, mime, field)
 
     def _pair_override(self, system: str, user: str, mime: str) -> Tuple[str, str]:
         """Pair 模式覆盖（处理命名不一致）"""

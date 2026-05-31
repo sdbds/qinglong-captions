@@ -82,7 +82,7 @@ def test_test_workflow_runs_suites_with_bootstrapped_venv_python():
     content = WORKFLOW.read_text(encoding="utf-8")
 
     assert "& $env:VENV_PYTHON -m pytest" in content
-    assert '& $env:VENV_PYTHON -c "from providers.registry import get_registry; reg = get_registry(); reg.discover(strict=True)"' in content
+    assert '& $env:VENV_PYTHON -c "from module.providers.registry import get_registry; reg = get_registry(); reg.discover(strict=True)"' in content
     assert "uv run --group test" not in content
 
 
@@ -98,5 +98,5 @@ def test_test_workflow_runs_strict_provider_discovery_before_provider_v2_suite()
 def test_test_workflow_strict_provider_discovery_bootstraps_module_import_root():
     content = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "from providers.registry import get_registry" in content
+    assert "from module.providers.registry import get_registry" in content
     assert "sys.path.insert(0, str(ROOT / 'module'))" not in content

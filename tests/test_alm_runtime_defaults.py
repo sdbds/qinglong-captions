@@ -8,7 +8,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def test_captioner_parser_leaves_segment_time_unset_by_default():
@@ -44,7 +43,7 @@ def test_captioner_parser_rejects_legacy_config_flag():
 
 
 def test_music_flamingo_uses_provider_specific_default_segment_time():
-    from providers.catalog import normalize_runtime_args
+    from module.providers.catalog import normalize_runtime_args
 
     args = SimpleNamespace(
         segment_time=None,
@@ -61,7 +60,7 @@ def test_music_flamingo_uses_provider_specific_default_segment_time():
 
 
 def test_non_alm_routes_keep_legacy_default_segment_time():
-    from providers.catalog import normalize_runtime_args
+    from module.providers.catalog import normalize_runtime_args
 
     args = SimpleNamespace(
         segment_time=None,
@@ -78,7 +77,7 @@ def test_non_alm_routes_keep_legacy_default_segment_time():
 
 
 def test_eureka_audio_keeps_generic_default_segment_time():
-    from providers.catalog import normalize_runtime_args
+    from module.providers.catalog import normalize_runtime_args
 
     args = SimpleNamespace(
         segment_time=None,
@@ -95,7 +94,7 @@ def test_eureka_audio_keeps_generic_default_segment_time():
 
 
 def test_acestep_transcriber_keeps_generic_default_segment_time():
-    from providers.catalog import normalize_runtime_args
+    from module.providers.catalog import normalize_runtime_args
 
     args = SimpleNamespace(
         segment_time=None,
@@ -112,7 +111,7 @@ def test_acestep_transcriber_keeps_generic_default_segment_time():
 
 
 def test_cohere_transcribe_keeps_generic_default_segment_time():
-    from providers.catalog import normalize_runtime_args
+    from module.providers.catalog import normalize_runtime_args
 
     args = SimpleNamespace(
         segment_time=None,
@@ -129,7 +128,7 @@ def test_cohere_transcribe_keeps_generic_default_segment_time():
 
 
 def test_mega_asr_keeps_generic_default_segment_time():
-    from providers.catalog import normalize_runtime_args
+    from module.providers.catalog import normalize_runtime_args
 
     args = SimpleNamespace(
         segment_time=None,
@@ -146,7 +145,7 @@ def test_mega_asr_keeps_generic_default_segment_time():
 
 
 def test_explicit_segment_time_overrides_music_flamingo_default():
-    from providers.catalog import normalize_runtime_args
+    from module.providers.catalog import normalize_runtime_args
 
     args = SimpleNamespace(
         segment_time=90,

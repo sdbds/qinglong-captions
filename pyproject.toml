@@ -390,6 +390,10 @@ test = [
 [tool.hatch.metadata]
 allow-direct-references = true
 
+[tool.qinglong.flash-attn]
+version = "2.8.4"
+windows-url = "https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl"
+
 [tool.uv]
 package = false
 conflicts = [
@@ -404,6 +408,10 @@ conflicts = [
     [
         { extra = "paddleocr" },
         { extra = "reward-model" },
+    ],
+    [
+        { extra = "paddleocr" },
+        { extra = "image-align" },
     ],
     [
         { extra = "paddleocr" },

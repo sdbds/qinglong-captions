@@ -19,6 +19,10 @@ def _load_optional_dependencies():
     return pyproject["project"]["optional-dependencies"]
 
 
+def _load_pyproject():
+    return tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+
 def _load_extra_conflict_sets():
     sets = []
     for group in _load_conflicts():
@@ -178,3 +182,18 @@ def test_infinity_parser2_ocr_conflicts_with_known_transformers_incompatible_ext
 
     for pair in expected_pairs:
         assert _has_extra_conflict(*pair)
+
+
+def test_flash_attn_windows_url_matches_canonical_policy():
+    pyproject = _load_pyproject()
+    canonical_url = pyproject["tool"]["qinglong"]["flash-attn"]["windows-url"]
+    optional_dependencies = pyproject["project"]["optional-dependencies"]
+
+    urls = {
+        dep.split("@", 1)[1].split(";", 1)[0].strip()
+        for deps in optional_dependencies.values()
+        for dep in deps
+        if dep.startswith("flash-attn @")
+    }
+
+    assert urls == {canonical_url}

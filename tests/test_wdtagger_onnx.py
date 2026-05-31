@@ -10,7 +10,6 @@ import pyarrow as pa
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def _import_wdtagger_with_stubbed_runtime(monkeypatch, tmp_path):

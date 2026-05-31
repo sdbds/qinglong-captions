@@ -17,11 +17,10 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def test_acestep_transcriber_defaults_to_official_model_id():
-    from providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
+    from module.providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
 
     model_config = tomllib.loads((ROOT / "config" / "model.toml").read_text(encoding="utf-8"))
 
@@ -40,7 +39,7 @@ def test_shipped_prompt_files_declare_acestep_transcriber_defaults():
 
 
 def test_acestep_transcriber_can_handle_audio_only():
-    from providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
+    from module.providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
 
     args = SimpleNamespace(alm_model="acestep_transcriber_local")
 
@@ -49,7 +48,7 @@ def test_acestep_transcriber_can_handle_audio_only():
 
 
 def test_prompt_resolver_prefers_acestep_transcriber_prompts():
-    from providers.resolver import PromptResolver
+    from module.providers.resolver import PromptResolver
 
     config = {
         "prompts": {
@@ -70,8 +69,8 @@ def test_prompt_resolver_prefers_acestep_transcriber_prompts():
 
 
 def test_acestep_transcriber_post_validate_returns_structured_transcript_payload(tmp_path):
-    from providers.base import CaptionResult, ProviderContext
-    from providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
+    from module.providers.base import CaptionResult, ProviderContext
+    from module.providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -109,7 +108,7 @@ Walking down the empty street tonight
 
 
 def test_acestep_transcriber_declares_transcribe_task_contract():
-    from providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
+    from module.providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
 
     assert AceStepTranscriberLocalProvider.task_contract.task_kind == "transcribe"
     assert AceStepTranscriberLocalProvider.task_contract.consumes_prompts is True
@@ -119,8 +118,8 @@ def test_acestep_transcriber_attempt_builds_audio_conversation_and_decodes_new_t
     import numpy as np
     import torch
 
-    from providers.base import PromptContext, ProviderContext
-    from providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
+    from module.providers.base import PromptContext, ProviderContext
+    from module.providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -226,8 +225,8 @@ def test_acestep_transcriber_attempt_builds_audio_conversation_and_decodes_new_t
 def test_acestep_transcriber_attempt_accepts_generate_returning_generated_tokens_only(monkeypatch, tmp_path):
     import numpy as np
 
-    from providers.base import PromptContext, ProviderContext
-    from providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
+    from module.providers.base import PromptContext, ProviderContext
+    from module.providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -306,8 +305,8 @@ def test_acestep_transcriber_attempt_accepts_generate_returning_generated_tokens
 
 
 def test_acestep_transcriber_load_uses_automodel_and_processor(monkeypatch):
-    from providers.base import ProviderContext
-    from providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_alm.acestep_transcriber_local import AceStepTranscriberLocalProvider
 
     captured = {}
 

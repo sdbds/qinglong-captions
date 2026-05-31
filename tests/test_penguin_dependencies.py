@@ -12,7 +12,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def _load_caption_step(module_name: str):
@@ -971,8 +970,8 @@ def test_penguin_provider_uses_resolved_attention_backend(monkeypatch):
 
     from rich.console import Console
 
-    from providers.base import ProviderContext
-    from providers.local_vlm.penguin_vl_local import PenguinVLLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_vlm.penguin_vl_local import PenguinVLLocalProvider
 
     captured = {}
 
@@ -1015,7 +1014,7 @@ def test_patch_penguin_vision_attention_uses_sdpa_fallback():
 
     import torch
 
-    from providers.local_vlm.penguin_vl_local import _patch_penguin_vision_attention
+    from module.providers.local_vlm.penguin_vl_local import _patch_penguin_vision_attention
 
     fake_module = types.ModuleType("test_penguin_encoder_module")
     fake_module.apply_multimodal_rotary_pos_emb = lambda q, k, cos, sin: (q, k)
@@ -1087,7 +1086,7 @@ def test_penguin_sdpa_fallback_does_not_import_qwen3_modeling(monkeypatch):
 
     import torch
 
-    from providers.local_vlm.penguin_vl_local import _patch_penguin_vision_attention
+    from module.providers.local_vlm.penguin_vl_local import _patch_penguin_vision_attention
 
     fake_module = types.ModuleType("test_penguin_encoder_module_no_qwen3")
     fake_module.apply_multimodal_rotary_pos_emb = lambda q, k, cos, sin: (q, k)
@@ -1168,8 +1167,8 @@ def test_penguin_attempt_preserves_non_tensor_outputs_and_casts_float_inputs(mon
     import torch
     from rich.console import Console
 
-    from providers.base import PromptContext, ProviderContext
-    from providers.local_vlm.penguin_vl_local import PenguinVLLocalProvider
+    from module.providers.base import PromptContext, ProviderContext
+    from module.providers.local_vlm.penguin_vl_local import PenguinVLLocalProvider
 
     image_path = tmp_path / "sample.png"
     image_path.write_bytes(b"fake")
@@ -1227,8 +1226,8 @@ def test_penguin_attempt_keeps_generated_tokens_when_model_returns_new_tokens_on
     import torch
     from rich.console import Console
 
-    from providers.base import PromptContext, ProviderContext
-    from providers.local_vlm.penguin_vl_local import PenguinVLLocalProvider
+    from module.providers.base import PromptContext, ProviderContext
+    from module.providers.local_vlm.penguin_vl_local import PenguinVLLocalProvider
 
     image_path = tmp_path / "sample.png"
     image_path.write_bytes(b"fake")

@@ -19,7 +19,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 from module.providers.base import PromptContext, ProviderContext
 from module.providers.local_vlm.gemma4_local import Gemma4LocalProvider

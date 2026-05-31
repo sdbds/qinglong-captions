@@ -9,8 +9,8 @@ from module.api_handler_v2 import api_process_batch as _api_process_batch_v2
 
 
 def api_process_batch(uri, mime, config, args, sha256hash, progress=None, task_id=None):
-    """将 V2 CaptionResult 转为旧编排层使用的基础类型。"""
-    result = _api_process_batch_v2(
+    """Caption pipeline entrypoint returning the canonical CaptionResult."""
+    return _api_process_batch_v2(
         uri=uri,
         mime=mime,
         config=config,
@@ -19,11 +19,8 @@ def api_process_batch(uri, mime, config, args, sha256hash, progress=None, task_i
         progress=progress,
         task_id=task_id,
     )
-    if hasattr(result, "parsed") and result.parsed is not None:
-        return result.parsed
-    if hasattr(result, "raw"):
-        return result.raw
-    return result
+
+
 from module.lanceexport import extract_from_lance
 from module.lanceImport import transform2lance
 

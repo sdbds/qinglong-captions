@@ -18,19 +18,26 @@ from .base import (
 
 # 能力声明
 from .capabilities import ProviderCapabilities
+from .policies import SegmentationPolicy
 
 # 注册表
 from .catalog import (
     canonicalize_provider_name,
     canonicalize_route_value,
+    get_provider_declaration,
     normalize_runtime_args,
+    provider_declared_capabilities,
     provider_aliases,
     provider_config_sections,
+    provider_module_path,
+    provider_module_paths,
     provider_prompt_prefixes,
+    provider_priority_order,
     route_choices,
     route_matches_provider,
     route_provider_name,
 )
+from .declarations import ProviderDeclaration, ProviderRouteDeclaration
 from .registry import (
     ProviderRegistry,
     get_registry,
@@ -68,12 +75,20 @@ __all__ = [
     "RetryConfig",
     # 能力声明
     "ProviderCapabilities",
+    "ProviderDeclaration",
+    "ProviderRouteDeclaration",
+    "SegmentationPolicy",
     "canonicalize_provider_name",
     "canonicalize_route_value",
+    "get_provider_declaration",
     "normalize_runtime_args",
+    "provider_declared_capabilities",
     "provider_aliases",
     "provider_config_sections",
+    "provider_module_path",
+    "provider_module_paths",
     "provider_prompt_prefixes",
+    "provider_priority_order",
     "route_choices",
     "route_matches_provider",
     "route_provider_name",

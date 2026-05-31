@@ -10,7 +10,6 @@ from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 # Import transformer_loader before any sys.modules patching. If torch is first
 # imported inside patch.dict(sys.modules, ...), the context rollback removes the
@@ -19,7 +18,7 @@ from utils import transformer_loader as transformer_loader_module
 
 
 def test_resolve_runtime_backend_prefers_args_over_config():
-    from providers.backends import resolve_runtime_backend
+    from module.providers.backends import resolve_runtime_backend
 
     args = SimpleNamespace(
         openai_base_url="http://127.0.0.1:8000/v1",
@@ -54,7 +53,7 @@ def test_resolve_runtime_backend_prefers_args_over_config():
 
 
 def test_openai_compatible_does_not_steal_explicit_local_route():
-    from providers.registry import get_registry
+    from module.providers.registry import get_registry
 
     args = SimpleNamespace(
         openai_base_url="http://127.0.0.1:8000/v1",
@@ -82,7 +81,7 @@ def test_openai_compatible_does_not_steal_explicit_local_route():
 
 
 def test_explicit_vlm_video_route_does_not_fall_back_to_openai_compatible():
-    from providers.registry import ProviderSelectionError, get_registry
+    from module.providers.registry import ProviderSelectionError, get_registry
 
     args = SimpleNamespace(
         openai_base_url="http://127.0.0.1:8000/v1",
@@ -109,7 +108,7 @@ def test_explicit_vlm_video_route_does_not_fall_back_to_openai_compatible():
 
 
 def test_explicit_reka_video_route_still_wins_with_openai_compatible_configured():
-    from providers.registry import get_registry
+    from module.providers.registry import get_registry
 
     args = SimpleNamespace(
         openai_base_url="http://127.0.0.1:8000/v1",
@@ -137,8 +136,8 @@ def test_explicit_reka_video_route_still_wins_with_openai_compatible_configured(
 
 
 def test_local_vlm_prepare_media_populates_pair_image(tmp_path):
-    from providers.base import CaptionResult, ProviderContext
-    from providers.local_vlm_base import LocalVLMProvider
+    from module.providers.base import CaptionResult, ProviderContext
+    from module.providers.local_vlm_base import LocalVLMProvider
 
     image_path = tmp_path / "sample.png"
     image_path.write_bytes(b"image")
@@ -165,7 +164,7 @@ def test_local_vlm_prepare_media_populates_pair_image(tmp_path):
     )
 
     with patch(
-        "providers.local_vlm_base.encode_image_to_blob",
+        "module.providers.local_vlm_base.encode_image_to_blob",
         side_effect=[("primary-blob", "primary-pixels"), ("pair-blob", "pair-pixels")],
     ):
         media = DummyLocalVLM(ctx).prepare_media(str(image_path), "image/png", ctx.args)
@@ -177,8 +176,8 @@ def test_local_vlm_prepare_media_populates_pair_image(tmp_path):
 
 
 def test_cloud_vlm_prepare_media_uses_configured_image_quality(tmp_path):
-    from providers.base import CaptionResult, ProviderContext
-    from providers.cloud_vlm_base import CloudVLMProvider
+    from module.providers.base import CaptionResult, ProviderContext
+    from module.providers.cloud_vlm_base import CloudVLMProvider
 
     image_path = tmp_path / "sample.png"
     image_path.write_bytes(b"image")
@@ -203,7 +202,7 @@ def test_cloud_vlm_prepare_media_uses_configured_image_quality(tmp_path):
     )
 
     with patch(
-        "providers.cloud_vlm_base.encode_image_to_blob",
+        "module.providers.cloud_vlm_base.encode_image_to_blob",
         side_effect=[("primary-blob", "primary-pixels"), ("pair-blob", "pair-pixels")],
     ) as encode_mock:
         media = DummyCloudVLM(ctx).prepare_media(str(image_path), "image/png", ctx.args)
@@ -215,8 +214,8 @@ def test_cloud_vlm_prepare_media_uses_configured_image_quality(tmp_path):
 
 
 def test_local_vlm_prepare_media_preserves_video_metadata(tmp_path):
-    from providers.base import CaptionResult, MediaModality, ProviderContext
-    from providers.local_vlm_base import LocalVLMProvider
+    from module.providers.base import CaptionResult, MediaModality, ProviderContext
+    from module.providers.local_vlm_base import LocalVLMProvider
 
     video_path = tmp_path / "sample.mp4"
     video_bytes = b"fake-video-bytes"
@@ -247,8 +246,8 @@ def test_local_vlm_prepare_media_preserves_video_metadata(tmp_path):
 
 
 def test_local_vlm_openai_backend_supports_video_messages(tmp_path):
-    from providers.base import CaptionResult, PromptContext, ProviderContext
-    from providers.local_vlm_base import LocalVLMProvider
+    from module.providers.base import CaptionResult, PromptContext, ProviderContext
+    from module.providers.local_vlm_base import LocalVLMProvider
 
     video_path = tmp_path / "sample.mp4"
     video_path.write_bytes(b"fake-video-bytes")
@@ -280,7 +279,7 @@ def test_local_vlm_openai_backend_supports_video_messages(tmp_path):
     media = provider.prepare_media(str(video_path), "video/mp4", ctx.args)
     prompts = PromptContext(system="system prompt", user="describe the clip")
 
-    with patch("providers.local_vlm_base.OpenAIChatRuntime.complete", return_value="video answer") as mock_complete:
+    with patch("module.providers.local_vlm_base.OpenAIChatRuntime.complete", return_value="video answer") as mock_complete:
         result = provider.attempt_via_openai_backend(media, prompts, stop=["<sep>"])
 
     messages = mock_complete.call_args.args[0]
@@ -514,8 +513,8 @@ def test_attempt_chandra_ocr_uses_chandra2_hf_contract(tmp_path):
 
 
 def test_local_vlm_runtime_uses_model_config_for_shared_openai_model():
-    from providers.base import ProviderContext
-    from providers.local_vlm_base import LocalVLMProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_vlm_base import LocalVLMProvider
 
     class DummyLocalVLM(LocalVLMProvider):
         name = "dummy_local_vlm"
@@ -667,8 +666,8 @@ def test_hy_mt_direct_backend_uses_hy_mt2_chat_template():
 def test_reka_edge_local_prefers_fp16_on_cuda():
     import torch
 
-    from providers.base import ProviderContext
-    from providers.local_vlm.reka_edge_local import RekaEdgeLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_vlm.reka_edge_local import RekaEdgeLocalProvider
 
     captured = {}
 
@@ -839,8 +838,8 @@ def test_resolve_device_dtype_prefers_flex_when_supported_and_enabled_on_cuda(mo
 def test_reka_edge_local_uses_cuda_indexed_device_as_cuda_gpu(monkeypatch):
     import torch
 
-    from providers.base import ProviderContext
-    from providers.local_vlm.reka_edge_local import RekaEdgeLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_vlm.reka_edge_local import RekaEdgeLocalProvider
 
     captured = {}
 
@@ -1078,8 +1077,8 @@ def test_prepare_multimodal_inputs_retries_without_optional_chat_template_kwargs
 def test_reka_edge_local_tolerates_quantized_cpu_model_move():
     import torch
 
-    from providers.base import ProviderContext
-    from providers.local_vlm.reka_edge_local import RekaEdgeLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_vlm.reka_edge_local import RekaEdgeLocalProvider
 
     captured = {}
 

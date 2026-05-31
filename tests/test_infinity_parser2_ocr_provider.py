@@ -10,7 +10,6 @@ from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 class FakeProcessor:
@@ -49,7 +48,7 @@ def _console():
 
 
 def _ctx(config):
-    from providers.base import ProviderContext
+    from module.providers.base import ProviderContext
 
     return ProviderContext(
         console=_console(),
@@ -59,7 +58,7 @@ def _ctx(config):
 
 
 def test_infinity_parser2_ocr_uses_flash_by_default():
-    from providers.ocr.infinity_parser2 import InfinityParser2OCRProvider
+    from module.providers.ocr.infinity_parser2 import InfinityParser2OCRProvider
 
     assert InfinityParser2OCRProvider.default_model_id == "infly/Infinity-Parser2-Flash"
 
@@ -80,7 +79,7 @@ def test_infinity_parser2_model_toml_lists_flash_and_pro():
 
 
 def test_infinity_parser2_prompt_priority_provider_then_prompt_config_then_default():
-    from providers.ocr.infinity_parser2 import DEFAULT_DOC2MD_PROMPT, InfinityParser2OCRProvider
+    from module.providers.ocr.infinity_parser2 import DEFAULT_DOC2MD_PROMPT, InfinityParser2OCRProvider
 
     provider = InfinityParser2OCRProvider(
         _ctx(
@@ -107,7 +106,7 @@ def test_infinity_parser2_prompt_priority_provider_then_prompt_config_then_defau
 
 
 def test_infinity_parser2_custom_task_requires_prompt():
-    from providers.ocr.infinity_parser2 import InfinityParser2OCRProvider
+    from module.providers.ocr.infinity_parser2 import InfinityParser2OCRProvider
 
     provider = InfinityParser2OCRProvider(
         _ctx(
@@ -123,7 +122,7 @@ def test_infinity_parser2_custom_task_requires_prompt():
 
 
 def test_infinity_parser2_rejects_unknown_task_type():
-    from providers.ocr.infinity_parser2 import InfinityParser2OCRProvider
+    from module.providers.ocr.infinity_parser2 import InfinityParser2OCRProvider
 
     provider = InfinityParser2OCRProvider(_ctx({"infinity_parser2_ocr": {"task_type": "doc2json"}, "prompts": {}}))
 
@@ -132,7 +131,7 @@ def test_infinity_parser2_rejects_unknown_task_type():
 
 
 def test_infer_single_image_uses_official_chat_template_and_generation_options():
-    from providers.ocr.infinity_parser2 import _infer_single_image
+    from module.providers.ocr.infinity_parser2 import _infer_single_image
 
     processor = FakeProcessor()
     model = FakeModel()
@@ -173,7 +172,7 @@ def test_infer_single_image_uses_official_chat_template_and_generation_options()
 
 
 def test_infer_single_image_rejects_empty_output():
-    from providers.ocr.infinity_parser2 import _infer_single_image
+    from module.providers.ocr.infinity_parser2 import _infer_single_image
 
     with pytest.raises(ValueError, match="returned empty output"):
         _infer_single_image(
@@ -186,7 +185,7 @@ def test_infer_single_image_rejects_empty_output():
 
 
 def test_attempt_infinity_parser2_pdf_writes_pages_and_root_result(tmp_path, monkeypatch):
-    from providers.ocr import infinity_parser2 as mod
+    from module.providers.ocr import infinity_parser2 as mod
 
     source = tmp_path / "demo.pdf"
     source.write_bytes(b"%PDF-1.4\n")
@@ -219,7 +218,7 @@ def test_attempt_infinity_parser2_pdf_writes_pages_and_root_result(tmp_path, mon
 
 
 def test_attempt_infinity_parser2_pdf_raises_when_all_pages_fail(tmp_path, monkeypatch):
-    from providers.ocr import infinity_parser2 as mod
+    from module.providers.ocr import infinity_parser2 as mod
 
     source = tmp_path / "demo.pdf"
     source.write_bytes(b"%PDF-1.4\n")

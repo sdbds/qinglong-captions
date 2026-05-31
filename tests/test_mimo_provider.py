@@ -9,8 +9,8 @@ from tests.provider_v2_helpers import make_provider_args
 
 
 def _make_mimo_provider(**arg_overrides):
-    from providers.base import ProviderContext
-    from providers.registry import get_registry
+    from module.providers.base import ProviderContext
+    from module.providers.registry import get_registry
 
     provider_cls = get_registry().get_provider("mimo")
     return provider_cls(
@@ -23,8 +23,8 @@ def _make_mimo_provider(**arg_overrides):
 
 
 def test_mimo_provider_uses_openai_compatible_client_and_completion_token_param():
-    from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
-    from providers.registry import get_registry
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.registry import get_registry
 
     provider_cls = get_registry().get_provider("mimo")
     ctx = ProviderContext(
@@ -71,7 +71,7 @@ def test_mimo_provider_uses_openai_compatible_client_and_completion_token_param(
 
 def test_mimo_rejects_video_that_would_exceed_base64_limit_before_reading_file():
     from module.providers.cloud_vlm.mimo import MIMO_BASE64_VIDEO_LIMIT_BYTES
-    from providers.base import MediaContext, MediaModality, PromptContext
+    from module.providers.base import MediaContext, MediaModality, PromptContext
 
     provider = _make_mimo_provider()
     media = MediaContext(
@@ -94,7 +94,7 @@ def test_mimo_base64_limit_error_does_not_retry():
 
 
 def test_mimo_high_risk_rejection_is_converted_to_skip_result():
-    from providers.base import CaptionResult, MediaContext, MediaModality
+    from module.providers.base import CaptionResult, MediaContext, MediaModality
 
     provider = _make_mimo_provider()
     media = MediaContext(uri="/fake.jpg", mime="image/jpeg", sha256hash="", modality=MediaModality.IMAGE)
@@ -112,7 +112,7 @@ def test_mimo_high_risk_rejection_is_converted_to_skip_result():
 
 
 def test_mimo_does_not_skip_normal_caption_with_high_risk_words():
-    from providers.base import CaptionResult, MediaContext, MediaModality
+    from module.providers.base import CaptionResult, MediaContext, MediaModality
 
     provider = _make_mimo_provider()
     media = MediaContext(uri="/fake.jpg", mime="image/jpeg", sha256hash="", modality=MediaModality.IMAGE)
@@ -122,7 +122,7 @@ def test_mimo_does_not_skip_normal_caption_with_high_risk_words():
 
 
 def test_mimo_prompt_resolver_reuses_kimi_image_prompt_fallbacks():
-    from providers.resolver import PromptResolver
+    from module.providers.resolver import PromptResolver
 
     resolver = PromptResolver(
         {

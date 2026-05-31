@@ -15,7 +15,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def _write_mega_asr_checkpoint_layout(ckpt_dir: Path) -> None:
@@ -29,7 +28,7 @@ def _write_mega_asr_checkpoint_layout(ckpt_dir: Path) -> None:
 
 
 def test_mega_asr_defaults_to_official_weights_repo():
-    from providers.local_alm.mega_asr_local import MegaASRLocalProvider
+    from module.providers.local_alm.mega_asr_local import MegaASRLocalProvider
 
     model_config = tomllib.loads((ROOT / "config" / "model.toml").read_text(encoding="utf-8"))
 
@@ -41,7 +40,7 @@ def test_mega_asr_defaults_to_official_weights_repo():
 
 
 def test_mega_asr_can_handle_audio_only():
-    from providers.local_alm.mega_asr_local import MegaASRLocalProvider
+    from module.providers.local_alm.mega_asr_local import MegaASRLocalProvider
 
     args = SimpleNamespace(alm_model="mega_asr_local")
 
@@ -50,9 +49,9 @@ def test_mega_asr_can_handle_audio_only():
 
 
 def test_mega_asr_load_uses_direct_model_paths(monkeypatch, tmp_path):
-    from providers.base import ProviderContext
-    from providers.local_alm import mega_asr_local
-    from providers.local_alm.mega_asr_local import MegaASRLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_alm import mega_asr_local
+    from module.providers.local_alm.mega_asr_local import MegaASRLocalProvider
 
     ckpt_dir = tmp_path / "ckpt" / "Mega-ASR"
     _write_mega_asr_checkpoint_layout(ckpt_dir)
@@ -100,9 +99,9 @@ def test_mega_asr_load_uses_direct_model_paths(monkeypatch, tmp_path):
 
 
 def test_mega_asr_load_reports_missing_direct_dependency(monkeypatch, tmp_path):
-    from providers.base import ProviderContext
-    from providers.local_alm import mega_asr_local
-    from providers.local_alm.mega_asr_local import MegaASRLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_alm import mega_asr_local
+    from module.providers.local_alm.mega_asr_local import MegaASRLocalProvider
 
     ckpt_dir = tmp_path / "ckpt" / "Mega-ASR"
     _write_mega_asr_checkpoint_layout(ckpt_dir)
@@ -128,8 +127,8 @@ def test_mega_asr_load_reports_missing_direct_dependency(monkeypatch, tmp_path):
 
 
 def test_mega_asr_attempt_returns_transcript_with_route_metadata(monkeypatch, tmp_path):
-    from providers.base import PromptContext, ProviderContext
-    from providers.local_alm.mega_asr_local import MegaASRLocalProvider
+    from module.providers.base import PromptContext, ProviderContext
+    from module.providers.local_alm.mega_asr_local import MegaASRLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -169,7 +168,7 @@ def test_mega_asr_attempt_returns_transcript_with_route_metadata(monkeypatch, tm
 
 
 def test_mega_asr_extracts_single_qwen_asr_result_text():
-    from providers.local_alm.mega_asr_local import _extract_transcribe_text
+    from module.providers.local_alm.mega_asr_local import _extract_transcribe_text
 
     result = _extract_transcribe_text([SimpleNamespace(text="hello from qwen asr")])
 
@@ -177,8 +176,8 @@ def test_mega_asr_extracts_single_qwen_asr_result_text():
 
 
 def test_mega_asr_post_validate_returns_structured_transcript_payload(tmp_path):
-    from providers.base import CaptionResult, ProviderContext
-    from providers.local_alm.mega_asr_local import MegaASRLocalProvider
+    from module.providers.base import CaptionResult, ProviderContext
+    from module.providers.local_alm.mega_asr_local import MegaASRLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -213,7 +212,7 @@ def test_mega_asr_post_validate_returns_structured_transcript_payload(tmp_path):
 
 
 def test_mega_asr_declares_transcribe_task_contract():
-    from providers.local_alm.mega_asr_local import MegaASRLocalProvider
+    from module.providers.local_alm.mega_asr_local import MegaASRLocalProvider
 
     assert MegaASRLocalProvider.task_contract.task_kind == "transcribe"
     assert MegaASRLocalProvider.task_contract.consumes_prompts is False

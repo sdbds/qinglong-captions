@@ -163,6 +163,7 @@ class OCRProvider(Provider):
 
     def attempt_via_openai_backend(self, media: MediaContext, prompts):
         """Run OCR via a local OpenAI-compatible server while keeping OCR side effects."""
+        from utils.console_util import print_exception
         from utils.parse_display import display_markdown
         from utils.stream_util import pdf_to_images_high_quality
 
@@ -200,8 +201,8 @@ class OCRProvider(Provider):
                 page_content = infer_from_blob(page_blob)
                 try:
                     write_markdown_output(page_dir, page_content)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print_exception(self.ctx.console, exc, prefix=f"Failed to write OCR page markdown: {page_dir}")
                 all_contents.append(page_content.strip())
 
             content = "\n<--- Page Split --->\n".join(all_contents)
@@ -214,8 +215,8 @@ class OCRProvider(Provider):
         try:
             if output_dir:
                 write_markdown_output(Path(output_dir), content)
-        except Exception:
-            pass
+        except Exception as exc:
+            print_exception(self.ctx.console, exc, prefix=f"Failed to write OCR markdown: {output_dir}")
 
         try:
             display_markdown(
@@ -225,8 +226,8 @@ class OCRProvider(Provider):
                 panel_height=32,
                 console=self.ctx.console,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            print_exception(self.ctx.console, exc, prefix=f"Failed to display OCR markdown: {media.uri}")
 
         from .base import CaptionResult
 

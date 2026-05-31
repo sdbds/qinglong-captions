@@ -7,11 +7,10 @@ from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def test_logics_html_postprocess_handles_structured_blocks():
-    from providers.ocr.logics import _logics_html_to_markdown
+    from module.providers.ocr.logics import _logics_html_to_markdown
 
     raw = """
 <div class="chart">flowchart LR
@@ -35,8 +34,8 @@ C D E</div>
 
 
 def test_logics_ocr_uses_official_default_prompt():
-    from providers.base import ProviderContext
-    from providers.ocr.logics import LogicsOCRProvider
+    from module.providers.base import ProviderContext
+    from module.providers.ocr.logics import LogicsOCRProvider
 
     ctx = ProviderContext(
         console=Console(file=io.StringIO(), force_terminal=False),

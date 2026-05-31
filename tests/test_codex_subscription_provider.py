@@ -145,7 +145,7 @@ print("progress noise")
 
 
 def test_provider_route_requires_explicit_codex_flag():
-    from providers.registry import get_registry
+    from module.providers.registry import get_registry
 
     reg = get_registry()
 
@@ -156,7 +156,7 @@ def test_provider_route_requires_explicit_codex_flag():
 
 
 def test_codex_subscription_ignores_default_document_image_flag_without_ocr_route():
-    from providers.registry import get_registry
+    from module.providers.registry import get_registry
 
     reg = get_registry()
 
@@ -169,7 +169,7 @@ def test_codex_subscription_ignores_default_document_image_flag_without_ocr_rout
 
 
 def test_codex_subscription_does_not_steal_explicit_ocr_or_vlm_routes():
-    from providers.registry import get_registry
+    from module.providers.registry import get_registry
 
     reg = get_registry()
 

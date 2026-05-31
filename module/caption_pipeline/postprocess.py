@@ -12,6 +12,7 @@ from config.config import (
     AUDIO_EXTENSIONS_SET,
     VIDEO_EXTENSIONS_SET,
 )
+from module.providers.base import CaptionResult
 from utils.parse_display import extract_code_block_content, process_llm_response
 from utils.path_safety import safe_child_path, safe_leaf_name
 
@@ -142,10 +143,25 @@ def normalize_and_validate_subtitle_text(output: str, console=None) -> str:
     return normalized
 
 
+def _caption_result_from_processed(output, metadata: dict | None = None) -> CaptionResult:
+    metadata = dict(metadata or {})
+    if isinstance(output, CaptionResult):
+        return output
+    if isinstance(output, dict):
+        return CaptionResult(raw=json.dumps(output, ensure_ascii=False), parsed=output, metadata=metadata)
+    if isinstance(output, list):
+        return CaptionResult(raw="\n".join(str(line) for line in output), metadata=metadata)
+    return CaptionResult(raw=str(output), metadata=metadata)
+
+
 def postprocess_caption_content(output, filepath, args, console):
+    metadata = dict(output.metadata) if isinstance(output, CaptionResult) else {}
+    if isinstance(output, CaptionResult):
+        output = output.payload
+
     if not output:
         console.print(f"[red]No caption content generated for {filepath}[/red]")
-        return ""
+        return CaptionResult(raw="", metadata=metadata)
 
     if isinstance(output, list):
         if output and hasattr(output[0], "markdown") and hasattr(output[0], "index"):
@@ -194,32 +210,34 @@ def postprocess_caption_content(output, filepath, args, console):
             output = "\n".join(output)
 
     if isinstance(output, dict):
-        return output
+        return _caption_result_from_processed(output, metadata)
 
     output = str(output).strip()
     if not output:
         console.print(f"[red]Empty caption content for {filepath}[/red]")
-        return ""
+        return CaptionResult(raw="", metadata=metadata)
 
     suffix = Path(filepath).suffix.lower()
     if suffix in VIDEO_EXTENSIONS_SET or suffix in AUDIO_EXTENSIONS_SET:
-        return normalize_and_validate_subtitle_text(output, console)
+        return CaptionResult(raw=normalize_and_validate_subtitle_text(output, console), metadata=metadata)
 
     if suffix in APPLICATION_EXTENSIONS_SET and getattr(args, "ocr_model", "") != "":
-        return output
+        return CaptionResult(raw=output, metadata=metadata)
 
     try:
-        return json.loads(output)
+        parsed = json.loads(output)
+        if isinstance(parsed, dict):
+            return CaptionResult(raw=output, parsed=parsed, metadata=metadata)
     except json.JSONDecodeError:
         pass
 
     if "###" in output:
         shortdescription, long_description = process_llm_response(output)
         if args.mode == "all":
-            return [shortdescription, long_description]
+            return CaptionResult(raw="\n".join([shortdescription, long_description]), metadata=metadata)
         if args.mode == "long":
-            return long_description
+            return CaptionResult(raw=long_description, metadata=metadata)
         if args.mode == "short":
-            return shortdescription
+            return CaptionResult(raw=shortdescription, metadata=metadata)
 
-    return output
+    return CaptionResult(raw=output, metadata=metadata)

@@ -15,11 +15,10 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def test_music_flamingo_defaults_to_fp8_model_id():
-    from providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
+    from module.providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
 
     model_config = tomllib.loads((ROOT / "config" / "model.toml").read_text(encoding="utf-8"))
 
@@ -28,7 +27,7 @@ def test_music_flamingo_defaults_to_fp8_model_id():
 
 
 def test_prompt_resolver_prefers_music_flamingo_audio_prompts():
-    from providers.resolver import PromptResolver
+    from module.providers.resolver import PromptResolver
 
     config = {
         "prompts": {
@@ -49,7 +48,7 @@ def test_prompt_resolver_prefers_music_flamingo_audio_prompts():
 
 
 def test_prompt_resolver_allows_empty_music_flamingo_system_prompt():
-    from providers.resolver import PromptResolver
+    from module.providers.resolver import PromptResolver
 
     config = {
         "prompts": {
@@ -108,8 +107,8 @@ gentle piano intro"""
 
 
 def test_music_flamingo_post_validate_returns_structured_summary_payload(tmp_path):
-    from providers.base import CaptionResult, ProviderContext
-    from providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
+    from module.providers.base import CaptionResult, ProviderContext
+    from module.providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -141,8 +140,8 @@ Gentle piano chords open the song before a brighter synth hook enters.
 
 
 def test_music_flamingo_post_validate_raises_retry_on_empty_summary(tmp_path):
-    from providers.base import CaptionResult, ProviderContext
-    from providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
+    from module.providers.base import CaptionResult, ProviderContext
+    from module.providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -167,8 +166,8 @@ def test_music_flamingo_attempt_builds_audio_conversation_and_decodes_new_tokens
     import numpy as np
     import torch
 
-    from providers.base import ProviderContext, PromptContext
-    from providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
+    from module.providers.base import ProviderContext, PromptContext
+    from module.providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -271,8 +270,8 @@ def test_music_flamingo_attempt_builds_audio_conversation_and_decodes_new_tokens
 
 
 def test_music_flamingo_fp8_load_uses_auto_dtype_on_cuda(monkeypatch):
-    from providers.base import ProviderContext
-    from providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
 
     captured = {}
 
@@ -316,8 +315,8 @@ def test_music_flamingo_fp8_load_uses_auto_dtype_on_cuda(monkeypatch):
 
 
 def test_music_flamingo_fp8_does_not_warn_on_compute_capability_89(monkeypatch):
-    from providers.base import ProviderContext
-    from providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
+    from module.providers.base import ProviderContext
+    from module.providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
 
     console_buffer = io.StringIO()
 
@@ -370,8 +369,8 @@ def test_music_flamingo_fp8_does_not_warn_on_compute_capability_89(monkeypatch):
 def test_music_flamingo_attempt_prefers_audio_tower_dtype_for_fp8_inputs(monkeypatch, tmp_path):
     import numpy as np
 
-    from providers.base import ProviderContext, PromptContext
-    from providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
+    from module.providers.base import ProviderContext, PromptContext
+    from module.providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -463,8 +462,8 @@ def test_music_flamingo_attempt_prefers_audio_tower_dtype_for_fp8_inputs(monkeyp
 def test_music_flamingo_attempt_caps_max_new_tokens_to_context_budget(monkeypatch, tmp_path):
     import numpy as np
 
-    from providers.base import ProviderContext, PromptContext
-    from providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
+    from module.providers.base import ProviderContext, PromptContext
+    from module.providers.local_alm.music_flamingo_local import MusicFlamingoLocalProvider
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")

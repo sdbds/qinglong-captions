@@ -12,12 +12,14 @@ Provider 抽象基类
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
+import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from rich.console import Console
 from rich.progress import Progress
 
+from .policies import SegmentationPolicy
 from utils.parse_display import display_caption_and_rate
 
 
@@ -116,28 +118,73 @@ class CaptionResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property
+    def payload(self) -> Dict[str, Any] | str:
+        """Canonical payload exposed to legacy boundaries."""
+        return self.parsed if self.parsed is not None else self.raw
+
+    @property
     def description(self) -> str:
         """获取描述文本（兼容 captioner.py 的处理）"""
         if self.parsed:
+            task_kind = str(self.parsed.get("task_kind") or "").strip().lower()
+            subtitle_format = str(self.parsed.get("subtitle_format") or "").strip().lower()
+            extension = self.caption_extension
+            if task_kind == "ast" or subtitle_format == "srt" or extension == ".srt":
+                for key in ("translation_srt", "transcript", "description", "long_description", "short_description"):
+                    value = self.parsed.get(key)
+                    if str(value or "").strip():
+                        return str(value)
             return (
                 self.parsed.get("long_description")
                 or self.parsed.get("transcript")
+                or self.parsed.get("translation_srt")
                 or self.parsed.get("description")
                 or self.parsed.get("short_description")
+                or self.parsed.get("markdown")
+                or self.parsed.get("text")
                 or self.raw
             )
         return self.raw
+
+    @property
+    def text(self) -> str:
+        """Canonical text representation for sidecar output."""
+        return self.description
+
+    @property
+    def caption_extension(self) -> Optional[str]:
+        """Optional sidecar extension requested by structured payloads."""
+        extension = self.get("caption_extension")
+        if extension in (None, ""):
+            return None
+        value = str(extension).strip()
+        if not value:
+            return None
+        if not value.startswith("."):
+            value = f".{value}"
+        return value
 
     @property
     def is_structured(self) -> bool:
         """是否是结构化输出"""
         return self.parsed is not None
 
+    def to_dataset_caption(self) -> str:
+        """Serialize this result for the Lance captions column."""
+        if self.parsed is not None:
+            return json.dumps(self.parsed, ensure_ascii=False)
+        return self.raw
+
     def get(self, key: str, default: Any = None) -> Any:
         """便捷获取 parsed 中的字段"""
         if self.parsed:
             return self.parsed.get(key, default)
         return default
+
+    def __bool__(self) -> bool:
+        if self.parsed is not None:
+            return bool(self.parsed)
+        return bool(str(self.raw).strip())
 
 
 @dataclass
@@ -276,6 +323,20 @@ class Provider(ABC):
         """Return a skip reason for provider-specific non-caption responses."""
         return ""
 
+    @classmethod
+    def segmentation_policy(cls, args: Any, mime: str, config: Any) -> SegmentationPolicy:
+        """Return provider-specific media segmentation policy."""
+        from .catalog import provider_segmentation_policy
+
+        return provider_segmentation_policy(cls.name, args, mime, config)
+
+    @classmethod
+    def prompt_fallback_keys(cls, mime: str, field: str) -> Tuple[str, ...]:
+        """Return provider-specific prompt fallback keys for a mime/field pair."""
+        from .catalog import provider_prompt_fallback_keys
+
+        return provider_prompt_fallback_keys(cls.name, mime, field)
+
     def post_validate(self, result: CaptionResult, media: MediaContext, args: Any) -> CaptionResult:
         """
         后验证钩子
@@ -314,7 +375,7 @@ class Provider(ABC):
         from .directory_name_context import resolve_directory_name_context
         from .resolver import PromptResolver
 
-        resolver = PromptResolver(self.ctx.config, self.name)
+        resolver = PromptResolver(self.ctx.config, self.name, provider_class=self.__class__)
         directory_context = resolve_directory_name_context(
             args=self.ctx.args,
             uri=uri,

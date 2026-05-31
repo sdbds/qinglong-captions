@@ -2,9 +2,21 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from utils.path_safety import safe_child_path, safe_sibling_path
+
+if TYPE_CHECKING:
+    from module.providers.base import CaptionResult
+
+
+def _is_caption_result(value: object) -> bool:
+    return (
+        hasattr(value, "raw")
+        and hasattr(value, "parsed")
+        and hasattr(value, "metadata")
+        and hasattr(value, "caption_extension")
+    )
 
 
 def _caption_extension_for_mime(mime: str) -> str:
@@ -27,6 +39,8 @@ def normalize_caption_extension(extension: object) -> Optional[str]:
 
 
 def caption_extension_from_payload(payload: object) -> Optional[str]:
+    if _is_caption_result(payload):
+        return payload.caption_extension
     if not isinstance(payload, dict):
         return None
     return normalize_caption_extension(payload.get("caption_extension"))
@@ -73,6 +87,15 @@ def write_caption_output(source_path: Path, output, mime: str) -> tuple[Path, Op
     source_path = Path(source_path)
     text_path = caption_output_path(source_path, mime, output)
     json_path: Optional[Path] = None
+
+    if _is_caption_result(output):
+        if output.parsed is not None:
+            json_path = safe_sibling_path(source_path, ".json")
+            json_path.write_text(json.dumps(output.parsed, indent=2, ensure_ascii=False), encoding="utf-8")
+            text_path.write_text(_structured_description(output.parsed), encoding="utf-8")
+        else:
+            text_path.write_text(output.raw, encoding="utf-8")
+        return text_path, json_path
 
     if isinstance(output, dict):
         json_path = safe_sibling_path(source_path, ".json")

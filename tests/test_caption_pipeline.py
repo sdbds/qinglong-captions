@@ -10,7 +10,6 @@ from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def _quiet_console():
@@ -227,9 +226,12 @@ def test_process_segmented_media_only_merges_sidecar_once(tmp_path):
             _quiet_console(),
         )
 
-    assert merged.count("sidecar") == 1
-    assert "chunk0" in merged
-    assert "chunk1" in merged
+    from module.providers.base import CaptionResult
+
+    assert isinstance(merged, CaptionResult)
+    assert merged.raw.count("sidecar") == 1
+    assert "chunk0" in merged.raw
+    assert "chunk1" in merged.raw
 
 
 def test_process_segmented_media_passes_original_path_as_directory_name_source(tmp_path):
@@ -335,13 +337,16 @@ def test_process_segmented_media_merges_structured_summaries_into_txt_payload(tm
             _quiet_console(),
         )
 
-    assert merged["caption_extension"] == ".txt"
-    assert merged["provider"] == "music_flamingo_local"
-    assert len(merged["segments"]) == 2
-    assert "Segment 1 [00:00:00 - 00:00:30]" in merged["description"]
-    assert "Slow piano intro" in merged["description"]
-    assert "Full drums and vocal hook" in merged["description"]
-    assert "sidecar" not in merged["description"]
+    from module.providers.base import CaptionResult
+
+    assert isinstance(merged, CaptionResult)
+    assert merged.caption_extension == ".txt"
+    assert merged.parsed["provider"] == "music_flamingo_local"
+    assert len(merged.parsed["segments"]) == 2
+    assert "Segment 1 [00:00:00 - 00:00:30]" in merged.text
+    assert "Slow piano intro" in merged.text
+    assert "Full drums and vocal hook" in merged.text
+    assert "sidecar" not in merged.text
 
 
 def test_process_segmented_media_merges_transcripts_without_segment_headers(tmp_path):
@@ -387,10 +392,13 @@ def test_process_segmented_media_merges_transcripts_without_segment_headers(tmp_
             _quiet_console(),
         )
 
-    assert merged["task_kind"] == "transcribe"
-    assert merged["transcript"] == "hello\n\nworld"
-    assert merged["provider"] == "cohere_transcribe_local"
-    assert "Segment 1" not in merged["transcript"]
+    from module.providers.base import CaptionResult
+
+    assert isinstance(merged, CaptionResult)
+    assert merged.parsed["task_kind"] == "transcribe"
+    assert merged.text == "hello\n\nworld"
+    assert merged.parsed["provider"] == "cohere_transcribe_local"
+    assert "Segment 1" not in merged.text
 
 
 def test_process_segmented_media_merges_ast_chunks_into_srt_payload(tmp_path):
@@ -448,11 +456,14 @@ def test_process_segmented_media_merges_ast_chunks_into_srt_payload(tmp_path):
             _quiet_console(),
         )
 
-    assert merged["task_kind"] == "ast"
-    assert merged["caption_extension"] == ".srt"
-    assert merged["subtitle_format"] == "srt"
-    assert merged["provider"] == "gemma4_local"
-    assert merged["translation_srt"] == (
+    from module.providers.base import CaptionResult
+
+    assert isinstance(merged, CaptionResult)
+    assert merged.parsed["task_kind"] == "ast"
+    assert merged.caption_extension == ".srt"
+    assert merged.parsed["subtitle_format"] == "srt"
+    assert merged.parsed["provider"] == "gemma4_local"
+    assert merged.text == (
         "1\n00:00:00,000 --> 00:00:10,000\n你好\n\n"
         "1\n00:00:10,000 --> 00:00:20,000\n世界"
     )

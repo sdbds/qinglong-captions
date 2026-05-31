@@ -9,7 +9,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / 'module'))
 
 from module.lanceImport import load_data, transform2lance
 from module.lanceexport import save_caption

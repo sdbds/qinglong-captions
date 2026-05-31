@@ -6,11 +6,10 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
 
 def test_catalog_normalizes_mistral_aliases():
-    from providers.catalog import canonicalize_provider_name, canonicalize_route_value, route_provider_name
+    from module.providers.catalog import canonicalize_provider_name, canonicalize_route_value, route_provider_name
 
     assert canonicalize_provider_name("pixtral") == "mistral_ocr"
     assert canonicalize_provider_name("pixtral_ocr") == "mistral_ocr"
@@ -19,7 +18,7 @@ def test_catalog_normalizes_mistral_aliases():
 
 
 def test_catalog_exposes_canonical_route_choices_only_by_default():
-    from providers.catalog import route_choices
+    from module.providers.catalog import route_choices
 
     ocr_choices = route_choices("ocr_model")
     vlm_choices = route_choices("vlm_image_model")
@@ -44,7 +43,7 @@ def test_catalog_exposes_canonical_route_choices_only_by_default():
 
 
 def test_catalog_keeps_legacy_alias_attrs_in_sync():
-    from providers.catalog import normalize_runtime_args
+    from module.providers.catalog import normalize_runtime_args
 
     args = SimpleNamespace(
         mistral_api_key="new-key",
@@ -67,7 +66,7 @@ def test_catalog_keeps_legacy_alias_attrs_in_sync():
 
 
 def test_catalog_keeps_marlin_2b_out_of_global_segment_time_defaults():
-    from providers.catalog import normalize_runtime_args
+    from module.providers.catalog import normalize_runtime_args
 
     args = SimpleNamespace(vlm_image_model="marlin_2b_local", alm_model="", segment_time=None)
 
@@ -78,7 +77,7 @@ def test_catalog_keeps_marlin_2b_out_of_global_segment_time_defaults():
 
 
 def test_catalog_preserves_cohere_no_split_default_when_marlin_2b_is_also_selected():
-    from providers.catalog import normalize_runtime_args
+    from module.providers.catalog import normalize_runtime_args
 
     args = SimpleNamespace(vlm_image_model="marlin_2b_local", alm_model="cohere_transcribe_local", segment_time=None)
 
@@ -89,7 +88,7 @@ def test_catalog_preserves_cohere_no_split_default_when_marlin_2b_is_also_select
 
 
 def test_catalog_config_section_candidates_cover_local_provider_compat():
-    from providers.catalog import provider_config_sections
+    from module.providers.catalog import provider_config_sections
 
     assert provider_config_sections("qwen_vl_local") == ("qwen_vl_local", "qwen")
     assert provider_config_sections("penguin_vl_local") == ("penguin_vl_local", "penguin")
@@ -105,7 +104,7 @@ def test_catalog_config_section_candidates_cover_local_provider_compat():
 
 
 def test_catalog_marks_only_remote_routes_as_needing_api_config():
-    from providers.catalog import route_requires_remote_config
+    from module.providers.catalog import route_requires_remote_config
 
     assert route_requires_remote_config("ocr_model", "mistral_ocr") is True
     assert route_requires_remote_config("ocr_model", "pixtral") is True
@@ -125,3 +124,115 @@ def test_catalog_marks_only_remote_routes_as_needing_api_config():
     assert route_requires_remote_config("alm_model", "cohere_transcribe_local") is False
     assert route_requires_remote_config("alm_model", "mega_asr_local") is False
     assert route_requires_remote_config("alm_model", "gemma4_local") is False
+
+
+def test_provider_declarations_drive_registry_and_catalog_metadata():
+    import module.providers.registry as registry_module
+    from module.providers.catalog import (
+        get_provider_declaration,
+        provider_declared_capabilities,
+        provider_module_path,
+        provider_priority_order,
+    )
+
+    assert not hasattr(registry_module, "_PROVIDER_MODULES")
+
+    declaration = get_provider_declaration("pixtral")
+    assert declaration.name == "mistral_ocr"
+    assert provider_module_path("mistral_ocr") == "module.providers.vision_api.pixtral"
+    assert provider_declared_capabilities("mistral_ocr").supports_cloud_concurrency
+
+    order = provider_priority_order()
+    assert "kimi_code" in order
+    assert order.index("kimi_code") < order.index("kimi_vl")
+    assert not hasattr(registry_module.get_registry(), "_priority_order")
+
+
+def test_declared_prompt_fallback_keys_replace_resolver_name_branches():
+    from module.providers.base import Provider
+    from module.providers.catalog import provider_prompt_fallback_keys
+
+    class KimiPolicyProvider(Provider):
+        name = "kimi_code"
+
+        @classmethod
+        def can_handle(cls, args, mime):
+            return False
+
+        def prepare_media(self, uri, mime, args):
+            raise NotImplementedError
+
+        def attempt(self, media, prompts):
+            raise NotImplementedError
+
+    assert provider_prompt_fallback_keys("stepfun", "video/mp4", "user") == ("step_video_prompt",)
+    assert provider_prompt_fallback_keys("minimax_code", "image/png", "user") == ("minimax_api_image_prompt",)
+    assert KimiPolicyProvider.prompt_fallback_keys("image/png", "system") == ("kimi_image_system_prompt",)
+
+
+def test_declared_segmentation_policy_replaces_orchestrator_name_branches():
+    from module.providers.base import Provider
+
+    class GemmaPolicyProvider(Provider):
+        name = "gemma4_local"
+
+        @classmethod
+        def can_handle(cls, args, mime):
+            return False
+
+        def prepare_media(self, uri, mime, args):
+            raise NotImplementedError
+
+        def attempt(self, media, prompts):
+            raise NotImplementedError
+
+    args = SimpleNamespace(segment_time=600)
+    gemma_policy = GemmaPolicyProvider.segmentation_policy(args, "audio/wav", {})
+    assert gemma_policy.bypass_segmentation is True
+
+    marlin_args = SimpleNamespace(segment_time=600)
+    marlin_policy = Provider.segmentation_policy.__func__(
+        type("MarlinPolicyProvider", (Provider,), {"name": "marlin_2b_local"}),
+        marlin_args,
+        "video/mp4",
+        {"marlin": {"video_max_seconds": 90}},
+    )
+    assert marlin_policy.segment_time == 89
+    assert marlin_policy.direct_duration_limit_ms == 90_000
+
+
+def test_register_provider_metadata_refreshes_catalog_indexes():
+    import module.providers.catalog as catalog
+    import module.providers.declarations as declarations
+    import module.providers.registry as registry_module
+    from module.providers.capabilities import ProviderCapabilities
+    from module.providers.declarations import route
+
+    original_declarations = dict(declarations._DECLARATIONS_BY_NAME)
+    original_pending = list(registry_module._pending_registrations)
+
+    try:
+        @registry_module.register_provider(
+            "dynamic_policy_provider",
+            module_path="module.providers.dynamic_policy",
+            priority=5,
+            routes=(route("vlm_image_model", aliases=("dynamic_route_alias",), order=1),),
+            aliases=("dynamic_provider_alias",),
+            config_sections=("dynamic_config",),
+            prompt_prefixes=("dynamic_prompt",),
+            capabilities=ProviderCapabilities(supports_images=True),
+        )
+        class DynamicPolicyProvider:
+            pass
+
+        assert DynamicPolicyProvider.name == "dynamic_policy_provider"
+        assert catalog.canonicalize_provider_name("dynamic_provider_alias") == "dynamic_policy_provider"
+        assert catalog.canonicalize_route_value("vlm_image_model", "dynamic_route_alias") == "dynamic_policy_provider"
+        assert catalog.route_provider_name("vlm_image_model", "dynamic_route_alias") == "dynamic_policy_provider"
+        assert catalog.provider_config_sections("dynamic_provider_alias") == ("dynamic_policy_provider", "dynamic_config")
+        assert catalog.provider_declared_capabilities("dynamic_provider_alias").supports_images
+    finally:
+        declarations._DECLARATIONS_BY_NAME.clear()
+        declarations._DECLARATIONS_BY_NAME.update(original_declarations)
+        registry_module._pending_registrations = original_pending
+        catalog._refresh_catalog_indexes()

@@ -8,9 +8,8 @@ from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
-from providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
 from tests.provider_v2_helpers import make_provider_args
 
 
@@ -110,4 +109,91 @@ def test_openai_compatible_attempt_logs_full_traceback_on_api_error(monkeypatch)
     assert "API call failed" in output
     assert "Retry failed" in output
     assert "RuntimeError: api boom" in output
+    assert "Traceback" in output
+
+
+class _FakeOCRRuntime:
+    mode = "fake"
+    model_id = "fake-model"
+
+
+class _FakeOCRBackend:
+    def __init__(self, runtime):
+        self.runtime = runtime
+
+    def complete(self, messages):
+        return "# OCR\n"
+
+
+def _make_fake_ocr_provider(console):
+    from module.providers.ocr_base import OCRProvider
+
+    class FakeOCRProvider(OCRProvider):
+        name = "fake_ocr"
+        default_model_id = "fake"
+        default_prompt = "ocr"
+
+        def get_runtime_backend(self):
+            return _FakeOCRRuntime()
+
+        def attempt(self, media, prompts):
+            raise NotImplementedError
+
+    return FakeOCRProvider(ProviderContext(console=console, config={}, args=make_provider_args()))
+
+
+def _ocr_media(tmp_path):
+    return MediaContext(
+        uri=str(tmp_path / "doc.png"),
+        mime="image/png",
+        sha256hash="",
+        modality=MediaModality.IMAGE,
+        blob="ZmFrZQ==",
+        extras={"output_dir": tmp_path / "doc"},
+    )
+
+
+def test_ocr_markdown_write_failure_logs_full_traceback(monkeypatch, tmp_path):
+    import module.providers.ocr_base as ocr_base
+
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, color_system=None)
+    provider = _make_fake_ocr_provider(console)
+
+    monkeypatch.setattr(ocr_base, "OpenAIChatRuntime", _FakeOCRBackend)
+
+    def fail_write(*_args, **_kwargs):
+        raise RuntimeError("write failed")
+
+    monkeypatch.setattr(ocr_base, "write_markdown_output", fail_write)
+
+    result = provider.attempt_via_openai_backend(_ocr_media(tmp_path), PromptContext(system="", user="ocr"))
+
+    output = buffer.getvalue()
+    assert result.raw == "# OCR\n"
+    assert "Failed to write OCR markdown" in output
+    assert "RuntimeError: write failed" in output
+    assert "Traceback" in output
+
+
+def test_ocr_display_failure_logs_full_traceback(monkeypatch, tmp_path):
+    import module.providers.ocr_base as ocr_base
+
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, color_system=None)
+    provider = _make_fake_ocr_provider(console)
+
+    monkeypatch.setattr(ocr_base, "OpenAIChatRuntime", _FakeOCRBackend)
+
+    def fail_display(*_args, **_kwargs):
+        raise RuntimeError("display failed")
+
+    monkeypatch.setattr("utils.parse_display.display_markdown", fail_display)
+
+    result = provider.attempt_via_openai_backend(_ocr_media(tmp_path), PromptContext(system="", user="ocr"))
+
+    output = buffer.getvalue()
+    assert result.raw == "# OCR\n"
+    assert "Failed to display OCR markdown" in output
+    assert "RuntimeError: display failed" in output
     assert "Traceback" in output

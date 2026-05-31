@@ -18,6 +18,8 @@ from config.config import APPLICATION_EXTENSIONS_SET, AUDIO_EXTENSIONS_SET, VIDE
 from module.caption_pipeline.dataset_sync import update_dataset_captions
 from module.caption_pipeline.postprocess import postprocess_caption_content
 from module.caption_pipeline.scene_alignment import align_subtitles_with_scenes, create_scene_detector
+from module.providers.catalog import provider_segmentation_policy, route_provider_name
+from module.providers.base import CaptionResult
 from utils.output_writer import write_caption_output
 from utils.rich_progress import create_caption_progress
 from utils.stream_util import (
@@ -70,6 +72,28 @@ def _structured_description(payload: dict) -> str:
         or payload.get("short_description")
         or ""
     ).strip()
+
+
+def _caption_payload(output):
+    return output.payload if isinstance(output, CaptionResult) else output
+
+
+def _caption_raw(output) -> str:
+    if isinstance(output, CaptionResult):
+        return output.raw
+    if isinstance(output, list):
+        return "\n".join(str(line) for line in output)
+    return str(output)
+
+
+def _caption_from_payload(payload, metadata: dict | None = None) -> CaptionResult:
+    if isinstance(payload, CaptionResult):
+        return payload
+    if isinstance(payload, dict):
+        import json
+
+        return CaptionResult(raw=json.dumps(payload, ensure_ascii=False), parsed=payload, metadata=dict(metadata or {}))
+    return CaptionResult(raw=_caption_raw(payload), metadata=dict(metadata or {}))
 
 
 def _format_segment_timestamp(seconds: float) -> str:
@@ -127,74 +151,31 @@ def _build_segment_ast_payload(segment_outputs: list[dict]) -> dict:
     return merged
 
 
-def _should_bypass_segmentation(args, mime: str) -> bool:
-    if mime.startswith("video"):
-        return getattr(args, "vlm_image_model", "") == "gemma4_local"
+def _segmentation_provider_name(args, mime: str) -> str:
     if mime.startswith("audio"):
-        return getattr(args, "alm_model", "") == "gemma4_local"
-    return False
+        return route_provider_name("alm_model", getattr(args, "alm_model", ""))
+    if mime.startswith("image") or mime.startswith("video"):
+        return route_provider_name("vlm_image_model", getattr(args, "vlm_image_model", ""))
+    if mime.startswith("application"):
+        return route_provider_name("ocr_model", getattr(args, "ocr_model", ""))
+    return ""
 
 
-def _coerce_float(value, default: float) -> float:
-    if value in (None, ""):
-        return float(default)
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return float(default)
-
-
-def _section(config, *names: str) -> dict:
-    if not config or not hasattr(config, "get"):
-        return {}
-    for name in names:
-        value = config.get(name)
-        if (isinstance(value, dict) or hasattr(value, "get")) and value:
-            return value
-    return {}
-
-
-def _marlin_video_max_seconds(config) -> float:
-    section = _section(config, "marlin_2b_local", "marlin")
-    return _coerce_float(section.get("video_max_seconds", 120.0), 120.0)
-
-
-def _marlin_safe_segment_seconds(config) -> int | None:
-    max_seconds = _marlin_video_max_seconds(config)
-    if max_seconds <= 0:
-        return None
-    return max(1, int(max_seconds) - 1)
+def _segmentation_policy(args, mime: str, config):
+    return provider_segmentation_policy(_segmentation_provider_name(args, mime), args, mime, config)
 
 
 def _resolve_media_segment_time(args, mime: str, config):
-    segment_time = getattr(args, "segment_time", None)
-    if not mime.startswith("video") or getattr(args, "vlm_image_model", "") != "marlin_2b_local":
-        return segment_time
-
-    safe_segment_time = _marlin_safe_segment_seconds(config)
-    if safe_segment_time is None:
-        return segment_time
-    if segment_time in (None, ""):
-        return safe_segment_time
-    try:
-        requested_segment_time = int(segment_time)
-    except (TypeError, ValueError):
-        return safe_segment_time
-    if requested_segment_time <= 0:
-        return safe_segment_time
-    return min(requested_segment_time, safe_segment_time)
+    return _segmentation_policy(args, mime, config).segment_time
 
 
 def _direct_duration_limit_ms(args, mime: str, config) -> int | None:
-    if mime.startswith("video") and getattr(args, "vlm_image_model", "") == "marlin_2b_local":
-        max_seconds = _marlin_video_max_seconds(config)
-        if max_seconds > 0:
-            return int(max_seconds * 1000)
-    return None
+    return _segmentation_policy(args, mime, config).direct_duration_limit_ms
 
 
 def _should_process_without_segmentation(args, mime: str, duration: int, segment_time, config) -> bool:
-    if mime.startswith("image") or _should_bypass_segmentation(args, mime) or segment_time is None:
+    policy = _segmentation_policy(args, mime, config)
+    if mime.startswith("image") or policy.bypass_segmentation or segment_time is None:
         return True
 
     direct_limit = _direct_duration_limit_ms(args, mime, config)
@@ -281,16 +262,17 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
             task_id=task_id,
         )
         chunk_output = postprocess_caption_content(chunk_output, uri, clip_args, console)
+        chunk_payload = _caption_payload(chunk_output)
 
-        if isinstance(chunk_output, dict):
+        if isinstance(chunk_payload, dict):
             if subtitle_mode is None:
                 subtitle_mode = False
-            task_kind = str(chunk_output.get("task_kind") or "caption").strip().lower()
+            task_kind = str(chunk_payload.get("task_kind") or "caption").strip().lower()
             structured_task_kind = structured_task_kind or task_kind
             if task_kind == "ast":
-                text = str(chunk_output.get("translation_srt") or chunk_output.get("transcript") or "")
+                text = str(chunk_payload.get("translation_srt") or chunk_payload.get("transcript") or "")
             else:
-                text = _structured_description(chunk_output)
+                text = _structured_description(chunk_payload)
             if str(text).strip():
                 segment_outputs.append(
                     {
@@ -298,7 +280,7 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
                         "start_seconds": start_time,
                         "end_seconds": end_time,
                         "text": text,
-                        "provider": chunk_output.get("provider"),
+                        "provider": chunk_payload.get("provider"),
                     }
                 )
             progress.update(clip_task, advance=1, refresh=True, description="[yellow]merged summary chunk[/yellow]")
@@ -310,7 +292,7 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
             if sub_path.exists():
                 merged_subs.extend(pysrt.open(sub_path, encoding="utf-8"))
 
-        chunk_subs = pysrt.from_string(chunk_output)
+        chunk_subs = pysrt.from_string(_caption_raw(chunk_output))
 
         for sub in list(chunk_subs):
             if sub.start.ordinal > args.segment_time * 1000:
@@ -332,19 +314,19 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
         for file in files:
             file.unlink(missing_ok=True)
         if structured_task_kind == "transcribe":
-            return _build_segment_transcript_payload(segment_outputs)
+            return _caption_from_payload(_build_segment_transcript_payload(segment_outputs))
         if structured_task_kind == "ast":
-            return _build_segment_ast_payload(segment_outputs)
+            return _caption_from_payload(_build_segment_ast_payload(segment_outputs))
         for segment in segment_outputs:
             segment["description"] = segment.pop("text")
-        return _build_segment_summary_payload(segment_outputs)
+        return _caption_from_payload(_build_segment_summary_payload(segment_outputs))
 
     merged_subs.clean_indexes()
 
     for file in files:
         file.unlink(missing_ok=True)
 
-    return _serialize_subtitles(merged_subs)
+    return CaptionResult(raw=_serialize_subtitles(merged_subs))
 
 
 def _positive_int(value, default: int = 1) -> int:
@@ -467,9 +449,14 @@ def _process_single_caption_job(
             console_obj,
         )
 
-    if isinstance(output, str) and job.mime.startswith(("video", "audio")) and output:
+    can_align_subtitles = job.mime.startswith(("video", "audio")) and (
+        (isinstance(output, CaptionResult) and not output.is_structured and output)
+        or (isinstance(output, str) and output)
+    )
+
+    if can_align_subtitles:
         try:
-            subs = pysrt.from_string(output)
+            subs = pysrt.from_string(_caption_raw(output))
             subs = align_subtitles_with_scenes(
                 subs,
                 scene_detector,
@@ -478,7 +465,11 @@ def _process_single_caption_job(
                 console=console_obj,
                 timeout=getattr(args, "scene_detection_timeout", None),
             )
-            output = _serialize_subtitles(subs)
+            aligned_subtitles = _serialize_subtitles(subs)
+            if isinstance(output, CaptionResult):
+                output = CaptionResult(raw=aligned_subtitles, parsed=output.parsed, metadata=dict(output.metadata))
+            else:
+                output = aligned_subtitles
         except Exception as exc:
             console_obj.print(f"[yellow]Subtitle validation failed for {job.filepath}: {exc}[/yellow]")
 

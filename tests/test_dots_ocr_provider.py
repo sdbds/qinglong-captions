@@ -12,12 +12,11 @@ from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "module"))
 
-import providers.ocr.dots as dots_module
+import module.providers.ocr.dots as dots_module
 from config.runtime_config import coerce_runtime_config
-from providers.base import ProviderContext
-from providers.ocr.dots import DotsOCRProvider, _load_upstream_prompt_mapping, _resolve_model_source
+from module.providers.base import ProviderContext
+from module.providers.ocr.dots import DotsOCRProvider, _load_upstream_prompt_mapping, _resolve_model_source
 
 
 def make_ctx(config):
@@ -149,7 +148,7 @@ def test_direct_prepare_media_skips_unneeded_blob_encoding(monkeypatch, tmp_path
         called["count"] += 1
         return "blob", "pixels"
 
-    monkeypatch.setattr("providers.ocr.dots.encode_image_to_blob", fake_encode, raising=False)
+    monkeypatch.setattr("module.providers.ocr.dots.encode_image_to_blob", fake_encode, raising=False)
 
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
 
@@ -172,7 +171,7 @@ def test_openai_prepare_media_keeps_blob_encoding(monkeypatch, tmp_path):
         called["count"] += 1
         return "blob", "pixels"
 
-    monkeypatch.setattr("providers.ocr.dots.encode_image_to_blob", fake_encode, raising=False)
+    monkeypatch.setattr("module.providers.ocr.dots.encode_image_to_blob", fake_encode, raising=False)
 
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
 
@@ -185,7 +184,7 @@ def test_resolve_prompt_mode_uses_upstream_mapping(monkeypatch):
     ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_layout_all_en"}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_layout_all_en": "<doc-prompt>"},
         raising=False,
     )
@@ -205,7 +204,7 @@ def test_provider_prompt_overrides_upstream_default(monkeypatch):
     )
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_web_parsing": "<upstream>"},
         raising=False,
     )
@@ -224,7 +223,7 @@ def test_global_prompt_fallback_applies_when_provider_prompt_empty(monkeypatch):
     )
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_scene_spotting": "<upstream>"},
         raising=False,
     )
@@ -250,7 +249,7 @@ def test_task_prompt_mapping_applies_when_no_direct_override(monkeypatch):
     )
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_web_parsing": "<upstream>"},
         raising=False,
     )
@@ -287,7 +286,7 @@ def test_task_prompt_mapping_applies_with_runtime_config_mappingproxy(monkeypatc
     )
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_web_parsing": "<upstream>"},
         raising=False,
     )
@@ -309,7 +308,7 @@ def test_prompt_image_to_svg_selects_svg_model(monkeypatch):
     )
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_image_to_svg": "<svg-prompt>"},
         raising=False,
     )
@@ -321,7 +320,7 @@ def test_invalid_prompt_mode_raises(monkeypatch):
     ctx = make_ctx({"dots_ocr": {"prompt_mode": "not-real"}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_layout_all_en": "<doc-prompt>"},
         raising=False,
     )
@@ -369,7 +368,7 @@ def test_resolve_model_source_downloads_remote_snapshot(monkeypatch, tmp_path):
     resolved_snapshot.mkdir()
     dots_module._resolve_model_source.cache_clear()
     monkeypatch.setattr(
-        "providers.ocr.dots._download_model_snapshot",
+        "module.providers.ocr.dots._download_model_snapshot",
         lambda repo_id: str(resolved_snapshot) if repo_id == "davanstrien/dots.ocr-1.5" else "",
         raising=False,
     )
@@ -456,11 +455,11 @@ def test_run_direct_generation_uses_snapshot_path(monkeypatch, tmp_path):
 
     dots_module._resolve_model_source.cache_clear()
     monkeypatch.setattr(
-        "providers.ocr.dots._resolve_model_source",
+        "module.providers.ocr.dots._resolve_model_source",
         lambda model_id: str(resolved_snapshot.resolve()) if model_id == "davanstrien/dots.ocr-1.5" else model_id,
         raising=False,
     )
-    monkeypatch.setattr("providers.ocr.dots.resolve_device_dtype", lambda: ("cpu", "float32", "eager"), raising=False)
+    monkeypatch.setattr("module.providers.ocr.dots.resolve_device_dtype", lambda: ("cpu", "float32", "eager"), raising=False)
     monkeypatch.setattr(dots_module, "_TRANS_LOADER", FakeLoader(), raising=False)
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
     monkeypatch.setitem(sys.modules, "qwen_vl_utils", fake_qwen_vl_utils)
@@ -495,7 +494,7 @@ def test_text_prompt_single_image_writes_result_md(monkeypatch, tmp_path):
     ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_ocr"}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_ocr": "<ocr>"},
         raising=False,
     )
@@ -520,7 +519,7 @@ def test_layout_prompt_single_image_writes_post_processed_outputs(monkeypatch, t
     ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_layout_all_en", "fitz_preprocess": False}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_layout_all_en": "<doc>"},
         raising=False,
     )
@@ -552,7 +551,7 @@ def test_layout_prompt_fallback_cleaner_writes_filtered_markdown(monkeypatch, tm
     ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_layout_all_en", "fitz_preprocess": False}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_layout_all_en": "<doc>"},
         raising=False,
     )
@@ -581,7 +580,7 @@ def test_single_image_attempt_uses_upstream_fitz_preprocess_defaults(monkeypatch
     provider = DotsOCRProvider(ctx)
     captured = {}
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_ocr": "<ocr>"},
         raising=False,
     )
@@ -606,7 +605,7 @@ def test_single_image_attempt_reuses_generation_artifacts_without_second_preproc
     ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_ocr"}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_ocr": "<ocr>"},
         raising=False,
     )
@@ -651,7 +650,7 @@ def test_attempt_logs_effective_prompt_mode_and_prompt(monkeypatch, tmp_path):
     )
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_layout_all_en": "<upstream>"},
         raising=False,
     )
@@ -677,7 +676,7 @@ def test_svg_prompt_single_image_writes_result_svg(monkeypatch, tmp_path):
     ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_image_to_svg", "svg_model_id": "svg-model"}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_image_to_svg": "<svg>"},
         raising=False,
     )
@@ -702,12 +701,12 @@ def test_svg_prompt_pdf_writes_page_svgs_and_root_markdown(monkeypatch, tmp_path
     ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_image_to_svg", "svg_model_id": "svg-model"}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_image_to_svg": "<svg>"},
         raising=False,
     )
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_pdf_images",
+        "module.providers.ocr.dots._load_upstream_pdf_images",
         lambda *_args, **_kwargs: [Image.new("RGB", (32, 32), color="white"), Image.new("RGB", (32, 32), color="white")],
         raising=False,
     )
@@ -737,22 +736,22 @@ def test_pdf_path_uses_upstream_loader_instead_of_legacy_splitter(monkeypatch, t
     ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_ocr"}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_ocr": "<ocr>"},
         raising=False,
     )
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_pdf_images",
+        "module.providers.ocr.dots._load_upstream_pdf_images",
         lambda *_args, **_kwargs: [Image.new("RGB", (32, 32), color="white")],
         raising=False,
     )
     monkeypatch.setattr(
-        "providers.ocr.dots.pdf_to_images_high_quality",
+        "module.providers.ocr.dots.pdf_to_images_high_quality",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("legacy pdf splitter should not be used")),
         raising=False,
     )
     monkeypatch.setattr(
-        "providers.ocr.dots._save_pdf_page_image",
+        "module.providers.ocr.dots._save_pdf_page_image",
         lambda *args, **kwargs: str(args[1]),
         raising=False,
     )
@@ -777,17 +776,17 @@ def test_pdf_pages_do_not_use_fitz_preprocess(monkeypatch, tmp_path):
     provider = DotsOCRProvider(ctx)
     captured = []
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_ocr": "<ocr>"},
         raising=False,
     )
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_pdf_images",
+        "module.providers.ocr.dots._load_upstream_pdf_images",
         lambda *_args, **_kwargs: [Image.new("RGB", (32, 32), color="white")],
         raising=False,
     )
     monkeypatch.setattr(
-        "providers.ocr.dots._save_pdf_page_image",
+        "module.providers.ocr.dots._save_pdf_page_image",
         lambda *args, **kwargs: str(args[1]),
         raising=False,
     )
@@ -811,12 +810,12 @@ def test_pdf_attempt_reuses_generation_artifacts_without_second_preprocess(monke
     ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_ocr"}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_ocr": "<ocr>"},
         raising=False,
     )
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_pdf_images",
+        "module.providers.ocr.dots._load_upstream_pdf_images",
         lambda *_args, **_kwargs: [Image.new("RGB", (32, 32), color="white")],
         raising=False,
     )
@@ -851,7 +850,7 @@ def test_attempt_uses_upstream_direct_max_new_tokens_default(monkeypatch, tmp_pa
     provider = DotsOCRProvider(ctx)
     captured = {}
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_layout_all_en": "<doc>"},
         raising=False,
     )
@@ -879,7 +878,7 @@ def test_runtime_backend_uses_upstream_server_max_tokens_default(monkeypatch):
         model_id = "served-dots"
 
     monkeypatch.setattr(
-        "providers.ocr.dots.resolve_runtime_backend",
+        "module.providers.ocr.dots.resolve_runtime_backend",
         lambda *args, **kwargs: captured.setdefault("default_max_tokens", kwargs["default_max_tokens"]) or FakeRuntime(),
         raising=False,
     )
@@ -900,7 +899,7 @@ def test_runtime_backend_uses_upstream_server_temperature_default(monkeypatch):
         model_id = "served-dots"
 
     monkeypatch.setattr(
-        "providers.ocr.dots.resolve_runtime_backend",
+        "module.providers.ocr.dots.resolve_runtime_backend",
         lambda *args, **kwargs: captured.setdefault("default_temperature", kwargs["default_temperature"]) or FakeRuntime(),
         raising=False,
     )
@@ -921,7 +920,7 @@ def test_runtime_backend_uses_upstream_server_top_p_default(monkeypatch):
         model_id = "served-dots"
 
     monkeypatch.setattr(
-        "providers.ocr.dots.resolve_runtime_backend",
+        "module.providers.ocr.dots.resolve_runtime_backend",
         lambda *args, **kwargs: captured.setdefault("default_top_p", kwargs["default_top_p"]) or FakeRuntime(),
         raising=False,
     )
@@ -949,7 +948,7 @@ def test_server_backend_uses_same_resolved_prompt(monkeypatch, tmp_path):
     provider = DotsOCRProvider(ctx)
     captured = {}
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_web_parsing": "<upstream>"},
         raising=False,
     )
@@ -974,7 +973,7 @@ def test_server_backend_svg_single_image_writes_svg(monkeypatch, tmp_path):
     ctx.args.local_runtime_backend = "openai"
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
-        "providers.ocr.dots._load_upstream_prompt_mapping",
+        "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_image_to_svg": "<svg>"},
         raising=False,
     )
