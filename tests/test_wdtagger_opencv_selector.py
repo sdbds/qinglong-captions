@@ -159,17 +159,26 @@ def test_main_plan_install_emits_json(capsys, monkeypatch):
 
 def test_probe_cv2_runtime_reports_success(monkeypatch):
     sys.modules.pop("cv2", None)
+    sys.modules.pop("torch", None)
+    fake_torch = types.SimpleNamespace(
+        __version__="2.11.0+cu130",
+        cuda=types.SimpleNamespace(is_available=lambda: True, device_count=lambda: 1),
+    )
     fake_cv2 = types.SimpleNamespace(
         __version__="4.13.0",
         __file__="cv2.pyd",
         cuda=types.SimpleNamespace(getCudaEnabledDeviceCount=lambda: 1),
     )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
     monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
 
     payload, exit_code = probe_cv2_runtime()
 
     assert exit_code == 0
     assert payload["ok"] is True
+    assert payload["torch_preloaded"] is True
+    assert payload["torch_version"] == "2.11.0+cu130"
+    assert payload["torch_cuda_device_count"] == 1
     assert payload["version"] == "4.13.0"
     assert payload["file"] == "cv2.pyd"
     assert payload["cuda_count"] == 1
@@ -177,9 +186,16 @@ def test_probe_cv2_runtime_reports_success(monkeypatch):
 
 def test_probe_cv2_runtime_reports_import_error(monkeypatch):
     sys.modules.pop("cv2", None)
+    sys.modules.pop("torch", None)
     real_import = builtins.__import__
+    fake_torch = types.SimpleNamespace(
+        __version__="2.11.0+cu130",
+        cuda=types.SimpleNamespace(is_available=lambda: True, device_count=lambda: 1),
+    )
 
     def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "torch":
+            return fake_torch
         if name == "cv2":
             raise ImportError("missing cv2")
         return real_import(name, globals, locals, fromlist, level)
@@ -190,7 +206,41 @@ def test_probe_cv2_runtime_reports_import_error(monkeypatch):
 
     assert exit_code == 1
     assert payload["ok"] is False
+    assert payload["torch_preloaded"] is True
     assert payload["error"] == "ImportError: missing cv2"
+
+
+def test_probe_cv2_runtime_imports_torch_before_cv2(monkeypatch):
+    sys.modules.pop("cv2", None)
+    sys.modules.pop("torch", None)
+    real_import = builtins.__import__
+    import_order: list[str] = []
+    fake_torch = types.SimpleNamespace(
+        __version__="2.11.0+cu130",
+        cuda=types.SimpleNamespace(is_available=lambda: True, device_count=lambda: 1),
+    )
+    fake_cv2 = types.SimpleNamespace(
+        __version__="4.13.0-dev",
+        __file__="cv2.pyd",
+        cuda=types.SimpleNamespace(getCudaEnabledDeviceCount=lambda: 1),
+    )
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name in {"torch", "cv2"}:
+            import_order.append(name)
+        if name == "torch":
+            return fake_torch
+        if name == "cv2":
+            return fake_cv2
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    payload, exit_code = probe_cv2_runtime()
+
+    assert exit_code == 0
+    assert payload["ok"] is True
+    assert import_order[:2] == ["torch", "cv2"]
 
 
 def test_tagger_powershell_wrapper_installs_selected_wdtagger_opencv():
@@ -215,6 +265,7 @@ def test_tagger_powershell_wrapper_installs_selected_wdtagger_opencv():
     assert "uv pip uninstall" in content
     assert "wdtagger OpenCV cleanup: removing conflicting cv2 wheels" in content
     assert "wdtagger OpenCV import probe succeeded" in content
+    assert "wdtagger OpenCV GPU probe found no CUDA devices" in content
     assert "wdtagger OpenCV GPU import probe failed" in content
     assert "wdtagger_opencv.py" in content
     assert "wdtagger_opencv_probe.py" not in content

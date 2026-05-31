@@ -55,6 +55,7 @@ video-split = [
     "numpy<2",
 ]
 image-align = [
+    "qinglong-captions[torch-base]",
     "vismatch",
 ]
 reward-model = [

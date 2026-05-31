@@ -14,7 +14,9 @@
 # ///
 import argparse
 import concurrent.futures
+import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Tuple
 
@@ -46,6 +48,132 @@ _MATCHER_BACKEND_ALIASES = {
     "xfeat": "xfeat",
     "orb": "orb",
 }
+
+
+_GRAYSCALE_FRIENDLY_FORMATS = {"jpeg", "jpg", "png", "avif"}
+
+
+@dataclass(frozen=True)
+class ResizePlan:
+    original_width: int
+    original_height: int
+    target_width: int
+    target_height: int
+    original_mode: str
+    original_format: str
+    requires_resize: bool
+    requires_mode_conversion: bool
+    requires_transparent_crop: bool
+
+    @property
+    def can_skip_pixel_decode(self) -> bool:
+        return (
+            not self.requires_resize
+            and not self.requires_mode_conversion
+            and not self.requires_transparent_crop
+        )
+
+
+@dataclass(frozen=True)
+class ProcessImageResult:
+    ok: bool
+    skipped: bool = False
+    resized: bool = False
+    converted: bool = False
+    cropped: bool = False
+    error: str = ""
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+
+@dataclass
+class ResizeBatchSummary:
+    skipped: int = 0
+    resized: int = 0
+    converted: int = 0
+    cropped: int = 0
+    failed: int = 0
+
+    def add(self, result: ProcessImageResult | bool) -> None:
+        if isinstance(result, bool):
+            if not result:
+                self.failed += 1
+            return
+
+        if not result.ok:
+            self.failed += 1
+        if result.skipped:
+            self.skipped += 1
+        if result.resized:
+            self.resized += 1
+        if result.converted:
+            self.converted += 1
+        if result.cropped:
+            self.cropped += 1
+
+
+class StageTimer:
+    def __init__(self, enabled: bool = False):
+        self.enabled = enabled
+        self._lock = threading.Lock()
+        self._seconds: dict[str, float] = {}
+
+    def clear(self) -> None:
+        if not self.enabled:
+            return
+        with self._lock:
+            self._seconds.clear()
+
+    def add(self, stage: str, seconds: float) -> None:
+        if not self.enabled:
+            return
+        with self._lock:
+            self._seconds[stage] = self._seconds.get(stage, 0.0) + seconds
+
+    def snapshot(self) -> dict[str, float]:
+        if not self.enabled:
+            return {}
+        with self._lock:
+            return dict(self._seconds)
+
+
+def _requires_mode_conversion(mode: str, original_format: str) -> bool:
+    if mode not in ["RGB", "L"]:
+        return True
+    return mode == "L" and original_format not in _GRAYSCALE_FRIENDLY_FORMATS
+
+
+def _build_resize_plan(
+    pil_image: Image.Image,
+    image_path: str,
+    *,
+    max_short_edge: int | None,
+    max_long_edge: int | None,
+    max_pixels: int | None,
+    crop_transparent: bool,
+) -> ResizePlan:
+    original_width, original_height = pil_image.size
+    target_width, target_height = calculate_dimensions(
+        original_width,
+        original_height,
+        max_long_edge=max_long_edge,
+        max_short_edge=max_short_edge,
+        max_pixels=max_pixels,
+    )
+    original_format = Path(image_path).suffix.lower().lstrip(".")
+
+    return ResizePlan(
+        original_width=original_width,
+        original_height=original_height,
+        target_width=target_width,
+        target_height=target_height,
+        original_mode=pil_image.mode,
+        original_format=original_format,
+        requires_resize=(original_width, original_height) != (target_width, target_height),
+        requires_mode_conversion=_requires_mode_conversion(pil_image.mode, original_format),
+        requires_transparent_crop=crop_transparent and pil_image.mode == "RGBA",
+    )
 
 
 def _has_cuda() -> bool:
@@ -201,6 +329,7 @@ class ImageProcessor:
         matcher_backend: str = "auto",
         bg_color: Tuple[int, int, int] = (255, 255, 255),  # Default to white
         crop_transparent: bool = False,
+        profile: bool = False,
     ):
         """
         Initializes the ImageProcessor.
@@ -213,6 +342,7 @@ class ImageProcessor:
             matcher_backend: The matcher backend preference for alignment.
             bg_color: RGB background color for padding.
             crop_transparent: Whether to crop transparent borders from RGBA images.
+            profile: Whether to collect and print resize-only stage timings.
         """
         self.recursive = recursive
         self.max_workers = max_workers if max_workers is not None else 16  # Default to 16 if None
@@ -222,6 +352,33 @@ class ImageProcessor:
         self.matcher_backend = matcher_backend
         self.bg_color = bg_color
         self.crop_transparent = crop_transparent
+        self.profile = profile
+        self.stage_timer = StageTimer(enabled=profile)
+
+    def _add_stage_time(self, stage: str, start_time: float) -> None:
+        self.stage_timer.add(stage, time.perf_counter() - start_time)
+
+    def _print_resize_summary(self, summary: ResizeBatchSummary) -> None:
+        self.console.print("[blue]Resize summary:[/blue]")
+        self.console.print(f"  skipped without pixel decode: {summary.skipped}")
+        self.console.print(f"  resized: {summary.resized}")
+        self.console.print(f"  mode converted: {summary.converted}")
+        self.console.print(f"  transparent cropped: {summary.cropped}")
+        self.console.print(f"  failed: {summary.failed}")
+
+    def _print_profile_summary(self, total_images: int) -> None:
+        if not self.profile:
+            return
+
+        snapshot = self.stage_timer.snapshot()
+        if not snapshot:
+            return
+
+        self.console.print("[blue]Resize profile:[/blue]")
+        for stage in ("scan", "open_and_plan", "decode_convert_crop", "resize", "save"):
+            seconds = snapshot.get(stage, 0.0)
+            average = seconds / total_images if total_images else 0.0
+            self.console.print(f"  {stage}: {seconds:.3f}s total, {average:.4f}s/image")
 
     def _save_pil_image(
         self,
@@ -383,7 +540,7 @@ class ImageProcessor:
         max_short_edge: int = None,
         max_long_edge: int = None,
         max_pixels: int = None,
-    ) -> bool:
+    ) -> ProcessImageResult:
         """
         Resizes an image, ensuring edges do not exceed max_short_edge/max_long_edge,
         while maintaining the aspect ratio. Overwrites the source file.
@@ -395,88 +552,101 @@ class ImageProcessor:
             max_pixels: The maximum number of pixels in the image.
 
         Returns:
-            bool: True if processing was successful, False otherwise.
+            ProcessImageResult: Processing status. It is bool-compatible for older callers.
         """
+        resized_pil = None
+        resized = False
+        converted = False
+        cropped = False
+
         try:
-            pil_image = Image.open(image_path)
-            original_format = Path(image_path).suffix.lower().lstrip(".")
-            if hasattr(pil_image, "info") and "quality" in pil_image.info:
-                pil_image.info.get("quality")
+            open_start = time.perf_counter()
+            with Image.open(image_path) as pil_image:
+                plan = _build_resize_plan(
+                    pil_image,
+                    image_path,
+                    max_short_edge=max_short_edge,
+                    max_long_edge=max_long_edge,
+                    max_pixels=max_pixels,
+                    crop_transparent=self.crop_transparent,
+                )
+                self._add_stage_time("open_and_plan", open_start)
 
-            # Crop transparent borders if requested and image has alpha channel
-            if self.crop_transparent and pil_image.mode == "RGBA":
-                bbox = pil_image.getbbox()
-                if bbox:
-                    pil_image = pil_image.crop(bbox)
-                    self.console.print(f"[blue]Cropped transparent borders from {Path(image_path).name}[/blue]")
+                if plan.can_skip_pixel_decode:
+                    return ProcessImageResult(ok=True, skipped=True)
 
-            # Preserve original mode if it's L (grayscale) for certain formats, otherwise convert to RGB for processing
-            # This is a delicate balance: color conversion for consistency vs. preserving original color space.
-            # For most resizing/alignment, RGB is safer. Grayscale might be kept if no color manipulation is done.
-            # Let's assume internal processing prefers RGB, but _save_pil_image can handle 'L' for JPEG.
-            img_for_processing_pil = pil_image
-            if pil_image.mode not in ["RGB", "L"]:
-                img_for_processing_pil = pil_image.convert("RGB")
-            elif pil_image.mode == "L" and original_format not in [
-                "jpeg",
-                "jpg",
-                "png",
-                "avif",
-            ]:
-                # If grayscale but not a typically grayscale-friendly save format, convert for broader compatibility
-                img_for_processing_pil = pil_image.convert("RGB")
+                decode_start = time.perf_counter()
+                working_image = pil_image
 
-            image_cv = np.array(img_for_processing_pil.convert("RGB"))  # Ensure RGB for OpenCV processing
-            if img_for_processing_pil.mode == "RGB":  # if original was RGB, convert to BGR for OpenCV
-                image_cv = image_cv[:, :, ::-1].copy()
-            # if original was 'L', image_cv is already (h,w) and fine for grayscale cv processing if needed
-            # but resize usually expects 3 channels if color. Forcing RGB for np.array ensures 3 channels.
+                if plan.requires_transparent_crop:
+                    bbox = working_image.getbbox()
+                    if bbox:
+                        working_image = working_image.crop(bbox)
+                        cropped = True
+
+                img_for_processing_pil = working_image
+                if working_image.mode not in ["RGB", "L"]:
+                    img_for_processing_pil = working_image.convert("RGB")
+                    converted = True
+                elif working_image.mode == "L" and plan.original_format not in _GRAYSCALE_FRIENDLY_FORMATS:
+                    img_for_processing_pil = working_image.convert("RGB")
+                    converted = True
+
+                self._add_stage_time("decode_convert_crop", decode_start)
+
+                w, h = img_for_processing_pil.size
+                new_w, new_h = calculate_dimensions(
+                    w,
+                    h,
+                    max_long_edge=max_long_edge,
+                    max_short_edge=max_short_edge,
+                    max_pixels=max_pixels,
+                )
+                resized = (w, h) != (new_w, new_h)
+
+                if resized:
+                    resize_start = time.perf_counter()
+                    use_gpu = cv2.cuda.getCudaEnabledDeviceCount() > 0 and min(h, w) > 1024  # Condition for GPU resize
+                    if use_gpu:
+                        image_cv = np.array(img_for_processing_pil.convert("RGB"))  # Preserve existing GPU path behavior
+                        if img_for_processing_pil.mode == "RGB":  # if original was RGB, convert to BGR for OpenCV
+                            image_cv = image_cv[:, :, ::-1].copy()
+
+                        gpu_image = cv2.cuda.GpuMat()
+                        gpu_image.upload(image_cv)
+                        gpu_resized_image = cv2.cuda.resize(gpu_image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                        resized_image_cv = gpu_resized_image.download()
+
+                        if resized_image_cv.ndim == 3 and resized_image_cv.shape[2] == 3:
+                            resized_pil = Image.fromarray(cv2.cvtColor(resized_image_cv, cv2.COLOR_BGR2RGB))
+                        elif resized_image_cv.ndim == 2 and img_for_processing_pil.mode == "L":
+                            resized_pil = Image.fromarray(resized_image_cv, mode="L")
+                        else:
+                            self.console.print(f"[yellow]Unexpected image format after resize for {image_path}. Converting to RGB.[/yellow]")
+                            if resized_image_cv.ndim == 2:
+                                resized_image_cv = cv2.cvtColor(resized_image_cv, cv2.COLOR_GRAY2BGR)
+                            resized_pil = Image.fromarray(cv2.cvtColor(resized_image_cv, cv2.COLOR_BGR2RGB))
+                    else:
+                        image_rgb = np.array(img_for_processing_pil.convert("RGB"))
+                        resized_rgb = cv2.resize(image_rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                        resized_pil = Image.fromarray(resized_rgb)
+                    self._add_stage_time("resize", resize_start)
+                else:
+                    resized_pil = img_for_processing_pil.copy()
 
         except Exception as e:
             print_exception(self.console, e, prefix=f"Cannot read image: {image_path}")
-            return False
+            return ProcessImageResult(ok=False, error=str(e))
 
-        h, w = image_cv.shape[:2]
-        # If both are None, calculate_dimensions should return original w,h
-        new_w, new_h = calculate_dimensions(
-            w,
-            h,
-            max_long_edge=max_long_edge,
-            max_short_edge=max_short_edge,
-            max_pixels=max_pixels,
-        )
-
-        if (w, h) == (new_w, new_h) and pil_image.mode == img_for_processing_pil.mode:
-            self.console.print(f"[yellow]Skipping {image_path}: Already meets size and mode requirements[/yellow]")
-            # Still, we might want to re-save it to normalize it or apply quality settings
-            # For now, if no dimension change, assume no action needed.
-            return True
-
-        # Perform resize
-        use_gpu = cv2.cuda.getCudaEnabledDeviceCount() > 0 and min(h, w) > 1024  # Condition for GPU resize
-        if use_gpu:
-            gpu_image = cv2.cuda.GpuMat()
-            gpu_image.upload(image_cv)
-            gpu_resized_image = cv2.cuda.resize(gpu_image, (new_w, new_h), interpolation=cv2.INTER_AREA)
-            resized_image_cv = gpu_resized_image.download()
-        else:
-            resized_image_cv = cv2.resize(image_cv, (new_w, new_h), interpolation=cv2.INTER_AREA)
-
-        # Convert back to PIL Image
-        # If original was RGB or converted to RGB for processing, convert BGR (OpenCV) back to RGB for PIL
-        if resized_image_cv.ndim == 3 and resized_image_cv.shape[2] == 3:
-            resized_pil = Image.fromarray(cv2.cvtColor(resized_image_cv, cv2.COLOR_BGR2RGB))
-        elif resized_image_cv.ndim == 2 and img_for_processing_pil.mode == "L":  # Original was Grayscale and processed as such
-            resized_pil = Image.fromarray(resized_image_cv, mode="L")
-        else:  # Fallback, should ideally not happen if input was RGB or L
-            self.console.print(f"[yellow]Unexpected image format after resize for {image_path}. Converting to RGB.[/yellow]")
-            # Ensure it's 3 channels BGR before converting to RGB for PIL
-            if resized_image_cv.ndim == 2:
-                resized_image_cv = cv2.cvtColor(resized_image_cv, cv2.COLOR_GRAY2BGR)
-            resized_pil = Image.fromarray(cv2.cvtColor(resized_image_cv, cv2.COLOR_BGR2RGB))
-
+        save_start = time.perf_counter()
         self._save_pil_image(resized_pil, image_path)
-        return True
+        self._add_stage_time("save", save_start)
+        return ProcessImageResult(
+            ok=True,
+            resized=resized,
+            converted=converted,
+            cropped=cropped,
+        )
 
     def process_directory(
         self,
@@ -499,6 +669,8 @@ class ImageProcessor:
         Returns:
             Tuple[int, int]: (Number of successfully processed images, Total number of images)
         """
+        self.stage_timer.clear()
+        scan_start = time.perf_counter()
         input_path = Path(input_dir)
         image_files_set = set()
         if self.recursive:
@@ -511,6 +683,7 @@ class ImageProcessor:
                     image_files_set.add(file_path.absolute())
 
         source_image_paths = list(image_files_set)
+        self._add_stage_time("scan", scan_start)
         self.console.print(f"[blue]Supported image extensions: {', '.join(self.image_extensions)}[/blue]")
 
         total_images = len(source_image_paths)
@@ -591,6 +764,7 @@ class ImageProcessor:
                 else:
                     self.console.print("[yellow]No GPU detected, will use CPU for resizing.[/yellow]")
 
+                resize_summary = ResizeBatchSummary()
                 batch_size = 256  # Process images in batches to manage memory
                 with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                     for i in range(0, len(source_image_paths), batch_size):
@@ -611,9 +785,13 @@ class ImageProcessor:
                         ]
 
                         for future in concurrent.futures.as_completed(submitted_tasks):
-                            if future.result():
+                            result = future.result()
+                            resize_summary.add(result)
+                            if result:
                                 successful += 1
                             progress.update(task_id, advance=1)
+                self._print_resize_summary(resize_summary)
+                self._print_profile_summary(total_images)
         return successful, total_images
 
     def align_images(
@@ -971,6 +1149,11 @@ def main():
         action="store_true",
         help="Crop transparent borders from RGBA images before processing",
     )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Print resize-only stage timing summary.",
+    )
 
     args = parser.parse_args()
 
@@ -986,6 +1169,7 @@ def main():
         global_console.print(f"Alignment reference directory: {args.align_input}")
     global_console.print(f"Matcher backend: {args.matcher_backend}")
     global_console.print(f"Crop transparent borders: {'Yes' if args.crop_transparent else 'No'}")
+    global_console.print(f"Resize profiling: {'Yes' if args.profile else 'No'}")
     global_console.print("[red bold]Warning: Original image files in the primary input directory will be overwritten![/red bold]")
 
     # Instantiate the processor, it will create its own console or use one if passed
@@ -997,6 +1181,7 @@ def main():
         matcher_backend=args.matcher_backend,
         bg_color=tuple(args.bg_color),
         crop_transparent=args.crop_transparent,
+        profile=args.profile,
     )
 
     start_time = time.time()

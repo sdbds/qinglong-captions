@@ -142,13 +142,38 @@ def build_wdtagger_opencv_install_plan(
     )
 
 
+def _preload_torch_for_cv2() -> dict[str, object]:
+    payload: dict[str, object] = {"torch_preloaded": False}
+    try:
+        import torch
+    except Exception as exc:
+        payload["torch_preload_error"] = f"{type(exc).__name__}: {exc}"
+        return payload
+
+    payload["torch_preloaded"] = True
+    payload["torch_version"] = getattr(torch, "__version__", None)
+    cuda = getattr(torch, "cuda", None)
+    if cuda is not None:
+        try:
+            payload["torch_cuda_available"] = bool(cuda.is_available())
+        except Exception as exc:
+            payload["torch_cuda_available_error"] = f"{type(exc).__name__}: {exc}"
+        try:
+            payload["torch_cuda_device_count"] = cuda.device_count()
+        except Exception as exc:
+            payload["torch_cuda_device_count_error"] = f"{type(exc).__name__}: {exc}"
+    return payload
+
+
 def probe_cv2_runtime() -> tuple[dict[str, object], int]:
+    preload_payload = _preload_torch_for_cv2()
     try:
         import cv2
     except Exception as exc:
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 1
+        return {**preload_payload, "ok": False, "error": f"{type(exc).__name__}: {exc}"}, 1
 
     payload: dict[str, object] = {
+        **preload_payload,
         "ok": True,
         "version": getattr(cv2, "__version__", None),
         "file": getattr(cv2, "__file__", None),

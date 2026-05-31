@@ -143,6 +143,79 @@ function Install-UvExtraPatch {
     }
 }
 
+function Invoke-PreprocessOpenCvCleanup {
+    param (
+        [string]$PythonExe,
+        [string[]]$Packages
+    )
+
+    $CleanupArgs = [System.Collections.ArrayList]::new()
+    [void]$CleanupArgs.Add("pip")
+    [void]$CleanupArgs.Add("uninstall")
+    if ($PythonExe) {
+        [void]$CleanupArgs.Add("--python")
+        [void]$CleanupArgs.Add($PythonExe)
+    }
+    foreach ($Package in $Packages) {
+        [void]$CleanupArgs.Add($Package)
+    }
+
+    Write-Output "preprocess OpenCV cleanup: removing conflicting cv2 wheels"
+    Write-Output "uv pip uninstall target packages: $($Packages -join ', ')"
+    uv @CleanupArgs
+    return $LASTEXITCODE
+}
+
+function Get-PreprocessOpenCvInstallPlan {
+    param (
+        [string]$PythonExe
+    )
+
+    $ProbeScript = Join-Path $PSScriptRoot "utils\wdtagger_opencv.py"
+    $RawOutput = (& $PythonExe $ProbeScript --plan-install --platform win32 2>&1 | Out-String).Trim()
+    $ExitCode = $LASTEXITCODE
+    if ($ExitCode -ne 0) {
+        throw "preprocess OpenCV install plan resolution failed: $RawOutput"
+    }
+
+    $JsonLine = ($RawOutput -split "\r?\n" | Where-Object { $_.Trim() } | Select-Object -Last 1)
+
+    try {
+        return $JsonLine | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "preprocess OpenCV install plan parse failed: $RawOutput"
+    }
+}
+
+function Test-PreprocessOpenCvImport {
+    param (
+        [string]$PythonExe
+    )
+
+    $ProbeScript = Join-Path $PSScriptRoot "utils\wdtagger_opencv.py"
+    $RawOutput = (& $PythonExe $ProbeScript --probe-cv2 2>&1 | Out-String).Trim()
+    $ProbeExitCode = $LASTEXITCODE
+    $Payload = $null
+    $JsonLine = $null
+    if ($RawOutput) {
+        $JsonLine = ($RawOutput -split "\r?\n" | Where-Object { $_.Trim() } | Select-Object -Last 1)
+        try {
+            $Payload = $JsonLine | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            $Payload = $null
+        }
+    }
+
+    return [PSCustomObject]@{
+        Success = ($ProbeExitCode -eq 0 -and $Payload -and $Payload.ok)
+        ExitCode = $ProbeExitCode
+        RawOutput = $RawOutput
+        Payload = $Payload
+    }
+}
+
 # Add configuration arguments for preprocess_datasets.py
 if ($Config.input_dir) {
     [void]$ExtArgs.Add("--input=$($Config.input_dir)")
@@ -203,12 +276,91 @@ if ($Config.crop_transparent) {
 #region Execute Image Processing Script
 Write-Output "Starting Image Processing..."
 Install-UvExtraPatch @("image-align")
+if ($env:OS -eq "Windows_NT") {
+    $PythonExe = Get-ProjectPython
+    if (-not $PythonExe) {
+        $PythonExe = "python"
+    }
+    $OpenCvPlan = Get-PreprocessOpenCvInstallPlan -PythonExe $PythonExe
+
+    $OpenCvReady = $false
+    $AttemptNumber = 0
+    foreach ($Attempt in $OpenCvPlan.attempts) {
+        $AttemptNumber += 1
+        $CleanupExitCode = Invoke-PreprocessOpenCvCleanup -PythonExe $PythonExe -Packages @($OpenCvPlan.cleanup_packages)
+        if ($CleanupExitCode -ne 0) {
+            Write-Output "preprocess OpenCV cleanup returned non-zero; continuing with selected reinstall"
+        }
+
+        $OpenCvInstallArgs = [System.Collections.ArrayList]::new()
+        [void]$OpenCvInstallArgs.Add("pip")
+        [void]$OpenCvInstallArgs.Add("install")
+        [void]$OpenCvInstallArgs.Add("--no-build-isolation")
+        [void]$OpenCvInstallArgs.Add("--index-strategy")
+        [void]$OpenCvInstallArgs.Add($(if ($Env:UV_INDEX_STRATEGY) { $Env:UV_INDEX_STRATEGY } else { "unsafe-best-match" }))
+        if ($PythonExe) {
+            [void]$OpenCvInstallArgs.Add("--python")
+            [void]$OpenCvInstallArgs.Add($PythonExe)
+        }
+        [void]$OpenCvInstallArgs.Add("--reinstall-package")
+        [void]$OpenCvInstallArgs.Add($Attempt.package_name)
+        [void]$OpenCvInstallArgs.Add($Attempt.package_spec)
+
+        Write-Output "preprocess OpenCV attempt: $AttemptNumber"
+        Write-Output "uv pip install target package: $($Attempt.package_name)"
+        Write-Output "preprocess OpenCV override source: $($Attempt.source)"
+        if ($Attempt.cuda_tag) {
+            Write-Output "preprocess OpenCV detected CUDA toolkit: $($Attempt.cuda_tag)"
+        }
+        Write-Output "preprocess OpenCV selection detail: $($Attempt.detail)"
+        Write-Output "preprocess OpenCV package spec: $($Attempt.package_spec)"
+
+        uv @OpenCvInstallArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw "preprocess OpenCV override install failed"
+        }
+
+        $ProbeResult = Test-PreprocessOpenCvImport -PythonExe $PythonExe
+        if ($ProbeResult.Success) {
+            $CudaCount = 0
+            if ($ProbeResult.Payload -and $null -ne $ProbeResult.Payload.cuda_count) {
+                $CudaCount = [int]$ProbeResult.Payload.cuda_count
+            }
+            if ($Attempt.source -eq "cuda-wheel" -and $CudaCount -le 0) {
+                Write-Output "preprocess OpenCV GPU probe found no CUDA devices: $($ProbeResult.RawOutput)"
+                Write-Output "preprocess OpenCV GPU wheel unavailable; retrying with default CPU package"
+                continue
+            }
+            Write-Output "preprocess OpenCV import probe succeeded: $($ProbeResult.RawOutput)"
+            $OpenCvReady = $true
+            break
+        }
+
+        if ($Attempt.source -eq "cuda-wheel") {
+            Write-Output "preprocess OpenCV GPU import probe failed: $($ProbeResult.RawOutput)"
+            Write-Output "preprocess OpenCV GPU wheel unavailable; retrying with default CPU package"
+            continue
+        }
+
+        Write-Output "preprocess OpenCV import probe failed after CPU fallback: $($ProbeResult.RawOutput)"
+        throw "preprocess OpenCV import probe failed"
+    }
+
+    if (-not $OpenCvReady) {
+        throw "preprocess OpenCV setup did not produce a working cv2 import"
+    }
+}
 $UvEnvName = Get-UvEnvName
-Write-Output "uv run target environment: $UvEnvName"
+Write-Output "runtime target environment: $UvEnvName"
 Write-Output "runtime dependency profile: extra:image-align"
+$RuntimePython = Get-ProjectPython
+if (-not $RuntimePython) {
+    $RuntimePython = "python"
+}
+Write-Output "runtime python: $RuntimePython"
 
 # Execute the Python script
-uv run $Config.python_script_path `
+& $RuntimePython $Config.python_script_path `
     $ExtArgs
 
 Write-Output "Image Processing finished"

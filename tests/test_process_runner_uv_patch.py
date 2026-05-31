@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gui.utils.process_runner import ProcessRunner
+from gui.utils.process_runner import SCRIPT_REGISTRY, ProcessRunner
 from utils.wdtagger_opencv import WdtaggerOpenCvInstallPlan, WdtaggerOpenCvSelection
 
 
@@ -417,6 +417,60 @@ def test_patch_shared_environment_overrides_wdtagger_opencv_on_windows(tmp_path,
     assert opencv_cmd[-1] == "opencv-contrib-python-rolling @ https://example.invalid/opencv-cu130.whl"
 
 
+def test_preprocess_registry_installs_image_align_extra():
+    assert SCRIPT_REGISTRY["utils.preprocess_datasets"][1] == "image-align"
+
+
+def test_patch_shared_environment_overrides_preprocess_opencv_on_windows(tmp_path, monkeypatch):
+    _write_project(tmp_path, with_lock=False, optional_deps={"image-align": ["vismatch"]})
+    runner = ProcessRunner()
+    commands: list[list[str]] = []
+    logs: list[str] = []
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+    monkeypatch.setattr(runner, "_resolve_project_python", lambda work_dir, env: "python", raising=False)
+    monkeypatch.setattr(
+        runner,
+        "_inspect_cv2_runtime",
+        lambda python_path, env: {"ok": True, "version": "4.13.0", "file": "cv2.pyd", "cuda_count": 1},
+        raising=False,
+    )
+    monkeypatch.setattr(runner, "_notify_log", logs.append, raising=False)
+    monkeypatch.setattr("gui.utils.process_runner.sys.platform", "win32")
+    monkeypatch.setattr(
+        "gui.utils.process_runner.build_wdtagger_opencv_install_plan",
+        lambda env=None, platform=None: WdtaggerOpenCvInstallPlan(
+            cleanup_packages=("opencv-python", "opencv-contrib-python", "opencv-contrib-python-rolling"),
+            attempts=(
+                WdtaggerOpenCvSelection(
+                    package_name="opencv-contrib-python-rolling",
+                    package_spec="opencv-contrib-python-rolling @ https://example.invalid/opencv-cu130.whl",
+                    cuda_tag="cu130",
+                    source="cuda-wheel",
+                    detail="detected CUDA 13.0",
+                ),
+            ),
+        ),
+    )
+
+    result = asyncio.run(
+        runner._patch_shared_environment("uv", tmp_path, {}, "test-env", ["image-align"], []),
+    )
+
+    assert result is None
+    assert len(commands) == 3
+    assert commands[0][commands[0].index("--extra") + 1] == "image-align"
+    assert commands[1][:3] == ["uv", "pip", "uninstall"]
+    assert commands[2][commands[2].index("--reinstall-package") + 1] == "opencv-contrib-python-rolling"
+    assert commands[2][-1] == "opencv-contrib-python-rolling @ https://example.invalid/opencv-cu130.whl"
+    assert any("preprocess OpenCV package spec" in line for line in logs)
+    assert any("preprocess OpenCV import probe succeeded" in line for line in logs)
+
+
 def test_patch_shared_environment_falls_back_to_cpu_when_gpu_opencv_probe_fails(tmp_path, monkeypatch):
     _write_project(tmp_path, with_lock=False, optional_deps={"wdtagger": ["opencv-contrib-python", "torch==2.11.0"]})
     runner = ProcessRunner()
@@ -473,6 +527,62 @@ def test_patch_shared_environment_falls_back_to_cpu_when_gpu_opencv_probe_fails(
     assert commands[4][commands[4].index("--reinstall-package") + 1] == "opencv-contrib-python"
     assert commands[4][-1] == "opencv-contrib-python"
     assert any("GPU import probe failed" in line for line in logs)
+    assert any("retrying with default CPU package" in line for line in logs)
+
+
+def test_patch_shared_environment_falls_back_when_gpu_opencv_has_no_cuda_devices(tmp_path, monkeypatch):
+    _write_project(tmp_path, with_lock=False, optional_deps={"image-align": ["vismatch"]})
+    runner = ProcessRunner()
+    commands: list[list[str]] = []
+    logs: list[str] = []
+    probes = iter(
+        [
+            {"ok": True, "version": "4.13.0-dev", "file": "cv2.pyd", "cuda_count": 0, "torch_preloaded": True},
+            {"ok": True, "version": "4.13.0.92", "file": "cv2.pyd", "cuda_count": 0, "torch_preloaded": True},
+        ]
+    )
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+    monkeypatch.setattr(runner, "_resolve_project_python", lambda work_dir, env: "python", raising=False)
+    monkeypatch.setattr(runner, "_inspect_cv2_runtime", lambda python_path, env: next(probes), raising=False)
+    monkeypatch.setattr(runner, "_notify_log", logs.append, raising=False)
+    monkeypatch.setattr("gui.utils.process_runner.sys.platform", "win32")
+    monkeypatch.setattr(
+        "gui.utils.process_runner.build_wdtagger_opencv_install_plan",
+        lambda env=None, platform=None: WdtaggerOpenCvInstallPlan(
+            cleanup_packages=("opencv-python", "opencv-contrib-python", "opencv-contrib-python-rolling"),
+            attempts=(
+                WdtaggerOpenCvSelection(
+                    package_name="opencv-contrib-python-rolling",
+                    package_spec="opencv-contrib-python-rolling @ https://example.invalid/opencv-cu130.whl",
+                    cuda_tag="cu130",
+                    source="cuda-wheel",
+                    detail="detected CUDA 13.0",
+                ),
+                WdtaggerOpenCvSelection(
+                    package_name="opencv-contrib-python",
+                    package_spec="opencv-contrib-python",
+                    cuda_tag=None,
+                    source="cpu-fallback",
+                    detail="GPU OpenCV import probe failed; fallback to default opencv-contrib-python",
+                ),
+            ),
+        ),
+    )
+
+    result = asyncio.run(
+        runner._patch_shared_environment("uv", tmp_path, {}, "test-env", ["image-align"], []),
+    )
+
+    assert result is None
+    assert len(commands) == 5
+    assert commands[2][-1] == "opencv-contrib-python-rolling @ https://example.invalid/opencv-cu130.whl"
+    assert commands[4][commands[4].index("--reinstall-package") + 1] == "opencv-contrib-python"
+    assert any("GPU probe found no CUDA devices" in line for line in logs)
     assert any("retrying with default CPU package" in line for line in logs)
 
 

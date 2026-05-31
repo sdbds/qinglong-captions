@@ -162,6 +162,7 @@ def test_pyproject_declares_image_align_extra():
     optional_deps = pyproject["project"]["optional-dependencies"]
 
     assert "image-align" in optional_deps
+    assert "qinglong-captions[torch-base]" in optional_deps["image-align"]
     assert "vismatch" in optional_deps["image-align"]
 
 
@@ -171,4 +172,16 @@ def test_preprocess_wrapper_exposes_matcher_backend():
     assert 'matcher_backend' in content
     assert '--matcher-backend=$($Config.matcher_backend)' in content
     assert 'Install-UvExtraPatch @("image-align")' in content
+    assert "function Get-PreprocessOpenCvInstallPlan" in content
+    assert "--plan-install --platform win32" in content
+    assert "--probe-cv2" in content
+    assert "wdtagger_opencv.py" in content
+    assert "uv pip uninstall" in content
+    assert "preprocess OpenCV cleanup: removing conflicting cv2 wheels" in content
+    assert "preprocess OpenCV import probe succeeded" in content
+    assert "preprocess OpenCV GPU probe found no CUDA devices" in content
+    assert "preprocess OpenCV GPU import probe failed" in content
+    assert "preprocess OpenCV package spec" in content
+    assert 'Write-Output "runtime python: $RuntimePython"' in content
+    assert "uv run $Config.python_script_path" not in content
     assert 'runtime dependency profile: extra:image-align' in content

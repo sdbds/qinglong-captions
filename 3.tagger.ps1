@@ -308,6 +308,15 @@ if ($env:OS -eq "Windows_NT" -and $WdtaggerExtra -eq "wdtagger") {
 
         $ProbeResult = Test-WdtaggerOpenCvImport -PythonExe $PythonExe
         if ($ProbeResult.Success) {
+            $CudaCount = 0
+            if ($ProbeResult.Payload -and $null -ne $ProbeResult.Payload.cuda_count) {
+                $CudaCount = [int]$ProbeResult.Payload.cuda_count
+            }
+            if ($Attempt.source -eq "cuda-wheel" -and $CudaCount -le 0) {
+                Write-Output "wdtagger OpenCV GPU probe found no CUDA devices: $($ProbeResult.RawOutput)"
+                Write-Output "wdtagger OpenCV GPU wheel unavailable; retrying with default CPU package"
+                continue
+            }
             Write-Output "wdtagger OpenCV import probe succeeded: $($ProbeResult.RawOutput)"
             $OpenCvReady = $true
             break

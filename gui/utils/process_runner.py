@@ -219,7 +219,7 @@ SCRIPT_REGISTRY = {
     "module.waterdetect": ("./module/waterdetect.py", None),
     "module.audio_separator": ("./module/audio_separator.py", "vocal-midi"),
     "module.see_through.cli": ("./module/see_through/cli.py", "see-through"),
-    "utils.preprocess_datasets": ("./utils/preprocess_datasets.py", None),
+    "utils.preprocess_datasets": ("./utils/preprocess_datasets.py", "image-align"),
     "module.rewardmodel": ("./module/rewardmodel.py", "reward-model"),
     "module.texttranslate": ("./module/texttranslate.py", "translate"),
 }
@@ -863,6 +863,102 @@ class ProcessRunner:
         await self._stream_output(self.process)
         return await self.process.wait()
 
+    @staticmethod
+    def _windows_opencv_override_profile(extras: list[str]) -> Optional[str]:
+        if "wdtagger" in extras:
+            return "wdtagger"
+        if "image-align" in extras:
+            return "preprocess"
+        return None
+
+    async def _apply_windows_opencv_override(
+        self,
+        uv: str,
+        work_dir: Path,
+        env: dict,
+        target_python: Optional[str],
+        profile_label: str,
+    ) -> Optional[ProcessResult]:
+        opencv_plan = build_wdtagger_opencv_install_plan(env=env, platform=sys.platform)
+
+        for attempt_index, selection in enumerate(opencv_plan.attempts, start=1):
+            cleanup_cmd = [uv, "pip", "uninstall"]
+            if target_python:
+                cleanup_cmd.extend(["--python", target_python])
+            cleanup_cmd.extend(opencv_plan.cleanup_packages)
+            self._notify_log(
+                f"{profile_label} OpenCV cleanup before attempt {attempt_index}: removing conflicting cv2 wheels"
+            )
+            self._notify_log(
+                f"开始同步依赖: {' '.join(cleanup_cmd[:15])}{'...' if len(cleanup_cmd) > 15 else ''}"
+            )
+            cleanup_return_code = await self._run_logged_subprocess(cleanup_cmd, work_dir, env)
+            self.process = None
+            if cleanup_return_code != 0:
+                self._notify_log(f"{profile_label} OpenCV cleanup returned non-zero; continuing with selected reinstall")
+
+            opencv_cmd = [uv, "pip", "install", "--no-build-isolation"]
+            opencv_action = "uv pip install"
+            opencv_cmd.extend(["--index-strategy", self._uv_index_strategy(env)])
+            if target_python:
+                opencv_cmd.extend(["--python", target_python])
+            opencv_cmd.extend(["--reinstall-package", selection.package_name, selection.package_spec])
+
+            self._notify_log(f"{profile_label} OpenCV override: source={selection.source}, detail={selection.detail}")
+            if selection.cuda_tag:
+                self._notify_log(f"{profile_label} OpenCV detected CUDA toolkit: {selection.cuda_tag}")
+            self._notify_log(f"{profile_label} OpenCV target package: {selection.package_name}")
+            self._notify_log(f"{profile_label} OpenCV package spec: {selection.package_spec}")
+            self._notify_log(
+                f"开始同步依赖: {' '.join(opencv_cmd[:15])}{'...' if len(opencv_cmd) > 15 else ''}"
+            )
+
+            opencv_return_code = await self._run_logged_subprocess(opencv_cmd, work_dir, env)
+            self.process = None
+
+            if opencv_return_code != 0:
+                message = f"{opencv_action} {profile_label} OpenCV 覆盖安装失败，返回码: {opencv_return_code}"
+                self._notify_log(message)
+                return ProcessResult(ProcessStatus.ERROR, opencv_return_code, message)
+
+            probe = self._inspect_cv2_runtime(target_python, env)
+            if probe.get("ok"):
+                probe_version = probe.get("version") or "unknown"
+                probe_file = probe.get("file") or "unknown"
+                cuda_suffix = ""
+                if "cuda_count" in probe:
+                    cuda_suffix = f", cuda_count={probe['cuda_count']}"
+                torch_suffix = ""
+                if probe.get("torch_preloaded"):
+                    torch_suffix = f", torch={probe.get('torch_version') or 'unknown'}"
+                try:
+                    cuda_count = int(probe.get("cuda_count") or 0)
+                except (TypeError, ValueError):
+                    cuda_count = 0
+                if selection.source == "cuda-wheel" and cuda_count <= 0:
+                    self._notify_log(
+                        f"{profile_label} OpenCV GPU probe found no CUDA devices: "
+                        f"version={probe_version}, file={probe_file}{cuda_suffix}{torch_suffix}"
+                    )
+                    self._notify_log(f"{profile_label} OpenCV GPU wheel unavailable; retrying with default CPU package")
+                    continue
+                self._notify_log(
+                    f"{profile_label} OpenCV import probe succeeded: "
+                    f"version={probe_version}, file={probe_file}{cuda_suffix}{torch_suffix}"
+                )
+                return None
+
+            error = str(probe.get("error") or "unknown cv2 import failure")
+            if selection.source == "cuda-wheel":
+                self._notify_log(f"{profile_label} OpenCV GPU import probe failed: {error}")
+                self._notify_log(f"{profile_label} OpenCV GPU wheel unavailable; retrying with default CPU package")
+                continue
+
+            self._notify_log(f"{profile_label} OpenCV import probe failed after CPU fallback: {error}")
+            return ProcessResult(ProcessStatus.ERROR, 1, f"{profile_label} OpenCV 导入探测失败: {error}")
+
+        return ProcessResult(ProcessStatus.ERROR, 1, f"{profile_label} OpenCV setup did not produce a working cv2 import")
+
     async def _patch_shared_environment(
         self,
         uv: str,
@@ -988,69 +1084,17 @@ class ProcessRunner:
                         self._notify_log(message)
                         return ProcessResult(ProcessStatus.ERROR, opencv_return_code, message)
 
-            if sys.platform == "win32" and "wdtagger" in extras:
-                opencv_plan = build_wdtagger_opencv_install_plan(env=env, platform=sys.platform)
-
-                for attempt_index, selection in enumerate(opencv_plan.attempts, start=1):
-                    cleanup_cmd = [uv, "pip", "uninstall"]
-                    if target_python:
-                        cleanup_cmd.extend(["--python", target_python])
-                    cleanup_cmd.extend(opencv_plan.cleanup_packages)
-                    self._notify_log(
-                        f"wdtagger OpenCV cleanup before attempt {attempt_index}: removing conflicting cv2 wheels"
-                    )
-                    self._notify_log(
-                        f"开始同步依赖: {' '.join(cleanup_cmd[:15])}{'...' if len(cleanup_cmd) > 15 else ''}"
-                    )
-                    cleanup_return_code = await self._run_logged_subprocess(cleanup_cmd, work_dir, env)
-                    self.process = None
-                    if cleanup_return_code != 0:
-                        self._notify_log("wdtagger OpenCV cleanup returned non-zero; continuing with selected reinstall")
-
-                    opencv_cmd = [uv, "pip", "install", "--no-build-isolation"]
-                    opencv_action = "uv pip install"
-                    opencv_cmd.extend(["--index-strategy", self._uv_index_strategy(env)])
-                    if target_python:
-                        opencv_cmd.extend(["--python", target_python])
-                    opencv_cmd.extend(["--reinstall-package", selection.package_name, selection.package_spec])
-
-                    self._notify_log(f"wdtagger OpenCV override: source={selection.source}, detail={selection.detail}")
-                    if selection.cuda_tag:
-                        self._notify_log(f"wdtagger OpenCV detected CUDA toolkit: {selection.cuda_tag}")
-                    self._notify_log(f"wdtagger OpenCV target package: {selection.package_name}")
-                    self._notify_log(f"wdtagger OpenCV package spec: {selection.package_spec}")
-                    self._notify_log(
-                        f"开始同步依赖: {' '.join(opencv_cmd[:15])}{'...' if len(opencv_cmd) > 15 else ''}"
-                    )
-
-                    opencv_return_code = await self._run_logged_subprocess(opencv_cmd, work_dir, env)
-                    self.process = None
-
-                    if opencv_return_code != 0:
-                        message = f"{opencv_action} wdtagger OpenCV 覆盖安装失败，返回码: {opencv_return_code}"
-                        self._notify_log(message)
-                        return ProcessResult(ProcessStatus.ERROR, opencv_return_code, message)
-
-                    probe = self._inspect_cv2_runtime(target_python, env)
-                    if probe.get("ok"):
-                        probe_version = probe.get("version") or "unknown"
-                        probe_file = probe.get("file") or "unknown"
-                        cuda_suffix = ""
-                        if "cuda_count" in probe:
-                            cuda_suffix = f", cuda_count={probe['cuda_count']}"
-                        self._notify_log(
-                            f"wdtagger OpenCV import probe succeeded: version={probe_version}, file={probe_file}{cuda_suffix}"
-                        )
-                        break
-
-                    error = str(probe.get("error") or "unknown cv2 import failure")
-                    if selection.source == "cuda-wheel":
-                        self._notify_log(f"wdtagger OpenCV GPU import probe failed: {error}")
-                        self._notify_log("wdtagger OpenCV GPU wheel unavailable; retrying with default CPU package")
-                        continue
-
-                    self._notify_log(f"wdtagger OpenCV import probe failed after CPU fallback: {error}")
-                    return ProcessResult(ProcessStatus.ERROR, 1, f"wdtagger OpenCV 导入探测失败: {error}")
+            opencv_profile = self._windows_opencv_override_profile(extras)
+            if sys.platform == "win32" and opencv_profile:
+                opencv_result = await self._apply_windows_opencv_override(
+                    uv,
+                    work_dir,
+                    env,
+                    target_python,
+                    opencv_profile,
+                )
+                if opencv_result:
+                    return opencv_result
 
             return None
 
