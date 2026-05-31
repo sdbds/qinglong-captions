@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import io
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import copy
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import lance
 import pysrt
+from rich.console import Console
 from rich.progress import (
     Progress,
 )
@@ -20,6 +25,24 @@ from utils.stream_util import (
     split_media_stream_clips,
     split_video_with_imageio_ffmpeg,
 )
+
+
+@dataclass(frozen=True)
+class CaptionJob:
+    index: int
+    filepath: str
+    mime: str
+    duration: int
+    sha256hash: str
+
+
+@dataclass
+class CaptionJobResult:
+    index: int
+    filepath: str
+    mime: str
+    output: Any
+    log_text: str = ""
 
 
 def _resolve_dataset(args, transform2lance_fn):
@@ -324,6 +347,209 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
     return _serialize_subtitles(merged_subs)
 
 
+def _positive_int(value, default: int = 1) -> int:
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _collect_caption_jobs(scanner) -> list[CaptionJob]:
+    jobs: list[CaptionJob] = []
+    for batch in scanner.to_batches():
+        filepaths = batch["uris"].to_pylist()
+        mimes = batch["mime"].to_pylist()
+        durations = batch["duration"].to_pylist()
+        sha256hashes = batch["hash"].to_pylist()
+
+        for filepath, mime, duration, sha256hash in zip(filepaths, mimes, durations, sha256hashes):
+            jobs.append(
+                CaptionJob(
+                    index=len(jobs),
+                    filepath=filepath,
+                    mime=mime,
+                    duration=duration,
+                    sha256hash=sha256hash,
+                )
+            )
+    return jobs
+
+
+def _resolve_cloud_concurrency_provider(args, mime: str):
+    if not str(mime).startswith("image/"):
+        return None
+
+    from module.providers import get_registry
+
+    provider_class = get_registry().find_provider(args, mime)
+    if provider_class is None:
+        return None
+    capabilities = getattr(provider_class, "capabilities", None)
+    if not bool(getattr(capabilities, "supports_cloud_concurrency", False)):
+        return None
+    return provider_class
+
+
+def _effective_cloud_concurrency(args, provider_class) -> int:
+    cloud_max = _positive_int(getattr(args, "cloud_max_concurrency", 1), 1)
+    if cloud_max <= 1:
+        return 1
+
+    if getattr(provider_class, "name", "") == "codex_subscription":
+        codex_max = _positive_int(getattr(args, "codex_max_concurrency", 1), 1)
+        return min(cloud_max, codex_max)
+
+    return cloud_max
+
+
+def _resolve_batch_cloud_concurrency(args, jobs: list[CaptionJob], console_obj) -> tuple[Any | None, int]:
+    eligible_providers = {
+        provider
+        for job in jobs
+        if (provider := _resolve_cloud_concurrency_provider(args, job.mime)) is not None
+    }
+    if len(eligible_providers) != 1:
+        return None, 1
+
+    provider_class = next(iter(eligible_providers))
+    if getattr(provider_class, "name", "") == "codex_subscription":
+        cloud_max = _positive_int(getattr(args, "cloud_max_concurrency", 1), 1)
+        codex_max = _positive_int(getattr(args, "codex_max_concurrency", 1), 1)
+        if cloud_max == 1 and codex_max > 1:
+            console_obj.print(
+                "[yellow]codex_max_concurrency > 1 requires --cloud_max_concurrency > 1; Codex image jobs remain serial.[/yellow]"
+            )
+
+    max_workers = _effective_cloud_concurrency(args, provider_class)
+    if max_workers <= 1:
+        return None, 1
+    return provider_class, max_workers
+
+
+def _process_single_caption_job(
+    job: CaptionJob,
+    args,
+    config,
+    *,
+    api_process_batch_fn,
+    console_obj,
+    progress=None,
+    task_id=None,
+) -> CaptionJobResult:
+    scene_detector = create_scene_detector(args, job.mime, progress)
+    if scene_detector is not None:
+        scene_detector.start_async_detection(job.filepath)
+
+    segment_time = _resolve_media_segment_time(args, job.mime, config)
+    media_args = _with_media_segment_time(args, segment_time)
+    if _should_process_without_segmentation(args, job.mime, job.duration, segment_time, config):
+        output = api_process_batch_fn(
+            uri=job.filepath,
+            mime=job.mime,
+            config=config,
+            args=media_args,
+            sha256hash=job.sha256hash,
+            progress=progress,
+            task_id=task_id,
+        )
+        output = postprocess_caption_content(output, job.filepath, media_args, console_obj)
+    else:
+        output = _process_segmented_media(
+            job.filepath,
+            job.mime,
+            job.duration,
+            job.sha256hash,
+            media_args,
+            config,
+            progress,
+            task_id,
+            api_process_batch_fn,
+            console_obj,
+        )
+
+    if isinstance(output, str) and job.mime.startswith(("video", "audio")) and output:
+        try:
+            subs = pysrt.from_string(output)
+            subs = align_subtitles_with_scenes(
+                subs,
+                scene_detector,
+                filepath=job.filepath,
+                segment_time=media_args.segment_time,
+                console=console_obj,
+                timeout=getattr(args, "scene_detection_timeout", None),
+            )
+            output = _serialize_subtitles(subs)
+        except Exception as exc:
+            console_obj.print(f"[yellow]Subtitle validation failed for {job.filepath}: {exc}[/yellow]")
+
+    if output:
+        text_path, _ = write_caption_output(Path(job.filepath), output, job.mime)
+        console_obj.print(f"[green]Saved captions to {text_path}[/green]")
+
+    return CaptionJobResult(index=job.index, filepath=job.filepath, mime=job.mime, output=output)
+
+
+def _process_single_caption_job_buffered(job: CaptionJob, args, config, *, api_process_batch_fn) -> CaptionJobResult:
+    log_buffer = io.StringIO()
+    worker_console = Console(file=log_buffer, force_terminal=False, color_system=None)
+    worker_args = copy(args)
+    result = _process_single_caption_job(
+        job,
+        worker_args,
+        config,
+        api_process_batch_fn=api_process_batch_fn,
+        console_obj=worker_console,
+        progress=None,
+        task_id=None,
+    )
+    result.log_text = log_buffer.getvalue()
+    return result
+
+
+def _run_caption_jobs_concurrently(
+    jobs: list[CaptionJob],
+    args,
+    config,
+    *,
+    api_process_batch_fn,
+    console_obj,
+    progress,
+    task_id,
+    max_workers: int,
+    provider_class,
+) -> dict[int, CaptionJobResult]:
+    results: dict[int, CaptionJobResult] = {}
+    futures = {}
+    provider_name = getattr(provider_class, "name", "unknown")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for job in jobs:
+            future = executor.submit(
+                _process_single_caption_job_buffered,
+                job,
+                args,
+                config,
+                api_process_batch_fn=api_process_batch_fn,
+            )
+            futures[future] = job
+
+        for future in as_completed(futures):
+            job = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                for pending in futures:
+                    pending.cancel()
+                raise RuntimeError(
+                    f"Cloud caption job failed for {job.filepath} via {provider_name}: {exc}"
+                ) from exc
+            if result.log_text:
+                console_obj.print(result.log_text, end="")
+            results[result.index] = result
+            progress.update(task_id, advance=1)
+
+    return results
+
+
 def process_batch(
     args,
     config,
@@ -333,6 +559,7 @@ def process_batch(
     extract_from_lance_fn,
     console_obj,
 ):
+    setattr(args, "cloud_max_concurrency", _positive_int(getattr(args, "cloud_max_concurrency", 1), 1))
     dataset = _resolve_dataset(args, transform2lance_fn)
     scanner = dataset.scanner(
         columns=["uris", "blob", "mime", "captions", "duration", "hash"],
@@ -340,74 +567,73 @@ def process_batch(
         late_materialization=["blob"],
         batch_size=1,
     )
+    jobs = _collect_caption_jobs(scanner)
+    concurrent_provider, concurrent_max_workers = _resolve_batch_cloud_concurrency(args, jobs, console_obj)
 
     with create_caption_progress(console_obj) as progress:
-        task = progress.add_task("[bold cyan]Processing media...", total=dataset.count_rows())
-        results = []
-        processed_filepaths = []
+        task = progress.add_task("[bold cyan]Processing media...", total=len(jobs))
+        results_by_index: dict[int, CaptionJobResult] = {}
+        index = 0
 
-        for batch in scanner.to_batches():
-            filepaths = batch["uris"].to_pylist()
-            mimes = batch["mime"].to_pylist()
-            durations = batch["duration"].to_pylist()
-            sha256hashes = batch["hash"].to_pylist()
+        while index < len(jobs):
+            job = jobs[index]
+            if (
+                concurrent_provider is not None
+                and _resolve_cloud_concurrency_provider(args, job.mime) is concurrent_provider
+            ):
+                block = [job]
+                index += 1
+                while index < len(jobs) and _resolve_cloud_concurrency_provider(args, jobs[index].mime) is concurrent_provider:
+                    block.append(jobs[index])
+                    index += 1
 
-            for filepath, mime, duration, sha256hash in zip(filepaths, mimes, durations, sha256hashes):
-                scene_detector = create_scene_detector(args, mime, progress)
-                if scene_detector is not None:
-                    scene_detector.start_async_detection(filepath)
-
-                segment_time = _resolve_media_segment_time(args, mime, config)
-                media_args = _with_media_segment_time(args, segment_time)
-                if _should_process_without_segmentation(args, mime, duration, segment_time, config):
-                    output = api_process_batch_fn(
-                        uri=filepath,
-                        mime=mime,
-                        config=config,
-                        args=media_args,
-                        sha256hash=sha256hash,
-                        progress=progress,
-                        task_id=task,
-                    )
-                    output = postprocess_caption_content(output, filepath, media_args, console_obj)
-                else:
-                    output = _process_segmented_media(
-                        filepath,
-                        mime,
-                        duration,
-                        sha256hash,
-                        media_args,
-                        config,
-                        progress,
-                        task,
-                        api_process_batch_fn,
-                        console_obj,
-                    )
-
-                if isinstance(output, str) and mime.startswith(("video", "audio")) and output:
-                    try:
-                        subs = pysrt.from_string(output)
-                        subs = align_subtitles_with_scenes(
-                            subs,
-                            scene_detector,
-                            filepath=filepath,
-                            segment_time=media_args.segment_time,
-                            console=console_obj,
-                            timeout=getattr(args, "scene_detection_timeout", None),
+                if len(block) > 1:
+                    results_by_index.update(
+                        _run_caption_jobs_concurrently(
+                            block,
+                            args,
+                            config,
+                            api_process_batch_fn=api_process_batch_fn,
+                            console_obj=console_obj,
+                            progress=progress,
+                            task_id=task,
+                            max_workers=concurrent_max_workers,
+                            provider_class=concurrent_provider,
                         )
-                        output = _serialize_subtitles(subs)
-                    except Exception as exc:
-                        console_obj.print(f"[yellow]Subtitle validation failed for {filepath}: {exc}[/yellow]")
+                    )
+                    continue
 
-                if output:
-                    text_path, _ = write_caption_output(Path(filepath), output, mime)
-                    console_obj.print(f"[green]Saved captions to {text_path}[/green]")
-
-                results.append(output)
-                processed_filepaths.append(filepath)
+                result = _process_single_caption_job(
+                    block[0],
+                    args,
+                    config,
+                    api_process_batch_fn=api_process_batch_fn,
+                    console_obj=console_obj,
+                    progress=progress,
+                    task_id=task,
+                )
+                results_by_index[result.index] = result
                 progress.update(task, advance=1)
+                continue
+
+            result = _process_single_caption_job(
+                job,
+                args,
+                config,
+                api_process_batch_fn=api_process_batch_fn,
+                console_obj=console_obj,
+                progress=progress,
+                task_id=task,
+            )
+            results_by_index[result.index] = result
+            progress.update(task, advance=1)
+            index += 1
 
         progress.update(task, visible=False)
+
+    ordered_results = [results_by_index[job.index] for job in jobs]
+    processed_filepaths = [result.filepath for result in ordered_results]
+    results = [result.output for result in ordered_results]
 
     update_dataset_captions(
         dataset,

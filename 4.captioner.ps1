@@ -66,6 +66,7 @@ $codex_isolated_cwd = ""
 $codex_output_schema = ""
 $codex_runtime_path = ""
 $codex_max_concurrency = 1
+$cloud_max_concurrency = 1
 $codex_auto_install_sdk = $true
 
 $dir_name = $false
@@ -407,6 +408,10 @@ if ($openai_model_name) {
 
 if ($local_runtime_backend) {
   [void]$ext_args.Add("--local_runtime_backend=$local_runtime_backend")
+}
+
+if ($cloud_max_concurrency -gt 1) {
+  [void]$ext_args.Add("--cloud_max_concurrency=$cloud_max_concurrency")
 }
 
 if ($codex_subscription) {

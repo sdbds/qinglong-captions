@@ -43,6 +43,7 @@ class VisionAPIProvider(Provider):
         supports_audio=True,
         supports_images=True,
         supports_documents=True,
+        supports_cloud_concurrency=True,
     )
 
     def prepare_media(self, uri: str, mime: str, args: Any) -> MediaContext:

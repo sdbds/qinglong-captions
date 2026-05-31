@@ -24,3 +24,6 @@ class ProviderCapabilities:
 
     # 支持的 MIME 类型列表（可选，用于精确匹配）
     supported_mimes: Optional[List[str]] = None
+
+    # 是否允许调度器并发调用云端 caption 请求
+    supports_cloud_concurrency: bool = False

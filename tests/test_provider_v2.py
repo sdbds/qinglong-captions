@@ -229,6 +229,7 @@ class TestProviderCapabilities:
         assert not cap.supports_video
         assert not cap.supports_images
         assert not cap.supports_documents
+        assert not cap.supports_cloud_concurrency
         assert cap.max_file_size_mb == 100
         assert cap.supported_mimes is None
 
@@ -238,12 +239,23 @@ class TestProviderCapabilities:
         assert CloudVLMProvider.capabilities.supports_video
         assert CloudVLMProvider.capabilities.supports_images
         assert CloudVLMProvider.capabilities.supports_audio
+        assert CloudVLMProvider.capabilities.supports_cloud_concurrency
 
     def test_ocr_caps(self):
         from providers.ocr_base import OCRProvider
         assert OCRProvider.capabilities.supports_documents
         assert OCRProvider.capabilities.supports_images
         assert not OCRProvider.capabilities.supports_streaming
+        assert not OCRProvider.capabilities.supports_cloud_concurrency
+
+    def test_vision_api_caps_support_cloud_concurrency(self):
+        from providers.vision_api_base import VisionAPIProvider
+        assert VisionAPIProvider.capabilities.supports_cloud_concurrency
+
+    def test_codex_subscription_caps_support_cloud_concurrency(self):
+        from module.providers.cloud_vlm.codex_subscription import CodexSubscriptionProvider
+        assert CodexSubscriptionProvider.capabilities.supports_cloud_concurrency
+        assert CodexSubscriptionProvider.capabilities.supports_images
 
 
 # ──────────────────────────────────────────────

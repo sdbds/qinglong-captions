@@ -415,6 +415,82 @@ def test_codex_app_server_starts_ephemeral_thread_per_image(tmp_path):
     assert second.thread_id == "thread-2"
 
 
+def test_codex_app_server_pool_uses_distinct_slots(monkeypatch, tmp_path):
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from module.providers import codex_app_server
+    from module.providers.codex_app_server import CodexAppServerConfig, caption_image_with_app_server
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+
+    created_lock = threading.Lock()
+    turn_lock = threading.Lock()
+    created_slots = []
+    in_flight = 0
+    max_in_flight = 0
+
+    class FakeClient:
+        def __init__(self):
+            with created_lock:
+                self.slot = len(created_slots) + 1
+                created_slots.append(self.slot)
+            self.thread_count = 0
+            self.current_thread_id = ""
+
+        def thread_start(self, **_payload):
+            self.thread_count += 1
+            self.current_thread_id = f"thread-{self.slot}-{self.thread_count}"
+            return {"threadId": self.current_thread_id}
+
+        def turn_start(self, **payload):
+            nonlocal in_flight, max_in_flight
+            if payload["threadId"] != self.current_thread_id:
+                raise AssertionError("request-specific thread state was shared")
+            with turn_lock:
+                in_flight += 1
+                max_in_flight = max(max_in_flight, in_flight)
+            time.sleep(0.05)
+            with turn_lock:
+                in_flight -= 1
+            return {
+                "turnId": payload["threadId"].replace("thread", "turn"),
+                "parsed": {
+                    "short_description": "short",
+                    "long_description": payload["threadId"],
+                    "tags": ["tag"],
+                    "rating": "general",
+                    "confidence": 0.7,
+                },
+            }
+
+    codex_app_server.reset_codex_app_server_client_cache()
+    monkeypatch.setattr(codex_app_server, "_create_sdk_client", lambda _config: FakeClient())
+    config = CodexAppServerConfig(auth_mode="chatgpt", isolated_cwd=str(tmp_path / "work"))
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(
+                    caption_image_with_app_server,
+                    config,
+                    image_path=image,
+                    prompt="caption",
+                    max_concurrency=2,
+                )
+                for _ in range(2)
+            ]
+            results = [future.result() for future in futures]
+    finally:
+        codex_app_server.reset_codex_app_server_client_cache()
+
+    assert created_slots == [1, 2]
+    assert max_in_flight == 2
+    assert {result.thread_id for result in results} == {"thread-1-1", "thread-2-1"}
+
+
 def test_codex_app_server_missing_sdk_error_mentions_optional_extra(monkeypatch):
     import builtins
 
@@ -475,6 +551,39 @@ def test_codex_subscription_defaults_to_sdk_app_server(monkeypatch, tmp_path):
     assert captured["config"].api_key == ""
     assert captured["output_schema"]["type"] == "object"
     assert result.parsed["long_description"] == "long"
+
+
+def test_codex_subscription_passes_effective_app_server_concurrency(monkeypatch, tmp_path):
+    from rich.console import Console
+
+    from module.providers.base import MediaContext, MediaModality, ProviderContext, PromptContext
+    from module.providers.cloud_vlm import codex_subscription
+    from module.providers.cloud_vlm.codex_subscription import CodexSubscriptionProvider
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+    captured = {}
+
+    def fake_caption(config, *, image_path, prompt, output_schema, max_concurrency=None):
+        captured["max_concurrency"] = max_concurrency
+        return SimpleNamespace(
+            parsed={
+                "short_description": "short",
+                "long_description": "long",
+                "tags": ["tag"],
+                "rating": "general",
+                "confidence": 0.8,
+            }
+        )
+
+    monkeypatch.setattr(codex_subscription, "caption_image_with_app_server", fake_caption)
+    args = make_provider_args(codex_subscription=True, cloud_max_concurrency=4, codex_max_concurrency=2)
+    provider = CodexSubscriptionProvider(ProviderContext(console=Console(), args=args))
+    media = MediaContext(uri=str(image), mime="image/png", sha256hash="", modality=MediaModality.IMAGE)
+
+    provider.attempt(media, PromptContext(system="sys", user="user"))
+
+    assert captured["max_concurrency"] == 2
 
 
 def test_codex_subscription_passes_folder_name_into_app_server_prompt(monkeypatch, tmp_path):

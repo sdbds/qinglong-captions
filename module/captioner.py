@@ -369,6 +369,12 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Reserved concurrency limit for Codex app-server captioning.",
     )
     parser.add_argument(
+        "--cloud_max_concurrency",
+        type=int,
+        default=1,
+        help="Global cloud image caption concurrency limit. Default 1 keeps scheduling serial.",
+    )
+    parser.add_argument(
         "--codex_auto_install_sdk",
         action="store_true",
         help="Allow launcher scripts to install the optional Codex Python SDK extra.",

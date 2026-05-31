@@ -6,6 +6,8 @@ import asyncio
 import hashlib
 import inspect
 import os
+import queue
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -394,6 +396,13 @@ def _cache_key(config: CodexAppServerConfig) -> tuple[Any, ...]:
     )
 
 
+def _positive_int(value: Any, default: int = 1) -> int:
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
 def _build_sdk_run_input(prompt: str, image_path: str | Path) -> list[Any]:
     image = str(Path(image_path).expanduser().resolve())
     try:
@@ -462,42 +471,43 @@ class CodexAppServerCaptionClient:
             raise CodexAppServerError(f"Unsupported Codex auth mode: {auth_mode}", kind="config")
         self.config = CodexAppServerConfig(**{**config.__dict__, "auth_mode": auth_mode})
         self.client = _make_client(client_factory, self.config)
-        self.thread_id = ""
-        self.thread = None
         self._auth_checked = False
+        self._auth_lock = threading.Lock()
+        self._request_lock = threading.Lock()
 
     def ensure_auth(self) -> None:
         if self._auth_checked:
             return
-        auth_mode = self.config.auth_mode
-        if auth_mode == "api_key":
-            api_key = self.config.api_key or os.environ.get("OPENAI_API_KEY", "")
-            if not api_key:
-                raise CodexAppServerError(
-                    "Codex API key auth was requested, but no API key was provided.",
-                    kind="auth",
+        with self._auth_lock:
+            if self._auth_checked:
+                return
+            auth_mode = self.config.auth_mode
+            if auth_mode == "api_key":
+                api_key = self.config.api_key or os.environ.get("OPENAI_API_KEY", "")
+                if not api_key:
+                    raise CodexAppServerError(
+                        "Codex API key auth was requested, but no API key was provided.",
+                        kind="auth",
+                    )
+                _call_optional_method(
+                    self.client,
+                    (
+                        ("login_api_key",),
+                        ("loginApiKey",),
+                        ("auth", "login_api_key"),
+                        ("account", "login_api_key"),
+                    ),
+                    {"api_key": api_key},
                 )
-            _call_optional_method(
-                self.client,
-                (
-                    ("login_api_key",),
-                    ("loginApiKey",),
-                    ("auth", "login_api_key"),
-                    ("account", "login_api_key"),
-                ),
-                {"api_key": api_key},
-            )
-        elif auth_mode == "chatgpt":
-            # The SDK/app-server reuses the current ChatGPT/Codex auth state.
-            # Avoid launching an interactive login flow in batch captioning.
-            pass
-        elif auth_mode == "existing":
-            pass
-        self._auth_checked = True
+            elif auth_mode == "chatgpt":
+                # The SDK/app-server reuses the current ChatGPT/Codex auth state.
+                # Avoid launching an interactive login flow in batch captioning.
+                pass
+            elif auth_mode == "existing":
+                pass
+            self._auth_checked = True
 
-    def start_thread(self) -> str:
-        self.thread_id = ""
-        self.thread = None
+    def start_thread(self) -> tuple[str, Any | None]:
         cwd = self.config.isolated_cwd or Path.cwd()
         payload = build_thread_start_payload(self.config, cwd)
         method = _get_attr_path(self.client, ("thread_start",))
@@ -538,10 +548,9 @@ class CodexAppServerCaptionClient:
                 ),
                 payload,
             )
-        if callable(getattr(response, "run", None)):
-            self.thread = response
-        self.thread_id = _extract_thread_id(response)
-        return self.thread_id
+        thread = response if callable(getattr(response, "run", None)) else None
+        thread_id = _extract_thread_id(response)
+        return thread_id, thread
 
     def caption_image(
         self,
@@ -550,81 +559,108 @@ class CodexAppServerCaptionClient:
         prompt: str,
         output_schema: dict[str, Any] | None = None,
     ) -> CodexAppServerResult:
-        image = Path(image_path).expanduser()
-        if not image.exists():
-            raise CodexAppServerError(f"Image file does not exist: {image}", kind="image_not_found")
+        with self._request_lock:
+            image = Path(image_path).expanduser()
+            if not image.exists():
+                raise CodexAppServerError(f"Image file does not exist: {image}", kind="image_not_found")
 
-        try:
-            self.ensure_auth()
-            thread_id = self.start_thread()
-            if self.thread is not None:
-                response = _call_thread_run(
-                    self.thread,
-                    config=self.config,
-                    prompt=prompt,
-                    image_path=image,
-                    output_schema=output_schema,
-                )
-            else:
-                payload = build_turn_start_payload(
-                    thread_id=thread_id,
-                    prompt=prompt,
-                    image_path=image,
-                    model=self.config.model,
-                    output_schema=output_schema,
-                )
-                response = _call_payload_method(
-                    self.client,
-                    (
-                        ("turn_start",),
-                        ("start_turn",),
-                        ("turnStart",),
-                        ("turns", "start"),
-                        ("turn", "start"),
-                        ("app_server", "turn_start"),
-                    ),
-                    payload,
-                )
-        except CodexAppServerError:
-            raise
-        except Exception as exc:
-            text = str(exc)
-            kind = classify_codex_app_server_failure(text)
-            retryable = kind in {"timeout", "transport"}
-            message = f"Codex app-server request failed ({kind}): {text}"
-            if kind == "auth" and self.config.auth_mode == DEFAULT_CODEX_AUTH_MODE:
-                message = (
-                    "Codex ChatGPT subscription session is not available. "
-                    "Run Codex login first; this provider does not fall back to OPENAI_API_KEY."
-                )
-            raise CodexAppServerError(message, kind=kind, retryable=retryable, detail=text, cause=exc) from exc
-
-        raw, parsed = _extract_turn_output(response)
-        if parsed is None:
             try:
-                parsed = parse_codex_caption_output(raw)
-            except CodexCaptionOutputError as exc:
-                raise CodexAppServerError(str(exc), kind="output", detail=exc.raw or raw, cause=exc) from exc
-        if not raw:
-            import json
+                self.ensure_auth()
+                thread_id, thread = self.start_thread()
+                if thread is not None:
+                    response = _call_thread_run(
+                        thread,
+                        config=self.config,
+                        prompt=prompt,
+                        image_path=image,
+                        output_schema=output_schema,
+                    )
+                else:
+                    payload = build_turn_start_payload(
+                        thread_id=thread_id,
+                        prompt=prompt,
+                        image_path=image,
+                        model=self.config.model,
+                        output_schema=output_schema,
+                    )
+                    response = _call_payload_method(
+                        self.client,
+                        (
+                            ("turn_start",),
+                            ("start_turn",),
+                            ("turnStart",),
+                            ("turns", "start"),
+                            ("turn", "start"),
+                            ("app_server", "turn_start"),
+                        ),
+                        payload,
+                    )
+            except CodexAppServerError:
+                raise
+            except Exception as exc:
+                text = str(exc)
+                kind = classify_codex_app_server_failure(text)
+                retryable = kind in {"timeout", "transport"}
+                message = f"Codex app-server request failed ({kind}): {text}"
+                if kind == "auth" and self.config.auth_mode == DEFAULT_CODEX_AUTH_MODE:
+                    message = (
+                        "Codex ChatGPT subscription session is not available. "
+                        "Run Codex login first; this provider does not fall back to OPENAI_API_KEY."
+                    )
+                raise CodexAppServerError(message, kind=kind, retryable=retryable, detail=text, cause=exc) from exc
 
-            raw = json.dumps(parsed, ensure_ascii=False)
+            raw, parsed = _extract_turn_output(response)
+            if parsed is None:
+                try:
+                    parsed = parse_codex_caption_output(raw)
+                except CodexCaptionOutputError as exc:
+                    raise CodexAppServerError(str(exc), kind="output", detail=exc.raw or raw, cause=exc) from exc
+            if not raw:
+                import json
 
-        return CodexAppServerResult(
-            raw=raw,
-            parsed=parsed,
-            thread_id=self.thread_id,
-            turn_id=_extract_turn_id(response),
-            metadata={
-                "backend": DEFAULT_CODEX_BACKEND,
-                "auth_mode": self.config.auth_mode,
-                "model": self.config.model,
-                "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
-            },
-        )
+                raw = json.dumps(parsed, ensure_ascii=False)
+
+            return CodexAppServerResult(
+                raw=raw,
+                parsed=parsed,
+                thread_id=thread_id,
+                turn_id=_extract_turn_id(response),
+                metadata={
+                    "backend": DEFAULT_CODEX_BACKEND,
+                    "auth_mode": self.config.auth_mode,
+                    "model": self.config.model,
+                    "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
+                },
+            )
+
+
+class CodexAppServerClientPool:
+    """Bounded pool of app-server clients for concurrent Codex caption jobs."""
+
+    def __init__(self, config: CodexAppServerConfig, size: int):
+        self.config = config
+        self.size = _positive_int(size, 1)
+        self._queue: queue.Queue[CodexAppServerCaptionClient] = queue.Queue(maxsize=self.size)
+        for _ in range(self.size):
+            self._queue.put(CodexAppServerCaptionClient(config))
+
+    def caption_image(
+        self,
+        *,
+        image_path: str | Path,
+        prompt: str,
+        output_schema: dict[str, Any] | None = None,
+    ) -> CodexAppServerResult:
+        client = self._queue.get()
+        try:
+            return client.caption_image(image_path=image_path, prompt=prompt, output_schema=output_schema)
+        finally:
+            self._queue.put(client)
 
 
 _CLIENT_CACHE: dict[tuple[Any, ...], CodexAppServerCaptionClient] = {}
+_CLIENT_POOLS: dict[tuple[Any, ...], CodexAppServerClientPool] = {}
+_CLIENT_CACHE_LOCK = threading.Lock()
 
 
 def get_codex_app_server_client(
@@ -635,15 +671,33 @@ def get_codex_app_server_client(
     if client_factory is not None:
         return CodexAppServerCaptionClient(config, client_factory=client_factory)
     key = _cache_key(config)
-    client = _CLIENT_CACHE.get(key)
-    if client is None:
-        client = CodexAppServerCaptionClient(config)
-        _CLIENT_CACHE[key] = client
-    return client
+    with _CLIENT_CACHE_LOCK:
+        client = _CLIENT_CACHE.get(key)
+        if client is None:
+            client = CodexAppServerCaptionClient(config)
+            _CLIENT_CACHE[key] = client
+        return client
+
+
+def get_codex_app_server_client_pool(
+    config: CodexAppServerConfig,
+    *,
+    max_concurrency: int,
+) -> CodexAppServerClientPool:
+    pool_size = _positive_int(max_concurrency, 1)
+    key = (*_cache_key(config), pool_size)
+    with _CLIENT_CACHE_LOCK:
+        pool = _CLIENT_POOLS.get(key)
+        if pool is None:
+            pool = CodexAppServerClientPool(config, pool_size)
+            _CLIENT_POOLS[key] = pool
+        return pool
 
 
 def reset_codex_app_server_client_cache() -> None:
-    _CLIENT_CACHE.clear()
+    with _CLIENT_CACHE_LOCK:
+        _CLIENT_CACHE.clear()
+        _CLIENT_POOLS.clear()
 
 
 def caption_image_with_app_server(
@@ -653,6 +707,11 @@ def caption_image_with_app_server(
     prompt: str,
     output_schema: dict[str, Any] | None = None,
     client_factory: Callable[..., Any] | None = None,
+    max_concurrency: int = 1,
 ) -> CodexAppServerResult:
+    pool_size = _positive_int(max_concurrency, 1)
+    if client_factory is None and pool_size > 1:
+        pool = get_codex_app_server_client_pool(config, max_concurrency=pool_size)
+        return pool.caption_image(image_path=image_path, prompt=prompt, output_schema=output_schema)
     client = get_codex_app_server_client(config, client_factory=client_factory)
     return client.caption_image(image_path=image_path, prompt=prompt, output_schema=output_schema)

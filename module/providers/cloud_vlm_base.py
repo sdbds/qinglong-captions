@@ -41,6 +41,7 @@ class CloudVLMProvider(Provider):
         supports_video=True,
         supports_images=True,
         supports_audio=True,
+        supports_cloud_concurrency=True,
     )
 
     def prepare_media(self, uri: str, mime: str, args: Any) -> MediaContext:

@@ -9,6 +9,7 @@ from typing import Any
 
 from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext, RetryConfig
 from module.providers.cloud_vlm_base import CloudVLMProvider
+from module.providers.capabilities import ProviderCapabilities
 from module.providers.codex_app_server import (
     DEFAULT_CODEX_AUTH_MODE,
     DEFAULT_CODEX_BACKEND,
@@ -38,6 +39,11 @@ class CodexSubscriptionProvider(CloudVLMProvider):
     """Use a logged-in Codex/ChatGPT subscription session to caption images."""
 
     name = "codex_subscription"
+    capabilities = ProviderCapabilities(
+        supports_structured_output=True,
+        supports_images=True,
+        supports_cloud_concurrency=True,
+    )
 
     @classmethod
     def can_handle(cls, args: Any, mime: str) -> bool:
@@ -164,12 +170,21 @@ class CodexSubscriptionProvider(CloudVLMProvider):
             runtime_path=getattr(args, "codex_runtime_path", "") or "",
             isolated_cwd=str(isolated_cwd),
         )
+        app_server_max_concurrency = min(
+            _positive_int(getattr(args, "cloud_max_concurrency", 1), 1),
+            _positive_int(getattr(args, "codex_max_concurrency", 1), 1),
+        )
+        caption_kwargs = {
+            "image_path": media.uri,
+            "prompt": prompt,
+            "output_schema": output_schema,
+        }
+        if app_server_max_concurrency > 1:
+            caption_kwargs["max_concurrency"] = app_server_max_concurrency
         try:
             result = caption_image_with_app_server(
                 config,
-                image_path=media.uri,
-                prompt=prompt,
-                output_schema=output_schema,
+                **caption_kwargs,
             )
         except CodexAppServerError:
             raise
@@ -183,3 +198,10 @@ class CodexSubscriptionProvider(CloudVLMProvider):
 
     def display_name(self, mime: str) -> str:
         return "codex_subscription"
+
+
+def _positive_int(value: Any, default: int = 1) -> int:
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return default

@@ -42,6 +42,7 @@ def make_provider_args(**kwargs):
         "codex_output_schema": "",
         "codex_runtime_path": "",
         "codex_max_concurrency": 1,
+        "cloud_max_concurrency": 1,
         "codex_auto_install_sdk": False,
     }
     defaults.update(kwargs)
