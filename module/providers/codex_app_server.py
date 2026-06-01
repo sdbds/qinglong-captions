@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import hashlib
 import inspect
 import os
@@ -269,6 +270,28 @@ def _get_attr_path(target: Any, path: tuple[str, ...]) -> Any | None:
         if value is None:
             return None
     return value if callable(value) else None
+
+
+def _close_sdk_client(client: Any) -> None:
+    close_attempts: tuple[tuple[tuple[str, ...], tuple[Any, ...]], ...] = (
+        (("close",), ()),
+        (("aclose",), ()),
+        (("shutdown",), ()),
+        (("stop",), ()),
+        (("terminate",), ()),
+        (("__exit__",), (None, None, None)),
+        (("app_server", "close"), ()),
+        (("appServer", "close"), ()),
+    )
+    for path, args in close_attempts:
+        method = _get_attr_path(client, path)
+        if method is None:
+            continue
+        try:
+            _run_maybe_awaitable(method(*args))
+            return
+        except Exception:
+            continue
 
 
 def _call_payload_method(target: Any, paths: tuple[tuple[str, ...], ...], payload: dict[str, Any]) -> Any:
@@ -744,11 +767,27 @@ class CodexAppServerCaptionClient:
         self._auth_checked = False
         self._auth_lock = threading.Lock()
         self._request_lock = threading.Lock()
+        self._close_lock = threading.Lock()
+        self._closed = False
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise CodexAppServerError("Codex app-server client is closed.", kind="closed")
+
+    def close(self) -> None:
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+            client = self.client
+        _close_sdk_client(client)
 
     def ensure_auth(self) -> None:
+        self._ensure_open()
         if self._auth_checked:
             return
         with self._auth_lock:
+            self._ensure_open()
             if self._auth_checked:
                 return
             auth_mode = self.config.auth_mode
@@ -831,17 +870,23 @@ class CodexAppServerCaptionClient:
         timeout: float | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> CodexAppServerResult:
-        return _run_with_timeout(
-            lambda: self._caption_image_blocking(
-                image_path=image_path,
-                prompt=prompt,
-                output_schema=output_schema,
+        self._ensure_open()
+        try:
+            return _run_with_timeout(
+                lambda: self._caption_image_blocking(
+                    image_path=image_path,
+                    prompt=prompt,
+                    output_schema=output_schema,
+                    progress_callback=progress_callback,
+                ),
+                timeout=self.config.timeout if timeout is None else timeout,
+                stage="caption_image",
                 progress_callback=progress_callback,
-            ),
-            timeout=self.config.timeout if timeout is None else timeout,
-            stage="caption_image",
-            progress_callback=progress_callback,
-        )
+            )
+        except CodexAppServerError as exc:
+            if exc.kind == "timeout":
+                self.close()
+            raise
 
     def _caption_image_blocking(
         self,
@@ -852,6 +897,7 @@ class CodexAppServerCaptionClient:
         progress_callback: ProgressCallback | None = None,
     ) -> CodexAppServerResult:
         with self._request_lock:
+            self._ensure_open()
             image = Path(image_path).expanduser()
             _emit_progress(progress_callback, f"Codex app-server: checking image {image.name}")
             if not image.exists():
@@ -946,8 +992,36 @@ class CodexAppServerClientPool:
         self.config = config
         self.size = _positive_int(size, 1)
         self._queue: queue.Queue[CodexAppServerCaptionClient] = queue.Queue(maxsize=self.size)
+        self._close_lock = threading.Lock()
+        self._closed = False
         for _ in range(self.size):
             self._queue.put(CodexAppServerCaptionClient(config))
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise CodexAppServerError("Codex app-server client pool is closed.", kind="closed")
+
+    def _return_client(self, client: CodexAppServerCaptionClient) -> None:
+        with self._close_lock:
+            if self._closed:
+                should_close = True
+            else:
+                self._queue.put(client)
+                should_close = False
+        if should_close:
+            client.close()
+
+    def close(self) -> None:
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+        while True:
+            try:
+                client = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            client.close()
 
     def caption_image(
         self,
@@ -958,7 +1032,13 @@ class CodexAppServerClientPool:
         timeout: float | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> CodexAppServerResult:
-        client = self._queue.get()
+        while True:
+            self._ensure_open()
+            try:
+                client = self._queue.get(timeout=0.1)
+                break
+            except queue.Empty:
+                continue
         try:
             result = client.caption_image(
                 image_path=image_path,
@@ -968,18 +1048,22 @@ class CodexAppServerClientPool:
                 progress_callback=progress_callback,
             )
         except CodexAppServerError as exc:
-            if exc.kind != "timeout":
-                self._queue.put(client)
+            if exc.kind == "timeout":
+                client.close()
+            else:
+                self._return_client(client)
             raise
-        finally:
-            if "result" in locals():
-                self._queue.put(client)
+        except Exception:
+            self._return_client(client)
+            raise
+        self._return_client(client)
         return result
 
 
 _CLIENT_CACHE: dict[tuple[Any, ...], CodexAppServerCaptionClient] = {}
 _CLIENT_POOLS: dict[tuple[Any, ...], CodexAppServerClientPool] = {}
 _CLIENT_CACHE_LOCK = threading.Lock()
+_CLIENT_CACHE_GENERATION = 0
 
 
 def get_codex_app_server_client(
@@ -992,10 +1076,25 @@ def get_codex_app_server_client(
     key = _cache_key(config)
     with _CLIENT_CACHE_LOCK:
         client = _CLIENT_CACHE.get(key)
-        if client is None:
-            client = CodexAppServerCaptionClient(config)
-            _CLIENT_CACHE[key] = client
+        generation = _CLIENT_CACHE_GENERATION
+    if client is not None:
         return client
+
+    new_client = CodexAppServerCaptionClient(config)
+    with _CLIENT_CACHE_LOCK:
+        existing = _CLIENT_CACHE.get(key)
+        if existing is not None:
+            replacement = existing
+        elif generation == _CLIENT_CACHE_GENERATION:
+            _CLIENT_CACHE[key] = new_client
+            return new_client
+        else:
+            replacement = None
+
+    new_client.close()
+    if replacement is not None:
+        return replacement
+    raise CodexAppServerError("Codex app-server client startup was abandoned.", kind="timeout", retryable=True)
 
 
 def get_codex_app_server_client_pool(
@@ -1007,16 +1106,39 @@ def get_codex_app_server_client_pool(
     key = (*_cache_key(config), pool_size)
     with _CLIENT_CACHE_LOCK:
         pool = _CLIENT_POOLS.get(key)
-        if pool is None:
-            pool = CodexAppServerClientPool(config, pool_size)
-            _CLIENT_POOLS[key] = pool
+        generation = _CLIENT_CACHE_GENERATION
+    if pool is not None:
         return pool
+
+    new_pool = CodexAppServerClientPool(config, pool_size)
+    with _CLIENT_CACHE_LOCK:
+        existing = _CLIENT_POOLS.get(key)
+        if existing is not None:
+            replacement = existing
+        elif generation == _CLIENT_CACHE_GENERATION:
+            _CLIENT_POOLS[key] = new_pool
+            return new_pool
+        else:
+            replacement = None
+
+    new_pool.close()
+    if replacement is not None:
+        return replacement
+    raise CodexAppServerError("Codex app-server client pool startup was abandoned.", kind="timeout", retryable=True)
 
 
 def reset_codex_app_server_client_cache() -> None:
+    global _CLIENT_CACHE_GENERATION
     with _CLIENT_CACHE_LOCK:
+        _CLIENT_CACHE_GENERATION += 1
+        clients = list(_CLIENT_CACHE.values())
+        pools = list(_CLIENT_POOLS.values())
         _CLIENT_CACHE.clear()
         _CLIENT_POOLS.clear()
+    for pool in pools:
+        pool.close()
+    for client in clients:
+        client.close()
 
 
 def caption_image_with_app_server(
@@ -1031,6 +1153,7 @@ def caption_image_with_app_server(
 ) -> CodexAppServerResult:
     deadline = _timeout_deadline(config.timeout)
     pool_size = _positive_int(max_concurrency, 1)
+    client: CodexAppServerCaptionClient | None = None
     try:
         if client_factory is None and pool_size > 1:
             _emit_progress(progress_callback, f"Codex app-server: acquiring pooled client (workers={pool_size})")
@@ -1063,6 +1186,15 @@ def caption_image_with_app_server(
             progress_callback=progress_callback,
         )
     except CodexAppServerError as exc:
-        if exc.kind == "timeout" and client_factory is None:
-            reset_codex_app_server_client_cache()
+        if exc.kind == "timeout":
+            if client_factory is None:
+                reset_codex_app_server_client_cache()
+            elif client is not None:
+                client.close()
         raise
+    finally:
+        if client_factory is not None and client is not None:
+            client.close()
+
+
+atexit.register(reset_codex_app_server_client_cache)

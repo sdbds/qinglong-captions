@@ -804,6 +804,198 @@ def test_codex_app_server_pool_uses_distinct_slots(monkeypatch, tmp_path):
     assert {result.thread_id for result in results} == {"thread-1-1", "thread-2-1"}
 
 
+def test_codex_app_server_cache_reset_closes_cached_clients(monkeypatch, tmp_path):
+    from module.providers import codex_app_server
+    from module.providers.codex_app_server import (
+        CodexAppServerConfig,
+        get_codex_app_server_client,
+        get_codex_app_server_client_pool,
+    )
+
+    created = []
+
+    class FakeSdkClient:
+        def __init__(self):
+            self.closed = False
+            created.append(self)
+
+        def close(self):
+            self.closed = True
+
+    codex_app_server.reset_codex_app_server_client_cache()
+    monkeypatch.setattr(codex_app_server, "_create_sdk_client", lambda _config: FakeSdkClient())
+    config = CodexAppServerConfig(auth_mode="chatgpt", isolated_cwd=str(tmp_path / "work"))
+
+    try:
+        get_codex_app_server_client(config)
+        get_codex_app_server_client_pool(config, max_concurrency=2)
+
+        assert len(created) == 3
+
+        codex_app_server.reset_codex_app_server_client_cache()
+
+        assert all(client.closed for client in created)
+    finally:
+        codex_app_server.reset_codex_app_server_client_cache()
+
+
+def test_codex_app_server_late_startup_client_is_closed_after_timeout(monkeypatch, tmp_path):
+    import threading
+    import time
+
+    from module.providers import codex_app_server
+    from module.providers.codex_app_server import CodexAppServerConfig, CodexAppServerError, caption_image_with_app_server
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+    closed = threading.Event()
+    created = []
+
+    class FakeSdkClient:
+        def __init__(self):
+            self.closed = False
+            created.append(self)
+
+        def close(self):
+            self.closed = True
+            closed.set()
+
+    def slow_create(_config):
+        time.sleep(0.12)
+        return FakeSdkClient()
+
+    codex_app_server.reset_codex_app_server_client_cache()
+    monkeypatch.setattr(codex_app_server, "_create_sdk_client", slow_create)
+
+    try:
+        with pytest.raises(CodexAppServerError) as exc_info:
+            caption_image_with_app_server(
+                CodexAppServerConfig(timeout=0.02, auth_mode="chatgpt", isolated_cwd=str(tmp_path / "work")),
+                image_path=image,
+                prompt="caption",
+            )
+
+        assert exc_info.value.kind == "timeout"
+        assert closed.wait(timeout=2)
+        assert len(created) == 1
+        assert created[0].closed is True
+    finally:
+        codex_app_server.reset_codex_app_server_client_cache()
+
+
+def test_codex_app_server_pool_closes_timed_out_slot(monkeypatch, tmp_path):
+    from module.providers import codex_app_server
+    from module.providers.codex_app_server import (
+        CodexAppServerClientPool,
+        CodexAppServerConfig,
+        CodexAppServerError,
+    )
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+    created = []
+
+    class FakeSdkClient:
+        def __init__(self):
+            self.closed = False
+            created.append(self)
+
+        def close(self):
+            self.closed = True
+
+    def fake_caption_image(self, **_kwargs):
+        raise CodexAppServerError("caption timed out", kind="timeout")
+
+    monkeypatch.setattr(codex_app_server, "_create_sdk_client", lambda _config: FakeSdkClient())
+    monkeypatch.setattr(codex_app_server.CodexAppServerCaptionClient, "caption_image", fake_caption_image)
+    pool = CodexAppServerClientPool(
+        CodexAppServerConfig(auth_mode="chatgpt", isolated_cwd=str(tmp_path / "work")),
+        1,
+    )
+
+    with pytest.raises(CodexAppServerError) as exc_info:
+        pool.caption_image(image_path=image, prompt="caption")
+
+    assert exc_info.value.kind == "timeout"
+    assert len(created) == 1
+    assert created[0].closed is True
+
+
+def test_codex_app_server_direct_client_timeout_closes_sdk_client(tmp_path):
+    import time
+
+    from module.providers.codex_app_server import CodexAppServerCaptionClient, CodexAppServerConfig, CodexAppServerError
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+
+    class FakeClient:
+        def __init__(self):
+            self.closed = False
+
+        def thread_start(self, **_payload):
+            return {"threadId": "thread-1"}
+
+        def turn_start(self, **_payload):
+            time.sleep(0.2)
+            return {"parsed": {"long_description": "late"}}
+
+        def close(self):
+            self.closed = True
+
+    fake = FakeClient()
+    client = CodexAppServerCaptionClient(
+        CodexAppServerConfig(timeout=0.03, auth_mode="chatgpt", isolated_cwd=str(tmp_path / "work")),
+        client_factory=lambda _config: fake,
+    )
+
+    with pytest.raises(CodexAppServerError) as exc_info:
+        client.caption_image(image_path=image, prompt="caption")
+
+    assert exc_info.value.kind == "timeout"
+    assert fake.closed is True
+
+
+def test_codex_app_server_factory_client_closes_after_success(tmp_path):
+    from module.providers.codex_app_server import CodexAppServerConfig, caption_image_with_app_server
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+
+    class FakeClient:
+        def __init__(self):
+            self.closed = False
+
+        def thread_start(self, **_payload):
+            return {"threadId": "thread-1"}
+
+        def turn_start(self, **_payload):
+            return {
+                "turnId": "turn-1",
+                "parsed": {
+                    "short_description": "short",
+                    "long_description": "long",
+                    "tags": ["tag"],
+                    "rating": "general",
+                    "confidence": 0.7,
+                },
+            }
+
+        def close(self):
+            self.closed = True
+
+    fake = FakeClient()
+    result = caption_image_with_app_server(
+        CodexAppServerConfig(auth_mode="chatgpt", isolated_cwd=str(tmp_path / "work")),
+        image_path=image,
+        prompt="caption",
+        client_factory=lambda _config: fake,
+    )
+
+    assert result.parsed["long_description"] == "long"
+    assert fake.closed is True
+
+
 def test_codex_app_server_timeout_applies_to_sdk_client_startup(tmp_path):
     import time
 
@@ -1083,6 +1275,64 @@ def test_codex_subscription_explicit_reasoning_effort_overrides_default(monkeypa
 
     assert captured["config"].reasoning_effort == "minimal"
     assert result.metadata["reasoning_effort"] == "minimal"
+
+
+def test_codex_subscription_app_server_timeout_returns_empty_result(monkeypatch, tmp_path):
+    from rich.console import Console
+
+    from module.providers.base import MediaContext, MediaModality, ProviderContext, PromptContext
+    from module.providers.cloud_vlm import codex_subscription
+    from module.providers.cloud_vlm.codex_subscription import CodexSubscriptionProvider
+    from module.providers.codex_app_server import CodexAppServerError
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+
+    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+        raise CodexAppServerError("Codex app-server caption_image timed out after 180s.", kind="timeout")
+
+    monkeypatch.setattr(codex_subscription, "caption_image_with_app_server", fake_caption)
+    args = make_provider_args(codex_subscription=True)
+    provider = CodexSubscriptionProvider(ProviderContext(console=Console(), args=args))
+    media = MediaContext(uri=str(image), mime="image/png", sha256hash="", modality=MediaModality.IMAGE)
+
+    result = provider.attempt(media, PromptContext(system="sys", user="user"))
+
+    assert result.raw == ""
+    assert result.parsed is None
+    assert result.metadata["backend"] == "sdk_app_server"
+    assert result.metadata["skip_reason"] == "timeout"
+    assert result.metadata["error_kind"] == "timeout"
+    assert result.metadata["structured"] is False
+
+
+def test_codex_subscription_exec_timeout_returns_empty_result(monkeypatch, tmp_path):
+    from rich.console import Console
+
+    from module.providers.base import MediaContext, MediaModality, ProviderContext, PromptContext
+    from module.providers.cloud_vlm import codex_subscription
+    from module.providers.cloud_vlm.codex_subscription import CodexSubscriptionProvider
+    from module.providers.codex_exec import CodexExecError
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+
+    def fake_exec(config, *, image_path, prompt, schema_path, output_path):
+        raise CodexExecError("Codex exec timed out after 180s.", kind="timeout")
+
+    monkeypatch.setattr(codex_subscription, "run_codex_exec_caption", fake_exec)
+    args = make_provider_args(codex_subscription=True, codex_backend="exec")
+    provider = CodexSubscriptionProvider(ProviderContext(console=Console(), args=args))
+    media = MediaContext(uri=str(image), mime="image/png", sha256hash="", modality=MediaModality.IMAGE)
+
+    result = provider.attempt(media, PromptContext(system="sys", user="user"))
+
+    assert result.raw == ""
+    assert result.parsed is None
+    assert result.metadata["backend"] == "exec"
+    assert result.metadata["skip_reason"] == "timeout"
+    assert result.metadata["error_kind"] == "timeout"
+    assert result.metadata["structured"] is False
 
 
 def test_codex_subscription_passes_effective_app_server_concurrency(monkeypatch, tmp_path):

@@ -204,10 +204,32 @@ class CodexSubscriptionProvider(CloudVLMProvider):
         image_name = Path(media.uri).name
         started_at = time.perf_counter()
 
-        if backend == "exec":
-            parsed = self._attempt_exec(media, prompt)
-        else:
-            parsed = self._attempt_app_server(media, prompt)
+        try:
+            if backend == "exec":
+                parsed = self._attempt_exec(media, prompt)
+            else:
+                parsed = self._attempt_app_server(media, prompt)
+        except (CodexAppServerError, CodexExecError) as exc:
+            if getattr(exc, "kind", "") != "timeout":
+                raise
+            elapsed = time.perf_counter() - started_at
+            self.log(f"Codex caption timed out: {image_name} after {elapsed:.1f}s; returning empty caption", "yellow")
+            return CaptionResult(
+                raw="",
+                metadata={
+                    "provider": self.name,
+                    "backend": backend,
+                    "model": model,
+                    "service_tier": service_tier,
+                    "reasoning_effort": reasoning_effort,
+                    "auth_mode": getattr(args, "codex_auth_mode", DEFAULT_CODEX_AUTH_MODE) or DEFAULT_CODEX_AUTH_MODE,
+                    "structured": False,
+                    "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
+                    "skip_reason": "timeout",
+                    "error_kind": "timeout",
+                    "duration_seconds": round(elapsed, 3),
+                },
+            )
         elapsed = time.perf_counter() - started_at
         self.log(f"Codex caption completed: {image_name} in {elapsed:.1f}s", "green")
 
