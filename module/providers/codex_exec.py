@@ -24,9 +24,11 @@ from module.providers.codex_schema import (
 
 
 DEFAULT_CODEX_COMMAND = "codex"
-DEFAULT_CODEX_MODEL = "gpt-5.4-mini"
+DEFAULT_CODEX_MODEL = "gpt-5.4"
 DEFAULT_CODEX_TIMEOUT_SECONDS = 180.0
 DEFAULT_CODEX_SANDBOX = "read-only"
+DEFAULT_CODEX_REASONING_EFFORT = "none"
+SUPPORTED_CODEX_REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
 
 API_KEY_ENV_VARS = ("OPENAI_API_KEY", "CODEX_API_KEY")
 PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
@@ -36,6 +38,8 @@ PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
 class CodexExecConfig:
     command: str = DEFAULT_CODEX_COMMAND
     model: str = DEFAULT_CODEX_MODEL
+    service_tier: str = ""
+    reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT
     timeout: float = DEFAULT_CODEX_TIMEOUT_SECONDS
     sandbox: str = DEFAULT_CODEX_SANDBOX
     codex_home: str = ""
@@ -79,7 +83,7 @@ def build_codex_exec_command(
     schema_path: str | Path,
     output_path: str | Path,
 ) -> list[str]:
-    return [
+    command = [
         resolve_codex_command(config.command),
         "exec",
         "--cd",
@@ -98,6 +102,32 @@ def build_codex_exec_command(
         str(Path(output_path).resolve()),
         "-",
     ]
+    config_overrides = []
+    reasoning_effort = normalize_codex_reasoning_effort(config.reasoning_effort)
+    if reasoning_effort:
+        config_overrides.append(("model_reasoning_effort", reasoning_effort))
+
+    service_tier = (config.service_tier or "").strip()
+    if service_tier:
+        config_overrides.append(("service_tier", service_tier))
+
+    for key, value in reversed(config_overrides):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        command[1:1] = ["-c", f'{key}="{escaped}"']
+    return command
+
+
+def normalize_codex_reasoning_effort(value: str, default: str = DEFAULT_CODEX_REASONING_EFFORT) -> str:
+    effort = str(value or "").strip().lower()
+    if not effort:
+        effort = default
+    if effort not in SUPPORTED_CODEX_REASONING_EFFORTS:
+        expected = ", ".join(sorted(SUPPORTED_CODEX_REASONING_EFFORTS))
+        raise CodexExecError(
+            f"Unsupported Codex reasoning effort: {value}. Expected one of: {expected}",
+            kind="config",
+        )
+    return effort
 
 
 def resolve_codex_command(command: str) -> str:

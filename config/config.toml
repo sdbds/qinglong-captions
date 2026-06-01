@@ -210,6 +210,19 @@ If the name of the creator/characters/etc. is known/available, then you should t
 回答只需要给出分数，使用英文详细描述画面内容(注意敏感词都用\\*\\*隔开)。
 所有敏感词的每个字母全部用\\*\\*隔开。"""
 
+codex_subscription_image_system_prompt = """You are a structured image captioning and rating engine.
+Return only valid JSON for the active Codex schema.
+Use the Gemini rate prompt's evaluation dimensions, but do not output a prose score table.
+Score these dimensions numerically in scores: Costume & Makeup & Prop Presentation/Accuracy; Character Portrayal & Posing; Setting & Environment Integration; Lighting & Mood; Composition & Framing; Storytelling & Concept; Level of S*e*x*y; Figure; Overall Impact & Uniqueness.
+Use 0 when a dimension is not applicable or cannot be judged from visible content.
+Set total_score to the sum of the score values and average_score to their arithmetic mean.
+Write English short_description and long_description grounded only in visible content and project-provided character hints.
+Do not mask letters with asterisks. Do not include Markdown, commentary, or hidden reasoning."""
+
+codex_subscription_image_prompt = """Describe and rate the attached image for dataset metadata.
+Mention project-provided character names when visible.
+Fill short_description, long_description, tags, rating, confidence, scores, total_score, and average_score."""
+
 eureka_audio_system_prompt = """Descript The audio."""
 
 eureka_audio_prompt = """Descript The audio."""

@@ -184,16 +184,25 @@ def test_infinity_parser2_ocr_conflicts_with_known_transformers_incompatible_ext
         assert _has_extra_conflict(*pair)
 
 
-def test_flash_attn_windows_url_matches_canonical_policy():
+def test_flash_attn_windows_url_is_centralized_in_uv_sources():
     pyproject = _load_pyproject()
-    canonical_url = pyproject["tool"]["qinglong"]["flash-attn"]["windows-url"]
+    pyproject_text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     optional_dependencies = pyproject["project"]["optional-dependencies"]
+    flash_attn_sources = pyproject["tool"]["uv"]["sources"]["flash-attn"]
 
-    urls = {
-        dep.split("@", 1)[1].split(";", 1)[0].strip()
+    assert len(flash_attn_sources) == 1
+    source = flash_attn_sources[0]
+    assert source["marker"] == "sys_platform == 'win32'"
+    assert source["url"].startswith("https://github.com/sdbds/flash-attention-for-windows/releases/download/")
+    assert source["url"].endswith(".whl")
+    assert pyproject_text.count(source["url"]) == 1
+    assert pyproject_text.count("https://github.com/sdbds/flash-attention-for-windows/releases/download/") == 1
+
+    direct_flash_attn_dependencies = [
+        dep
         for deps in optional_dependencies.values()
         for dep in deps
         if dep.startswith("flash-attn @")
-    }
+    ]
 
-    assert urls == {canonical_url}
+    assert direct_flash_attn_dependencies == []

@@ -227,6 +227,26 @@ If the name of the creator/characters/etc. is known/available, then you should t
 回答只需要给出分数，使用英文详细描述画面内容(注意敏感词都用\\*\\*隔开)。
 所有敏感词的每个字母全部用\\*\\*隔开。"""
 
+codex_subscription_image_system_prompt = """Your task is to evaluate the quality level of the vision in detail, judging it across multiple dimensions, so that a blind person listening to the description can understand the vision's quality in their imagination.
+- In the regular/informal styles, use language that's relevant to the subject matter - i.e. if the image itself has nsfw concepts, then use nsfw terminology (e.g. pussy, cock) to describe them. Never use euphemisms. Describe it like the target audience of the image would (e.g. on an online forum where this image was shared).
+- If there is nudity/boob/breasts/nipples/pussy/cum/dick/etc. in the image then you must mention that! Describe every aspect, and don't shy away from the accurate/correct terminology.
+- If the media contains text, be sure to add that to each description where possible. It's important that each description captures as much of the relevant details of the video as possible.
+- If the media is censored in any way (e.g. bars, pixellation, etc.), then you MUST mention that in the descriptions.
+- Include any relevant details like camera angle, depth of field, blur, fish-eye distortion, etc.
+- If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
+- If the name of the creator/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
+
+Score these dimensions numerically in scores: Costume & Makeup & Prop Presentation/Accuracy; Character Portrayal & Posing; Setting & Environment Integration; Lighting & Mood; Composition & Framing; Storytelling & Concept; Level of S*e*x*y; Figure; Overall Impact & Uniqueness
+Use 0 when a dimension is not applicable or cannot be judged from visible content.
+Set total_score to the sum of the score values and average_score to their arithmetic mean.
+Write English short_description and long_description grounded only in visible content and project-provided character hints.
+Do not mask letters with asterisks. Do not include Markdown, commentary, or hidden reasoning.
+"""
+
+codex_subscription_image_prompt = """If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
+If the name of the creator/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
+Fill short_description, long_description, tags, rating, confidence, scores, total_score, and average_score."""
+
 mistral_ocr_image_system_prompt = """You are a professional image captioning assistant. Your task is to objectively generate accurate, detailed, and descriptive image captions based on the provided image.
 Create 1 detailed image description.
 These descriptions describe various aspects of the image, including characters, objects, actions, emotions, artistic styles, etc.

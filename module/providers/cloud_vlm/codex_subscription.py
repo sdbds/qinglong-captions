@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +14,12 @@ from module.providers.capabilities import ProviderCapabilities
 from module.providers.codex_app_server import (
     DEFAULT_CODEX_AUTH_MODE,
     DEFAULT_CODEX_BACKEND,
+    DEFAULT_CODEX_REASONING_EFFORT,
     SUPPORTED_CODEX_BACKENDS,
     CodexAppServerConfig,
     CodexAppServerError,
     caption_image_with_app_server,
+    normalize_codex_reasoning_effort,
 )
 from module.providers.codex_exec import (
     CodexExecConfig,
@@ -31,7 +34,121 @@ from module.providers.codex_schema import (
     load_caption_schema,
 )
 from module.providers.registry import register_provider
+from module.providers.utils import encode_image_to_blob
 from utils.console_util import print_exception
+
+
+_CODEX_TRANSCODE_IMAGE_MIMES = {"image/avif", "image/heic", "image/heif"}
+_CODEX_TRANSCODE_IMAGE_SUFFIXES = {".avif", ".heic", ".heif"}
+
+
+def _codex_needs_jpeg_input(path: Path, mime: str = "") -> bool:
+    return mime.lower() in _CODEX_TRANSCODE_IMAGE_MIMES or path.suffix.lower() in _CODEX_TRANSCODE_IMAGE_SUFFIXES
+
+
+def _convert_to_temp_jpeg(path: Path, *, quality: int) -> Path:
+    from PIL import Image
+
+    temp_path: Path | None = None
+    try:
+        with Image.open(path) as image:
+            image.load()
+            if "xmp" in image.info:
+                del image.info["xmp"]
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            with tempfile.NamedTemporaryFile(prefix=f"{path.stem}_codex_", suffix=".jpg", delete=False) as temp_file:
+                temp_path = Path(temp_file.name)
+            image.save(temp_path, format="JPEG", quality=quality)
+            return temp_path
+    except Exception as exc:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise CodexAppServerError(f"Failed to convert image to JPEG before Codex SDK input: {path}", kind="image") from exc
+
+
+def _delete_temp_file(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _codex_service_tier(args: Any) -> str:
+    configured = str(getattr(args, "codex_service_tier", "") or "").strip()
+    if configured:
+        return configured
+    return "fast" if bool(getattr(args, "codex_fast", False)) else ""
+
+
+def _codex_reasoning_effort(args: Any) -> str:
+    return normalize_codex_reasoning_effort(
+        getattr(args, "codex_reasoning_effort", DEFAULT_CODEX_REASONING_EFFORT),
+        default=DEFAULT_CODEX_REASONING_EFFORT,
+    )
+
+
+_CODEX_STREAM_EVENT_PREFIX = "Codex app-server: event "
+
+
+def _compact_codex_stream_events(events: list[str]) -> str:
+    compacted: list[str] = []
+    previous = ""
+    count = 0
+
+    def _event_key(event: str) -> str:
+        if event.startswith("item/agentMessage/delta"):
+            return "item/agentMessage/delta"
+        if event.startswith("thread/tokenUsage/updated"):
+            return "thread/tokenUsage/updated"
+        return event
+
+    def _append_current() -> None:
+        if not previous:
+            return
+        suffix = f" x{count}" if count > 1 else ""
+        compacted.append(f"{previous}{suffix}")
+
+    for event in events:
+        key = _event_key(event)
+        if key == previous:
+            count += 1
+            continue
+        _append_current()
+        previous = key
+        count = 1
+    _append_current()
+
+    if len(compacted) > 12:
+        compacted = compacted[:8] + [f"... {len(compacted) - 10} more events ..."] + compacted[-2:]
+    return " | ".join(compacted)
+
+
+class _CodexProgressCoalescer:
+    def __init__(self, emit):
+        self._emit = emit
+        self._events: list[str] = []
+
+    def __call__(self, message: str) -> None:
+        text = str(message or "").strip()
+        if not text:
+            return
+        if text.startswith(_CODEX_STREAM_EVENT_PREFIX):
+            self._events.append(text[len(_CODEX_STREAM_EVENT_PREFIX) :])
+            return
+        self.flush()
+        self._emit(text)
+
+    def flush(self) -> None:
+        if not self._events:
+            return
+        self._emit(f"Codex app-server stream: {_compact_codex_stream_events(self._events)}")
+        self._events.clear()
 
 
 @register_provider("codex_subscription")
@@ -57,12 +174,20 @@ class CodexSubscriptionProvider(CloudVLMProvider):
 
     def prepare_media(self, uri: str, mime: str, args: Any) -> MediaContext:
         file_path = Path(uri)
+        pixels = None
+        if mime.startswith("image"):
+            _blob, pixels = encode_image_to_blob(
+                str(file_path),
+                to_rgb=True,
+                quality=self.get_image_quality(),
+            )
         return MediaContext(
             uri=str(file_path),
             mime=mime,
             sha256hash="",
             modality=MediaModality.IMAGE,
             file_size=file_path.stat().st_size if file_path.exists() else 0,
+            pixels=pixels,
         )
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
@@ -71,14 +196,20 @@ class CodexSubscriptionProvider(CloudVLMProvider):
         if backend not in SUPPORTED_CODEX_BACKENDS:
             raise CodexAppServerError(f"Unsupported Codex backend: {backend}", kind="config")
 
-        model = getattr(args, "codex_model_name", "") or "gpt-5.4-mini"
+        model = getattr(args, "codex_model_name", "") or "gpt-5.4"
         mode = getattr(args, "mode", "all")
         prompt = build_codex_caption_prompt(system_prompt=prompts.system, user_prompt=prompts.user)
+        service_tier = _codex_service_tier(args)
+        reasoning_effort = _codex_reasoning_effort(args)
+        image_name = Path(media.uri).name
+        started_at = time.perf_counter()
 
         if backend == "exec":
             parsed = self._attempt_exec(media, prompt)
         else:
             parsed = self._attempt_app_server(media, prompt)
+        elapsed = time.perf_counter() - started_at
+        self.log(f"Codex caption completed: {image_name} in {elapsed:.1f}s", "green")
 
         parsed = filter_caption_payload_by_mode(parsed, mode)
         return CaptionResult(
@@ -88,6 +219,8 @@ class CodexSubscriptionProvider(CloudVLMProvider):
                 "provider": self.name,
                 "backend": backend,
                 "model": model,
+                "service_tier": service_tier,
+                "reasoning_effort": reasoning_effort,
                 "auth_mode": getattr(args, "codex_auth_mode", DEFAULT_CODEX_AUTH_MODE) or DEFAULT_CODEX_AUTH_MODE,
                 "structured": True,
                 "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
@@ -97,9 +230,11 @@ class CodexSubscriptionProvider(CloudVLMProvider):
     def _attempt_exec(self, media: MediaContext, prompt: str) -> dict:
         args = self.ctx.args
         command = getattr(args, "codex_command", "") or "codex"
-        model = getattr(args, "codex_model_name", "") or "gpt-5.4-mini"
+        model = getattr(args, "codex_model_name", "") or "gpt-5.4"
         timeout = float(getattr(args, "codex_timeout", 180) or 180)
         sandbox = getattr(args, "codex_sandbox", "") or "read-only"
+        service_tier = _codex_service_tier(args)
+        reasoning_effort = _codex_reasoning_effort(args)
         codex_home = getattr(args, "codex_home", "") or ""
         configured_isolated_cwd = getattr(args, "codex_isolated_cwd", "") or ""
         configured_schema = getattr(args, "codex_output_schema", "") or ""
@@ -123,6 +258,8 @@ class CodexSubscriptionProvider(CloudVLMProvider):
             config = CodexExecConfig(
                 command=command,
                 model=model,
+                service_tier=service_tier,
+                reasoning_effort=reasoning_effort,
                 timeout=timeout,
                 sandbox=sandbox,
                 codex_home=codex_home,
@@ -147,6 +284,10 @@ class CodexSubscriptionProvider(CloudVLMProvider):
     def _attempt_app_server(self, media: MediaContext, prompt: str) -> dict:
         args = self.ctx.args
         configured_schema = getattr(args, "codex_output_schema", "") or ""
+        model = getattr(args, "codex_model_name", "") or "gpt-5.4"
+        timeout = float(getattr(args, "codex_timeout", 180) or 180)
+        service_tier = _codex_service_tier(args)
+        reasoning_effort = _codex_reasoning_effort(args)
         try:
             output_schema = load_caption_schema(configured_schema)
         except Exception as exc:
@@ -161,8 +302,10 @@ class CodexSubscriptionProvider(CloudVLMProvider):
 
         auth_mode = getattr(args, "codex_auth_mode", "") or DEFAULT_CODEX_AUTH_MODE
         config = CodexAppServerConfig(
-            model=getattr(args, "codex_model_name", "") or "gpt-5.4-mini",
-            timeout=float(getattr(args, "codex_timeout", 180) or 180),
+            model=model,
+            service_tier=service_tier,
+            reasoning_effort=reasoning_effort,
+            timeout=timeout,
             sandbox=getattr(args, "codex_sandbox", "") or "read-only",
             auth_mode=auth_mode,
             api_key=getattr(args, "codex_api_key", "") or "",
@@ -174,8 +317,14 @@ class CodexSubscriptionProvider(CloudVLMProvider):
             _positive_int(getattr(args, "cloud_max_concurrency", 1), 1),
             _positive_int(getattr(args, "codex_max_concurrency", 1), 1),
         )
+        source_image_path = Path(media.uri)
+        send_image_path = source_image_path
+        temp_image_path: Path | None = None
+        if _codex_needs_jpeg_input(source_image_path, media.mime):
+            temp_image_path = _convert_to_temp_jpeg(source_image_path, quality=self.get_image_quality())
+            send_image_path = temp_image_path
         caption_kwargs = {
-            "image_path": media.uri,
+            "image_path": str(send_image_path),
             "prompt": prompt,
             "output_schema": output_schema,
         }
@@ -191,6 +340,8 @@ class CodexSubscriptionProvider(CloudVLMProvider):
         except Exception as exc:
             print_exception(self.ctx.console, exc, prefix="Codex app-server provider failed")
             raise
+        finally:
+            _delete_temp_file(temp_image_path)
         return result.parsed
 
     def get_retry_config(self) -> RetryConfig:

@@ -263,6 +263,14 @@ class CaptionStep:
         "workspace-write": "workspace-write",
         "danger-full-access": "danger-full-access",
     }
+    CODEX_REASONING_EFFORT_OPTIONS = {
+        "none": "none",
+        "minimal": "minimal",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+    }
 
     OCR_MODELS = list(route_choices("ocr_model"))
 
@@ -383,7 +391,9 @@ class CaptionStep:
             "codex_auth_mode": "chatgpt",
             "codex_api_key": "",
             "codex_command": "codex",
-            "codex_model_name": "gpt-5.4-mini",
+            "codex_model_name": "gpt-5.4",
+            "codex_fast": False,
+            "codex_reasoning_effort": "none",
             "codex_home": "",
             "codex_timeout": 180,
             "codex_sandbox": "read-only",
@@ -824,9 +834,16 @@ class CaptionStep:
                 if codex_api_key:
                     args.append(f"--codex_api_key={codex_api_key}")
 
-            codex_model_name = str(self._codex_value("codex_model_name", "gpt-5.4-mini") or "gpt-5.4-mini")
+            codex_model_name = str(self._codex_value("codex_model_name", "gpt-5.4") or "gpt-5.4")
             if codex_model_name:
                 args.append(f"--codex_model_name={codex_model_name}")
+
+            if bool(self.config.get("codex_fast", False)):
+                args.append("--codex_fast")
+
+            codex_reasoning_effort = str(self._codex_value("codex_reasoning_effort", "none") or "none")
+            if codex_reasoning_effort:
+                args.append(f"--codex_reasoning_effort={codex_reasoning_effort}")
 
             codex_timeout = self._codex_value("codex_timeout", 180)
             if codex_timeout:
@@ -1003,7 +1020,7 @@ class CaptionStep:
                         label=t("codex_model"),
                         icon="smart_toy",
                         icon_color=COLORS["primary"],
-                        placeholder="gpt-5.4-mini",
+                        placeholder="gpt-5.4",
                         flex=1,
                     )
                     self.codex_timeout = styled_input(
@@ -1032,6 +1049,21 @@ class CaptionStep:
                         icon_color=COLORS["secondary"],
                         placeholder="1",
                         flex=1,
+                    )
+                    self.codex_reasoning_effort = styled_select(
+                        options=self.CODEX_REASONING_EFFORT_OPTIONS,
+                        value=self.config["codex_reasoning_effort"],
+                        label=t("codex_reasoning_effort"),
+                        icon="psychology",
+                        icon_color=COLORS["warning"],
+                        searchable=False,
+                        flex=1,
+                    )
+                    toggle_switch(
+                        "codex_fast_mode",
+                        self.config,
+                        "codex_fast",
+                        label_default=t("codex_fast_mode"),
                     )
 
                 with ui.row().classes("w-full gap-4 q-mt-md"):

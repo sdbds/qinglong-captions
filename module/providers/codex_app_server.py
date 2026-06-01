@@ -8,6 +8,7 @@ import inspect
 import os
 import queue
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -25,6 +26,8 @@ DEFAULT_CODEX_BACKEND = "sdk_app_server"
 DEFAULT_CODEX_AUTH_MODE = "chatgpt"
 SUPPORTED_CODEX_BACKENDS = {DEFAULT_CODEX_BACKEND, "exec"}
 SUPPORTED_CODEX_AUTH_MODES = {DEFAULT_CODEX_AUTH_MODE, "api_key", "existing"}
+DEFAULT_CODEX_REASONING_EFFORT = "none"
+SUPPORTED_CODEX_REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
 
 INSTALL_CODEX_SDK_HINT = "Install it with: uv sync --extra codex-subscription"
 API_KEY_ENV_VARS = ("OPENAI_API_KEY", "CODEX_API_KEY")
@@ -32,7 +35,9 @@ API_KEY_ENV_VARS = ("OPENAI_API_KEY", "CODEX_API_KEY")
 
 @dataclass(frozen=True)
 class CodexAppServerConfig:
-    model: str = "gpt-5.4-mini"
+    model: str = "gpt-5.4"
+    service_tier: str = ""
+    reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT
     timeout: float = 180.0
     sandbox: str = "read-only"
     auth_mode: str = DEFAULT_CODEX_AUTH_MODE
@@ -68,6 +73,9 @@ class CodexAppServerError(RuntimeError):
         self.retryable = retryable
         self.detail = detail
         self.cause = cause
+
+
+ProgressCallback = Callable[[str], None]
 
 
 def classify_codex_app_server_failure(text: str) -> str:
@@ -115,9 +123,11 @@ def build_turn_start_payload(
     prompt: str,
     image_path: str | Path,
     model: str,
+    service_tier: str = "",
+    reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
     output_schema: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "threadId": thread_id,
         "model": model,
         "input": [
@@ -126,6 +136,26 @@ def build_turn_start_payload(
         ],
         "outputSchema": output_schema or dict(CODEX_CAPTION_SCHEMA),
     }
+    service_tier = str(service_tier or "").strip()
+    if service_tier:
+        payload["serviceTier"] = service_tier
+    reasoning_effort = normalize_codex_reasoning_effort(reasoning_effort)
+    if reasoning_effort:
+        payload["effort"] = reasoning_effort
+    return payload
+
+
+def normalize_codex_reasoning_effort(value: Any, default: str = DEFAULT_CODEX_REASONING_EFFORT) -> str:
+    effort = str(value or "").strip().lower()
+    if not effort:
+        effort = default
+    if effort not in SUPPORTED_CODEX_REASONING_EFFORTS:
+        raise CodexAppServerError(
+            f"Unsupported Codex reasoning effort: {value}. "
+            f"Expected one of: {', '.join(sorted(SUPPORTED_CODEX_REASONING_EFFORTS))}",
+            kind="config",
+        )
+    return effort
 
 
 def _run_maybe_awaitable(value: Any) -> Any:
@@ -139,6 +169,97 @@ def _run_maybe_awaitable(value: Any) -> Any:
         "Codex SDK returned an async result inside an already running event loop.",
         kind="protocol",
     )
+
+
+def _coerce_timeout_seconds(value: Any) -> float:
+    try:
+        timeout = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, timeout)
+
+
+def _timeout_deadline(timeout: Any) -> float | None:
+    timeout_seconds = _coerce_timeout_seconds(timeout)
+    if timeout_seconds <= 0:
+        return None
+    return time.monotonic() + timeout_seconds
+
+
+def _remaining_timeout_for_stage(deadline: float | None, stage: str) -> float:
+    if deadline is None:
+        return 0.0
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise CodexAppServerError(
+            f"Codex app-server {stage} timed out after exhausting the request timeout.",
+            kind="timeout",
+            retryable=True,
+        )
+    return remaining
+
+
+def _emit_progress(callback: ProgressCallback | None, message: str) -> None:
+    if callback is None:
+        return
+    try:
+        callback(message)
+    except Exception:
+        pass
+
+
+def _run_with_timeout(
+    fn: Callable[[], Any],
+    *,
+    timeout: float,
+    stage: str,
+    progress_callback: ProgressCallback | None = None,
+    heartbeat_seconds: float = 15.0,
+) -> Any:
+    """Run a blocking SDK call with a caller-visible timeout boundary."""
+    timeout_seconds = _coerce_timeout_seconds(timeout)
+    if timeout_seconds <= 0:
+        return fn()
+
+    result_queue: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=1)
+
+    def _worker() -> None:
+        try:
+            result_queue.put(("ok", fn()))
+        except BaseException as exc:  # noqa: BLE001 - forwarded to caller below.
+            result_queue.put(("error", exc))
+
+    worker = threading.Thread(target=_worker, name=f"codex-app-server-{stage}", daemon=True)
+    worker.start()
+
+    started_at = time.monotonic()
+    heartbeat = max(0.0, float(heartbeat_seconds or 0.0))
+    next_heartbeat = started_at + heartbeat if heartbeat > 0 else float("inf")
+    while True:
+        elapsed = time.monotonic() - started_at
+        remaining = timeout_seconds - elapsed
+        if remaining <= 0:
+            raise CodexAppServerError(
+                f"Codex app-server {stage} timed out after {timeout_seconds:.0f}s.",
+                kind="timeout",
+                retryable=True,
+            )
+        wait_seconds = min(remaining, max(0.05, next_heartbeat - time.monotonic()))
+        try:
+            status, value = result_queue.get(timeout=wait_seconds)
+            break
+        except queue.Empty:
+            now = time.monotonic()
+            if heartbeat > 0 and now >= next_heartbeat:
+                _emit_progress(
+                    progress_callback,
+                    f"Codex app-server: {stage} still waiting ({now - started_at:.0f}s/{timeout_seconds:.0f}s)",
+                )
+                next_heartbeat = now + heartbeat
+
+    if status == "error":
+        raise value
+    return value
 
 
 def _get_attr_path(target: Any, path: tuple[str, ...]) -> Any | None:
@@ -386,6 +507,8 @@ def _api_key_fingerprint(api_key: str) -> str:
 def _cache_key(config: CodexAppServerConfig) -> tuple[Any, ...]:
     return (
         config.model,
+        config.service_tier,
+        config.reasoning_effort,
         config.timeout,
         config.sandbox,
         config.auth_mode,
@@ -430,6 +553,84 @@ def _sdk_deny_all_approval_mode() -> Any | None:
         return None
 
 
+def _stream_item_label(payload: Any) -> str:
+    item = getattr(payload, "item", None)
+    root = getattr(item, "root", item)
+    item_type = str(getattr(root, "type", "") or type(root).__name__)
+    phase = getattr(root, "phase", None)
+    phase_value = str(getattr(phase, "value", phase) or "")
+    return f"{item_type}, {phase_value}" if phase_value else item_type
+
+
+def _short_delta_preview(value: Any, *, limit: int = 120) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3]}..."
+
+
+def _summarize_stream_event(event: Any) -> str:
+    method = str(getattr(event, "method", "") or "notification")
+    payload = getattr(event, "payload", None)
+    if method in {"item/agentMessage/delta", "item/plan/delta", "item/reasoning/summaryTextDelta"}:
+        preview = _short_delta_preview(getattr(payload, "delta", ""))
+        suffix = f": {preview}" if preview else ""
+        return f"Codex app-server: event {method}{suffix}"
+    if method == "item/reasoning/textDelta":
+        return "Codex app-server: event item/reasoning/textDelta"
+    if "token" in method:
+        usage = getattr(payload, "token_usage", None)
+        total = getattr(usage, "total", None)
+        total_tokens = getattr(total, "total_tokens", None)
+        output_tokens = getattr(total, "output_tokens", None)
+        reasoning_tokens = getattr(total, "reasoning_output_tokens", None)
+        parts = [f"total={total_tokens}"] if total_tokens is not None else []
+        if output_tokens is not None:
+            parts.append(f"output={output_tokens}")
+        if reasoning_tokens is not None:
+            parts.append(f"reasoning={reasoning_tokens}")
+        suffix = f" ({', '.join(parts)})" if parts else ""
+        return f"Codex app-server: event {method}{suffix}"
+    if method in {"item/started", "item/completed"}:
+        return f"Codex app-server: event {method} ({_stream_item_label(payload)})"
+    if method == "turn/completed":
+        turn = getattr(payload, "turn", None)
+        status = getattr(turn, "status", None)
+        status_value = str(getattr(status, "value", status) or "")
+        suffix = f" (status={status_value})" if status_value else ""
+        return f"Codex app-server: event {method}{suffix}"
+    return f"Codex app-server: event {method}"
+
+
+def _collect_streamed_turn_result(turn: Any, progress_callback: ProgressCallback | None) -> Any:
+    stream_method = getattr(turn, "stream", None)
+    if not callable(stream_method):
+        raise CodexAppServerError("Codex SDK turn handle does not expose stream().", kind="protocol")
+    turn_id = str(getattr(turn, "id", "") or "")
+    if not turn_id:
+        raise CodexAppServerError("Codex SDK turn handle did not expose an id.", kind="protocol")
+    _emit_progress(progress_callback, f"Codex app-server: turn handle ready ({turn_id})")
+
+    try:
+        from openai_codex._run import _collect_turn_result  # type: ignore
+    except Exception as exc:
+        raise CodexAppServerError("Codex SDK stream collector is not available.", kind="protocol", cause=exc) from exc
+
+    stream = stream_method()
+
+    def _events_with_progress() -> Any:
+        for event in stream:
+            _emit_progress(progress_callback, _summarize_stream_event(event))
+            yield event
+
+    try:
+        return _collect_turn_result(_events_with_progress(), turn_id=turn_id)
+    finally:
+        close = getattr(stream, "close", None)
+        if callable(close):
+            close()
+
+
 def _call_thread_run(
     thread: Any,
     *,
@@ -437,19 +638,88 @@ def _call_thread_run(
     prompt: str,
     image_path: str | Path,
     output_schema: dict[str, Any] | None,
+    progress_callback: ProgressCallback | None = None,
 ) -> Any:
-    method = getattr(thread, "run", None)
-    if not callable(method):
-        raise CodexAppServerError("Codex SDK thread object does not expose run().", kind="protocol")
     input_items = _build_sdk_run_input(prompt, image_path)
     deny_all = _sdk_deny_all_approval_mode()
+    service_tier = (config.service_tier or "").strip() or None
+    reasoning_effort = normalize_codex_reasoning_effort(config.reasoning_effort)
     attempts = [
+        {
+            "input": input_items,
+            "model": config.model,
+            "effort": reasoning_effort,
+            "service_tier": service_tier,
+            "output_schema": output_schema,
+            "approval_mode": deny_all,
+        },
+        {
+            "input": input_items,
+            "model": config.model,
+            "effort": reasoning_effort,
+            "output_schema": output_schema,
+            "approval_mode": deny_all,
+        },
         {"input": input_items, "model": config.model, "output_schema": output_schema, "approval_mode": deny_all},
+        {
+            "input": input_items,
+            "model": config.model,
+            "effort": reasoning_effort,
+            "service_tier": service_tier,
+            "outputSchema": output_schema,
+        },
+        {
+            "input": input_items,
+            "model": config.model,
+            "effort": reasoning_effort,
+            "outputSchema": output_schema,
+        },
         {"input": input_items, "model": config.model, "outputSchema": output_schema},
+        {
+            "input": input_items,
+            "effort": reasoning_effort,
+            "service_tier": service_tier,
+            "output_schema": output_schema,
+            "approval_mode": deny_all,
+        },
+        {
+            "input": input_items,
+            "effort": reasoning_effort,
+            "output_schema": output_schema,
+            "approval_mode": deny_all,
+        },
         {"input": input_items, "output_schema": output_schema, "approval_mode": deny_all},
+        {
+            "input": input_items,
+            "effort": reasoning_effort,
+            "service_tier": service_tier,
+            "outputSchema": output_schema,
+        },
+        {"input": input_items, "effort": reasoning_effort, "outputSchema": output_schema},
         {"input": input_items, "outputSchema": output_schema},
         {"input": input_items},
     ]
+    turn_method = getattr(thread, "turn", None)
+    if callable(turn_method):
+        for kwargs in attempts:
+            kwargs = {key: value for key, value in kwargs.items() if value is not None}
+            try:
+                _emit_progress(progress_callback, "Codex app-server: opening streamed turn")
+                turn = _run_maybe_awaitable(turn_method(**kwargs))
+            except TypeError:
+                continue
+            return _collect_streamed_turn_result(turn, progress_callback)
+        try:
+            _emit_progress(progress_callback, "Codex app-server: opening streamed turn")
+            turn = _run_maybe_awaitable(turn_method(input_items))
+        except TypeError:
+            pass
+        else:
+            return _collect_streamed_turn_result(turn, progress_callback)
+
+    method = getattr(thread, "run", None)
+    if not callable(method):
+        raise CodexAppServerError("Codex SDK thread object does not expose run().", kind="protocol")
     for kwargs in attempts:
         kwargs = {key: value for key, value in kwargs.items() if value is not None}
         try:
@@ -548,7 +818,7 @@ class CodexAppServerCaptionClient:
                 ),
                 payload,
             )
-        thread = response if callable(getattr(response, "run", None)) else None
+        thread = response if callable(getattr(response, "turn", None)) or callable(getattr(response, "run", None)) else None
         thread_id = _extract_thread_id(response)
         return thread_id, thread
 
@@ -558,22 +828,50 @@ class CodexAppServerCaptionClient:
         image_path: str | Path,
         prompt: str,
         output_schema: dict[str, Any] | None = None,
+        timeout: float | None = None,
+        progress_callback: ProgressCallback | None = None,
+    ) -> CodexAppServerResult:
+        return _run_with_timeout(
+            lambda: self._caption_image_blocking(
+                image_path=image_path,
+                prompt=prompt,
+                output_schema=output_schema,
+                progress_callback=progress_callback,
+            ),
+            timeout=self.config.timeout if timeout is None else timeout,
+            stage="caption_image",
+            progress_callback=progress_callback,
+        )
+
+    def _caption_image_blocking(
+        self,
+        *,
+        image_path: str | Path,
+        prompt: str,
+        output_schema: dict[str, Any] | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> CodexAppServerResult:
         with self._request_lock:
             image = Path(image_path).expanduser()
+            _emit_progress(progress_callback, f"Codex app-server: checking image {image.name}")
             if not image.exists():
                 raise CodexAppServerError(f"Image file does not exist: {image}", kind="image_not_found")
 
             try:
+                _emit_progress(progress_callback, "Codex app-server: checking auth state")
                 self.ensure_auth()
+                _emit_progress(progress_callback, "Codex app-server: starting ephemeral thread")
                 thread_id, thread = self.start_thread()
+                _emit_progress(progress_callback, f"Codex app-server: thread ready ({thread_id})")
                 if thread is not None:
+                    _emit_progress(progress_callback, "Codex app-server: sending image turn")
                     response = _call_thread_run(
                         thread,
                         config=self.config,
                         prompt=prompt,
                         image_path=image,
                         output_schema=output_schema,
+                        progress_callback=progress_callback,
                     )
                 else:
                     payload = build_turn_start_payload(
@@ -581,8 +879,11 @@ class CodexAppServerCaptionClient:
                         prompt=prompt,
                         image_path=image,
                         model=self.config.model,
+                        service_tier=self.config.service_tier,
+                        reasoning_effort=self.config.reasoning_effort,
                         output_schema=output_schema,
                     )
+                    _emit_progress(progress_callback, "Codex app-server: sending image turn")
                     response = _call_payload_method(
                         self.client,
                         (
@@ -595,6 +896,7 @@ class CodexAppServerCaptionClient:
                         ),
                         payload,
                     )
+                _emit_progress(progress_callback, "Codex app-server: turn completed")
             except CodexAppServerError:
                 raise
             except Exception as exc:
@@ -609,6 +911,7 @@ class CodexAppServerCaptionClient:
                     )
                 raise CodexAppServerError(message, kind=kind, retryable=retryable, detail=text, cause=exc) from exc
 
+            _emit_progress(progress_callback, "Codex app-server: parsing structured output")
             raw, parsed = _extract_turn_output(response)
             if parsed is None:
                 try:
@@ -629,6 +932,8 @@ class CodexAppServerCaptionClient:
                     "backend": DEFAULT_CODEX_BACKEND,
                     "auth_mode": self.config.auth_mode,
                     "model": self.config.model,
+                    "service_tier": self.config.service_tier,
+                    "reasoning_effort": normalize_codex_reasoning_effort(self.config.reasoning_effort),
                     "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
                 },
             )
@@ -650,12 +955,26 @@ class CodexAppServerClientPool:
         image_path: str | Path,
         prompt: str,
         output_schema: dict[str, Any] | None = None,
+        timeout: float | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> CodexAppServerResult:
         client = self._queue.get()
         try:
-            return client.caption_image(image_path=image_path, prompt=prompt, output_schema=output_schema)
+            result = client.caption_image(
+                image_path=image_path,
+                prompt=prompt,
+                output_schema=output_schema,
+                timeout=timeout,
+                progress_callback=progress_callback,
+            )
+        except CodexAppServerError as exc:
+            if exc.kind != "timeout":
+                self._queue.put(client)
+            raise
         finally:
-            self._queue.put(client)
+            if "result" in locals():
+                self._queue.put(client)
+        return result
 
 
 _CLIENT_CACHE: dict[tuple[Any, ...], CodexAppServerCaptionClient] = {}
@@ -708,10 +1027,42 @@ def caption_image_with_app_server(
     output_schema: dict[str, Any] | None = None,
     client_factory: Callable[..., Any] | None = None,
     max_concurrency: int = 1,
+    progress_callback: ProgressCallback | None = None,
 ) -> CodexAppServerResult:
+    deadline = _timeout_deadline(config.timeout)
     pool_size = _positive_int(max_concurrency, 1)
-    if client_factory is None and pool_size > 1:
-        pool = get_codex_app_server_client_pool(config, max_concurrency=pool_size)
-        return pool.caption_image(image_path=image_path, prompt=prompt, output_schema=output_schema)
-    client = get_codex_app_server_client(config, client_factory=client_factory)
-    return client.caption_image(image_path=image_path, prompt=prompt, output_schema=output_schema)
+    try:
+        if client_factory is None and pool_size > 1:
+            _emit_progress(progress_callback, f"Codex app-server: acquiring pooled client (workers={pool_size})")
+            pool = _run_with_timeout(
+                lambda: get_codex_app_server_client_pool(config, max_concurrency=pool_size),
+                timeout=_remaining_timeout_for_stage(deadline, "client_pool_startup"),
+                stage="client_pool_startup",
+                progress_callback=progress_callback,
+            )
+            return pool.caption_image(
+                image_path=image_path,
+                prompt=prompt,
+                output_schema=output_schema,
+                timeout=_remaining_timeout_for_stage(deadline, "caption_image"),
+                progress_callback=progress_callback,
+            )
+
+        _emit_progress(progress_callback, "Codex app-server: acquiring client")
+        client = _run_with_timeout(
+            lambda: get_codex_app_server_client(config, client_factory=client_factory),
+            timeout=_remaining_timeout_for_stage(deadline, "client_startup"),
+            stage="client_startup",
+            progress_callback=progress_callback,
+        )
+        return client.caption_image(
+            image_path=image_path,
+            prompt=prompt,
+            output_schema=output_schema,
+            timeout=_remaining_timeout_for_stage(deadline, "caption_image"),
+            progress_callback=progress_callback,
+        )
+    except CodexAppServerError as exc:
+        if exc.kind == "timeout" and client_factory is None:
+            reset_codex_app_server_client_cache()
+        raise

@@ -319,8 +319,26 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--codex_model_name",
         type=str,
-        default="gpt-5.4-mini",
+        default="gpt-5.4",
         help="Codex model for --codex_subscription.",
+    )
+    parser.add_argument(
+        "--codex_service_tier",
+        type=str,
+        default="",
+        help='Optional Codex service tier override, e.g. "fast".',
+    )
+    parser.add_argument(
+        "--codex_fast",
+        action="store_true",
+        help='Shortcut for --codex_service_tier=fast when no explicit service tier is provided.',
+    )
+    parser.add_argument(
+        "--codex_reasoning_effort",
+        type=str,
+        choices=["none", "minimal", "low", "medium", "high", "xhigh"],
+        default="none",
+        help='Codex reasoning effort for --codex_subscription. Default: "none".',
     )
     parser.add_argument(
         "--codex_home",

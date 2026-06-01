@@ -332,6 +332,36 @@ class TestPromptResolver:
         assert p.system == "stepfun_vsys"
         assert p.user == "stepfun_vprompt"
 
+    def test_codex_subscription_image_uses_explicit_schema_compatible_prompt_override(self):
+        from module.providers.resolver import PromptResolver
+        config = self._config({
+            "image_system_prompt": "generic_rate_sys",
+            "image_prompt": "generic_rate_prompt",
+            "codex_subscription_image_system_prompt": "codex_schema_sys",
+            "codex_subscription_image_prompt": "codex_schema_prompt",
+        })
+        resolver = PromptResolver(config, "codex_subscription")
+        args = SimpleNamespace(pair_dir="", gemini_task="")
+
+        p = resolver.resolve("image/jpeg", args)
+
+        assert p.system == "codex_schema_sys"
+        assert p.user == "codex_schema_prompt"
+
+    def test_codex_subscription_image_falls_back_to_shared_rate_prompt(self):
+        from module.providers.resolver import PromptResolver
+        config = self._config({
+            "image_system_prompt": "generic_rate_sys",
+            "image_prompt": "generic_rate_prompt",
+        })
+        resolver = PromptResolver(config, "codex_subscription")
+        args = SimpleNamespace(pair_dir="", gemini_task="")
+
+        p = resolver.resolve("image/jpeg", args)
+
+        assert p.system == "generic_rate_sys"
+        assert p.user == "generic_rate_prompt"
+
     def test_gemma4_image_keeps_generic_prompt_when_mistral_fallback_exists(self):
         from module.providers.resolver import PromptResolver
         config = self._config({

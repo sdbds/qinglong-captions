@@ -27,6 +27,8 @@ def test_recent_gui_i18n_keys_are_available_in_all_languages():
         "log_copied",
         "codex_subscription",
         "use_codex_subscription",
+        "codex_fast_mode",
+        "codex_reasoning_effort",
         "repo_id_layerdiff",
         "repo_id_depth",
         "search_or_select",

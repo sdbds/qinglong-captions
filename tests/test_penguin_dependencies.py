@@ -427,10 +427,40 @@ def test_caption_step_builds_codex_subscription_args_without_api_key_fallback():
     assert "--codex_subscription" in args
     assert "--codex_backend=sdk_app_server" in args
     assert "--codex_auth_mode=chatgpt" in args
-    assert "--codex_model_name=gpt-5.4-mini" in args
+    assert "--codex_model_name=gpt-5.4" in args
+    assert "--codex_reasoning_effort=none" in args
     assert "--codex_auto_install_sdk" in args
+    assert "--codex_fast" not in args
     assert not any(arg.startswith("--codex_api_key=") for arg in args)
     assert not any(arg.startswith("--openai_api_key=") for arg in args)
+
+
+def test_caption_step_builds_codex_fast_mode_arg():
+    CaptionStep = _load_caption_step("test_step4_caption_codex_fast")
+
+    step = CaptionStep()
+    step.config["codex_subscription"] = True
+    step.config["codex_fast"] = True
+    step.mode = SimpleNamespace(value="long")
+    step.pair_dir = SimpleNamespace(value="")
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--codex_fast" in args
+
+
+def test_caption_step_builds_codex_reasoning_effort_arg():
+    CaptionStep = _load_caption_step("test_step4_caption_codex_reasoning_effort")
+
+    step = CaptionStep()
+    step.config["codex_subscription"] = True
+    step.config["codex_reasoning_effort"] = "minimal"
+    step.mode = SimpleNamespace(value="long")
+    step.pair_dir = SimpleNamespace(value="")
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--codex_reasoning_effort=minimal" in args
 
 
 def test_caption_step_codex_api_key_is_explicit_auth_mode_only():
@@ -944,6 +974,28 @@ def test_runtime_prompt_config_files_parse_with_toml_library():
     for rel in ("config/prompts.toml", "config/config.toml"):
         parsed = toml.load(ROOT / rel)
         assert isinstance(parsed, dict)
+
+
+def test_codex_subscription_image_prompt_is_gemini_rate_schema_compatible():
+    from module.providers.codex_schema import CODEX_SCORE_DIMENSIONS
+
+    for rel in ("config/prompts.toml", "config/config.toml"):
+        parsed = toml.load(ROOT / rel)
+        prompts = parsed["prompts"]
+
+        system_prompt = prompts["codex_subscription_image_system_prompt"]
+        user_prompt = prompts["codex_subscription_image_prompt"]
+
+        assert system_prompt != prompts["image_system_prompt"]
+        assert user_prompt != prompts["image_prompt"]
+        assert "scores" in system_prompt
+        assert "total_score" in system_prompt
+        assert "average_score" in system_prompt
+        for dimension in CODEX_SCORE_DIMENSIONS:
+            assert dimension in system_prompt
+        assert "Do not mask letters with asterisks" in system_prompt
+        assert "回答只需要给出分数" not in system_prompt
+        assert "Fill short_description, long_description, tags, rating, confidence, scores, total_score, and average_score" in user_prompt
 
 
 def test_has_flash_attn_returns_false_when_module_import_fails(monkeypatch):

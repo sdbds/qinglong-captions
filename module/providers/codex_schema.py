@@ -8,18 +8,46 @@ from pathlib import Path
 from typing import Any
 
 
-CODEX_CAPTION_SCHEMA_VERSION = "codex-caption-v1"
+CODEX_CAPTION_SCHEMA_VERSION = "codex-caption-v2"
+CODEX_SCORE_DIMENSIONS = (
+    "Costume & Makeup & Prop Presentation/Accuracy",
+    "Character Portrayal & Posing",
+    "Setting & Environment Integration",
+    "Lighting & Mood",
+    "Composition & Framing",
+    "Storytelling & Concept",
+    "Level of S*e*x*y",
+    "Figure",
+    "Overall Impact & Uniqueness",
+)
 CODEX_CAPTION_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "additionalProperties": False,
-    "required": ["short_description", "long_description", "tags", "rating", "confidence"],
+    "required": [
+        "short_description",
+        "long_description",
+        "tags",
+        "rating",
+        "confidence",
+        "scores",
+        "total_score",
+        "average_score",
+    ],
     "properties": {
         "short_description": {"type": "string"},
         "long_description": {"type": "string"},
         "tags": {"type": "array", "items": {"type": "string"}},
         "rating": {"type": "string", "enum": ["general", "sensitive", "questionable", "explicit"]},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "scores": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": list(CODEX_SCORE_DIMENSIONS),
+            "properties": {dimension: {"type": "number", "minimum": 0, "maximum": 10} for dimension in CODEX_SCORE_DIMENSIONS},
+        },
+        "total_score": {"type": "number", "minimum": 0},
+        "average_score": {"type": "number", "minimum": 0, "maximum": 10},
     },
 }
 
@@ -53,9 +81,10 @@ def load_caption_schema(path: str | Path | None = None) -> dict[str, Any]:
 
 def build_codex_caption_prompt(*, system_prompt: str, user_prompt: str) -> str:
     sections = [
-        "You are a captioning engine. Return only JSON matching the provided schema.",
+        "You are a captioning and rating engine. Return only JSON matching the provided schema.",
         "Do not include Markdown, commentary, file paths, tool output, or analysis steps.",
         "Describe visible content only. Use project-provided character naming hints if present, but do not infer identities, private attributes, or unverifiable facts beyond those hints.",
+        "If project prompts request ratings or scores, put numeric dimension ratings in scores, total_score, and average_score while still filling the caption fields.",
     ]
     if system_prompt.strip():
         sections.extend(["", "Project system prompt:", system_prompt.strip()])
@@ -65,7 +94,9 @@ def build_codex_caption_prompt(*, system_prompt: str, user_prompt: str) -> str:
         [
             "",
             "Task:",
-            "Generate caption metadata for the attached image. Use concise tags and a natural long description.",
+            "Generate caption and rating metadata for the attached image. Use concise tags and a natural long description.",
+            "Fill short_description, long_description, tags, rating, confidence, scores, total_score, and average_score.",
+            "If a scoring dimension is not applicable, use 0 for that dimension and explain the visible content in long_description.",
             "If uncertain, lower confidence instead of inventing details.",
         ]
     )
@@ -124,15 +155,55 @@ def normalize_codex_caption_payload(parsed: dict[str, Any]) -> dict[str, Any]:
         confidence = 0.0
     confidence = max(0.0, min(1.0, confidence))
 
+    scores = _normalize_scores(result.get("scores"))
+    total_score = _coerce_score_number(result.get("total_score"))
+    if total_score == 0.0 and scores:
+        total_score = sum(scores.values())
+
+    average_score = _coerce_score_number(result.get("average_score", result.get("avg_score")))
+    if average_score == 0.0 and scores:
+        average_score = total_score / len(scores)
+
     normalized = {
         "short_description": short,
         "long_description": long,
         "tags": tags,
         "rating": rating,
         "confidence": confidence,
+        "scores": scores,
+        "total_score": _compact_number(total_score),
+        "average_score": _compact_number(average_score),
     }
+    for key in ("character_name", "series"):
+        value = str(result.get(key) or "").strip()
+        if value:
+            normalized[key] = value
     if not normalized["short_description"] and not normalized["long_description"]:
         raise CodexCaptionOutputError("Codex output did not include a caption.")
+    return normalized
+
+
+def _coerce_score_number(value: Any) -> float:
+    try:
+        return max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _compact_number(value: float) -> int | float:
+    return int(value) if float(value).is_integer() else value
+
+
+def _normalize_scores(value: Any) -> dict[str, int | float]:
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, int | float] = {}
+    for raw_key, raw_value in value.items():
+        key = str(raw_key or "").strip()
+        if not key:
+            continue
+        score = _coerce_score_number(raw_value)
+        normalized[key] = _compact_number(score)
     return normalized
 
 
