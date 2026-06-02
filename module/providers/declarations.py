@@ -79,6 +79,12 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
         capabilities=capabilities(supports_images=True, supports_video=True, supports_cloud_concurrency=True),
     ),
     ProviderDeclaration(
+        name="grok_build_subscription",
+        module_path="module.providers.cloud_vlm.grok_build_subscription",
+        priority=15,
+        capabilities=capabilities(supports_images=True, supports_structured_output=True),
+    ),
+    ProviderDeclaration(
         name="openai_compatible",
         module_path="module.providers.cloud_vlm.openai_compatible",
         priority=20,

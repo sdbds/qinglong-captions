@@ -271,6 +271,26 @@ class CaptionStep:
         "high": "high",
         "xhigh": "xhigh",
     }
+    GROK_BUILD_BACKEND_OPTIONS = {
+        "headless": "headless (--prompt-json)",
+    }
+    GROK_BUILD_AUTH_MODE_OPTIONS = {
+        "cached_token": "Cached Grok Build session",
+        "existing": "Existing session only",
+    }
+    GROK_BUILD_PERMISSION_MODE_OPTIONS = {
+        "dontAsk": "dontAsk",
+        "default": "default",
+        "acceptEdits": "acceptEdits",
+        "auto": "auto",
+        "bypassPermissions": "bypassPermissions",
+        "plan": "plan",
+    }
+    GROK_BUILD_SANDBOX_OPTIONS = {
+        "read-only": "read-only",
+        "workspace-write": "workspace-write",
+        "danger-full-access": "danger-full-access",
+    }
 
     OCR_MODELS = list(route_choices("ocr_model"))
 
@@ -402,6 +422,16 @@ class CaptionStep:
             "codex_runtime_path": "",
             "codex_max_concurrency": 1,
             "codex_auto_install_sdk": True,
+            "grok_build_subscription": False,
+            "grok_build_backend": "headless",
+            "grok_build_auth_mode": "cached_token",
+            "grok_build_command": "grok",
+            "grok_build_model_name": "grok-build",
+            "grok_build_timeout": 180,
+            "grok_build_isolated_cwd": "",
+            "grok_build_permission_mode": "dontAsk",
+            "grok_build_sandbox": "read-only",
+            "grok_build_prompt_json_max_chars": 24000,
         }
         self.panel: "ExecutionPanel | None" = None
         self.api_keys = {}
@@ -763,6 +793,16 @@ class CaptionStep:
             return value
         return self.config.get(key, default)
 
+    def _grok_build_enabled(self) -> bool:
+        return bool(self.config.get("grok_build_subscription", False))
+
+    def _grok_build_value(self, key: str, default: Any = "") -> Any:
+        control = getattr(self, key, None)
+        value = getattr(control, "value", None)
+        if value not in (None, ""):
+            return value
+        return self.config.get(key, default)
+
     def _has_local_route_config(self) -> bool:
         if self._has_text(self.ocr_model.value) and not route_requires_remote_config("ocr_model", self.ocr_model.value):
             return True
@@ -775,7 +815,12 @@ class CaptionStep:
         return False
 
     def _has_caption_provider_config(self) -> bool:
-        return self._codex_enabled() or self._has_remote_provider_config() or self._has_local_route_config()
+        return (
+            self._codex_enabled()
+            or self._grok_build_enabled()
+            or self._has_remote_provider_config()
+            or self._has_local_route_config()
+        )
 
     @staticmethod
     def _append_extra(extra_args: list[str], seen: set[str], extra_name: Optional[str]) -> None:
@@ -807,6 +852,8 @@ class CaptionStep:
             ):
                 self._append_extra(extra_args, seen, self.CODEX_SUBSCRIPTION_EXTRA)
             return extra_args
+        if self._grok_build_enabled():
+            return extra_args
 
         self._append_extra(extra_args, seen, self.OCR_EXTRA_MAP.get(self.ocr_model.value or ""))
         self._append_extra(extra_args, seen, self.VLM_EXTRA_MAP.get(self.vlm_image_model.value or ""))
@@ -821,6 +868,7 @@ class CaptionStep:
     def _build_caption_args(self, dataset_path: str) -> list[str]:
         args = [dataset_path]
         codex_enabled = self._codex_enabled()
+        grok_build_enabled = self._grok_build_enabled() and not codex_enabled
 
         if codex_enabled:
             args.append("--codex_subscription")
@@ -872,6 +920,41 @@ class CaptionStep:
 
             if bool(self.config.get("codex_auto_install_sdk", True)):
                 args.append("--codex_auto_install_sdk")
+        elif grok_build_enabled:
+            args.append("--grok_build_subscription")
+
+            grok_build_backend = str(self._grok_build_value("grok_build_backend", "headless") or "headless")
+            args.append(f"--grok_build_backend={grok_build_backend}")
+
+            grok_build_auth_mode = str(self._grok_build_value("grok_build_auth_mode", "cached_token") or "cached_token")
+            args.append(f"--grok_build_auth_mode={grok_build_auth_mode}")
+
+            grok_build_model_name = str(self._grok_build_value("grok_build_model_name", "grok-build") or "grok-build")
+            if grok_build_model_name:
+                args.append(f"--grok_build_model_name={grok_build_model_name}")
+
+            grok_build_timeout = self._grok_build_value("grok_build_timeout", 180)
+            if grok_build_timeout:
+                args.append(f"--grok_build_timeout={grok_build_timeout}")
+
+            grok_build_permission_mode = str(
+                self._grok_build_value("grok_build_permission_mode", "dontAsk") or "dontAsk"
+            )
+            if grok_build_permission_mode:
+                args.append(f"--grok_build_permission_mode={grok_build_permission_mode}")
+
+            grok_build_sandbox = str(self._grok_build_value("grok_build_sandbox", "read-only") or "read-only")
+            if grok_build_sandbox:
+                args.append(f"--grok_build_sandbox={grok_build_sandbox}")
+
+            grok_build_prompt_json_max_chars = self._grok_build_value("grok_build_prompt_json_max_chars", 24000)
+            if grok_build_prompt_json_max_chars and str(grok_build_prompt_json_max_chars) != "24000":
+                args.append(f"--grok_build_prompt_json_max_chars={grok_build_prompt_json_max_chars}")
+
+            for key in ("grok_build_command", "grok_build_isolated_cwd"):
+                value = str(self._grok_build_value(key, "") or "").strip()
+                if value:
+                    args.append(f"--{key}={value}")
         else:
             for api_name, config in self.API_CONFIGS.items():
                 if config.get("is_openai_compatible"):
@@ -923,17 +1006,17 @@ class CaptionStep:
         if self.config["tags_highlightrate"] != 0.38:
             args.append(f"--tags_highlightrate={self.config['tags_highlightrate']}")
 
-        if not codex_enabled and self.ocr_model.value:
+        if not codex_enabled and not grok_build_enabled and self.ocr_model.value:
             ocr_arg = f"--ocr_model={self.ocr_model.value}"
             if ocr_arg not in args:
                 args.append(ocr_arg)
             if self.config["document_image"] and "--document_image" not in args:
                 args.append("--document_image")
 
-        if not codex_enabled and self.vlm_image_model.value:
+        if not codex_enabled and not grok_build_enabled and self.vlm_image_model.value:
             args.append(f"--vlm_image_model={self.vlm_image_model.value}")
 
-        if not codex_enabled and self._current_alm_model():
+        if not codex_enabled and not grok_build_enabled and self._current_alm_model():
             args.append(f"--alm_model={self._current_alm_model()}")
             alm_language = getattr(getattr(self, "alm_language", None), "value", "")
             if self._alm_requires_language() and self._has_text(alm_language):
@@ -948,6 +1031,8 @@ class CaptionStep:
         """构建 Job 显示名（包含主要 provider 信息）"""
         if self._codex_enabled():
             return f"{t('job_name_caption')} ({t('codex_subscription')})"
+        if self._grok_build_enabled():
+            return f"{t('job_name_caption')} ({t('grok_build_subscription')})"
         for api_name, config in self.API_CONFIGS.items():
             if config.get("is_openai_compatible"):
                 continue
@@ -1118,6 +1203,105 @@ class CaptionStep:
                         label_default=t("codex_auto_install_sdk_extra"),
                     )
 
+    def _render_grok_build_settings(self):
+        with ui.expansion(t("grok_build_subscription")).classes("w-full q-mb-md"):
+            with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
+                ui.label(t("grok_build_subscription_desc")).classes("text-caption q-mb-sm").style(
+                    "color: var(--color-text-secondary);"
+                )
+
+                toggle_switch(
+                    "use_grok_build_subscription",
+                    self.config,
+                    "grok_build_subscription",
+                )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    self.grok_build_backend = styled_select(
+                        options=self.GROK_BUILD_BACKEND_OPTIONS,
+                        value=self.config["grok_build_backend"],
+                        label=t("grok_build_backend"),
+                        icon="hub",
+                        icon_color=COLORS["primary"],
+                        searchable=False,
+                        flex=1,
+                    )
+                    self.grok_build_auth_mode = styled_select(
+                        options=self.GROK_BUILD_AUTH_MODE_OPTIONS,
+                        value=self.config["grok_build_auth_mode"],
+                        label=t("grok_build_auth_mode"),
+                        icon="account_circle",
+                        icon_color=COLORS["info"],
+                        searchable=False,
+                        flex=1,
+                    )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    self.grok_build_model_name = styled_input(
+                        value=self.config["grok_build_model_name"],
+                        label=t("grok_build_model"),
+                        icon="smart_toy",
+                        icon_color=COLORS["primary"],
+                        placeholder="grok-build",
+                        flex=1,
+                    )
+                    self.grok_build_timeout = styled_input(
+                        value=str(self.config["grok_build_timeout"]),
+                        label=t("grok_build_timeout_seconds"),
+                        icon="timer",
+                        icon_color=COLORS["info"],
+                        placeholder="180",
+                        flex=1,
+                    )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    self.grok_build_permission_mode = styled_select(
+                        options=self.GROK_BUILD_PERMISSION_MODE_OPTIONS,
+                        value=self.config["grok_build_permission_mode"],
+                        label=t("grok_build_permission_mode"),
+                        icon="lock",
+                        icon_color=COLORS["warning"],
+                        searchable=False,
+                        flex=1,
+                    )
+                    self.grok_build_sandbox = styled_select(
+                        options=self.GROK_BUILD_SANDBOX_OPTIONS,
+                        value=self.config["grok_build_sandbox"],
+                        label=t("grok_build_sandbox"),
+                        icon="shield",
+                        icon_color=COLORS["success"],
+                        searchable=False,
+                        flex=1,
+                    )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    self.grok_build_command = styled_input(
+                        value=self.config["grok_build_command"],
+                        label=t("grok_build_command"),
+                        icon="terminal",
+                        icon_color=COLORS["secondary"],
+                        placeholder="grok",
+                        flex=1,
+                    )
+                    self.grok_build_prompt_json_max_chars = styled_input(
+                        value=str(self.config["grok_build_prompt_json_max_chars"]),
+                        label=t("grok_build_prompt_json_max_chars"),
+                        icon="data_object",
+                        icon_color=COLORS["primary"],
+                        placeholder="24000",
+                        flex=1,
+                    )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    self.grok_build_isolated_cwd = styled_input(
+                        value=self.config["grok_build_isolated_cwd"],
+                        label=t("grok_build_isolated_cwd"),
+                        icon="folder_special",
+                        icon_color=COLORS["info"],
+                        placeholder=t("optional"),
+                        flex=1,
+                    )
+
     def render(self):
         """渲染页面"""
         with ui.column().classes(get_classes("page_container") + " gap-4"):
@@ -1223,6 +1407,7 @@ class CaptionStep:
     def _render_api_settings(self):
         """渲染 API 设置"""
         self._render_codex_settings()
+        self._render_grok_build_settings()
 
         for api_name, config in self.API_CONFIGS.items():
             with ui.expansion(f"{api_name} API").classes("w-full q-mb-md"):

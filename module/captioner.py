@@ -394,6 +394,75 @@ def setup_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow launcher scripts to install the optional Codex Python SDK extra.",
     )
+    parser.add_argument(
+        "--grok_build_subscription",
+        action="store_true",
+        help="Use a logged-in Grok Build subscription session for image captioning.",
+    )
+    parser.add_argument(
+        "--grok_build_backend",
+        type=str,
+        choices=["headless"],
+        default="headless",
+        help="Grok Build runtime backend. v1 supports headless --prompt-json only.",
+    )
+    parser.add_argument(
+        "--grok_build_auth_mode",
+        type=str,
+        choices=["cached_token", "existing"],
+        default="cached_token",
+        help="Grok Build auth mode for subscription runs. API keys are intentionally not used here.",
+    )
+    parser.add_argument(
+        "--grok_build_command",
+        type=str,
+        default="grok",
+        help="Grok Build CLI executable for --grok_build_subscription.",
+    )
+    parser.add_argument(
+        "--grok_build_model_name",
+        type=str,
+        default="grok-build",
+        help="Grok Build model for --grok_build_subscription.",
+    )
+    parser.add_argument(
+        "--grok_build_timeout",
+        type=float,
+        default=180.0,
+        help="Per-image Grok Build headless timeout in seconds.",
+    )
+    parser.add_argument(
+        "--grok_build_isolated_cwd",
+        type=str,
+        default="",
+        help="Optional isolated working directory for Grok Build runs.",
+    )
+    parser.add_argument(
+        "--grok_build_permission_mode",
+        type=str,
+        choices=["default", "acceptEdits", "auto", "dontAsk", "bypassPermissions", "plan"],
+        default="dontAsk",
+        help="Grok Build permission mode for headless subscription runs.",
+    )
+    parser.add_argument(
+        "--grok_build_sandbox",
+        type=str,
+        default="read-only",
+        choices=["read-only", "workspace-write", "danger-full-access"],
+        help="Grok Build sandbox mode for headless subscription runs.",
+    )
+    parser.add_argument(
+        "--grok_build_prompt_json_max_chars",
+        type=int,
+        default=24000,
+        help="Maximum inline --prompt-json size before image compression fails closed.",
+    )
+    parser.add_argument(
+        "--grok_build_max_concurrency",
+        type=int,
+        default=1,
+        help="Reserved concurrency limit for Grok Build captioning; v1 remains serial.",
+    )
 
     parser.add_argument(
         "--dir_name",

@@ -535,6 +535,21 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "codex_command": "Codex command",
         "codex_command_placeholder": "Only used by exec backend",
         "codex_auto_install_sdk_extra": "Auto install SDK extra",
+        "grok_build_subscription": "Grok Build Subscription",
+        "grok_build_subscription_desc": (
+            "Use the logged-in Grok Build CLI session through the verified headless prompt-json image path. "
+            "XAI API keys are not used."
+        ),
+        "use_grok_build_subscription": "Use Grok Build subscription",
+        "grok_build_backend": "Grok Build backend",
+        "grok_build_auth_mode": "Auth mode",
+        "grok_build_model": "Grok Build model",
+        "grok_build_timeout_seconds": "Timeout seconds",
+        "grok_build_permission_mode": "Permission mode",
+        "grok_build_sandbox": "Sandbox",
+        "grok_build_command": "Grok command",
+        "grok_build_prompt_json_max_chars": "Prompt JSON max chars",
+        "grok_build_isolated_cwd": "Isolated cwd",
         "select_transcription_language": "Select transcription language",
         "select_audio_task": "Select audio task",
         # Log messages
@@ -1099,6 +1114,21 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "codex_command": "Codex 命令",
         "codex_command_placeholder": "仅 exec 后端使用",
         "codex_auto_install_sdk_extra": "自动安装 SDK extra",
+        "grok_build_subscription": "Grok Build 订阅",
+        "grok_build_subscription_desc": (
+            "使用已登录的 Grok Build CLI 会话，通过已验证的 headless prompt-json 图片路径打标。"
+            "不会使用 XAI API Key。"
+        ),
+        "use_grok_build_subscription": "使用 Grok Build 订阅",
+        "grok_build_backend": "Grok Build 后端",
+        "grok_build_auth_mode": "认证模式",
+        "grok_build_model": "Grok Build 模型",
+        "grok_build_timeout_seconds": "超时时间（秒）",
+        "grok_build_permission_mode": "权限模式",
+        "grok_build_sandbox": "沙盒",
+        "grok_build_command": "Grok 命令",
+        "grok_build_prompt_json_max_chars": "Prompt JSON 最大字符数",
+        "grok_build_isolated_cwd": "隔离工作目录",
         "select_transcription_language": "选择转写语言",
         "select_audio_task": "选择音频任务",
         # Log messages
@@ -1622,6 +1652,21 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "codex_command": "Codex コマンド",
         "codex_command_placeholder": "exec バックエンドでのみ使用",
         "codex_auto_install_sdk_extra": "SDK extra を自動インストール",
+        "grok_build_subscription": "Grok Build サブスクリプション",
+        "grok_build_subscription_desc": (
+            "ログイン済みの Grok Build CLI セッションを、検証済みの headless prompt-json 画像経路で使用します。"
+            "XAI APIキーは使用しません。"
+        ),
+        "use_grok_build_subscription": "Grok Build サブスクリプションを使用",
+        "grok_build_backend": "Grok Build バックエンド",
+        "grok_build_auth_mode": "認証モード",
+        "grok_build_model": "Grok Build モデル",
+        "grok_build_timeout_seconds": "タイムアウト秒数",
+        "grok_build_permission_mode": "権限モード",
+        "grok_build_sandbox": "サンドボックス",
+        "grok_build_command": "Grok コマンド",
+        "grok_build_prompt_json_max_chars": "Prompt JSON 最大文字数",
+        "grok_build_isolated_cwd": "分離作業ディレクトリ",
         "select_transcription_language": "文字起こし言語を選択",
         "select_audio_task": "音声タスクを選択",
         # Log messages
@@ -2186,6 +2231,21 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "codex_command": "Codex 명령",
         "codex_command_placeholder": "exec 백엔드에서만 사용",
         "codex_auto_install_sdk_extra": "SDK extra 자동 설치",
+        "grok_build_subscription": "Grok Build 구독",
+        "grok_build_subscription_desc": (
+            "로그인된 Grok Build CLI 세션을 검증된 headless prompt-json 이미지 경로로 사용합니다. "
+            "XAI API 키는 사용하지 않습니다."
+        ),
+        "use_grok_build_subscription": "Grok Build 구독 사용",
+        "grok_build_backend": "Grok Build 백엔드",
+        "grok_build_auth_mode": "인증 모드",
+        "grok_build_model": "Grok Build 모델",
+        "grok_build_timeout_seconds": "타임아웃 초",
+        "grok_build_permission_mode": "권한 모드",
+        "grok_build_sandbox": "샌드박스",
+        "grok_build_command": "Grok 명령",
+        "grok_build_prompt_json_max_chars": "Prompt JSON 최대 문자 수",
+        "grok_build_isolated_cwd": "격리 작업 디렉토리",
         "select_transcription_language": "전사 언어 선택",
         "select_audio_task": "오디오 작업 선택",
         # Log messages

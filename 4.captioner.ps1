@@ -69,6 +69,20 @@ $codex_max_concurrency = 1
 $cloud_max_concurrency = 1
 $codex_auto_install_sdk = $true
 
+# Grok Build Subscription Provider（实验性）
+# 仅使用 Grok Build 已登录会话；订阅路径不会隐式使用 XAI_API_KEY。
+$grok_build_subscription = $false
+$grok_build_backend = "headless"      # "headless"
+$grok_build_auth_mode = "cached_token" # "cached_token", "existing"
+$grok_build_command = "grok"
+$grok_build_model_name = "grok-build"
+$grok_build_timeout = 180
+$grok_build_isolated_cwd = ""
+$grok_build_permission_mode = "dontAsk" # "default", "acceptEdits", "auto", "dontAsk", "bypassPermissions", "plan"
+$grok_build_sandbox = "read-only"       # "read-only", "workspace-write", "danger-full-access"
+$grok_build_prompt_json_max_chars = 24000
+$grok_build_max_concurrency = 1
+
 $dir_name = $false
 $mode = "long" # all, short, long
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
@@ -457,6 +471,40 @@ if ($codex_subscription) {
   }
   if ($codex_backend -eq "sdk_app_server" -and $codex_auto_install_sdk) {
     Add-UvExtra "codex-subscription"
+  }
+}
+
+if ($grok_build_subscription) {
+  [void]$ext_args.Add("--grok_build_subscription")
+  if ($grok_build_backend) {
+    [void]$ext_args.Add("--grok_build_backend=$grok_build_backend")
+  }
+  if ($grok_build_auth_mode) {
+    [void]$ext_args.Add("--grok_build_auth_mode=$grok_build_auth_mode")
+  }
+  if ($grok_build_command) {
+    [void]$ext_args.Add("--grok_build_command=$grok_build_command")
+  }
+  if ($grok_build_model_name) {
+    [void]$ext_args.Add("--grok_build_model_name=$grok_build_model_name")
+  }
+  if ($grok_build_timeout) {
+    [void]$ext_args.Add("--grok_build_timeout=$grok_build_timeout")
+  }
+  if ($grok_build_isolated_cwd) {
+    [void]$ext_args.Add("--grok_build_isolated_cwd=$grok_build_isolated_cwd")
+  }
+  if ($grok_build_permission_mode) {
+    [void]$ext_args.Add("--grok_build_permission_mode=$grok_build_permission_mode")
+  }
+  if ($grok_build_sandbox) {
+    [void]$ext_args.Add("--grok_build_sandbox=$grok_build_sandbox")
+  }
+  if ($grok_build_prompt_json_max_chars -ne 24000) {
+    [void]$ext_args.Add("--grok_build_prompt_json_max_chars=$grok_build_prompt_json_max_chars")
+  }
+  if ($grok_build_max_concurrency -gt 1) {
+    [void]$ext_args.Add("--grok_build_max_concurrency=$grok_build_max_concurrency")
   }
 }
 

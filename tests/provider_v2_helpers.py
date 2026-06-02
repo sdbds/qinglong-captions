@@ -2,7 +2,6 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -46,6 +45,17 @@ def make_provider_args(**kwargs):
         "codex_max_concurrency": 1,
         "cloud_max_concurrency": 1,
         "codex_auto_install_sdk": False,
+        "grok_build_subscription": False,
+        "grok_build_backend": "headless",
+        "grok_build_auth_mode": "cached_token",
+        "grok_build_command": "grok",
+        "grok_build_model_name": "grok-build",
+        "grok_build_timeout": 180.0,
+        "grok_build_isolated_cwd": "",
+        "grok_build_permission_mode": "dontAsk",
+        "grok_build_sandbox": "read-only",
+        "grok_build_prompt_json_max_chars": 24000,
+        "grok_build_max_concurrency": 1,
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)

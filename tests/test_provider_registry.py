@@ -30,6 +30,7 @@ class TestProviderRegistry:
         assert len(providers) >= 26
         expected = [
             "codex_subscription",
+            "grok_build_subscription",
             "stepfun",
             "ark",
             "qwenvl",

@@ -413,6 +413,92 @@ def test_caption_step_codex_subscription_adds_only_codex_extra():
     assert step._build_local_extra_args() == ["--extra", "codex-subscription"]
 
 
+def test_caption_step_grok_build_subscription_counts_as_provider_config():
+    CaptionStep = _load_caption_step("test_step4_caption_grok_build_provider")
+
+    step = CaptionStep()
+    step.config["grok_build_subscription"] = True
+    step.api_keys = {}
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="")
+
+    assert step._has_caption_provider_config() is True
+
+
+def test_caption_step_grok_build_subscription_adds_no_local_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_grok_build_extra")
+
+    step = CaptionStep()
+    step.config["grok_build_subscription"] = True
+    step.ocr_model = SimpleNamespace(value="dots_ocr")
+    step.vlm_image_model = SimpleNamespace(value="gemma4_local")
+    step.alm_model = SimpleNamespace(value="music_flamingo_local")
+
+    assert step._build_local_extra_args() == []
+
+
+def test_caption_step_builds_grok_build_subscription_args_without_api_key_fallback():
+    CaptionStep = _load_caption_step("test_step4_caption_grok_build_args")
+
+    step = CaptionStep()
+    step.config["grok_build_subscription"] = True
+    step.api_keys = {
+        "openai_api_key": SimpleNamespace(value="sk-should-not-pass"),
+        "gemini_api_key": SimpleNamespace(value="gemini-should-not-pass"),
+    }
+    step.ocr_model = SimpleNamespace(value="dots_ocr")
+    step.vlm_image_model = SimpleNamespace(value="gemma4_local")
+    step.alm_model = SimpleNamespace(value="music_flamingo_local")
+    step.mode = SimpleNamespace(value="long")
+    step.pair_dir = SimpleNamespace(value="")
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--grok_build_subscription" in args
+    assert "--grok_build_backend=headless" in args
+    assert "--grok_build_auth_mode=cached_token" in args
+    assert "--grok_build_model_name=grok-build" in args
+    assert "--grok_build_timeout=180" in args
+    assert "--grok_build_permission_mode=dontAsk" in args
+    assert "--grok_build_sandbox=read-only" in args
+    assert "--grok_build_command=grok" in args
+    assert "--grok_build_prompt_json_max_chars=24000" not in args
+    assert not any(arg.startswith("--openai_api_key=") for arg in args)
+    assert not any(arg.startswith("--gemini_api_key=") for arg in args)
+    assert not any(arg.startswith("--ocr_model=") for arg in args)
+    assert not any(arg.startswith("--vlm_image_model=") for arg in args)
+    assert not any(arg.startswith("--alm_model=") for arg in args)
+
+
+def test_caption_step_builds_grok_build_overrides():
+    CaptionStep = _load_caption_step("test_step4_caption_grok_build_overrides")
+
+    step = CaptionStep()
+    step.config["grok_build_subscription"] = True
+    step.config["grok_build_auth_mode"] = "existing"
+    step.config["grok_build_command"] = "grok-test"
+    step.config["grok_build_model_name"] = "grok-build-custom"
+    step.config["grok_build_timeout"] = 9
+    step.config["grok_build_isolated_cwd"] = "work"
+    step.config["grok_build_permission_mode"] = "default"
+    step.config["grok_build_sandbox"] = "workspace-write"
+    step.config["grok_build_prompt_json_max_chars"] = 12000
+    step.mode = SimpleNamespace(value="all")
+    step.pair_dir = SimpleNamespace(value="")
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--grok_build_auth_mode=existing" in args
+    assert "--grok_build_command=grok-test" in args
+    assert "--grok_build_model_name=grok-build-custom" in args
+    assert "--grok_build_timeout=9" in args
+    assert "--grok_build_isolated_cwd=work" in args
+    assert "--grok_build_permission_mode=default" in args
+    assert "--grok_build_sandbox=workspace-write" in args
+    assert "--grok_build_prompt_json_max_chars=12000" in args
+
+
 def test_caption_step_builds_codex_subscription_args_without_api_key_fallback():
     CaptionStep = _load_caption_step("test_step4_caption_codex_args")
 
