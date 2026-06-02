@@ -27,10 +27,17 @@ class LogViewer:
         """提取需要在初始渲染时回放的历史日志。"""
         return [line for _seq, line in history][-max_lines:]
 
-    def __init__(self, max_lines: int = 1000, height: str = "50vh", log_source: Optional[LogBuffer] = None):
+    def __init__(
+        self,
+        max_lines: int = 1000,
+        height: str = "50vh",
+        log_source: Optional[LogBuffer] = None,
+        embedded: bool = False,
+    ):
         self._ensure_scroll_styles()
         self.max_lines = max_lines
         self._height = height
+        self._embedded = embedded
         self.lines: list[str] = []  # 原始文本（可能含 ANSI）
         self.auto_scroll = True
         self._buffer: list[str] = []
@@ -42,9 +49,13 @@ class LogViewer:
         self._last_replayed_seq: int = 0
         self._log_source: LogBuffer = log_source if log_source is not None else log_buffer
 
-        with ui.card().classes(get_classes("card") + " w-full").style("box-sizing: border-box;"):
+        wrapper = ui.element("div") if embedded else ui.card()
+        wrapper.classes(("w-full" if embedded else get_classes("card") + " w-full")).style("box-sizing: border-box;")
+
+        with wrapper:
             # 工具栏
-            with ui.row().classes("w-full items-center justify-between q-pa-md"):
+            toolbar_padding = "q-py-sm" if embedded else "q-pa-md"
+            with ui.row().classes(f"w-full items-center justify-between {toolbar_padding}"):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("article", size="22px").style(f"color: {COLORS['primary']};")
                     ui.label(t("log_output")).classes("text-subtitle1 text-weight-bold").style("color: var(--color-text);")
@@ -96,7 +107,7 @@ class LogViewer:
             # 日志 HTML 渲染区域
             with (
                 ui.element("div")
-                .classes("w-full q-px-md q-mb-md")
+                .classes("w-full" if embedded else "w-full q-px-md q-mb-md")
                 .style(f"""
                 background: var(--ql-console-bg);
                 border: 1px solid var(--ql-console-border);
@@ -265,19 +276,18 @@ class LogViewer:
         self._programmatic_scroll = True
         self.scroll_area.scroll_to(percent=1.0)
 
-    def attach_job(self, job):
-        """切换到指定 Job 的日志流。
+    def attach_log_source(self, log_source: LogBuffer):
+        """切换到指定日志源。"""
+        if log_source is self._log_source:
+            return
 
-        Args:
-            job: gui.utils.job_manager.Job 对象
-        """
         # 取消旧订阅
         if self._sub_id is not None:
             self._log_source.unsubscribe(self._sub_id)
             self._sub_id = None
 
         # 切换源
-        self._log_source = job.log_buffer
+        self._log_source = log_source
 
         # 清空当前显示，回放新源历史
         self._clear_display()
@@ -286,6 +296,14 @@ class LogViewer:
 
         # 订阅新源
         self._sub_id = self._log_source.subscribe(self._on_log_buffer_line)
+
+    def attach_job(self, job):
+        """切换到指定 Job 的日志流。
+
+        Args:
+            job: gui.utils.job_manager.Job 对象
+        """
+        self.attach_log_source(job.log_buffer)
 
     def append(self, message: str, level: str = "info"):
         """添加日志行（经 log_source 持久化后由订阅回调写入缓冲区）"""

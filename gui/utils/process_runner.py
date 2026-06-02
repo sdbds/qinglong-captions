@@ -115,16 +115,28 @@ _UV_TORCHVISION_GROUPS = frozenset()
 _SEE_THROUGH_OPENCV_CLEANUP_PACKAGES = OPENCV_DISTRIBUTION_PACKAGES
 _PYPROJECT_PATH = Path(__file__).resolve().parent.parent.parent / "pyproject.toml"
 
-# 序列化 _patch_shared_environment，防止两个并发 Job 同时修改共享 .venv
-_uv_patch_lock: Optional[asyncio.Lock] = None
+# 序列化同一个 venv 的依赖补丁；不同 venv 可以并发。
+_uv_patch_locks: dict[str, asyncio.Lock] = {}
+_uv_patch_locks_guard: Optional[asyncio.Lock] = None
 
 
-def _get_uv_patch_lock() -> asyncio.Lock:
-    """延迟初始化 uv patch 锁（需在事件循环中调用）"""
-    global _uv_patch_lock
-    if _uv_patch_lock is None:
-        _uv_patch_lock = asyncio.Lock()
-    return _uv_patch_lock
+def _get_uv_patch_locks_guard() -> asyncio.Lock:
+    """延迟初始化 uv patch lock 字典的保护锁（需在事件循环中调用）"""
+    global _uv_patch_locks_guard
+    if _uv_patch_locks_guard is None:
+        _uv_patch_locks_guard = asyncio.Lock()
+    return _uv_patch_locks_guard
+
+
+async def _get_uv_patch_lock(environment_key: str) -> asyncio.Lock:
+    """按运行环境 key 获取依赖补丁锁，锁创建本身受 guard 保护。"""
+    guard = _get_uv_patch_locks_guard()
+    async with guard:
+        lock = _uv_patch_locks.get(environment_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _uv_patch_locks[environment_key] = lock
+        return lock
 
 
 def _infer_torch_backend_from_pyproject() -> Optional[str]:
@@ -351,6 +363,60 @@ class ProcessRunner:
         if venv_path:
             return Path(venv_path).name or venv_path
         return "uv-managed"
+
+    @staticmethod
+    def _venv_scripts_dir(venv_path: Path) -> Path:
+        return venv_path / ("Scripts" if sys.platform == "win32" else "bin")
+
+    @classmethod
+    def _apply_venv_env(cls, env: dict, venv_path: Optional[str]) -> dict:
+        """Return env with VIRTUAL_ENV/PATH pointing at an explicit venv, if provided."""
+        if not venv_path:
+            return env
+
+        resolved_venv = Path(venv_path).expanduser().resolve()
+        patched = env.copy()
+        scripts_dir = cls._venv_scripts_dir(resolved_venv)
+        patched["VIRTUAL_ENV"] = str(resolved_venv)
+        existing_path = patched.get("PATH", "")
+        patched["PATH"] = str(scripts_dir) + (os.pathsep + existing_path if existing_path else "")
+        return patched
+
+    def _runtime_python_from_explicit(self, python_path: Optional[str], work_dir: Path, env: dict) -> tuple[Optional[str], Optional[ProcessResult]]:
+        """Resolve runtime Python without changing legacy behavior when python_path is absent."""
+        if python_path:
+            explicit = Path(python_path).expanduser().resolve()
+            if not explicit.exists():
+                message = f"Python not found: {python_path}"
+                return None, ProcessResult(ProcessStatus.ERROR, -1, message)
+            return str(explicit), None
+
+        resolved = self._resolve_project_python(work_dir, env)
+        if not resolved:
+            return None, ProcessResult(ProcessStatus.ERROR, -1, "Python executable not found")
+        return resolved, None
+
+    @classmethod
+    def _environment_key_from_runtime(cls, runtime_python: str, venv_path: Optional[str] = None) -> str:
+        """Compute the dependency-mutation boundary from the final runtime environment."""
+        if venv_path:
+            return str(Path(venv_path).expanduser().resolve())
+
+        python_path = Path(runtime_python).expanduser().resolve()
+        parent = python_path.parent
+        if parent.name.lower() in {"scripts", "bin"}:
+            return str(parent.parent)
+        return str(python_path)
+
+    @classmethod
+    def _detect_runtime_env_name(cls, work_dir: Path, env: dict, runtime_python: str, venv_path: Optional[str] = None) -> str:
+        if venv_path:
+            return Path(venv_path).expanduser().resolve().name
+        runtime_path = Path(runtime_python).expanduser()
+        parent = runtime_path.parent
+        if parent.name.lower() in {"scripts", "bin"}:
+            return parent.parent.name
+        return cls._detect_project_env_name(work_dir, env)
 
     @staticmethod
     def _collect_uv_profiles(extra_name: Optional[str], uv_extra_args: Optional[List[str]] = None) -> tuple[list[str], list[str]]:
@@ -967,13 +1033,20 @@ class ProcessRunner:
         env_name: str,
         extras: list[str],
         groups: list[str],
+        target_python: Optional[str] = None,
+        environment_key: Optional[str] = None,
     ) -> Optional[ProcessResult]:
         if not extras and not groups:
             return None
 
-        # 序列化依赖补丁：防止多个并发 Job 同时修改共享 .venv
-        async with _get_uv_patch_lock():
+        if target_python is None:
             target_python = self._resolve_project_python(work_dir, env)
+        if environment_key is None:
+            environment_key = self._environment_key_from_runtime(target_python or sys.executable, env.get("VIRTUAL_ENV"))
+
+        # 序列化同一个 venv 的依赖补丁；不同 venv 可并发。
+        patch_lock = await _get_uv_patch_lock(environment_key)
+        async with patch_lock:
             profile_parts = self._profile_parts(extras, groups)
 
             if self._needs_sync_patch(extras):
@@ -1019,7 +1092,7 @@ class ProcessRunner:
                 cmd.extend(["--extra", extra])
             for group in groups:
                 cmd.extend(["--group", group])
-            self._notify_log("使用共享 .venv 增量安装依赖补丁")
+            self._notify_log("使用目标 venv 增量安装依赖补丁")
             self._notify_log("直接使用 uv pip install -r pyproject.toml 安装当前依赖 profile")
 
             self._notify_log(f"{action} target environment: {env_name}")
@@ -1144,6 +1217,8 @@ class ProcessRunner:
         env_vars: Optional[dict] = None,
         uv_extra: Optional[str] = None,
         uv_extra_args: Optional[List[str]] = None,
+        python_path: Optional[str] = None,
+        venv_path: Optional[str] = None,
         native_console: bool = True,
         console_color_system: Optional[str] = "truecolor",
     ) -> ProcessResult:
@@ -1156,6 +1231,8 @@ class ProcessRunner:
             env_vars: 额外环境变量。
             uv_extra: 强制指定 pyproject optional dependency extra。
             uv_extra_args: 额外的依赖 profile 参数（如 extra/group）。
+            python_path: 显式指定运行 Python。存在时不回退到项目 .venv。
+            venv_path: 显式运行 venv，用于 VIRTUAL_ENV/PATH 注入和依赖补丁锁 key。
             native_console: Windows 下使用原生控制台窗口（支持 rich 颜色/图片）。
             console_color_system: Rich 控制台颜色系统，可选 auto/standard/256/truecolor/windows。
         """
@@ -1171,6 +1248,7 @@ class ProcessRunner:
         try:
             work_dir = Path(cwd) if cwd else Path(self.PROJECT_ROOT)
             env = self._build_env(env_vars)
+            env = self._apply_venv_env(env, venv_path)
             if not use_native:
                 env["PYTHONIOENCODING"] = "utf-8"
                 env["FORCE_COLOR"] = "1"
@@ -1189,30 +1267,40 @@ class ProcessRunner:
             extra_name = self._resolve_wdtagger_extra(script_key, args, default_extra, uv_extra)
             extras, groups = self._collect_uv_profiles(extra_name, uv_extra_args)
             profile_parts = self._profile_parts(extras, groups)
-            env_name = self._detect_project_env_name(work_dir, env)
-            runtime_python = self._resolve_project_python(work_dir, env)
+            runtime_python, python_error = self._runtime_python_from_explicit(python_path, work_dir, env)
+            if python_error:
+                self._running = False
+                self._notify_status(ProcessStatus.ERROR)
+                self._notify_log(python_error.message)
+                return python_error
+            env_name = self._detect_runtime_env_name(work_dir, env, runtime_python, venv_path)
+            environment_key = self._environment_key_from_runtime(runtime_python, venv_path)
 
             # Step 1: 构建运行命令
             uv = self._find_uv()
             if uv:
-                patch_result = await self._patch_shared_environment(uv, work_dir, env, env_name, extras, groups)
+                patch_result = await self._patch_shared_environment(
+                    uv,
+                    work_dir,
+                    env,
+                    env_name,
+                    extras,
+                    groups,
+                    runtime_python,
+                    environment_key,
+                )
                 if patch_result:
                     self._running = False
                     self._notify_status(ProcessStatus.ERROR)
                     return patch_result
 
-            if runtime_python:
-                cmd = [runtime_python, script_path]
-            elif uv:
-                cmd = [uv, "run", script_path]
-            else:
-                if extras or groups:
-                    self._notify_log("未找到 uv，无法自动安装依赖补丁，将直接尝试运行脚本")
-                cmd = [sys.executable, script_path]
-
+            cmd = [runtime_python, script_path]
             cmd.extend(args)
 
             self._notify_log(f"runtime target environment: {env_name}")
+            if venv_path:
+                self._notify_log(f"runtime venv: {Path(venv_path).expanduser().resolve()}")
+            self._notify_log(f"runtime python: {runtime_python}")
             self._notify_log(f"runtime dependency profile: {', '.join(profile_parts)}")
             self._notify_log(f"开始执行: {' '.join(cmd[:15])}{'...' if len(cmd) > 15 else ''}")
             self._notify_log(f"工作目录: {work_dir.absolute()}")

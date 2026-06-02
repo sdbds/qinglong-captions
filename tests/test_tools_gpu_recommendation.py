@@ -126,12 +126,14 @@ class _DummyContainer:
 
 
 class _DummyExecutionPanel:
-    def __init__(self, *, show_start):
+    def __init__(self, *, show_start=True, start_label=None, on_start=None):
         self.show_start = show_start
-        self.registered_buttons = []
+        self.start_label = start_label
+        self.on_start = on_start
+        self.actions = []
 
-    def register_external_start_button(self, button):
-        self.registered_buttons.append(button)
+    def set_action(self, label, callback, *, enabled=True):
+        self.actions.append((label, callback, enabled))
 
 
 def test_tools_step_only_builds_requested_panels(monkeypatch):
@@ -159,7 +161,6 @@ def test_tools_step_only_builds_requested_panels(monkeypatch):
 def test_tools_step_defers_execution_panel_until_requested(monkeypatch):
     step = step6_tools.ToolsStep()
     step._execution_panel_container = _DummyContainer()
-    step._tool_start_buttons = ["start-a", "start-b"]
 
     loads = []
 
@@ -173,8 +174,11 @@ def test_tools_step_defers_execution_panel_until_requested(monkeypatch):
 
     panel = step._ensure_execution_panel()
 
-    assert panel.show_start is False
-    assert panel.registered_buttons == ["start-a", "start-b"]
+    assert panel.show_start is True
+    assert panel.start_label == step6_tools.t("start_watermark")
+    assert panel.on_start == step._start_watermark
+    assert panel.actions[-1][1] == step._start_watermark
+    assert panel.actions[-1][2] is True
     assert step._ensure_execution_panel() is panel
     assert loads == ["loaded"]
 

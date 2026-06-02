@@ -8,6 +8,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Callable, Dict, List, Optional
 from uuid import uuid4
 
@@ -33,6 +34,12 @@ class Job:
     log_buffer: LogBuffer
     created_at: datetime
     runner: object  # ProcessRunner (避免循环导入，运行时类型正确)
+    tab_id: Optional[str] = None
+    tab_name: Optional[str] = None
+    venv_path: Optional[str] = None
+    python_path: Optional[str] = None
+    environment_key: str = ""
+    dependency_profile: List[str] = field(default_factory=list)
     _task: Optional[asyncio.Task] = field(default=None, repr=False)
     result: object = field(default=None)  # Optional[ProcessResult]
     finished_at: Optional[datetime] = field(default=None)
@@ -57,6 +64,10 @@ class JobManager:
         script_key: str,
         args: List[str],
         name: str,
+        tab_id: Optional[str] = None,
+        tab_name: Optional[str] = None,
+        python_path: Optional[str] = None,
+        venv_path: Optional[str] = None,
         **runner_kwargs,
     ) -> Job:
         """创建并启动一个新 Job，立即返回 Job 对象。
@@ -65,16 +76,35 @@ class JobManager:
             script_key: SCRIPT_REGISTRY 中的脚本标识
             args: 脚本参数列表
             name: 显示名，如 "Caption (Gemini)"
+            tab_id: 可选任务 tab ID；为空时保持旧调用方行为，不做同 tab 限制
+            tab_name: 可选任务 tab 显示名
+            python_path: 可选显式 Python 路径
+            venv_path: 可选显式 venv 路径
             **runner_kwargs: 透传给 ProcessRunner.run_python_script() 的关键字参数
 
         Returns:
             新建的 Job 对象，可调用 await job.wait() 等待完成
         """
+        if tab_id is not None:
+            for job in self.get_active_jobs():
+                if job.tab_id == tab_id:
+                    raise RuntimeError(f"Tab already has an active job: {tab_id}")
+
         # 延迟导入，避免循环依赖
-        from gui.utils.process_runner import ProcessRunner
+        from gui.utils.process_runner import ProcessRunner, SCRIPT_REGISTRY
 
         job_log = LogBuffer(maxlen=5000)
         runner = ProcessRunner(log_buffer=job_log)
+        registry_entry = SCRIPT_REGISTRY.get(script_key)
+        default_extra = registry_entry[1] if registry_entry else None
+        extra_name = ProcessRunner._resolve_wdtagger_extra(
+            script_key,
+            args,
+            default_extra,
+            runner_kwargs.get("uv_extra"),
+        )
+        extras, groups = ProcessRunner._collect_uv_profiles(extra_name, runner_kwargs.get("uv_extra_args"))
+        dependency_profile = ProcessRunner._profile_parts(extras, groups)
 
         job = Job(
             id=str(uuid4()),
@@ -84,6 +114,12 @@ class JobManager:
             log_buffer=job_log,
             created_at=datetime.now(),
             runner=runner,
+            tab_id=tab_id,
+            tab_name=tab_name,
+            venv_path=venv_path,
+            python_path=python_path,
+            environment_key=str(Path(venv_path).expanduser().resolve()) if venv_path else "",
+            dependency_profile=dependency_profile,
         )
         self._jobs[job.id] = job
 
@@ -95,7 +131,14 @@ class JobManager:
 
         # 在后台启动任务
         job._task = asyncio.create_task(
-            self._run_job(job, args, fwd_id, **runner_kwargs)
+            self._run_job(
+                job,
+                args,
+                fwd_id,
+                python_path=python_path,
+                venv_path=venv_path,
+                **runner_kwargs,
+            )
         )
         job.status = JobStatus.RUNNING
         self._notify_subscribers()
@@ -152,6 +195,10 @@ class JobManager:
     def get_active_jobs(self) -> List[Job]:
         """返回运行中的 Job 列表"""
         return [j for j in self._jobs.values() if j.status in (JobStatus.PENDING, JobStatus.RUNNING)]
+
+    def get_job(self, job_id: str) -> Optional[Job]:
+        """按 ID 返回 Job；不存在时返回 None。"""
+        return self._jobs.get(job_id)
 
     def get_all_jobs(self) -> List[Job]:
         """返回所有 Job（按创建时间降序）"""

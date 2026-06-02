@@ -1,0 +1,14 @@
+[[tab]]
+id = "tab-0001"
+name = "默认任务"
+index = 1
+work_dir = "."
+venv_path = ".venv"
+python_path = ""
+created_at = ""
+selected_task_key = ""
+current_job_id = ""
+status = "ready"
+error_message = ""
+
+[tab.env_vars]

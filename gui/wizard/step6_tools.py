@@ -320,10 +320,10 @@ class ToolsStep:
             "see_through_force_eager_attention": False,
         }
         self.panel: "ExecutionPanel | None" = None
-        self._tool_start_buttons = []
         self._tool_tab_containers: Dict[str, Any] = {}
         self._rendered_tool_tabs: set[str] = set()
         self._execution_panel_container = None
+        self._active_tool_tab = "watermark"
         self._gpu_probe_scheduled = False
         self._see_through_user_edited = False
         self._see_through_summary_label = None
@@ -372,11 +372,35 @@ class ToolsStep:
 
         execution_panel_cls = _load_execution_panel_cls()
         with container:
-            self.panel = execution_panel_cls(show_start=False)
-
-        for button in self._tool_start_buttons:
-            self.panel.register_external_start_button(button)
+            self.panel = execution_panel_cls(
+                show_start=True,
+                start_label=t("start_watermark"),
+                on_start=self._start_watermark,
+            )
+        self._sync_execution_action()
         return self.panel
+
+    def _tool_action_for_tab(self, tab_key: str) -> tuple[str, Any]:
+        actions = {
+            "watermark": ("start_watermark", self._start_watermark),
+            "preprocess": ("start_preprocess", self._start_preprocess),
+            "reward": ("start_scoring", self._start_reward),
+            "audio_separator": ("start_audio_separator", self._start_audio_separator),
+            "translate": ("start_translate", self._start_translate),
+            "see_through": ("start_see_through", self._start_see_through),
+        }
+        return actions.get(tab_key, actions["watermark"])
+
+    def _sync_execution_action(self) -> None:
+        if self.panel is None:
+            return
+        label_key, callback = self._tool_action_for_tab(self._active_tool_tab)
+        self.panel.set_action(t(label_key), callback, enabled=True)
+
+    def _handle_tool_tab_change(self, tab_key: str) -> None:
+        self._active_tool_tab = tab_key
+        self._ensure_tool_panel_rendered(tab_key)
+        self._sync_execution_action()
 
     def _build_see_through_summary(self) -> str:
         recommendation = self.see_through_recommendation
@@ -555,7 +579,7 @@ class ToolsStep:
                 for tab_key, label_key, icon in self.TOOL_TABS:
                     ui.tab(tab_key, t(label_key), icon=icon)
 
-            tabs.on_value_change(lambda e: self._ensure_tool_panel_rendered(str(e.value)))
+            tabs.on_value_change(lambda e: self._handle_tool_tab_change(str(e.value)))
 
             with ui.tab_panels(tabs, value="watermark").classes("w-full"):
                 for tab_key, _label_key, _icon in self.TOOL_TABS:
@@ -564,14 +588,9 @@ class ToolsStep:
 
             self._ensure_tool_panel_rendered("watermark")
 
-            # 共享执行面板占位：仅在首次执行任务时创建，避免 /tools 首次渲染引入 LogViewer。
+            # 共享执行面板：工具页的 Start/Stop 统一集中在这里。
             self._execution_panel_container = ui.column().classes("w-full")
-
-    def _remember_tool_start_button(self, button):
-        """记录 tab 内部的 Start 按钮，交给共享执行面板统一控制。"""
-        self._tool_start_buttons.append(button)
-        if self.panel is not None:
-            self.panel.register_external_start_button(button)
+            self._ensure_execution_panel()
 
     def _render_watermark_tool(self):
         """渲染水印检测工具"""
@@ -621,12 +640,6 @@ class ToolsStep:
             # 模型目录
             self.watermark_model_dir = ui.input(label=t("model_dir"), value="watermark_detection")
             self.watermark_model_dir.classes("modern-input w-full")
-
-            # 开始按钮
-            with ui.row().classes("w-full justify-end q-mt-md"):
-                start_btn = ui.button(t("start_watermark"), on_click=self._start_watermark, icon="play_arrow")
-                start_btn.classes("modern-btn-success").props('type="button"')
-                self._remember_tool_start_button(start_btn)
 
     def _render_preprocess_tool(self):
         """渲染图像预处理工具"""
@@ -710,12 +723,6 @@ class ToolsStep:
                 toggle_switch("recursive", self.config, "preprocess_recursive")
                 toggle_switch("crop_transparent", self.config, "crop_transparent")
 
-            # 开始按钮
-            with ui.row().classes("w-full justify-end q-mt-md"):
-                start_btn = ui.button(t("start_preprocess"), on_click=self._start_preprocess, icon="play_arrow")
-                start_btn.classes("modern-btn-success").props('type="button"')
-                self._remember_tool_start_button(start_btn)
-
     def _render_reward_tool(self):
         """渲染图像评分工具"""
         with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
@@ -770,12 +777,6 @@ class ToolsStep:
                     icon_color=COLORS["primary"],
                     flex=1,
                 )
-
-            # 开始按钮
-            with ui.row().classes("w-full justify-end q-mt-md"):
-                start_btn = ui.button(t("start_scoring"), on_click=self._start_reward, icon="play_arrow")
-                start_btn.classes("modern-btn-success").props('type="button"')
-                self._remember_tool_start_button(start_btn)
 
     def _render_audio_separator_tool(self):
         """渲染音频分轨工具"""
@@ -952,11 +953,6 @@ class ToolsStep:
                             decimals=2,
                         )
 
-            with ui.row().classes("w-full justify-end q-mt-md"):
-                start_btn = ui.button(t("start_audio_separator"), on_click=self._start_audio_separator, icon="play_arrow")
-                start_btn.classes("modern-btn-success").props('type="button"')
-                self._remember_tool_start_button(start_btn)
-
     def _render_translate_tool(self):
         """渲染文本/文档翻译工具"""
         with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
@@ -1066,12 +1062,6 @@ class ToolsStep:
                 with ui.row().classes("w-full gap-4 q-mt-md"):
                     toggle_switch("translate_no_export", self.config, "translate_no_export")
                     toggle_switch("translate_force_reimport", self.config, "translate_force_reimport")
-
-            # 开始按钮
-            with ui.row().classes("w-full justify-end q-mt-md"):
-                start_btn = ui.button(t("start_translate"), on_click=self._start_translate, icon="play_arrow")
-                start_btn.classes("modern-btn-success").props('type="button"')
-                self._remember_tool_start_button(start_btn)
 
     def _render_see_through_tool(self):
         """渲染 see-through 工具"""
@@ -1235,11 +1225,6 @@ class ToolsStep:
             with ui.row().classes("w-full gap-4 q-mt-md"):
                 toggle_switch("save_to_psd", self.config, "see_through_save_to_psd")
                 toggle_switch("tblr_split", self.config, "see_through_tblr_split")
-
-            with ui.row().classes("w-full justify-end q-mt-md"):
-                start_btn = ui.button(t("start_see_through"), on_click=self._start_see_through, icon="play_arrow")
-                start_btn.classes("modern-btn-success").props('type="button"')
-                self._remember_tool_start_button(start_btn)
 
     def _on_audio_separator_vocal_midi_toggle(self, enabled: bool) -> None:
         if hasattr(self, "_audio_separator_vocal_midi_container"):

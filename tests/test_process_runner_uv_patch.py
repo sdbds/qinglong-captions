@@ -1,10 +1,12 @@
 import asyncio
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gui.utils.process_runner import SCRIPT_REGISTRY, ProcessRunner
+from gui.utils import process_runner as process_runner_module
+from gui.utils.process_runner import SCRIPT_REGISTRY, ProcessRunner, ProcessStatus
 from utils.wdtagger_opencv import WdtaggerOpenCvInstallPlan, WdtaggerOpenCvSelection
 
 
@@ -682,7 +684,7 @@ def test_video_split_uses_video_split_extra_by_default(monkeypatch):
     monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
     monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
 
-    async def fake_patch(uv, work_dir, env, env_name, extras, groups):
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups, *rest):
         captured["extras"] = list(extras)
         captured["groups"] = list(groups)
         return None
@@ -711,7 +713,7 @@ def test_audio_separator_uses_vocal_midi_extra_by_default(monkeypatch):
     monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
     monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
 
-    async def fake_patch(uv, work_dir, env, env_name, extras, groups):
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups, *rest):
         captured["extras"] = list(extras)
         captured["groups"] = list(groups)
         return None
@@ -740,7 +742,7 @@ def test_see_through_uses_dedicated_uv_extra_by_default(monkeypatch):
     monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
     monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
 
-    async def fake_patch(uv, work_dir, env, env_name, extras, groups):
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups, *rest):
         captured["extras"] = list(extras)
         captured["groups"] = list(groups)
         return None
@@ -769,7 +771,7 @@ def test_reward_model_uses_dedicated_uv_extra_by_default(monkeypatch):
     monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
     monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
 
-    async def fake_patch(uv, work_dir, env, env_name, extras, groups):
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups, *rest):
         captured["extras"] = list(extras)
         captured["groups"] = list(groups)
         return None
@@ -830,7 +832,7 @@ def test_wdtagger_keeps_legacy_extra_for_cl_tagger_v1_repo(monkeypatch):
     monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
     monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
 
-    async def fake_patch(uv, work_dir, env, env_name, extras, groups):
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups, *rest):
         captured["extras"] = list(extras)
         captured["groups"] = list(groups)
         return None
@@ -859,7 +861,7 @@ def test_wdtagger_uses_cl_tagger_v2_extra_for_explicit_v2_repo(monkeypatch):
     monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
     monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
 
-    async def fake_patch(uv, work_dir, env, env_name, extras, groups):
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups, *rest):
         captured["extras"] = list(extras)
         captured["groups"] = list(groups)
         return None
@@ -892,7 +894,7 @@ def test_wdtagger_keeps_legacy_extra_for_other_repos(monkeypatch):
     monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
     monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
 
-    async def fake_patch(uv, work_dir, env, env_name, extras, groups):
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups, *rest):
         captured["extras"] = list(extras)
         captured["groups"] = list(groups)
         return None
@@ -915,3 +917,123 @@ def test_wdtagger_keeps_legacy_extra_for_other_repos(monkeypatch):
     assert result.status.value == "成功"
     assert captured == {"extras": ["wdtagger"], "groups": []}
     assert commands == [["python", "./utils/wdtagger.py", "./datasets", "--repo_id=SmilingWolf/wd-v1-4-moat-tagger-v2"]]
+
+
+def test_run_python_script_explicit_python_path_short_circuits_resolution(tmp_path, monkeypatch):
+    runner = ProcessRunner()
+    venv = tmp_path / ".runtime_venvs" / "tab-0002"
+    scripts = venv / ("Scripts" if sys.platform == "win32" else "bin")
+    scripts.mkdir(parents=True)
+    python_path = scripts / ("python.exe" if sys.platform == "win32" else "python")
+    python_path.write_text("", encoding="utf-8")
+    commands: list[list[str]] = []
+    envs: list[dict] = []
+
+    monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: None))
+    monkeypatch.setattr(
+        runner,
+        "_resolve_project_python",
+        staticmethod(lambda work_dir, env: (_ for _ in ()).throw(AssertionError("legacy resolver should be skipped"))),
+    )
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        envs.append(dict(env))
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+
+    result = asyncio.run(
+        runner.run_python_script(
+            "module.captioner",
+            ["--demo"],
+            python_path=str(python_path),
+            venv_path=str(venv),
+            native_console=False,
+        )
+    )
+
+    assert result.status == ProcessStatus.SUCCESS
+    assert commands[0][:2] == [str(python_path.resolve()), "./module/captioner.py"]
+    assert envs[0]["VIRTUAL_ENV"] == str(venv.resolve())
+    assert envs[0]["PATH"].split(os.pathsep)[0] == str(scripts.resolve())
+
+
+def test_run_python_script_missing_explicit_python_path_returns_error(tmp_path, monkeypatch):
+    runner = ProcessRunner()
+    missing = tmp_path / "missing-python.exe"
+    monkeypatch.setattr(
+        runner,
+        "_resolve_project_python",
+        staticmethod(lambda work_dir, env: (_ for _ in ()).throw(AssertionError("legacy resolver should be skipped"))),
+    )
+
+    result = asyncio.run(
+        runner.run_python_script("module.captioner", [], python_path=str(missing), native_console=False)
+    )
+
+    assert result.status == ProcessStatus.ERROR
+    assert "Python not found" in result.message
+
+
+def test_patch_and_run_use_same_explicit_python_path(tmp_path, monkeypatch):
+    runner = ProcessRunner()
+    venv = tmp_path / ".runtime_venvs" / "tab-0002"
+    scripts = venv / ("Scripts" if sys.platform == "win32" else "bin")
+    scripts.mkdir(parents=True)
+    python_path = scripts / ("python.exe" if sys.platform == "win32" else "python")
+    python_path.write_text("", encoding="utf-8")
+    captured: dict[str, object] = {}
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
+    monkeypatch.setattr(
+        runner,
+        "_resolve_project_python",
+        staticmethod(lambda work_dir, env: (_ for _ in ()).throw(AssertionError("legacy resolver should be skipped"))),
+    )
+
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups, target_python, environment_key):
+        captured["target_python"] = target_python
+        captured["environment_key"] = environment_key
+        captured["extras"] = list(extras)
+        return None
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_patch_shared_environment", fake_patch)
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+
+    result = asyncio.run(
+        runner.run_python_script(
+            "module.videospilter",
+            ["./datasets"],
+            python_path=str(python_path),
+            venv_path=str(venv),
+            native_console=False,
+        )
+    )
+
+    assert result.status == ProcessStatus.SUCCESS
+    assert captured["target_python"] == str(python_path.resolve())
+    assert captured["environment_key"] == str(venv.resolve())
+    assert captured["extras"] == ["video-split"]
+    assert commands[0][0] == str(python_path.resolve())
+
+
+def test_per_venv_patch_lock_reuses_same_lock_for_same_key():
+    process_runner_module._uv_patch_locks.clear()
+    process_runner_module._uv_patch_locks_guard = None
+
+    async def get_locks():
+        first = await process_runner_module._get_uv_patch_lock("env-a")
+        second = await process_runner_module._get_uv_patch_lock("env-a")
+        third = await process_runner_module._get_uv_patch_lock("env-b")
+        return first, second, third
+
+    first, second, third = asyncio.run(get_locks())
+
+    assert first is second
+    assert first is not third

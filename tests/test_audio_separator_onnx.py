@@ -548,7 +548,7 @@ def test_tools_step_audio_separator_maps_args(monkeypatch, tmp_path):
 
     assert notifications == []
     assert captured["script_key"] == "module.audio_separator"
-    assert captured["name"] == "Audio Separator"
+    assert captured["name"] == step6_tools.t("job_name_audio_separator")
     assert captured["args"][0] == str(input_dir)
     assert "--output_format=flac" in captured["args"]
     assert "--segment_size=1101" in captured["args"]
