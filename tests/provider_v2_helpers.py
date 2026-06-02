@@ -38,7 +38,7 @@ def make_provider_args(**kwargs):
         "codex_fast": False,
         "codex_reasoning_effort": "none",
         "codex_home": "",
-        "codex_timeout": 180.0,
+        "codex_timeout": 60.0,
         "codex_sandbox": "read-only",
         "codex_isolated_cwd": "",
         "codex_output_schema": "",

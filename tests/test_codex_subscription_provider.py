@@ -43,6 +43,26 @@ def test_codex_progress_coalescer_merges_stream_event_lines():
     ]
 
 
+def test_codex_app_server_invalid_json_rpc_is_transport_failure():
+    from module.providers.codex_app_server import classify_codex_app_server_failure
+
+    assert (
+        classify_codex_app_server_failure(
+            "Invalid JSON-RPC line: 'SUCCESS: The process with PID 384100 has been terminated.\\n'"
+        )
+        == "transport"
+    )
+
+
+def test_codex_subscription_default_timeout_is_60_seconds():
+    from module.providers.codex_app_server import CodexAppServerConfig
+    from module.providers.codex_exec import CodexExecConfig
+
+    assert CodexAppServerConfig().timeout == 60.0
+    assert CodexExecConfig().timeout == 60.0
+    assert make_provider_args().codex_timeout == 60.0
+
+
 def test_codex_exec_command_uses_argument_list(tmp_path):
     from module.providers.codex_exec import CodexExecConfig, build_codex_exec_command
 
@@ -135,19 +155,21 @@ def test_parse_codex_caption_output_accepts_fenced_json():
     assert parsed["tags"] == ["a", "b"]
     assert parsed["confidence"] == 0.8
     assert parsed["scores"] == {}
-    assert parsed["total_score"] == 0
     assert parsed["average_score"] == 0
 
 
 def test_codex_caption_schema_supports_gemini_rate_scores():
-    from module.providers.codex_schema import CODEX_CAPTION_SCHEMA, CODEX_SCORE_DIMENSIONS
+    from module.providers.codex_schema import CODEX_CAPTION_SCHEMA, CODEX_OVERALL_SCORE_DIMENSION, CODEX_SCORE_DIMENSIONS
 
     required = set(CODEX_CAPTION_SCHEMA["required"])
 
-    assert {"scores", "total_score", "average_score"} <= required
+    assert {"scores", "average_score"} <= required
+    assert "total_score" not in required
+    assert "total_score" not in CODEX_CAPTION_SCHEMA["properties"]
     assert "description" not in CODEX_CAPTION_SCHEMA["properties"]
     assert CODEX_CAPTION_SCHEMA["properties"]["scores"]["additionalProperties"] is False
     assert set(CODEX_CAPTION_SCHEMA["properties"]["scores"]["required"]) == set(CODEX_SCORE_DIMENSIONS)
+    assert CODEX_OVERALL_SCORE_DIMENSION in CODEX_SCORE_DIMENSIONS
     for dimension in CODEX_SCORE_DIMENSIONS:
         assert dimension in CODEX_CAPTION_SCHEMA["properties"]["scores"]["properties"]
 
@@ -166,8 +188,8 @@ def test_parse_codex_caption_output_preserves_rate_scores():
                 "scores": {
                     "Costume & Makeup & Prop Presentation/Accuracy": 8,
                     "Lighting & Mood": 9.5,
+                    "Overall Impact & Uniqueness": 8.75,
                 },
-                "total_score": 17.5,
                 "average_score": 8.75,
             }
         )
@@ -175,8 +197,29 @@ def test_parse_codex_caption_output_preserves_rate_scores():
 
     assert parsed["scores"]["Costume & Makeup & Prop Presentation/Accuracy"] == 8
     assert parsed["scores"]["Lighting & Mood"] == 9.5
-    assert parsed["total_score"] == 17.5
     assert parsed["average_score"] == 8.75
+
+
+def test_parse_codex_caption_output_defaults_average_score_to_overall_score():
+    from module.providers.codex_exec import parse_codex_caption_output
+
+    parsed = parse_codex_caption_output(
+        json.dumps(
+            {
+                "short_description": "short",
+                "long_description": "long",
+                "tags": ["tag"],
+                "rating": "general",
+                "confidence": 0.8,
+                "scores": {
+                    "Costume & Makeup & Prop Presentation/Accuracy": 8,
+                    "Overall Impact & Uniqueness": 9,
+                },
+            }
+        )
+    )
+
+    assert parsed["average_score"] == 9
 
 
 def test_codex_caption_prompt_mentions_score_schema_contract():
@@ -184,8 +227,9 @@ def test_codex_caption_prompt_mentions_score_schema_contract():
 
     prompt = build_codex_caption_prompt(system_prompt="Rate each dimension.", user_prompt="Give scores.")
 
-    assert "scores, total_score, and average_score" in prompt
-    assert "Fill short_description, long_description, tags, rating, confidence, scores, total_score, and average_score" in prompt
+    assert "scores and use the Overall Impact & Uniqueness score as average_score" in prompt
+    assert "Fill short_description, long_description, tags, rating, confidence, scores, and average_score" in prompt
+    assert "total_score" not in prompt
 
 
 @pytest.mark.parametrize(
@@ -839,6 +883,67 @@ def test_codex_app_server_cache_reset_closes_cached_clients(monkeypatch, tmp_pat
         codex_app_server.reset_codex_app_server_client_cache()
 
 
+def test_codex_app_server_transport_failure_discards_cached_client(monkeypatch, tmp_path):
+    from module.providers import codex_app_server
+    from module.providers.codex_app_server import CodexAppServerConfig, CodexAppServerError, caption_image_with_app_server
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+    created = []
+
+    class FakeSdkClient:
+        def __init__(self, *, fail: bool):
+            self.fail = fail
+            self.closed = False
+            created.append(self)
+
+        def thread_start(self, **_payload):
+            return {"threadId": f"thread-{len(created)}"}
+
+        def turn_start(self, **_payload):
+            if self.fail:
+                raise RuntimeError(
+                    "Invalid JSON-RPC line: 'SUCCESS: The process with PID 384100 has been terminated.\\n'"
+                )
+            return {
+                "turnId": "turn-ok",
+                "parsed": {
+                    "short_description": "short",
+                    "long_description": "recovered",
+                    "tags": ["tag"],
+                    "rating": "general",
+                    "confidence": 0.7,
+                },
+            }
+
+        def close(self):
+            self.closed = True
+
+    def make_client(_config):
+        return FakeSdkClient(fail=len(created) == 0)
+
+    codex_app_server.reset_codex_app_server_client_cache()
+    monkeypatch.setattr(codex_app_server, "_create_sdk_client", make_client)
+    config = CodexAppServerConfig(auth_mode="chatgpt", isolated_cwd=str(tmp_path / "work"))
+
+    try:
+        with pytest.raises(CodexAppServerError) as exc_info:
+            caption_image_with_app_server(config, image_path=image, prompt="caption")
+
+        assert exc_info.value.kind == "transport"
+        assert exc_info.value.retryable is True
+        assert len(created) == 1
+        assert created[0].closed is True
+
+        result = caption_image_with_app_server(config, image_path=image, prompt="caption")
+
+        assert result.parsed["long_description"] == "recovered"
+        assert len(created) == 2
+        assert created[1].closed is False
+    finally:
+        codex_app_server.reset_codex_app_server_client_cache()
+
+
 def test_codex_app_server_late_startup_client_is_closed_after_timeout(monkeypatch, tmp_path):
     import threading
     import time
@@ -1018,6 +1123,30 @@ def test_codex_app_server_timeout_applies_to_sdk_client_startup(tmp_path):
 
     assert exc_info.value.kind == "timeout"
     assert "client_startup timed out" in str(exc_info.value)
+
+
+def test_codex_app_server_startup_transport_failure_is_wrapped(tmp_path):
+    from module.providers.codex_app_server import CodexAppServerConfig, CodexAppServerError, caption_image_with_app_server
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+
+    def broken_client_factory(_config):
+        raise RuntimeError(
+            "Invalid JSON-RPC line: 'SUCCESS: The process with PID 384100 has been terminated.\\n'"
+        )
+
+    with pytest.raises(CodexAppServerError) as exc_info:
+        caption_image_with_app_server(
+            CodexAppServerConfig(auth_mode="chatgpt", isolated_cwd=str(tmp_path / "work")),
+            image_path=image,
+            prompt="caption",
+            client_factory=broken_client_factory,
+        )
+
+    assert exc_info.value.kind == "transport"
+    assert exc_info.value.retryable is True
+    assert "client_startup failed" in str(exc_info.value)
 
 
 def test_codex_app_server_timeout_applies_to_image_turn(tmp_path):

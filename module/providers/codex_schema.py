@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 
-CODEX_CAPTION_SCHEMA_VERSION = "codex-caption-v2"
+CODEX_CAPTION_SCHEMA_VERSION = "codex-caption-v3"
+CODEX_OVERALL_SCORE_DIMENSION = "Overall Impact & Uniqueness"
 CODEX_SCORE_DIMENSIONS = (
     "Costume & Makeup & Prop Presentation/Accuracy",
     "Character Portrayal & Posing",
@@ -18,7 +19,7 @@ CODEX_SCORE_DIMENSIONS = (
     "Storytelling & Concept",
     "Level of S*e*x*y",
     "Figure",
-    "Overall Impact & Uniqueness",
+    CODEX_OVERALL_SCORE_DIMENSION,
 )
 CODEX_CAPTION_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -31,7 +32,6 @@ CODEX_CAPTION_SCHEMA: dict[str, Any] = {
         "rating",
         "confidence",
         "scores",
-        "total_score",
         "average_score",
     ],
     "properties": {
@@ -46,7 +46,6 @@ CODEX_CAPTION_SCHEMA: dict[str, Any] = {
             "required": list(CODEX_SCORE_DIMENSIONS),
             "properties": {dimension: {"type": "number", "minimum": 0, "maximum": 10} for dimension in CODEX_SCORE_DIMENSIONS},
         },
-        "total_score": {"type": "number", "minimum": 0},
         "average_score": {"type": "number", "minimum": 0, "maximum": 10},
     },
 }
@@ -84,7 +83,7 @@ def build_codex_caption_prompt(*, system_prompt: str, user_prompt: str) -> str:
         "You are a captioning and rating engine. Return only JSON matching the provided schema.",
         "Do not include Markdown, commentary, file paths, tool output, or analysis steps.",
         "Describe visible content only. Use project-provided character naming hints if present, but do not infer identities, private attributes, or unverifiable facts beyond those hints.",
-        "If project prompts request ratings or scores, put numeric dimension ratings in scores, total_score, and average_score while still filling the caption fields.",
+        "If project prompts request ratings or scores, put numeric dimension ratings in scores and use the Overall Impact & Uniqueness score as average_score while still filling the caption fields.",
     ]
     if system_prompt.strip():
         sections.extend(["", "Project system prompt:", system_prompt.strip()])
@@ -95,7 +94,7 @@ def build_codex_caption_prompt(*, system_prompt: str, user_prompt: str) -> str:
             "",
             "Task:",
             "Generate caption and rating metadata for the attached image. Use concise tags and a natural long description.",
-            "Fill short_description, long_description, tags, rating, confidence, scores, total_score, and average_score.",
+            "Fill short_description, long_description, tags, rating, confidence, scores, and average_score.",
             "If a scoring dimension is not applicable, use 0 for that dimension and explain the visible content in long_description.",
             "If uncertain, lower confidence instead of inventing details.",
         ]
@@ -156,12 +155,13 @@ def normalize_codex_caption_payload(parsed: dict[str, Any]) -> dict[str, Any]:
     confidence = max(0.0, min(1.0, confidence))
 
     scores = _normalize_scores(result.get("scores"))
-    total_score = _coerce_score_number(result.get("total_score"))
-    if total_score == 0.0 and scores:
-        total_score = sum(scores.values())
-
     average_score = _coerce_score_number(result.get("average_score", result.get("avg_score")))
     if average_score == 0.0 and scores:
+        average_score = _coerce_score_number(scores.get(CODEX_OVERALL_SCORE_DIMENSION))
+    if average_score == 0.0 and scores:
+        total_score = _coerce_score_number(result.get("total_score"))
+        if total_score == 0.0:
+            total_score = sum(scores.values())
         average_score = total_score / len(scores)
 
     normalized = {
@@ -171,7 +171,6 @@ def normalize_codex_caption_payload(parsed: dict[str, Any]) -> dict[str, Any]:
         "rating": rating,
         "confidence": confidence,
         "scores": scores,
-        "total_score": _compact_number(total_score),
         "average_score": _compact_number(average_score),
     }
     for key in ("character_name", "series"):

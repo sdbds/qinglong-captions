@@ -977,7 +977,7 @@ def test_runtime_prompt_config_files_parse_with_toml_library():
 
 
 def test_codex_subscription_image_prompt_is_gemini_rate_schema_compatible():
-    from module.providers.codex_schema import CODEX_SCORE_DIMENSIONS
+    from module.providers.codex_schema import CODEX_OVERALL_SCORE_DIMENSION
 
     for rel in ("config/prompts.toml", "config/config.toml"):
         parsed = toml.load(ROOT / rel)
@@ -989,13 +989,17 @@ def test_codex_subscription_image_prompt_is_gemini_rate_schema_compatible():
         assert system_prompt != prompts["image_system_prompt"]
         assert user_prompt != prompts["image_prompt"]
         assert "scores" in system_prompt
-        assert "total_score" in system_prompt
         assert "average_score" in system_prompt
-        for dimension in CODEX_SCORE_DIMENSIONS:
-            assert dimension in system_prompt
+        assert "total_score" not in system_prompt
+        assert CODEX_OVERALL_SCORE_DIMENSION in system_prompt
+        for concept in ("Costume", "Lighting", "Figure", "Overall"):
+            assert concept in system_prompt
         assert "Do not mask letters with asterisks" in system_prompt
         assert "回答只需要给出分数" not in system_prompt
-        assert "Fill short_description, long_description, tags, rating, confidence, scores, total_score, and average_score" in user_prompt
+        assert "Fill" in user_prompt
+        assert "scores" in user_prompt
+        assert "average_score" in user_prompt
+        assert "total_score" not in user_prompt
 
 
 def test_has_flash_attn_returns_false_when_module_import_fails(monkeypatch):

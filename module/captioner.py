@@ -349,8 +349,8 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--codex_timeout",
         type=float,
-        default=180.0,
-        help="Per-image Codex exec timeout in seconds.",
+        default=60.0,
+        help="Per-image Codex timeout in seconds.",
     )
     parser.add_argument(
         "--codex_sandbox",

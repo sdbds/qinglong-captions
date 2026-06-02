@@ -24,6 +24,7 @@ from module.providers.codex_app_server import (
 from module.providers.codex_exec import (
     CodexExecConfig,
     CodexExecError,
+    DEFAULT_CODEX_TIMEOUT_SECONDS,
     run_codex_exec_caption,
     write_default_caption_schema,
 )
@@ -253,7 +254,7 @@ class CodexSubscriptionProvider(CloudVLMProvider):
         args = self.ctx.args
         command = getattr(args, "codex_command", "") or "codex"
         model = getattr(args, "codex_model_name", "") or "gpt-5.4"
-        timeout = float(getattr(args, "codex_timeout", 180) or 180)
+        timeout = float(getattr(args, "codex_timeout", DEFAULT_CODEX_TIMEOUT_SECONDS) or DEFAULT_CODEX_TIMEOUT_SECONDS)
         sandbox = getattr(args, "codex_sandbox", "") or "read-only"
         service_tier = _codex_service_tier(args)
         reasoning_effort = _codex_reasoning_effort(args)
@@ -307,7 +308,7 @@ class CodexSubscriptionProvider(CloudVLMProvider):
         args = self.ctx.args
         configured_schema = getattr(args, "codex_output_schema", "") or ""
         model = getattr(args, "codex_model_name", "") or "gpt-5.4"
-        timeout = float(getattr(args, "codex_timeout", 180) or 180)
+        timeout = float(getattr(args, "codex_timeout", DEFAULT_CODEX_TIMEOUT_SECONDS) or DEFAULT_CODEX_TIMEOUT_SECONDS)
         service_tier = _codex_service_tier(args)
         reasoning_effort = _codex_reasoning_effort(args)
         try:

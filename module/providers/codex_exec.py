@@ -25,7 +25,7 @@ from module.providers.codex_schema import (
 
 DEFAULT_CODEX_COMMAND = "codex"
 DEFAULT_CODEX_MODEL = "gpt-5.4"
-DEFAULT_CODEX_TIMEOUT_SECONDS = 180.0
+DEFAULT_CODEX_TIMEOUT_SECONDS = 60.0
 DEFAULT_CODEX_SANDBOX = "read-only"
 DEFAULT_CODEX_REASONING_EFFORT = "none"
 SUPPORTED_CODEX_REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})

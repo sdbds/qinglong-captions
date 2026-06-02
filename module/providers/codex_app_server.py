@@ -32,6 +32,8 @@ SUPPORTED_CODEX_REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium
 
 INSTALL_CODEX_SDK_HINT = "Install it with: uv sync --extra codex-subscription"
 API_KEY_ENV_VARS = ("OPENAI_API_KEY", "CODEX_API_KEY")
+RETRYABLE_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport"})
+DEFAULT_CODEX_TIMEOUT_SECONDS = 60.0
 
 
 @dataclass(frozen=True)
@@ -39,7 +41,7 @@ class CodexAppServerConfig:
     model: str = "gpt-5.4"
     service_tier: str = ""
     reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT
-    timeout: float = 180.0
+    timeout: float = DEFAULT_CODEX_TIMEOUT_SECONDS
     sandbox: str = "read-only"
     auth_mode: str = DEFAULT_CODEX_AUTH_MODE
     api_key: str = ""
@@ -83,6 +85,8 @@ def classify_codex_app_server_failure(text: str) -> str:
     lower = text.lower()
     if "no module named" in lower and "openai_codex" in lower:
         return "sdk_missing"
+    if "invalid json-rpc" in lower or "json-rpc line" in lower or "json-rpc payload" in lower:
+        return "transport"
     if "not logged in" in lower or "sign in" in lower or "login" in lower and "codex" in lower:
         return "auth"
     if "authentication" in lower or "unauthorized" in lower or "oauth" in lower:
@@ -91,9 +95,32 @@ def classify_codex_app_server_failure(text: str) -> str:
         return "usage_limit"
     if "timed out" in lower or "timeout" in lower:
         return "timeout"
-    if "connection" in lower or "transport" in lower or "server closed" in lower:
+    if "connection" in lower or "transport" in lower or "server closed" in lower or "app-server is not running" in lower:
         return "transport"
     return "execution"
+
+
+def _is_retryable_client_failure(kind: str) -> bool:
+    return kind in RETRYABLE_CLIENT_FAILURE_KINDS
+
+
+def _coerce_sdk_exception(
+    exc: Exception,
+    config: CodexAppServerConfig,
+    *,
+    stage: str,
+) -> CodexAppServerError:
+    text = str(exc)
+    kind = classify_codex_app_server_failure(text)
+    retryable = _is_retryable_client_failure(kind)
+    label = "request" if stage == "request" else stage
+    message = f"Codex app-server {label} failed ({kind}): {text}"
+    if kind == "auth" and config.auth_mode == DEFAULT_CODEX_AUTH_MODE:
+        message = (
+            "Codex ChatGPT subscription session is not available. "
+            "Run Codex login first; this provider does not fall back to OPENAI_API_KEY."
+        )
+    return CodexAppServerError(message, kind=kind, retryable=retryable, detail=text, cause=exc)
 
 
 def load_openai_codex_sdk() -> Any:
@@ -884,7 +911,7 @@ class CodexAppServerCaptionClient:
                 progress_callback=progress_callback,
             )
         except CodexAppServerError as exc:
-            if exc.kind == "timeout":
+            if _is_retryable_client_failure(exc.kind):
                 self.close()
             raise
 
@@ -946,16 +973,7 @@ class CodexAppServerCaptionClient:
             except CodexAppServerError:
                 raise
             except Exception as exc:
-                text = str(exc)
-                kind = classify_codex_app_server_failure(text)
-                retryable = kind in {"timeout", "transport"}
-                message = f"Codex app-server request failed ({kind}): {text}"
-                if kind == "auth" and self.config.auth_mode == DEFAULT_CODEX_AUTH_MODE:
-                    message = (
-                        "Codex ChatGPT subscription session is not available. "
-                        "Run Codex login first; this provider does not fall back to OPENAI_API_KEY."
-                    )
-                raise CodexAppServerError(message, kind=kind, retryable=retryable, detail=text, cause=exc) from exc
+                raise _coerce_sdk_exception(exc, self.config, stage="request") from exc
 
             _emit_progress(progress_callback, "Codex app-server: parsing structured output")
             raw, parsed = _extract_turn_output(response)
@@ -1048,7 +1066,7 @@ class CodexAppServerClientPool:
                 progress_callback=progress_callback,
             )
         except CodexAppServerError as exc:
-            if exc.kind == "timeout":
+            if _is_retryable_client_failure(exc.kind):
                 client.close()
             else:
                 self._return_client(client)
@@ -1186,12 +1204,20 @@ def caption_image_with_app_server(
             progress_callback=progress_callback,
         )
     except CodexAppServerError as exc:
-        if exc.kind == "timeout":
+        if _is_retryable_client_failure(exc.kind):
             if client_factory is None:
                 reset_codex_app_server_client_cache()
             elif client is not None:
                 client.close()
         raise
+    except Exception as exc:
+        coerced = _coerce_sdk_exception(exc, config, stage="client_startup")
+        if _is_retryable_client_failure(coerced.kind):
+            if client_factory is None:
+                reset_codex_app_server_client_cache()
+            elif client is not None:
+                client.close()
+        raise coerced from exc
     finally:
         if client_factory is not None and client is not None:
             client.close()

@@ -238,14 +238,14 @@ codex_subscription_image_system_prompt = """Your task is to evaluate the quality
 
 Score these dimensions numerically in scores: Costume & Makeup & Prop Presentation/Accuracy; Character Portrayal & Posing; Setting & Environment Integration; Lighting & Mood; Composition & Framing; Storytelling & Concept; Level of S*e*x*y; Figure; Overall Impact & Uniqueness
 Use 0 when a dimension is not applicable or cannot be judged from visible content.
-Set total_score to the sum of the score values and average_score to their arithmetic mean.
+Set average_score to the Overall Impact & Uniqueness score.
 Write English short_description and long_description grounded only in visible content and project-provided character hints.
 Do not mask letters with asterisks. Do not include Markdown, commentary, or hidden reasoning.
 """
 
 codex_subscription_image_prompt = """If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
 If the name of the creator/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
-Fill short_description, long_description, tags, rating, confidence, scores, total_score, and average_score."""
+Fill short_description, long_description, tags, rating, confidence, scores, and average_score."""
 
 mistral_ocr_image_system_prompt = """You are a professional image captioning assistant. Your task is to objectively generate accurate, detailed, and descriptive image captions based on the provided image.
 Create 1 detailed image description.
