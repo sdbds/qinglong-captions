@@ -31,6 +31,8 @@ def test_captioner_parser_accepts_grok_build_subscription_options():
             "--grok_build_auth_mode=existing",
             "--grok_build_command=grok-test",
             "--grok_build_model_name=grok-build-custom",
+            "--grok_build_effort=low",
+            "--grok_build_reasoning_effort=none",
             "--grok_build_timeout=9",
             "--grok_build_isolated_cwd=work",
             "--grok_build_permission_mode=dontAsk",
@@ -45,6 +47,8 @@ def test_captioner_parser_accepts_grok_build_subscription_options():
     assert args.grok_build_auth_mode == "existing"
     assert args.grok_build_command == "grok-test"
     assert args.grok_build_model_name == "grok-build-custom"
+    assert args.grok_build_effort == "low"
+    assert args.grok_build_reasoning_effort == "none"
     assert args.grok_build_timeout == 9
     assert args.grok_build_isolated_cwd == "work"
     assert args.grok_build_permission_mode == "dontAsk"
@@ -72,4 +76,6 @@ def test_captioner_powershell_passes_grok_build_options_only_when_enabled():
     assert '--grok_build_auth_mode=$grok_build_auth_mode' in script
     assert '--grok_build_command=$grok_build_command' in script
     assert '--grok_build_model_name=$grok_build_model_name' in script
+    assert '--grok_build_effort=$grok_build_effort' in script
+    assert '--grok_build_reasoning_effort=$grok_build_reasoning_effort' in script
     assert '--grok_build_prompt_json_max_chars=$grok_build_prompt_json_max_chars' in script

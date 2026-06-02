@@ -278,6 +278,25 @@ class CaptionStep:
         "cached_token": "Cached Grok Build session",
         "existing": "Existing session only",
     }
+    GROK_BUILD_MODEL_OPTIONS = {
+        "grok-build": "grok-build (default)",
+        "grok-composer-2.5-fast": "grok-composer-2.5-fast",
+    }
+    GROK_BUILD_EFFORT_OPTIONS = {
+        "": "Default",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": "max",
+    }
+    GROK_BUILD_REASONING_EFFORT_OPTIONS = {
+        "": "Default",
+        "none": "none",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+    }
     GROK_BUILD_PERMISSION_MODE_OPTIONS = {
         "dontAsk": "dontAsk",
         "default": "default",
@@ -427,6 +446,8 @@ class CaptionStep:
             "grok_build_auth_mode": "cached_token",
             "grok_build_command": "grok",
             "grok_build_model_name": "grok-build",
+            "grok_build_effort": "high",
+            "grok_build_reasoning_effort": "medium",
             "grok_build_timeout": 180,
             "grok_build_isolated_cwd": "",
             "grok_build_permission_mode": "dontAsk",
@@ -933,6 +954,16 @@ class CaptionStep:
             if grok_build_model_name:
                 args.append(f"--grok_build_model_name={grok_build_model_name}")
 
+            grok_build_effort = str(self._grok_build_value("grok_build_effort", "") or "").strip()
+            if grok_build_effort:
+                args.append(f"--grok_build_effort={grok_build_effort}")
+
+            grok_build_reasoning_effort = str(
+                self._grok_build_value("grok_build_reasoning_effort", "") or ""
+            ).strip()
+            if grok_build_reasoning_effort:
+                args.append(f"--grok_build_reasoning_effort={grok_build_reasoning_effort}")
+
             grok_build_timeout = self._grok_build_value("grok_build_timeout", 180)
             if grok_build_timeout:
                 args.append(f"--grok_build_timeout={grok_build_timeout}")
@@ -1237,12 +1268,14 @@ class CaptionStep:
                     )
 
                 with ui.row().classes("w-full gap-4 q-mt-md"):
-                    self.grok_build_model_name = styled_input(
+                    self.grok_build_model_name = styled_select(
+                        options=self.GROK_BUILD_MODEL_OPTIONS,
                         value=self.config["grok_build_model_name"],
                         label=t("grok_build_model"),
                         icon="smart_toy",
                         icon_color=COLORS["primary"],
                         placeholder="grok-build",
+                        new_value_mode="add-unique",
                         flex=1,
                     )
                     self.grok_build_timeout = styled_input(
@@ -1251,6 +1284,26 @@ class CaptionStep:
                         icon="timer",
                         icon_color=COLORS["info"],
                         placeholder="180",
+                        flex=1,
+                    )
+
+                with ui.row().classes("w-full gap-4 q-mt-md"):
+                    self.grok_build_effort = styled_select(
+                        options=self.GROK_BUILD_EFFORT_OPTIONS,
+                        value=self.config["grok_build_effort"],
+                        label=t("grok_build_effort"),
+                        icon="speed",
+                        icon_color=COLORS["warning"],
+                        searchable=False,
+                        flex=1,
+                    )
+                    self.grok_build_reasoning_effort = styled_select(
+                        options=self.GROK_BUILD_REASONING_EFFORT_OPTIONS,
+                        value=self.config["grok_build_reasoning_effort"],
+                        label=t("grok_build_reasoning_effort"),
+                        icon="psychology",
+                        icon_color=COLORS["secondary"],
+                        searchable=False,
                         flex=1,
                     )
 

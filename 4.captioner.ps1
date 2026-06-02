@@ -75,7 +75,9 @@ $grok_build_subscription = $false
 $grok_build_backend = "headless"      # "headless"
 $grok_build_auth_mode = "cached_token" # "cached_token", "existing"
 $grok_build_command = "grok"
-$grok_build_model_name = "grok-build"
+$grok_build_model_name = "grok-build" # "grok-build", "grok-composer-2.5-fast"
+$grok_build_effort = "high" # "", "low", "medium", "high", "xhigh", "max"
+$grok_build_reasoning_effort = "medium" # "", "none", "low", "medium", "high"
 $grok_build_timeout = 180
 $grok_build_isolated_cwd = ""
 $grok_build_permission_mode = "dontAsk" # "default", "acceptEdits", "auto", "dontAsk", "bypassPermissions", "plan"
@@ -487,6 +489,12 @@ if ($grok_build_subscription) {
   }
   if ($grok_build_model_name) {
     [void]$ext_args.Add("--grok_build_model_name=$grok_build_model_name")
+  }
+  if ($grok_build_effort) {
+    [void]$ext_args.Add("--grok_build_effort=$grok_build_effort")
+  }
+  if ($grok_build_reasoning_effort) {
+    [void]$ext_args.Add("--grok_build_reasoning_effort=$grok_build_reasoning_effort")
   }
   if ($grok_build_timeout) {
     [void]$ext_args.Add("--grok_build_timeout=$grok_build_timeout")

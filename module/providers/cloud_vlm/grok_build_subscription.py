@@ -88,6 +88,8 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
             raise GrokBuildHeadlessError(f"Unsupported Grok Build auth mode for subscription provider: {auth_mode}", kind="config")
 
         model = getattr(args, "grok_build_model_name", "") or DEFAULT_GROK_BUILD_MODEL
+        effort = getattr(args, "grok_build_effort", "") or ""
+        reasoning_effort = getattr(args, "grok_build_reasoning_effort", "") or ""
         mode = getattr(args, "mode", "all")
         prompt = _build_grok_build_caption_prompt(prompts)
         image_name = Path(media.uri).name
@@ -106,6 +108,8 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
                     "provider": self.name,
                     "backend": backend,
                     "model": model,
+                    "effort": effort,
+                    "reasoning_effort": reasoning_effort,
                     "auth_mode": auth_mode,
                     "structured": False,
                     "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
@@ -126,6 +130,8 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
                 "provider": self.name,
                 "backend": backend,
                 "model": model,
+                "effort": effort,
+                "reasoning_effort": reasoning_effort,
                 "auth_mode": auth_mode,
                 "structured": True,
                 "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
@@ -145,6 +151,8 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
         config = GrokBuildHeadlessConfig(
             command=getattr(args, "grok_build_command", "") or DEFAULT_GROK_BUILD_COMMAND,
             model=getattr(args, "grok_build_model_name", "") or DEFAULT_GROK_BUILD_MODEL,
+            effort=getattr(args, "grok_build_effort", "") or "",
+            reasoning_effort=getattr(args, "grok_build_reasoning_effort", "") or "",
             timeout=float(
                 getattr(args, "grok_build_timeout", DEFAULT_GROK_BUILD_TIMEOUT_SECONDS)
                 or DEFAULT_GROK_BUILD_TIMEOUT_SECONDS

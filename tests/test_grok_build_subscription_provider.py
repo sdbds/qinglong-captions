@@ -78,6 +78,29 @@ def test_grok_build_command_uses_prompt_json_argument_list(tmp_path):
     assert "--no-auto-update" in command
     assert "--disable-web-search" in command
     assert "--max-turns" in command
+    assert "--effort" not in command
+    assert "--reasoning-effort" not in command
+
+
+def test_grok_build_command_can_set_effort_and_reasoning_effort(tmp_path):
+    from module.providers.grok_build_headless import GrokBuildHeadlessConfig, build_grok_build_command
+
+    cwd = tmp_path / "work"
+    cwd.mkdir()
+    command = build_grok_build_command(
+        GrokBuildHeadlessConfig(
+            command="grok-test-bin",
+            model="grok-composer-2.5-fast",
+            effort="low",
+            reasoning_effort="none",
+            isolated_cwd=str(cwd),
+        ),
+        prompt_json="[]",
+    )
+
+    assert command[command.index("--model") + 1] == "grok-composer-2.5-fast"
+    assert command[command.index("--effort") + 1] == "low"
+    assert command[command.index("--reasoning-effort") + 1] == "none"
 
 
 def test_build_grok_build_prompt_json_downscales_under_default_limit(tmp_path):
@@ -381,6 +404,40 @@ def test_grok_build_subscription_attempt_uses_headless_backend(monkeypatch, tmp_
     assert calls["config"].model == "grok-build"
     assert calls["mime"] == "image/jpeg"
     assert "Do not read files" in calls["prompt"]
+
+
+def test_grok_build_subscription_passes_effort_settings(monkeypatch, tmp_path):
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.cloud_vlm import grok_build_subscription
+    from module.providers.cloud_vlm.grok_build_subscription import GrokBuildSubscriptionProvider
+
+    image = _write_image(tmp_path / "image.jpg")
+    calls = {}
+
+    def fake_caption(config, *, image_path, prompt, mime):
+        calls["config"] = config
+        return SimpleNamespace(parsed=_caption_payload("fake short", "fake long"), prompt_json_chars=123)
+
+    monkeypatch.setattr(grok_build_subscription, "run_grok_build_headless_caption", fake_caption)
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO(), force_terminal=False),
+        config={},
+        args=make_provider_args(
+            grok_build_subscription=True,
+            grok_build_model_name="grok-composer-2.5-fast",
+            grok_build_effort="low",
+            grok_build_reasoning_effort="none",
+        ),
+    )
+    provider = GrokBuildSubscriptionProvider(ctx)
+    provider.attempt(
+        MediaContext(uri=str(image), mime="image/jpeg", sha256hash="", modality=MediaModality.IMAGE),
+        PromptContext(system="system", user="user"),
+    )
+
+    assert calls["config"].model == "grok-composer-2.5-fast"
+    assert calls["config"].effort == "low"
+    assert calls["config"].reasoning_effort == "none"
 
 
 def test_grok_build_subscription_timeout_returns_empty_result(monkeypatch, tmp_path):

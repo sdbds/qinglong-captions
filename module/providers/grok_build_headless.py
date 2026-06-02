@@ -35,6 +35,8 @@ _ENCODE_QUALITIES = (85, 75, 65, 55)
 class GrokBuildHeadlessConfig:
     command: str = DEFAULT_GROK_BUILD_COMMAND
     model: str = DEFAULT_GROK_BUILD_MODEL
+    effort: str = ""
+    reasoning_effort: str = ""
     timeout: float = DEFAULT_GROK_BUILD_TIMEOUT_SECONDS
     isolated_cwd: str = ""
     permission_mode: str = DEFAULT_GROK_BUILD_PERMISSION_MODE
@@ -161,6 +163,12 @@ def build_grok_build_command(config: GrokBuildHeadlessConfig, *, prompt_json: st
     model = (config.model or "").strip()
     if model:
         command.extend(["--model", model])
+    effort = (config.effort or "").strip()
+    if effort:
+        command.extend(["--effort", effort])
+    reasoning_effort = (config.reasoning_effort or "").strip()
+    if reasoning_effort:
+        command.extend(["--reasoning-effort", reasoning_effort])
     isolated_cwd = (config.isolated_cwd or "").strip()
     if isolated_cwd:
         command.extend(["--cwd", str(Path(isolated_cwd).expanduser().resolve())])

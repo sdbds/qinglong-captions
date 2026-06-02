@@ -359,6 +359,30 @@ class CaptionAndRateLayout(BaseLayout):
         # 准备行和颜色映射
         lines = []
         mapping = {}
+        short_label_overrides = {
+            "costume_makeup_prop_presentation_accuracy": "Costume",
+            "costume_presentation_accuracy": "Costume",
+            "Character Portrayal & Posing": "Character",
+            "Character Portrayal": "Character",
+            "character_portrayal_posing": "Character",
+            "character_portrayal": "Character",
+            "Setting & Environment Integration": "Setting",
+            "setting_environment_integration": "Setting",
+            "Lighting & Mood": "Lighting",
+            "lighting_mood": "Lighting",
+            "Composition & Framing": "Composition",
+            "composition_framing": "Composition",
+            "Storytelling & Concept": "Story",
+            "storytelling_concept": "Story",
+            "Level of Sexy": "Sexy",
+            "level_of_sexy": "Sexy",
+            "Figure": "Figure",
+            "figure_silhouette_fit": "Figure",
+            "Overall Impact & Uniqueness": "Overall",
+            "Overall Impact": "Overall",
+            "overall_impact_uniqueness": "Overall",
+            "overall_impact": "Overall",
+        }
 
         # 为每个维度创建一行
         for i, (dimension, rating) in enumerate(clean_ratings.items()):
@@ -367,7 +391,16 @@ class CaptionAndRateLayout(BaseLayout):
             color = rainbow_colors[color_index]
 
             # 处理维度名称，只保留第一个&前的内容
-            short_dim = dimension.split("&")[0].strip()
+            split_dim = dimension.split("&")[0].strip()
+            normalized_dim = dimension.lower().replace(" ", "_").replace("&", "_").replace("/", "_")
+            normalized_dim = "_".join(part for part in normalized_dim.split("_") if part)
+            short_dim = short_label_overrides.get(
+                dimension,
+                short_label_overrides.get(
+                    normalized_dim,
+                    short_label_overrides.get(split_dim, split_dim),
+                ),
+            )
             dim_text = f"{short_dim}:"
             # 评分条长度等于评分值
             bar_length = int(rating)
@@ -381,7 +414,7 @@ class CaptionAndRateLayout(BaseLayout):
             bar = control_char * bar_length
 
             # 特殊处理某些维度的最大分数
-            current_max_rating = 5 if dimension in ["Storytelling & Concept", "Setting & Environment Integration"] else max_rating
+            current_max_rating = max_rating
             value_text = f" {rating}/{current_max_rating}"
 
             # 组合行内容

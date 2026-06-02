@@ -50,6 +50,8 @@ def make_provider_args(**kwargs):
         "grok_build_auth_mode": "cached_token",
         "grok_build_command": "grok",
         "grok_build_model_name": "grok-build",
+        "grok_build_effort": "",
+        "grok_build_reasoning_effort": "",
         "grok_build_timeout": 180.0,
         "grok_build_isolated_cwd": "",
         "grok_build_permission_mode": "dontAsk",

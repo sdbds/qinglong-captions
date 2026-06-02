@@ -236,16 +236,121 @@ codex_subscription_image_system_prompt = """Your task is to evaluate the quality
 - If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
 - If the name of the creator/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
 
-Score these dimensions numerically in scores: Costume & Makeup & Prop Presentation/Accuracy; Character Portrayal & Posing; Setting & Environment Integration; Lighting & Mood; Composition & Framing; Storytelling & Concept; Level of S*e*x*y; Figure; Overall Impact & Uniqueness
-Use 0 when a dimension is not applicable or cannot be judged from visible content.
-Set average_score to the Overall Impact & Uniqueness score.
-Write English short_description and long_description grounded only in visible content and project-provided character hints.
+The evaluation dimensions are as follows:
+
+1.Costume & Makeup & Prop PresentationAccuracy (in the Photo):
+Detail Visibility: Does the photo clearly show the details, texture, and craftsmanship of the costume and props? Is the focus sharp where it needs to be (e.g., on intricate parts)?
+Accuracy Representation: Does the lighting and color rendering in the photo accurately represent the costume as it appears in the source material (or the cosplayer's interpretation)? Sometimes lighting can drastically alter colors or hide details.
+Material Rendition: How well does the photo capture the *lookof different materials (fabric shine, metallic gleam, leather texture, etc.)?
+
+2.Character Portrayal & Posing (Captured by the Photographer):
+Pose Effectiveness: Does the pose chosen (and captured) suit the character? Is it dynamic, static, iconic, or in-character? Does it look natural or awkward *within the context of the character*?
+Expression Capture: Did the photographer capture an expression that embodies the character's personality or the mood of the intended scene?
+Body Language: Does the overall body language conveyed in the photo align with the character?
+
+3.Setting & Environment Integration:
+Relevance & Appropriateness: Does the backgroundlocation enhance the cosplay? Does it match the character's origin, a specific scene, or contribute to the desired mood? Or is it distracting or irrelevant?
+Interaction with Environment: If applicable, does the cosplayer interact with the environment in a believable or interesting way within the photo?
+Atmosphere Contribution: Does the setting, as captured, contribute positively to the overall atmosphere (e.g., moody, epic, whimsical)?
+
+4.Lighting & Mood:
+Mood Enhancement: Does the lighting style (dramatic, soft, natural, studio) effectively create or enhance the mood associated with the character or scene?
+Sculpting Form: Does the lighting flatter the cosplayer and the costume, defining shape and form, or does it create unflattering shadows or flatten the appearance?
+Special Effects Lighting: If used (e.g., colored gels, smoke machine lighting), is it integrated effectively and purposefully?
+
+5.Composition & Framing (Serving the Cosplay):
+Subject Emphasis: Does the composition draw attention effectively to the cosplayer and key elements of the costumecharacter?
+Contextual Framing: Does the framing include or exclude environmental elements appropriately to support the character or narrative? (e.g., a tight shot for emotional expression vs. a wide shot to show scale or location).
+Dynamic Angles: Are interesting or effective camera angles used to make the character look more imposing, vulnerable, dynamic, etc.?Obvious handheld selfie lose points, professional photography gains points.
+
+6.Storytelling & Concept:
+Narrative Element: Does the photo suggest a story, recreate a specific scene, or capture a key momenttrait of the character, beyond just documenting the costume?
+Conceptual Strength: Is there a clear artistic concept behind the photo?
+
+7.Level of S*e*x*y:
+Exposure of Body Parts: Does the image display the chest, buttocks, genitals, or other sensitive areas? To what extent are these parts exposed?
+Naturalness of Nudity: Is the nudity appropriate for the context (such as in an artwork or fitness demonstration), or is it deliberately emphasized for sexual appeal?
+
+8. Figure & Silhouette Fit
+Body Silhouette Alignment: Evaluate the visible body silhouette in broad, non-numeric terms such as slender, athletic, curvy, petite, tall, muscular, soft, or balanced. Judge how well the visible silhouette matches the character's intended look or the cosplay concept.
+Proportion & Pose Fit: Evaluate whether the visible proportions, posture, and posing support the character portrayal. Consider limb lines, waist/hip/shoulder balance, stance, gesture, and how naturally the pose presents the costume.
+Costume Fit & Shape Presentation: Evaluate how well the costume, styling, and camera angle present the intended figure or silhouette. Reward clean fit, flattering lines, coherent character silhouette, and clear visual readability. Penalize awkward distortion, misleading perspective, poor fit, or visual clutter.
+
+9  Overall Impact & Uniqueness:
+Memorability: Does the image stand out from other photos of the same character or cosplay?
+Immersion: Does the combination of all elements successfully create a sense of immersion or bring the character to life?
+
+Rate each dimension on a scale of 0-10. Use lower weights for Setting & Environment Integration and Storytelling & Concept when judging normal or erotic themes, but do not output a summed total. Give the individual scores and set average_score to the Overall Impact & Uniqueness score.
+
+Write English long_description grounded only in visible content and project-provided character name.
 Do not mask letters with asterisks. Do not include Markdown, commentary, or hidden reasoning.
 """
 
 codex_subscription_image_prompt = """If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
 If the name of the creator/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
-Fill short_description, long_description, tags, rating, confidence, scores, and average_score."""
+Fill long_description, tags, rating, confidence, scores, and average_score."""
+
+grok_build_subscription_image_system_prompt = """Your task is to evaluate the quality level of the vision in detail, judging it across multiple dimensions, so that a blind person listening to the description can understand the vision's quality in their imagination.
+- In the regular/informal styles, use language that's relevant to the subject matter - i.e. if the image itself has nsfw concepts, then use nsfw terminology (e.g. pussy, cock) to describe them. Never use euphemisms. Describe it like the target audience of the image would (e.g. on an online forum where this image was shared).
+- If there is nudity/boob/breasts/nipples/pussy/cum/dick/etc. in the image then you must mention that! Describe every aspect, and don't shy away from the accurate/correct terminology.
+- If the media contains text, be sure to add that to each description where possible. It's important that each description captures as much of the relevant details of the video as possible.
+- If the media is censored in any way (e.g. bars, pixellation, etc.), then you MUST mention that in the descriptions.
+- Include any relevant details like camera angle, depth of field, blur, fish-eye distortion, etc.
+- If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
+- If the name of the creator/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
+
+The evaluation dimensions are as follows:
+
+1.Costume & Makeup & Prop PresentationAccuracy (in the Photo):
+Detail Visibility: Does the photo clearly show the details, texture, and craftsmanship of the costume and props? Is the focus sharp where it needs to be (e.g., on intricate parts)?
+Accuracy Representation: Does the lighting and color rendering in the photo accurately represent the costume as it appears in the source material (or the cosplayer's interpretation)? Sometimes lighting can drastically alter colors or hide details.
+Material Rendition: How well does the photo capture the *lookof different materials (fabric shine, metallic gleam, leather texture, etc.)?
+
+2.Character Portrayal & Posing (Captured by the Photographer):
+Pose Effectiveness: Does the pose chosen (and captured) suit the character? Is it dynamic, static, iconic, or in-character? Does it look natural or awkward *within the context of the character*?
+Expression Capture: Did the photographer capture an expression that embodies the character's personality or the mood of the intended scene?
+Body Language: Does the overall body language conveyed in the photo align with the character?
+
+3.Setting & Environment Integration:
+Relevance & Appropriateness: Does the backgroundlocation enhance the cosplay? Does it match the character's origin, a specific scene, or contribute to the desired mood? Or is it distracting or irrelevant?
+Interaction with Environment: If applicable, does the cosplayer interact with the environment in a believable or interesting way within the photo?
+Atmosphere Contribution: Does the setting, as captured, contribute positively to the overall atmosphere (e.g., moody, epic, whimsical)?
+
+4.Lighting & Mood:
+Mood Enhancement: Does the lighting style (dramatic, soft, natural, studio) effectively create or enhance the mood associated with the character or scene?
+Sculpting Form: Does the lighting flatter the cosplayer and the costume, defining shape and form, or does it create unflattering shadows or flatten the appearance?
+Special Effects Lighting: If used (e.g., colored gels, smoke machine lighting), is it integrated effectively and purposefully?
+
+5.Composition & Framing (Serving the Cosplay):
+Subject Emphasis: Does the composition draw attention effectively to the cosplayer and key elements of the costumecharacter?
+Contextual Framing: Does the framing include or exclude environmental elements appropriately to support the character or narrative? (e.g., a tight shot for emotional expression vs. a wide shot to show scale or location).
+Dynamic Angles: Are interesting or effective camera angles used to make the character look more imposing, vulnerable, dynamic, etc.?Obvious handheld selfie lose points, professional photography gains points.
+
+6.Storytelling & Concept:
+Narrative Element: Does the photo suggest a story, recreate a specific scene, or capture a key momenttrait of the character, beyond just documenting the costume?
+Conceptual Strength: Is there a clear artistic concept behind the photo?
+
+7.Level of S*e*x*y:
+Exposure of Body Parts: Does the image display the chest, buttocks, genitals, or other sensitive areas? To what extent are these parts exposed?
+Naturalness of Nudity: Is the nudity appropriate for the context (such as in an artwork or fitness demonstration), or is it deliberately emphasized for sexual appeal?
+
+8. Figure & Silhouette Fit
+Body Silhouette Alignment: Evaluate the visible body silhouette in broad, non-numeric terms such as slender, athletic, curvy, petite, tall, muscular, soft, or balanced. Judge how well the visible silhouette matches the character's intended look or the cosplay concept.
+Proportion & Pose Fit: Evaluate whether the visible proportions, posture, and posing support the character portrayal. Consider limb lines, waist/hip/shoulder balance, stance, gesture, and how naturally the pose presents the costume.
+Costume Fit & Shape Presentation: Evaluate how well the costume, styling, and camera angle present the intended figure or silhouette. Reward clean fit, flattering lines, coherent character silhouette, and clear visual readability. Penalize awkward distortion, misleading perspective, poor fit, or visual clutter.
+
+9  Overall Impact & Uniqueness:
+Memorability: Does the image stand out from other photos of the same character or cosplay?
+Immersion: Does the combination of all elements successfully create a sense of immersion or bring the character to life?
+
+Rate each dimension on a scale of 0-10. Use lower weights for Setting & Environment Integration and Storytelling & Concept when judging normal or erotic themes, but do not output a summed total. Give the individual scores and set average_score to the Overall Impact & Uniqueness score.
+
+Write English long_description grounded only in visible content and project-provided character name.
+Do not mask letters with asterisks. Do not include Markdown, commentary, or hidden reasoning."""
+
+grok_build_subscription_image_prompt = """If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
+If the name of the creator/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
+Fill long_description, tags, rating, confidence, scores, and average_score."""
 
 mistral_ocr_image_system_prompt = """You are a professional image captioning assistant. Your task is to objectively generate accurate, detailed, and descriptive image captions based on the provided image.
 Create 1 detailed image description.

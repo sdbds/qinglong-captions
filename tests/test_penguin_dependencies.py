@@ -463,6 +463,8 @@ def test_caption_step_builds_grok_build_subscription_args_without_api_key_fallba
     assert "--grok_build_permission_mode=dontAsk" in args
     assert "--grok_build_sandbox=read-only" in args
     assert "--grok_build_command=grok" in args
+    assert "--grok_build_effort=high" in args
+    assert "--grok_build_reasoning_effort=medium" in args
     assert "--grok_build_prompt_json_max_chars=24000" not in args
     assert not any(arg.startswith("--openai_api_key=") for arg in args)
     assert not any(arg.startswith("--gemini_api_key=") for arg in args)
@@ -481,6 +483,8 @@ def test_caption_step_builds_grok_build_overrides():
     step.config["grok_build_model_name"] = "grok-build-custom"
     step.config["grok_build_timeout"] = 9
     step.config["grok_build_isolated_cwd"] = "work"
+    step.config["grok_build_effort"] = "low"
+    step.config["grok_build_reasoning_effort"] = "none"
     step.config["grok_build_permission_mode"] = "default"
     step.config["grok_build_sandbox"] = "workspace-write"
     step.config["grok_build_prompt_json_max_chars"] = 12000
@@ -492,6 +496,8 @@ def test_caption_step_builds_grok_build_overrides():
     assert "--grok_build_auth_mode=existing" in args
     assert "--grok_build_command=grok-test" in args
     assert "--grok_build_model_name=grok-build-custom" in args
+    assert "--grok_build_effort=low" in args
+    assert "--grok_build_reasoning_effort=none" in args
     assert "--grok_build_timeout=9" in args
     assert "--grok_build_isolated_cwd=work" in args
     assert "--grok_build_permission_mode=default" in args

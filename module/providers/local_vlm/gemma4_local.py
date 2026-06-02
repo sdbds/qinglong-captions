@@ -60,8 +60,6 @@ _IMAGE_CANONICAL_SCORE_ORDER = [
     "Overall Impact & Uniqueness",
 ]
 _IMAGE_SCORE_LIMITS = {label: 10 for label in _IMAGE_CANONICAL_SCORE_ORDER}
-_IMAGE_SCORE_LIMITS["Setting & Environment Integration"] = 5
-_IMAGE_SCORE_LIMITS["Storytelling & Concept"] = 5
 
 
 def _is_cuda_device(device: Any) -> bool:

@@ -11,4 +11,3 @@ current_job_id = ""
 status = "ready"
 error_message = ""
 
-[tab.env_vars]

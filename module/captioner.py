@@ -426,6 +426,20 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Grok Build model for --grok_build_subscription.",
     )
     parser.add_argument(
+        "--grok_build_effort",
+        type=str,
+        choices=["", "low", "medium", "high", "xhigh", "max"],
+        default="",
+        help="Optional Grok Build CLI --effort level. Empty uses the CLI/model default.",
+    )
+    parser.add_argument(
+        "--grok_build_reasoning_effort",
+        type=str,
+        choices=["", "none", "low", "medium", "high"],
+        default="",
+        help="Optional Grok Build CLI --reasoning-effort for reasoning models. Empty uses the CLI/model default.",
+    )
+    parser.add_argument(
         "--grok_build_timeout",
         type=float,
         default=180.0,
