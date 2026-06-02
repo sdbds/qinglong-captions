@@ -23,10 +23,9 @@ from module.providers.grok_build_headless import (
     DEFAULT_GROK_BUILD_PROMPT_JSON_MAX_CHARS,
     DEFAULT_GROK_BUILD_SANDBOX,
     DEFAULT_GROK_BUILD_TIMEOUT_SECONDS,
-    SUPPORTED_GROK_BUILD_IMAGE_MIMES,
     GrokBuildHeadlessConfig,
     GrokBuildHeadlessError,
-    normalize_grok_build_mime,
+    is_grok_build_source_image_mime,
     run_grok_build_headless_caption,
 )
 from module.providers.registry import register_provider
@@ -47,16 +46,14 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
         supports_structured_output=True,
         supports_images=True,
         supports_cloud_concurrency=False,
-        supported_mimes=["image/jpeg", "image/png"],
+        supported_mimes=None,
     )
 
     @classmethod
     def can_handle(cls, args: Any, mime: str) -> bool:
         if not bool(getattr(args, "grok_build_subscription", False)):
             return False
-        if not mime.startswith("image"):
-            return False
-        if normalize_grok_build_mime(mime) not in SUPPORTED_GROK_BUILD_IMAGE_MIMES:
+        if not is_grok_build_source_image_mime(mime):
             return False
         if getattr(args, "ocr_model", "") or getattr(args, "vlm_image_model", ""):
             return False

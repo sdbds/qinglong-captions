@@ -101,6 +101,41 @@ def test_build_grok_build_prompt_json_downscales_under_default_limit(tmp_path):
     assert blocks[1]["data"]
 
 
+@pytest.mark.parametrize("source_mime", ["image/avif", "image/webp", "image/heic", "image/svg+xml"])
+def test_build_grok_build_prompt_json_transcodes_image_mime_to_jpeg(source_mime, tmp_path):
+    from module.providers.grok_build_headless import build_grok_build_prompt_json
+
+    image_path = _write_image(tmp_path / "image.png")
+
+    prepared = build_grok_build_prompt_json(
+        image_path=image_path,
+        prompt="Return JSON.",
+        mime=source_mime,
+        max_chars=24000,
+    )
+
+    blocks = json.loads(prepared.prompt_json)
+    assert prepared.mime_type == "image/jpeg"
+    assert blocks[1]["mimeType"] == "image/jpeg"
+    assert blocks[1]["data"]
+
+
+def test_build_grok_build_prompt_json_rejects_non_image_mime(tmp_path):
+    from module.providers.grok_build_headless import GrokBuildHeadlessError, build_grok_build_prompt_json
+
+    image_path = _write_image(tmp_path / "image.png")
+
+    with pytest.raises(GrokBuildHeadlessError) as exc_info:
+        build_grok_build_prompt_json(
+            image_path=image_path,
+            prompt="Return JSON.",
+            mime="application/pdf",
+            max_chars=24000,
+        )
+
+    assert exc_info.value.kind == "unsupported_media"
+
+
 def test_run_grok_build_headless_caption_success_and_clears_api_keys(monkeypatch, tmp_path):
     from module.providers.grok_build_headless import GrokBuildHeadlessConfig, run_grok_build_headless_caption
 
@@ -276,6 +311,17 @@ def test_grok_build_subscription_route_requires_explicit_flag():
 
     assert reg.find_provider(make_provider_args(), "image/jpeg") is None
     provider = reg.find_provider(make_provider_args(grok_build_subscription=True), "image/jpeg")
+    assert provider is not None
+    assert provider.name == "grok_build_subscription"
+
+
+@pytest.mark.parametrize("source_mime", ["image/avif", "image/webp", "image/heic", "image/svg+xml"])
+def test_grok_build_subscription_route_accepts_image_mime_for_transcode(source_mime):
+    from module.providers.registry import get_registry
+
+    reg = get_registry()
+
+    provider = reg.find_provider(make_provider_args(grok_build_subscription=True), source_mime)
     assert provider is not None
     assert provider.name == "grok_build_subscription"
 

@@ -261,12 +261,13 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
 
 ### 支持媒体
 
-首版只支持：
+路由层接受所有 `image/*` 源 MIME，并在本地用 Pillow 解码后压缩为 JPEG block 传给 Grok Build。
+
+Grok Build prompt payload 首版仍只发送：
 
 - `image/jpeg`
-- `image/png`
 
-原因：xAI API 图片理解文档明确支持 jpg/jpeg/png，Grok Build 订阅路径在验证前也应按这个保守集合处理。AVIF / HEIC / HEIF 可仿照 Codex 先转临时 JPEG。
+原因：订阅 CLI 已验证 `--prompt-json` 图片 block 可接收 JPEG payload。AVIF / WebP / HEIC / HEIF 等源文件不应在 provider 选择阶段被拒绝；只要本地 Pillow 能解码，就统一转 JPEG 后发送。若源文件损坏或当前 Pillow 构建缺少对应解码器，应以图片解码/转码错误失败，而不是报 `No provider available`。
 
 ### 输出字段
 

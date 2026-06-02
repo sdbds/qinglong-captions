@@ -23,7 +23,7 @@ DEFAULT_GROK_BUILD_TIMEOUT_SECONDS = 180.0
 DEFAULT_GROK_BUILD_PERMISSION_MODE = "dontAsk"
 DEFAULT_GROK_BUILD_SANDBOX = "read-only"
 DEFAULT_GROK_BUILD_PROMPT_JSON_MAX_CHARS = 24000
-SUPPORTED_GROK_BUILD_IMAGE_MIMES = frozenset({"image/jpeg", "image/jpg", "image/png"})
+GROK_BUILD_PROMPT_IMAGE_MIME = "image/jpeg"
 
 API_KEY_ENV_VARS = ("XAI_API_KEY", "GROK_CODE_XAI_API_KEY")
 PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
@@ -108,6 +108,10 @@ def normalize_grok_build_mime(mime: str) -> str:
     return normalized
 
 
+def is_grok_build_source_image_mime(mime: str) -> bool:
+    return normalize_grok_build_mime(mime).startswith("image/")
+
+
 def build_grok_build_prompt_blocks(prompt: str, image_base64: str, mime_type: str) -> list[dict[str, str]]:
     return [
         {"type": "text", "text": prompt},
@@ -122,10 +126,9 @@ def build_grok_build_prompt_json(
     mime: str,
     max_chars: int = DEFAULT_GROK_BUILD_PROMPT_JSON_MAX_CHARS,
 ) -> GrokBuildHeadlessPrompt:
-    normalized_mime = normalize_grok_build_mime(mime)
-    if normalized_mime not in SUPPORTED_GROK_BUILD_IMAGE_MIMES:
+    if not is_grok_build_source_image_mime(mime):
         raise GrokBuildHeadlessError(
-            f"Unsupported Grok Build image mime: {mime}",
+            f"Unsupported Grok Build source mime: {mime}; expected image/*",
             kind="unsupported_media",
         )
 
@@ -136,13 +139,13 @@ def build_grok_build_prompt_json(
         resized = _resize_image(image, max_size)
         for quality in _ENCODE_QUALITIES:
             image_base64 = _encode_jpeg_base64(resized, quality=quality)
-            blocks = build_grok_build_prompt_blocks(prompt, image_base64, "image/jpeg")
+            blocks = build_grok_build_prompt_blocks(prompt, image_base64, GROK_BUILD_PROMPT_IMAGE_MIME)
             prompt_json = json.dumps(blocks, ensure_ascii=False, separators=(",", ":"))
             best_prompt_json = prompt_json
             if len(prompt_json) <= max_chars:
                 return GrokBuildHeadlessPrompt(
                     prompt_json=prompt_json,
-                    mime_type="image/jpeg",
+                    mime_type=GROK_BUILD_PROMPT_IMAGE_MIME,
                     image_base64=image_base64,
                     prompt_json_chars=len(prompt_json),
                 )
