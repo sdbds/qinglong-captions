@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import atexit
 import hashlib
+import importlib
 import inspect
+import json
 import os
 import queue
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -34,6 +37,9 @@ INSTALL_CODEX_SDK_HINT = "Install it with: uv sync --extra codex-subscription"
 API_KEY_ENV_VARS = ("OPENAI_API_KEY", "CODEX_API_KEY")
 RETRYABLE_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport"})
 DEFAULT_CODEX_TIMEOUT_SECONDS = 60.0
+_WINDOWS_PROCESS_TERMINATED_RE = re.compile(
+    r"^SUCCESS: The process with PID \d+(?: \(child process of PID \d+\))? has been terminated\.\s*$"
+)
 
 
 @dataclass(frozen=True)
@@ -104,6 +110,46 @@ def _is_retryable_client_failure(kind: str) -> bool:
     return kind in RETRYABLE_CLIENT_FAILURE_KINDS
 
 
+def _is_codex_app_server_stdout_noise(line: str) -> bool:
+    return bool(_WINDOWS_PROCESS_TERMINATED_RE.match(line.strip()))
+
+
+def _patch_codex_sdk_stdout_noise_filter(_sdk: Any) -> None:
+    try:
+        client_module = importlib.import_module("openai_codex.client")
+    except Exception:
+        return
+    client_cls = getattr(client_module, "AppServerClient", None)
+    if client_cls is None or getattr(client_cls, "_qinglong_stdout_noise_filter", False):
+        return
+
+    app_server_error = getattr(client_module, "AppServerError")
+    transport_closed_error = getattr(client_module, "TransportClosedError")
+
+    def _read_message_with_noise_filter(self: Any) -> dict[str, Any]:
+        if self._proc is None or self._proc.stdout is None:
+            raise transport_closed_error("app-server is not running")
+
+        while True:
+            line = self._proc.stdout.readline()
+            if not line:
+                raise transport_closed_error(
+                    f"app-server closed stdout. stderr_tail={self._stderr_tail()[:2000]}"
+                )
+            if _is_codex_app_server_stdout_noise(line):
+                continue
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise app_server_error(f"Invalid JSON-RPC line: {line!r}") from exc
+            if not isinstance(message, dict):
+                raise app_server_error(f"Invalid JSON-RPC payload: {message!r}")
+            return message
+
+    client_cls._read_message = _read_message_with_noise_filter
+    client_cls._qinglong_stdout_noise_filter = True
+
+
 def _coerce_sdk_exception(
     exc: Exception,
     config: CodexAppServerConfig,
@@ -132,6 +178,7 @@ def load_openai_codex_sdk() -> Any:
             kind="sdk_missing",
             cause=exc,
         ) from exc
+    _patch_codex_sdk_stdout_noise_filter(sdk)
     return sdk
 
 

@@ -415,7 +415,7 @@ class CaptionStep:
             "codex_fast": False,
             "codex_reasoning_effort": "none",
             "codex_home": "",
-            "codex_timeout": 180,
+            "codex_timeout": 60,
             "codex_sandbox": "read-only",
             "codex_isolated_cwd": "",
             "codex_output_schema": "",
@@ -893,7 +893,7 @@ class CaptionStep:
             if codex_reasoning_effort:
                 args.append(f"--codex_reasoning_effort={codex_reasoning_effort}")
 
-            codex_timeout = self._codex_value("codex_timeout", 180)
+            codex_timeout = self._codex_value("codex_timeout", 60)
             if codex_timeout:
                 args.append(f"--codex_timeout={codex_timeout}")
 
@@ -1113,7 +1113,7 @@ class CaptionStep:
                         label=t("codex_timeout_seconds"),
                         icon="timer",
                         icon_color=COLORS["info"],
-                        placeholder="180",
+                        placeholder="60",
                         flex=1,
                     )
 

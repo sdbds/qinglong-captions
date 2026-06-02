@@ -2,6 +2,7 @@ import json
 import os
 import stat
 import sys
+import io
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -52,6 +53,24 @@ def test_codex_app_server_invalid_json_rpc_is_transport_failure():
         )
         == "transport"
     )
+
+
+def test_codex_sdk_stdout_noise_filter_skips_windows_taskkill_success():
+    from module.providers.codex_app_server import load_openai_codex_sdk
+
+    load_openai_codex_sdk()
+
+    from openai_codex.client import AppServerClient
+
+    client = AppServerClient()
+    client._proc = SimpleNamespace(
+        stdout=io.StringIO(
+            "SUCCESS: The process with PID 209968 (child process of PID 66372) has been terminated.\n"
+            '{"id":"ok","result":{}}\n'
+        )
+    )
+
+    assert client._read_message() == {"id": "ok", "result": {}}
 
 
 def test_codex_subscription_default_timeout_is_60_seconds():
@@ -1261,6 +1280,47 @@ def test_codex_subscription_defaults_to_sdk_app_server(monkeypatch, tmp_path):
     assert captured["output_schema"]["type"] == "object"
     assert captured["progress_callback"] is None
     assert result.parsed["long_description"] == "long"
+
+
+def test_codex_subscription_retries_retryable_app_server_transport(monkeypatch, tmp_path):
+    from PIL import Image
+    from rich.console import Console
+
+    from module.providers.base import ProviderContext
+    from module.providers.cloud_vlm import codex_subscription
+    from module.providers.cloud_vlm.codex_subscription import CodexSubscriptionProvider
+    from module.providers.codex_app_server import CodexAppServerError
+
+    image = tmp_path / "image.jpg"
+    Image.new("RGB", (32, 32), color=(20, 40, 80)).save(image)
+    calls = 0
+
+    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise CodexAppServerError(
+                "Codex app-server request failed (transport): Invalid JSON-RPC line",
+                kind="transport",
+                retryable=True,
+            )
+        return SimpleNamespace(
+            parsed={
+                "long_description": "retry recovered",
+                "tags": ["tag"],
+                "rating": "general",
+                "confidence": 0.8,
+            }
+        )
+
+    monkeypatch.setattr(codex_subscription, "caption_image_with_app_server", fake_caption)
+    args = make_provider_args(codex_subscription=True)
+    provider = CodexSubscriptionProvider(ProviderContext(console=Console(), config={"prompts": {}}, args=args))
+
+    result = provider.execute(str(image), "image/jpeg", "hash")
+
+    assert calls == 2
+    assert result.parsed["long_description"] == "retry recovered"
 
 
 def test_codex_subscription_execute_displays_structured_rating(monkeypatch, tmp_path):

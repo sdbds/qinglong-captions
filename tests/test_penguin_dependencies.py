@@ -515,6 +515,7 @@ def test_caption_step_builds_codex_subscription_args_without_api_key_fallback():
     assert "--codex_auth_mode=chatgpt" in args
     assert "--codex_model_name=gpt-5.4" in args
     assert "--codex_reasoning_effort=none" in args
+    assert "--codex_timeout=60" in args
     assert "--codex_auto_install_sdk" in args
     assert "--codex_fast" not in args
     assert not any(arg.startswith("--codex_api_key=") for arg in args)

@@ -368,7 +368,11 @@ class CodexSubscriptionProvider(CloudVLMProvider):
         return result.parsed
 
     def get_retry_config(self) -> RetryConfig:
-        return RetryConfig(max_retries=1, base_wait=0.0)
+        return RetryConfig(
+            max_retries=2,
+            base_wait=0.0,
+            classify_error=lambda exc: 0.0 if bool(getattr(exc, "retryable", False)) else None,
+        )
 
     def display_name(self, mime: str) -> str:
         return "codex_subscription"
