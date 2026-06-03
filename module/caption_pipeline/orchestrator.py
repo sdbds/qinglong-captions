@@ -20,6 +20,7 @@ from module.caption_pipeline.postprocess import postprocess_caption_content
 from module.caption_pipeline.scene_alignment import align_subtitles_with_scenes, create_scene_detector
 from module.providers.catalog import provider_segmentation_policy, route_provider_name
 from module.providers.base import CaptionResult
+from module.providers.subscription_quota import report_startup_subscription_quota
 from utils.output_writer import write_caption_output
 from utils.rich_progress import create_caption_progress
 from utils.stream_util import (
@@ -94,6 +95,24 @@ def _caption_from_payload(payload, metadata: dict | None = None) -> CaptionResul
 
         return CaptionResult(raw=json.dumps(payload, ensure_ascii=False), parsed=payload, metadata=dict(metadata or {}))
     return CaptionResult(raw=_caption_raw(payload), metadata=dict(metadata or {}))
+
+
+def _print_deferred_caption_timing(output, console_obj) -> None:
+    if not isinstance(output, CaptionResult):
+        return
+
+    metadata = output.metadata or {}
+    label = str(metadata.get("duration_log_label") or "").strip()
+    if not label:
+        return
+
+    try:
+        duration_seconds = float(metadata["duration_seconds"])
+    except (KeyError, TypeError, ValueError):
+        return
+
+    style = str(metadata.get("duration_log_style") or "blue").strip()
+    console_obj.print(f"[{style}]{label} in {duration_seconds:.1f}s[/{style}]")
 
 
 def _format_segment_timestamp(seconds: float) -> str:
@@ -477,6 +496,8 @@ def _process_single_caption_job(
         text_path, _ = write_caption_output(Path(job.filepath), output, job.mime)
         console_obj.print(f"[green]Saved captions to {text_path}[/green]")
 
+    _print_deferred_caption_timing(output, console_obj)
+
     return CaptionJobResult(index=job.index, filepath=job.filepath, mime=job.mime, output=output)
 
 
@@ -559,6 +580,7 @@ def process_batch(
         batch_size=1,
     )
     jobs = _collect_caption_jobs(scanner)
+    report_startup_subscription_quota(args, jobs, console_obj)
     concurrent_provider, concurrent_max_workers = _resolve_batch_cloud_concurrency(args, jobs, console_obj)
 
     with create_caption_progress(console_obj) as progress:

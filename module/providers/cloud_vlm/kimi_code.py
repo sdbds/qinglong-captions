@@ -7,6 +7,8 @@
 优先级：kimi_code > kimi_vl
 """
 
+from pathlib import Path
+
 from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.providers.cloud_vlm_base import CloudVLMProvider
 from module.providers.registry import register_provider
@@ -78,6 +80,7 @@ class KimiCodeProvider(CloudVLMProvider):
         kimi_vl_config = self.ctx.config.get("kimi_vl", {})
         thinking = kimi_vl_config.get("thinking", "enabled") if kimi_vl_config else "enabled"
 
+        timing_metadata = {}
         result = attempt_kimi_vl(
             client=client,
             model_path=getattr(self.ctx.args, "kimi_code_model_path", "kimi-for-coding"),
@@ -90,11 +93,15 @@ class KimiCodeProvider(CloudVLMProvider):
             pair_pixels=pair_pixels,
             thinking=thinking,
             mode=getattr(self.ctx.args, "mode", "all"),
+            timing_metadata=timing_metadata,
         )
+        if "duration_seconds" in timing_metadata:
+            timing_metadata["duration_log_label"] = f"Kimi Code caption completed: {Path(media.uri).name}"
+        metadata = {"provider": self.name, **timing_metadata}
 
         # 处理 JSON 解析 - 尝试解析为 dict，根据 mode 过滤字段
         import json
-        
+
         try:
             parsed = json.loads(result) if isinstance(result, str) else result
             if isinstance(parsed, dict):
@@ -106,11 +113,11 @@ class KimiCodeProvider(CloudVLMProvider):
                 elif mode == "long":
                     parsed.pop("short", None)
                     parsed.pop("short_description", None)
-                return CaptionResult(raw=json.dumps(parsed, ensure_ascii=False), parsed=parsed, metadata={"provider": self.name})
+                return CaptionResult(raw=json.dumps(parsed, ensure_ascii=False), parsed=parsed, metadata=metadata)
         except Exception:
             pass
 
-        return CaptionResult(raw=result if isinstance(result, str) else json.dumps(result, ensure_ascii=False), metadata={"provider": self.name})
+        return CaptionResult(raw=result if isinstance(result, str) else json.dumps(result, ensure_ascii=False), metadata=metadata)
 
     def get_retry_config(self):
         from module.providers.utils import classify_remote_api_error

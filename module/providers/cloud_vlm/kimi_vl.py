@@ -186,6 +186,7 @@ def attempt_kimi_vl(
     max_tokens: int = 8192,
     max_tokens_param: str = "max_tokens",
     temperature: Optional[float] = None,
+    timing_metadata: Optional[dict[str, Any]] = None,
 ) -> str:
     start_time = time.time()
 
@@ -246,7 +247,11 @@ def attempt_kimi_vl(
         pass
 
     elapsed_time = time.time() - start_time
-    console.print(f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds")
+    if timing_metadata is not None:
+        timing_metadata["duration_seconds"] = round(elapsed_time, 3)
+        timing_metadata["duration_log_style"] = "green"
+    else:
+        console.print(f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds")
 
     try:
         console.print(response_text)
@@ -355,6 +360,7 @@ class KimiVLProvider(CloudVLMProvider):
         kimi_vl_config = self.ctx.config.get("kimi_vl", {})
         thinking = kimi_vl_config.get("thinking", "enabled") if kimi_vl_config else "enabled"
 
+        timing_metadata: dict[str, Any] = {}
         result = attempt_kimi_vl(
             client=client,
             model_path=getattr(self.ctx.args, "kimi_model_path", "kimi-k2.5"),
@@ -367,7 +373,11 @@ class KimiVLProvider(CloudVLMProvider):
             pair_pixels=pair_pixels,
             thinking=thinking,
             mode=getattr(self.ctx.args, "mode", "all"),
+            timing_metadata=timing_metadata,
         )
+        if "duration_seconds" in timing_metadata:
+            timing_metadata["duration_log_label"] = f"Kimi VL caption completed: {Path(media.uri).name}"
+        metadata = {"provider": self.name, **timing_metadata}
 
         # 处理 JSON 解析 - 尝试解析为 dict，根据 mode 过滤字段
         try:
@@ -381,11 +391,11 @@ class KimiVLProvider(CloudVLMProvider):
                 elif mode == "long":
                     parsed.pop("short", None)
                     parsed.pop("short_description", None)
-                return CaptionResult(raw=json.dumps(parsed, ensure_ascii=False), parsed=parsed, metadata={"provider": self.name})
+                return CaptionResult(raw=json.dumps(parsed, ensure_ascii=False), parsed=parsed, metadata=metadata)
         except Exception:
             pass
 
-        return CaptionResult(raw=result if isinstance(result, str) else json.dumps(result, ensure_ascii=False), metadata={"provider": self.name})
+        return CaptionResult(raw=result if isinstance(result, str) else json.dumps(result, ensure_ascii=False), metadata=metadata)
 
     def get_retry_config(self):
         from module.providers.utils import classify_remote_api_error

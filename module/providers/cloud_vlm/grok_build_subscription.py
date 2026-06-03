@@ -120,7 +120,6 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
             )
 
         elapsed = time.perf_counter() - started_at
-        self.log(f"Grok Build caption completed: {image_name} in {elapsed:.1f}s", "green")
 
         parsed = filter_caption_payload_by_mode(parsed, mode)
         return CaptionResult(
@@ -136,6 +135,9 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
                 "structured": True,
                 "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
                 "prompt_json_chars": prompt_json_chars,
+                "duration_seconds": round(elapsed, 3),
+                "duration_log_label": f"Grok Build caption completed: {image_name}",
+                "duration_log_style": "green",
             },
         )
 

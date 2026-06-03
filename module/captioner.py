@@ -390,6 +390,12 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Global cloud image caption concurrency limit. Default 1 keeps scheduling serial.",
     )
     parser.add_argument(
+        "--subscription_quota_timeout",
+        type=float,
+        default=10.0,
+        help="Startup subscription quota CLI probe timeout in seconds.",
+    )
+    parser.add_argument(
         "--codex_auto_install_sdk",
         action="store_true",
         help="Allow launcher scripts to install the optional Codex Python SDK extra.",

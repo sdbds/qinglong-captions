@@ -152,6 +152,48 @@ def test_update_dataset_captions_normalizes_list_and_dict():
     assert json.loads(rows[1]["captions"][0])["description"] == "desc"
 
 
+def test_deferred_provider_timing_prints_after_visual_and_save(monkeypatch, tmp_path):
+    from module.caption_pipeline.orchestrator import process_batch
+    from module.providers.base import CaptionResult
+
+    rows = _make_rows(tmp_path, ["a.png"])
+    _patch_process_batch_io(monkeypatch, rows)
+    _fake_registry(monkeypatch, _FakeLocalProvider)
+
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=False, color_system=None)
+
+    def fake_api_process_batch_fn(**kwargs):
+        request_console = kwargs["progress"].console
+        request_console.print("Using provider: codex_subscription")
+        request_console.print("visual result")
+        return CaptionResult(
+            raw="caption",
+            metadata={
+                "provider": "codex_subscription",
+                "duration_seconds": 1.234,
+                "duration_log_label": "Codex caption completed: a.png",
+                "duration_log_style": "green",
+            },
+        )
+
+    process_batch(
+        _process_batch_args(tmp_path),
+        {},
+        api_process_batch_fn=fake_api_process_batch_fn,
+        transform2lance_fn=lambda **_kwargs: None,
+        extract_from_lance_fn=lambda *_args, **_kwargs: None,
+        console_obj=console,
+    )
+
+    output = buf.getvalue()
+    using_index = output.index("Using provider: codex_subscription")
+    visual_index = output.index("visual result")
+    saved_index = output.index("Saved captions to")
+    timing_index = output.index("Codex caption completed: a.png in 1.2s")
+    assert using_index < visual_index < saved_index < timing_index
+
+
 def test_align_subtitles_with_scenes_falls_back_on_timeout():
     from module.caption_pipeline.scene_alignment import align_subtitles_with_scenes
 

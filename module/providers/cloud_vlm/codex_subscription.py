@@ -232,7 +232,6 @@ class CodexSubscriptionProvider(CloudVLMProvider):
                 },
             )
         elapsed = time.perf_counter() - started_at
-        self.log(f"Codex caption completed: {image_name} in {elapsed:.1f}s", "green")
 
         parsed = filter_caption_payload_by_mode(parsed, mode)
         return CaptionResult(
@@ -247,6 +246,9 @@ class CodexSubscriptionProvider(CloudVLMProvider):
                 "auth_mode": getattr(args, "codex_auth_mode", DEFAULT_CODEX_AUTH_MODE) or DEFAULT_CODEX_AUTH_MODE,
                 "structured": True,
                 "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
+                "duration_seconds": round(elapsed, 3),
+                "duration_log_label": f"Codex caption completed: {image_name}",
+                "duration_log_style": "green",
             },
         )
 
