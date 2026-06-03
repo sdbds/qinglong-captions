@@ -13,8 +13,8 @@ from module.onnx_runtime import load_session_bundle
 CL_TAGGER_V2_OPTION = "cella110n/cl_tagger_v2"
 CL_TAGGER_V2_BACKEND_REPO = "celstk/cl-SigLIP2-lora-onnx"
 CL_TAGGER_V2_PROCESSOR_REPO = "google/siglip2-so400m-patch16-naflex"
-CL_TAGGER_V2_VERSIONS = ("v1_00", "v1_01", "v1_02", "v1_03", "v1_04", "v1_05")
-CL_TAGGER_V2_DEFAULT_VERSION = "v1_05"
+CL_TAGGER_V2_VERSIONS = ("v1_00", "v1_01", "v1_02", "v1_03", "v1_04", "v1_05", "v1_06", "v1_065")
+CL_TAGGER_V2_DEFAULT_VERSION = "v1_065"
 CL_TAGGER_V2_FALLBACK_THRESHOLD = 0.5
 CL_TAGGER_V2_THRESHOLD_OVERRIDES = {
     "v1_00": 0.6,
@@ -97,7 +97,10 @@ def normalize_cl_tagger_v2_version(version: str | None) -> str:
     normalized = normalized.replace("_", ".")
     parts = normalized.split(".")
     if len(parts) == 2 and all(part.isdigit() for part in parts):
-        return f"v{int(parts[0])}_{int(parts[1]):02d}"
+        major = int(parts[0])
+        minor = parts[1]
+        minor_width = 3 if len(minor) > 2 else 2
+        return f"v{major}_{int(minor):0{minor_width}d}"
     return value
 
 

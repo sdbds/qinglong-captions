@@ -70,8 +70,9 @@ def _install_fake_transformer_loader(monkeypatch, **attrs):
 
 
 def test_cl_tagger_v2_defaults_track_current_space_version():
-    assert CL_TAGGER_V2_DEFAULT_VERSION == "v1_05"
+    assert CL_TAGGER_V2_DEFAULT_VERSION == "v1_065"
     assert normalize_cl_tagger_v2_version("1.05") == "v1_05"
+    assert normalize_cl_tagger_v2_version("1.065") == "v1_065"
     assert normalize_cl_tagger_v2_version("1.04") == "v1_04"
     assert normalize_cl_tagger_v2_version("v1_4") == "v1_04"
     assert default_cl_tagger_v2_threshold("v1_01") == 0.6
@@ -79,6 +80,7 @@ def test_cl_tagger_v2_defaults_track_current_space_version():
     assert default_cl_tagger_v2_threshold("v1_03") == 0.5
     assert default_cl_tagger_v2_threshold("v1_04") == 0.5
     assert default_cl_tagger_v2_threshold("v1_05") == 0.5
+    assert default_cl_tagger_v2_threshold("v1_065") == 0.5
     assert default_cl_tagger_v2_threshold("v2_00") == 0.5
 
 
