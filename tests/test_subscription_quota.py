@@ -68,10 +68,15 @@ def test_startup_quota_reports_codex_live_cli_rate_limit(monkeypatch):
     )
 
     output = buffer.getvalue()
-    assert "Subscription quota (codex_subscription): live command" in output
-    assert "primary remaining 76.0%" in output
-    assert "secondary remaining 94.0%" in output
-    assert "plan=team" in output
+    assert "Subscription quota (codex_subscription)" in output
+    assert "Status: live command" in output
+    assert "5-hour window" in output
+    assert "[■■■■■■■■■■■■■■■░░░░░] 76.0% remaining (24.0% used)" in output
+    assert "Weekly window" in output
+    assert "[■■■■■■■■■■■■■■■■■■■░] 94.0% remaining (6.0% used)" in output
+    assert "Plan: Team" in output
+    assert "plan=team" not in output
+    assert "#" not in output
 
 
 def test_startup_quota_reports_codex_last_known_rate_limit(tmp_path, monkeypatch):
@@ -115,10 +120,15 @@ def test_startup_quota_reports_codex_last_known_rate_limit(tmp_path, monkeypatch
 
     output = buffer.getvalue()
     assert "Checking subscription quota at startup" in output
-    assert "Subscription quota (codex_subscription): live command timed out after 10s; fallback last known" in output
-    assert "primary remaining 76.0%" in output
-    assert "secondary remaining 94.0%" in output
-    assert "plan=team" in output
+    assert "Subscription quota (codex_subscription)" in output
+    assert "Status: live command timed out after 10s; fallback last known" in output
+    assert "5-hour window" in output
+    assert "[■■■■■■■■■■■■■■■░░░░░] 76.0% remaining (24.0% used)" in output
+    assert "Weekly window" in output
+    assert "[■■■■■■■■■■■■■■■■■■■░] 94.0% remaining (6.0% used)" in output
+    assert "Plan: Team" in output
+    assert "plan=team" not in output
+    assert "#" not in output
 
 
 def test_startup_quota_rejects_live_rate_limits_without_percent(tmp_path, monkeypatch):
@@ -154,8 +164,10 @@ def test_startup_quota_reports_unavailable_sources_without_blocking():
     )
 
     output = buffer.getvalue()
-    assert "Subscription quota (grok_build_subscription): no stable quota CLI command found" in output
-    assert "Subscription quota (kimi_code): no stable Kimi Code quota CLI/API endpoint found" in output
+    assert "Subscription quota (grok_build_subscription)" in output
+    assert "no stable quota CLI command found" in output
+    assert "Subscription quota (kimi_code)" in output
+    assert "no stable Kimi Code quota CLI/API endpoint found" in output
 
 
 def test_startup_quota_ignores_subscription_when_explicit_vlm_route_selected():

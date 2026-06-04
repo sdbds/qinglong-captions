@@ -55,12 +55,31 @@ def test_codex_app_server_invalid_json_rpc_is_transport_failure():
     )
 
 
+def test_codex_app_server_429_is_retryable_rate_limit():
+    from module.providers.codex_app_server import CodexAppServerConfig, _coerce_sdk_exception
+
+    exc = _coerce_sdk_exception(
+        RuntimeError(
+            "exceeded retry limit, last status: "
+            "429 Too Many Requests, request id: 2e0b6dc2-af63-49fe-a5ca-4c5ae5aed66a"
+        ),
+        CodexAppServerConfig(),
+        stage="request",
+    )
+
+    assert exc.kind == "rate_limited"
+    assert exc.retryable is True
+
+
 def test_codex_sdk_stdout_noise_filter_skips_windows_taskkill_success():
     from module.providers.codex_app_server import load_openai_codex_sdk
 
     load_openai_codex_sdk()
 
-    from openai_codex.client import AppServerClient
+    try:
+        from openai_codex.client import AppServerClient
+    except ImportError:
+        pytest.skip("PyPI openai-codex no longer exposes the old AppServerClient stdout reader")
 
     client = AppServerClient()
     client._proc = SimpleNamespace(
@@ -354,12 +373,33 @@ def test_codex_subscription_does_not_steal_explicit_ocr_or_vlm_routes():
     assert provider is not None
     assert provider.name == "paddle_ocr"
 
-    provider = reg.find_provider(
-        make_provider_args(codex_subscription=True, vlm_image_model="moondream"),
-        "image/jpeg",
-    )
-    assert provider is not None
-    assert provider.name == "moondream"
+    original_provider = reg._providers.get("moondream")
+    original_failure = reg._import_failures.get("moondream")
+
+    class FakeMoondreamProvider:
+        name = "moondream"
+
+        @classmethod
+        def can_handle(cls, args, mime):
+            return getattr(args, "vlm_image_model", "") == "moondream" and mime.startswith("image")
+
+    try:
+        reg.register("moondream", FakeMoondreamProvider)
+        provider = reg.find_provider(
+            make_provider_args(codex_subscription=True, vlm_image_model="moondream"),
+            "image/jpeg",
+        )
+        assert provider is not None
+        assert provider.name == "moondream"
+    finally:
+        if original_provider is None:
+            reg._providers.pop("moondream", None)
+        else:
+            reg._providers["moondream"] = original_provider
+        if original_failure is None:
+            reg._import_failures.pop("moondream", None)
+        else:
+            reg._import_failures["moondream"] = original_failure
 
 
 def test_codex_app_server_uses_thread_and_turn_payloads_without_api_key_env(monkeypatch, tmp_path):
@@ -367,6 +407,7 @@ def test_codex_app_server_uses_thread_and_turn_payloads_without_api_key_env(monk
 
     image = tmp_path / "image.png"
     image.write_bytes(b"fake")
+    captured = {}
 
     class FakeClient:
         def __init__(self):
@@ -381,13 +422,20 @@ def test_codex_app_server_uses_thread_and_turn_payloads_without_api_key_env(monk
 
         def thread_start(self, **payload):
             self.calls.append(("thread_start", payload))
-            return {"threadId": "thread-1"}
+            return FakeThread()
 
-        def turn_start(self, **payload):
-            self.calls.append(("turn_start", payload))
-            return {
-                "turnId": "turn-1",
-                "final_response": json.dumps(
+    class FakeThread:
+        id = "thread-1"
+
+        def run(self, input, *, model=None, service_tier=None, effort=None, output_schema=None):
+            captured["input"] = input
+            captured["model"] = model
+            captured["service_tier"] = service_tier
+            captured["effort"] = effort
+            captured["output_schema"] = output_schema
+            return SimpleNamespace(
+                id="turn-1",
+                final_response=json.dumps(
                     {
                         "short_description": "short",
                         "long_description": "long",
@@ -396,7 +444,7 @@ def test_codex_app_server_uses_thread_and_turn_payloads_without_api_key_env(monk
                         "confidence": 0.7,
                     }
                 ),
-            }
+            )
 
     fake = FakeClient()
     monkeypatch.setenv("OPENAI_API_KEY", "sk-should-not-be-used")
@@ -415,15 +463,16 @@ def test_codex_app_server_uses_thread_and_turn_payloads_without_api_key_env(monk
     assert any("acquiring client" in event for event in progress_events)
     assert any("starting ephemeral thread" in event for event in progress_events)
     assert any("turn completed" in event for event in progress_events)
-    turn_call = [payload for name, payload in fake.calls if name == "turn_start"][0]
-    assert turn_call["threadId"] == "thread-1"
-    assert turn_call["input"] == [
-        {"type": "text", "text": "caption"},
-        {"type": "localImage", "path": str(image.resolve())},
-    ]
-    assert turn_call["outputSchema"] == {"type": "object"}
-    assert turn_call["serviceTier"] == "fast"
-    assert turn_call["effort"] == "none"
+    thread_call = [payload for name, payload in fake.calls if name == "thread_start"][0]
+    assert thread_call["config"] == {
+        "tools": {"view_image": True},
+    }
+    assert captured["model"] == "gpt-5.4"
+    assert captured["output_schema"] == {"type": "object"}
+    assert captured["service_tier"] == "fast"
+    assert captured["effort"] == "none"
+    assert getattr(captured["input"][0], "text") == "caption"
+    assert getattr(captured["input"][1], "path") == str(image.resolve())
     assert result.parsed["long_description"] == "long"
 
 
@@ -441,18 +490,22 @@ def test_codex_app_server_explicit_api_key_mode_uses_explicit_key(tmp_path):
             self.api_key = api_key
 
         def thread_start(self, **_payload):
-            return {"threadId": "thread-1"}
+            return FakeThread()
 
-        def turn_start(self, **_payload):
-            return {
-                "parsed": {
+    class FakeThread:
+        id = "thread-1"
+
+        def run(self, _input):
+            return SimpleNamespace(
+                id="turn-1",
+                parsed={
                     "short_description": "short",
                     "long_description": "long",
                     "tags": ["tag"],
                     "rating": "general",
                     "confidence": 0.7,
-                }
-            }
+                },
+            )
 
     fake = FakeClient()
     result = caption_image_with_app_server(
@@ -545,6 +598,9 @@ def test_codex_app_server_supports_typed_thread_run_shape(tmp_path):
     )
 
     assert captured["thread_start"]["ephemeral"] is True
+    assert captured["thread_start"]["config"] == {
+        "tools": {"view_image": True},
+    }
     assert captured["model"] == "gpt-5.4"
     assert captured["output_schema"] == {"type": "object"}
     assert _input_item_value(captured["input"][0], "text") == "caption"
@@ -554,8 +610,7 @@ def test_codex_app_server_supports_typed_thread_run_shape(tmp_path):
     assert result.parsed["long_description"] == "long"
 
 
-def test_codex_app_server_uses_streamed_thread_turn_when_available(monkeypatch, tmp_path):
-    from module.providers import codex_app_server
+def test_codex_app_server_uses_public_thread_run(monkeypatch, tmp_path):
     from module.providers.codex_app_server import CodexAppServerConfig, caption_image_with_app_server
 
     image = tmp_path / "image.png"
@@ -563,43 +618,31 @@ def test_codex_app_server_uses_streamed_thread_turn_when_available(monkeypatch, 
     captured = {}
     progress_events = []
 
-    class FakeTurn:
-        id = "turn-stream"
-
     class FakeThread:
-        id = "thread-stream"
+        id = "thread-run"
 
-        def turn(self, input, *, approval_mode=None, model=None, output_schema=None):
+        def run(self, input, *, approval_mode=None, model=None, output_schema=None):
             captured["input"] = input
             captured["approval_mode"] = approval_mode
             captured["model"] = model
             captured["output_schema"] = output_schema
-            return FakeTurn()
-
-        def run(self, **_kwargs):
-            raise AssertionError("streaming turn path should be used before run()")
+            return SimpleNamespace(
+                id="turn-run",
+                final_response=json.dumps(
+                    {
+                        "short_description": "short",
+                        "long_description": "public run",
+                        "tags": ["tag"],
+                        "rating": "general",
+                        "confidence": 0.7,
+                    }
+                ),
+            )
 
     class FakeClient:
         def thread_start(self, **_payload):
             return FakeThread()
 
-    def fake_collect(turn, progress_callback):
-        captured["turn_id"] = turn.id
-        progress_callback("Codex app-server: event item/completed (agentMessage)")
-        return SimpleNamespace(
-            id=turn.id,
-            final_response=json.dumps(
-                {
-                    "short_description": "short",
-                    "long_description": "streamed",
-                    "tags": ["tag"],
-                    "rating": "general",
-                    "confidence": 0.7,
-                }
-            ),
-        )
-
-    monkeypatch.setattr(codex_app_server, "_collect_streamed_turn_result", fake_collect)
     result = caption_image_with_app_server(
         CodexAppServerConfig(auth_mode="chatgpt", isolated_cwd=str(tmp_path / "work")),
         image_path=image,
@@ -611,53 +654,43 @@ def test_codex_app_server_uses_streamed_thread_turn_when_available(monkeypatch, 
 
     assert captured["model"] == "gpt-5.4"
     assert captured["output_schema"] == {"type": "object"}
-    assert captured["turn_id"] == "turn-stream"
-    assert any("opening streamed turn" in event for event in progress_events)
-    assert any("item/completed" in event for event in progress_events)
-    assert result.turn_id == "turn-stream"
-    assert result.parsed["long_description"] == "streamed"
+    assert any("running image turn" in event for event in progress_events)
+    assert result.turn_id == "turn-run"
+    assert result.parsed["long_description"] == "public run"
 
 
-def test_codex_app_server_passes_service_tier_to_thread_turn(monkeypatch, tmp_path):
-    from module.providers import codex_app_server
+def test_codex_app_server_passes_service_tier_to_thread_run(monkeypatch, tmp_path):
     from module.providers.codex_app_server import CodexAppServerConfig, caption_image_with_app_server
 
     image = tmp_path / "image.png"
     image.write_bytes(b"fake")
     captured = {}
 
-    class FakeTurn:
-        id = "turn-fast"
-
     class FakeThread:
         id = "thread-fast"
 
-        def turn(self, input, *, model=None, service_tier=None, effort=None, output_schema=None, approval_mode=None):
+        def run(self, input, *, model=None, service_tier=None, effort=None, output_schema=None, approval_mode=None):
             captured["input"] = input
             captured["model"] = model
             captured["service_tier"] = service_tier
             captured["effort"] = effort
             captured["output_schema"] = output_schema
             captured["approval_mode"] = approval_mode
-            return FakeTurn()
+            return SimpleNamespace(
+                id="turn-fast",
+                parsed={
+                    "short_description": "short",
+                    "long_description": "fast",
+                    "tags": ["tag"],
+                    "rating": "general",
+                    "confidence": 0.7,
+                },
+            )
 
     class FakeClient:
         def thread_start(self, **_payload):
             return FakeThread()
 
-    def fake_collect(turn, _progress_callback):
-        return SimpleNamespace(
-            id=turn.id,
-            parsed={
-                "short_description": "short",
-                "long_description": "fast",
-                "tags": ["tag"],
-                "rating": "general",
-                "confidence": 0.7,
-            },
-        )
-
-    monkeypatch.setattr(codex_app_server, "_collect_streamed_turn_result", fake_collect)
     result = caption_image_with_app_server(
         CodexAppServerConfig(auth_mode="chatgpt", service_tier="fast", isolated_cwd=str(tmp_path / "work")),
         image_path=image,
@@ -674,45 +707,37 @@ def test_codex_app_server_passes_service_tier_to_thread_turn(monkeypatch, tmp_pa
     assert result.parsed["long_description"] == "fast"
 
 
-def test_codex_app_server_passes_reasoning_effort_to_thread_turn(monkeypatch, tmp_path):
-    from module.providers import codex_app_server
+def test_codex_app_server_passes_reasoning_effort_to_thread_run(monkeypatch, tmp_path):
     from module.providers.codex_app_server import CodexAppServerConfig, caption_image_with_app_server
 
     image = tmp_path / "image.png"
     image.write_bytes(b"fake")
     captured = {}
 
-    class FakeTurn:
-        id = "turn-low"
-
     class FakeThread:
         id = "thread-low"
 
-        def turn(self, input, *, model=None, effort=None, output_schema=None, approval_mode=None):
+        def run(self, input, *, model=None, effort=None, output_schema=None, approval_mode=None):
             captured["input"] = input
             captured["model"] = model
             captured["effort"] = effort
             captured["output_schema"] = output_schema
             captured["approval_mode"] = approval_mode
-            return FakeTurn()
+            return SimpleNamespace(
+                id="turn-low",
+                parsed={
+                    "short_description": "short",
+                    "long_description": "low effort",
+                    "tags": ["tag"],
+                    "rating": "general",
+                    "confidence": 0.7,
+                },
+            )
 
     class FakeClient:
         def thread_start(self, **_payload):
             return FakeThread()
 
-    def fake_collect(turn, _progress_callback):
-        return SimpleNamespace(
-            id=turn.id,
-            parsed={
-                "short_description": "short",
-                "long_description": "low effort",
-                "tags": ["tag"],
-                "rating": "general",
-                "confidence": 0.7,
-            },
-        )
-
-    monkeypatch.setattr(codex_app_server, "_collect_streamed_turn_result", fake_collect)
     result = caption_image_with_app_server(
         CodexAppServerConfig(auth_mode="chatgpt", reasoning_effort="low", isolated_cwd=str(tmp_path / "work")),
         image_path=image,
@@ -726,6 +751,188 @@ def test_codex_app_server_passes_reasoning_effort_to_thread_turn(monkeypatch, tm
     assert captured["output_schema"] == {"type": "object"}
     assert result.metadata["reasoning_effort"] == "low"
     assert result.parsed["long_description"] == "low effort"
+
+
+def test_codex_sdk_requires_public_release_symbols(monkeypatch):
+    from module.providers.codex_app_server import CodexAppServerError, load_openai_codex_sdk
+
+    fake_sdk = SimpleNamespace(
+        Codex=object,
+        AppServerConfig=object,
+        TextInput=object,
+        LocalImageInput=object,
+        is_retryable_error=lambda _exc: False,
+    )
+    monkeypatch.setitem(sys.modules, "openai_codex", fake_sdk)
+
+    with pytest.raises(CodexAppServerError) as exc_info:
+        load_openai_codex_sdk()
+
+    assert exc_info.value.kind == "sdk_missing"
+    assert "TurnResult" in str(exc_info.value)
+
+
+def test_codex_sdk_sandbox_symbol_is_soft_capability(monkeypatch):
+    from module.providers.codex_app_server import load_openai_codex_sdk
+
+    fake_sdk = SimpleNamespace(
+        Codex=object,
+        CodexConfig=object,
+        TextInput=object,
+        LocalImageInput=object,
+        TurnResult=object,
+        retry_on_overload=lambda fn: fn,
+    )
+    monkeypatch.setitem(sys.modules, "openai_codex", fake_sdk)
+
+    assert load_openai_codex_sdk() is fake_sdk
+
+
+def test_codex_sdk_accepts_legacy_app_server_config_symbol(monkeypatch):
+    from module.providers.codex_app_server import load_openai_codex_sdk
+
+    fake_sdk = SimpleNamespace(
+        Codex=object,
+        AppServerConfig=object,
+        TextInput=object,
+        LocalImageInput=object,
+        TurnResult=object,
+        is_retryable_error=lambda _exc: False,
+    )
+    monkeypatch.setitem(sys.modules, "openai_codex", fake_sdk)
+
+    assert load_openai_codex_sdk() is fake_sdk
+
+
+def test_codex_sandbox_prefers_public_sandbox_for_thread_and_run():
+    from module.providers.codex_app_server import _resolve_run_sandbox_kwargs, _resolve_thread_sandbox_value
+
+    sdk = SimpleNamespace(
+        Sandbox=SimpleNamespace(read_only="public-read", workspace_write="public-write", full_access="public-full")
+    )
+
+    class FakeThread:
+        def run(self, _input, *, sandbox=None):
+            return sandbox
+
+    assert _resolve_thread_sandbox_value(sdk, "read-only") == "public-read"
+    assert _resolve_run_sandbox_kwargs(sdk, FakeThread(), "workspace-write") == {"sandbox": "public-write"}
+
+
+def test_codex_sandbox_uses_legacy_mode_and_constructible_policy():
+    from module.providers.codex_app_server import _resolve_run_sandbox_kwargs, _resolve_thread_sandbox_value
+
+    class ReadOnlySandboxPolicy:
+        def __init__(self, *, type):
+            self.type = type
+
+    class SandboxPolicy:
+        def __init__(self, root):
+            self.root = root
+
+    sdk = SimpleNamespace(
+        types=SimpleNamespace(
+            SandboxMode=SimpleNamespace(
+                read_only="mode-read",
+                workspace_write="mode-write",
+                danger_full_access="mode-full",
+            )
+        ),
+        generated=SimpleNamespace(
+            v2_all=SimpleNamespace(SandboxPolicy=SandboxPolicy, ReadOnlySandboxPolicy=ReadOnlySandboxPolicy)
+        ),
+    )
+
+    class FakeThread:
+        def run(self, _input, *, sandbox_policy=None):
+            return sandbox_policy
+
+    kwargs = _resolve_run_sandbox_kwargs(sdk, FakeThread(), "read-only")
+
+    assert _resolve_thread_sandbox_value(sdk, "full-access") == "mode-full"
+    assert list(kwargs) == ["sandbox_policy"]
+    assert kwargs["sandbox_policy"].root.type == "readOnly"
+
+
+def test_codex_sandbox_omits_run_policy_when_policy_cannot_be_constructed():
+    from module.providers.codex_app_server import _resolve_run_sandbox_kwargs, _resolve_thread_sandbox_value
+
+    sdk = SimpleNamespace(
+        types=SimpleNamespace(SandboxMode=SimpleNamespace(read_only="mode-read")),
+        generated=SimpleNamespace(v2_all=SimpleNamespace()),
+    )
+
+    class FakeThread:
+        def run(self, _input, *, sandbox_policy=None):
+            return sandbox_policy
+
+    assert _resolve_thread_sandbox_value(sdk, "read-only") == "mode-read"
+    assert _resolve_run_sandbox_kwargs(sdk, FakeThread(), "read-only") == {}
+
+
+def test_codex_app_server_reads_assistant_final_item_when_final_response_empty():
+    from module.providers.codex_app_server import _extract_turn_output
+
+    raw, parsed = _extract_turn_output(
+        SimpleNamespace(
+            final_response="",
+            items=[
+                SimpleNamespace(type="reasoning", content="ignore"),
+                SimpleNamespace(
+                    type="agentMessage",
+                    role="assistant",
+                    phase="final_answer",
+                    content=[
+                        SimpleNamespace(
+                            text=json.dumps(
+                                {
+                                    "short_description": "short",
+                                    "long_description": "from item",
+                                    "tags": ["tag"],
+                                    "rating": "general",
+                                    "confidence": 0.7,
+                                }
+                            )
+                        )
+                    ],
+                ),
+            ],
+        )
+    )
+
+    assert parsed is None
+    assert json.loads(raw)["long_description"] == "from item"
+
+
+def test_codex_app_server_empty_turn_output_is_output_error(tmp_path):
+    from module.providers.codex_app_server import (
+        CodexAppServerConfig,
+        CodexAppServerError,
+        caption_image_with_app_server,
+    )
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+
+    class FakeThread:
+        id = "thread-empty"
+
+        def run(self, _input):
+            return SimpleNamespace(id="turn-empty", final_response="", items=[])
+
+    class FakeClient:
+        def thread_start(self, **_payload):
+            return FakeThread()
+
+    with pytest.raises(CodexAppServerError) as exc_info:
+        caption_image_with_app_server(
+            CodexAppServerConfig(auth_mode="chatgpt", isolated_cwd=str(tmp_path / "work")),
+            image_path=image,
+            prompt="caption",
+            client_factory=lambda _config: FakeClient(),
+        )
+
+    assert exc_info.value.kind == "output"
 
 
 def test_codex_app_server_stream_event_summary_includes_item_type_and_agent_delta():
@@ -761,12 +968,16 @@ def test_codex_app_server_starts_ephemeral_thread_per_image(tmp_path):
 
         def thread_start(self, **_payload):
             self.thread_count += 1
-            return {"threadId": f"thread-{self.thread_count}"}
+            return FakeThread(f"thread-{self.thread_count}")
 
-        def turn_start(self, **payload):
-            return {
-                "turnId": payload["threadId"].replace("thread", "turn"),
-                "final_response": json.dumps(
+    class FakeThread:
+        def __init__(self, thread_id):
+            self.id = thread_id
+
+        def run(self, _input):
+            return SimpleNamespace(
+                id=self.id.replace("thread", "turn"),
+                final_response=json.dumps(
                     {
                         "short_description": "short",
                         "long_description": "long",
@@ -775,7 +986,7 @@ def test_codex_app_server_starts_ephemeral_thread_per_image(tmp_path):
                         "confidence": 0.7,
                     }
                 ),
-            }
+            )
 
     fake = FakeClient()
     client = CodexAppServerCaptionClient(
@@ -819,11 +1030,16 @@ def test_codex_app_server_pool_uses_distinct_slots(monkeypatch, tmp_path):
         def thread_start(self, **_payload):
             self.thread_count += 1
             self.current_thread_id = f"thread-{self.slot}-{self.thread_count}"
-            return {"threadId": self.current_thread_id}
+            return FakeThread(self, self.current_thread_id)
 
-        def turn_start(self, **payload):
+    class FakeThread:
+        def __init__(self, client, thread_id):
+            self.client = client
+            self.id = thread_id
+
+        def run(self, _input):
             nonlocal in_flight, max_in_flight
-            if payload["threadId"] != self.current_thread_id:
+            if self.id != self.client.current_thread_id:
                 raise AssertionError("request-specific thread state was shared")
             with turn_lock:
                 in_flight += 1
@@ -831,16 +1047,16 @@ def test_codex_app_server_pool_uses_distinct_slots(monkeypatch, tmp_path):
             time.sleep(0.05)
             with turn_lock:
                 in_flight -= 1
-            return {
-                "turnId": payload["threadId"].replace("thread", "turn"),
-                "parsed": {
+            return SimpleNamespace(
+                id=self.id.replace("thread", "turn"),
+                parsed={
                     "short_description": "short",
-                    "long_description": payload["threadId"],
+                    "long_description": self.id,
                     "tags": ["tag"],
                     "rating": "general",
                     "confidence": 0.7,
                 },
-            }
+            )
 
     codex_app_server.reset_codex_app_server_client_cache()
     monkeypatch.setattr(codex_app_server, "_create_sdk_client", lambda _config: FakeClient())
@@ -917,26 +1133,31 @@ def test_codex_app_server_transport_failure_discards_cached_client(monkeypatch, 
             created.append(self)
 
         def thread_start(self, **_payload):
-            return {"threadId": f"thread-{len(created)}"}
+            return FakeThread(self, f"thread-{len(created)}")
 
-        def turn_start(self, **_payload):
-            if self.fail:
+        def close(self):
+            self.closed = True
+
+    class FakeThread:
+        def __init__(self, client, thread_id):
+            self.client = client
+            self.id = thread_id
+
+        def run(self, _input):
+            if self.client.fail:
                 raise RuntimeError(
                     "Invalid JSON-RPC line: 'SUCCESS: The process with PID 384100 has been terminated.\\n'"
                 )
-            return {
-                "turnId": "turn-ok",
-                "parsed": {
+            return SimpleNamespace(
+                id="turn-ok",
+                parsed={
                     "short_description": "short",
                     "long_description": "recovered",
                     "tags": ["tag"],
                     "rating": "general",
                     "confidence": 0.7,
                 },
-            }
-
-        def close(self):
-            self.closed = True
+            )
 
     def make_client(_config):
         return FakeSdkClient(fail=len(created) == 0)
@@ -1007,17 +1228,19 @@ def test_codex_app_server_late_startup_client_is_closed_after_timeout(monkeypatc
         codex_app_server.reset_codex_app_server_client_cache()
 
 
-def test_codex_app_server_pool_closes_timed_out_slot(monkeypatch, tmp_path):
+def test_codex_app_server_pool_replaces_reset_slot(monkeypatch, tmp_path):
     from module.providers import codex_app_server
     from module.providers.codex_app_server import (
         CodexAppServerClientPool,
         CodexAppServerConfig,
         CodexAppServerError,
+        CodexAppServerResult,
     )
 
     image = tmp_path / "image.png"
     image.write_bytes(b"fake")
     created = []
+    calls = 0
 
     class FakeSdkClient:
         def __init__(self):
@@ -1028,7 +1251,17 @@ def test_codex_app_server_pool_closes_timed_out_slot(monkeypatch, tmp_path):
             self.closed = True
 
     def fake_caption_image(self, **_kwargs):
-        raise CodexAppServerError("caption timed out", kind="timeout")
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise CodexAppServerError("transport failed", kind="transport")
+        return CodexAppServerResult(
+            raw='{"long_description": "recovered"}',
+            parsed={"long_description": "recovered"},
+            thread_id="thread-2",
+            turn_id="turn-2",
+            metadata={},
+        )
 
     monkeypatch.setattr(codex_app_server, "_create_sdk_client", lambda _config: FakeSdkClient())
     monkeypatch.setattr(codex_app_server.CodexAppServerCaptionClient, "caption_image", fake_caption_image)
@@ -1040,9 +1273,15 @@ def test_codex_app_server_pool_closes_timed_out_slot(monkeypatch, tmp_path):
     with pytest.raises(CodexAppServerError) as exc_info:
         pool.caption_image(image_path=image, prompt="caption")
 
-    assert exc_info.value.kind == "timeout"
-    assert len(created) == 1
+    assert exc_info.value.kind == "transport"
+    assert len(created) == 2
     assert created[0].closed is True
+    assert created[1].closed is False
+
+    result = pool.caption_image(image_path=image, prompt="caption", timeout=0.5)
+
+    assert result.parsed["long_description"] == "recovered"
+    pool.close()
 
 
 def test_codex_app_server_direct_client_timeout_closes_sdk_client(tmp_path):
@@ -1058,14 +1297,17 @@ def test_codex_app_server_direct_client_timeout_closes_sdk_client(tmp_path):
             self.closed = False
 
         def thread_start(self, **_payload):
-            return {"threadId": "thread-1"}
-
-        def turn_start(self, **_payload):
-            time.sleep(0.2)
-            return {"parsed": {"long_description": "late"}}
+            return FakeThread()
 
         def close(self):
             self.closed = True
+
+    class FakeThread:
+        id = "thread-1"
+
+        def run(self, _input):
+            time.sleep(0.2)
+            return SimpleNamespace(parsed={"long_description": "late"})
 
     fake = FakeClient()
     client = CodexAppServerCaptionClient(
@@ -1091,22 +1333,25 @@ def test_codex_app_server_factory_client_closes_after_success(tmp_path):
             self.closed = False
 
         def thread_start(self, **_payload):
-            return {"threadId": "thread-1"}
+            return FakeThread()
 
-        def turn_start(self, **_payload):
-            return {
-                "turnId": "turn-1",
-                "parsed": {
+        def close(self):
+            self.closed = True
+
+    class FakeThread:
+        id = "thread-1"
+
+        def run(self, _input):
+            return SimpleNamespace(
+                id="turn-1",
+                parsed={
                     "short_description": "short",
                     "long_description": "long",
                     "tags": ["tag"],
                     "rating": "general",
                     "confidence": 0.7,
                 },
-            }
-
-        def close(self):
-            self.closed = True
+            )
 
     fake = FakeClient()
     result = caption_image_with_app_server(
@@ -1178,11 +1423,14 @@ def test_codex_app_server_timeout_applies_to_image_turn(tmp_path):
 
     class FakeClient:
         def thread_start(self, **_payload):
-            return {"threadId": "thread-1"}
+            return FakeThread()
 
-        def turn_start(self, **_payload):
+    class FakeThread:
+        id = "thread-1"
+
+        def run(self, _input):
             time.sleep(0.2)
-            return {"parsed": {"long_description": "late"}}
+            return SimpleNamespace(parsed={"long_description": "late"})
 
     with pytest.raises(CodexAppServerError) as exc_info:
         caption_image_with_app_server(
@@ -1321,6 +1569,49 @@ def test_codex_subscription_retries_retryable_app_server_transport(monkeypatch, 
 
     assert calls == 2
     assert result.parsed["long_description"] == "retry recovered"
+
+
+def test_codex_subscription_rate_limit_exhaustion_returns_skip_result(monkeypatch, tmp_path):
+    from PIL import Image
+    from rich.console import Console
+
+    from module.providers.base import ProviderContext
+    from module.providers.cloud_vlm import codex_subscription
+    from module.providers.cloud_vlm.codex_subscription import CodexSubscriptionProvider
+    from module.providers.codex_app_server import CodexAppServerError
+
+    image = tmp_path / "image.jpg"
+    Image.new("RGB", (32, 32), color=(20, 40, 80)).save(image)
+    calls = 0
+
+    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+        nonlocal calls
+        calls += 1
+        raise CodexAppServerError(
+            "Codex app-server request failed (rate_limited): exceeded retry limit, "
+            "last status: 429 Too Many Requests",
+            kind="rate_limited",
+            retryable=True,
+        )
+
+    monkeypatch.setattr(codex_subscription, "caption_image_with_app_server", fake_caption)
+    args = make_provider_args(codex_subscription=True, max_retries=2, wait_time=0)
+    provider = CodexSubscriptionProvider(
+        ProviderContext(
+            console=Console(file=io.StringIO(), force_terminal=False),
+            config={"prompts": {}},
+            args=args,
+        )
+    )
+
+    result = provider.execute(str(image), "image/jpeg", "hash")
+
+    assert calls == 2
+    assert result.raw == ""
+    assert result.parsed is None
+    assert result.metadata["skip_reason"] == "rate_limited"
+    assert result.metadata["error_kind"] == "rate_limited"
+    assert result.metadata["retry_exhausted"] is True
 
 
 def test_codex_subscription_execute_displays_structured_rating(monkeypatch, tmp_path):
@@ -1548,7 +1839,7 @@ def test_codex_subscription_passes_effective_app_server_concurrency(monkeypatch,
         )
 
     monkeypatch.setattr(codex_subscription, "caption_image_with_app_server", fake_caption)
-    args = make_provider_args(codex_subscription=True, cloud_max_concurrency=4, codex_max_concurrency=2)
+    args = make_provider_args(codex_subscription=True, codex_max_concurrency=2)
     provider = CodexSubscriptionProvider(ProviderContext(console=Console(), args=args))
     media = MediaContext(uri=str(image), mime="image/png", sha256hash="", modality=MediaModality.IMAGE)
 

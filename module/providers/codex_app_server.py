@@ -35,11 +35,15 @@ SUPPORTED_CODEX_REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium
 
 INSTALL_CODEX_SDK_HINT = "Install it with: uv sync --extra codex-subscription"
 API_KEY_ENV_VARS = ("OPENAI_API_KEY", "CODEX_API_KEY")
-RETRYABLE_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport"})
+RETRYABLE_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport", "rate_limited"})
+RESET_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport"})
+REQUIRED_CODEX_SDK_SYMBOLS = ("Codex", "TextInput", "LocalImageInput", "TurnResult")
+CODEX_SDK_CONFIG_SYMBOLS = ("CodexConfig", "AppServerConfig")
 DEFAULT_CODEX_TIMEOUT_SECONDS = 60.0
 _WINDOWS_PROCESS_TERMINATED_RE = re.compile(
     r"^SUCCESS: The process with PID \d+(?: \(child process of PID \d+\))? has been terminated\.\s*$"
 )
+CODEX_CAPTION_TOOLS = {"view_image": True}
 
 
 @dataclass(frozen=True)
@@ -99,6 +103,8 @@ def classify_codex_app_server_failure(text: str) -> str:
         return "auth"
     if "usage limit" in lower or "subscription usage limit" in lower or "try again at" in lower:
         return "usage_limit"
+    if "429" in lower or "too many requests" in lower or "rate limit" in lower or "rate_limited" in lower:
+        return "rate_limited"
     if "timed out" in lower or "timeout" in lower:
         return "timeout"
     if "connection" in lower or "transport" in lower or "server closed" in lower or "app-server is not running" in lower:
@@ -108,6 +114,10 @@ def classify_codex_app_server_failure(text: str) -> str:
 
 def _is_retryable_client_failure(kind: str) -> bool:
     return kind in RETRYABLE_CLIENT_FAILURE_KINDS
+
+
+def _should_reset_client_after_failure(kind: str) -> bool:
+    return kind in RESET_CLIENT_FAILURE_KINDS
 
 
 def _is_codex_app_server_stdout_noise(line: str) -> bool:
@@ -123,8 +133,10 @@ def _patch_codex_sdk_stdout_noise_filter(_sdk: Any) -> None:
     if client_cls is None or getattr(client_cls, "_qinglong_stdout_noise_filter", False):
         return
 
-    app_server_error = getattr(client_module, "AppServerError")
-    transport_closed_error = getattr(client_module, "TransportClosedError")
+    app_server_error = getattr(client_module, "AppServerError", None) or getattr(client_module, "CodexError", None)
+    transport_closed_error = getattr(client_module, "TransportClosedError", None)
+    if app_server_error is None or transport_closed_error is None:
+        return
 
     def _read_message_with_noise_filter(self: Any) -> dict[str, Any]:
         if self._proc is None or self._proc.stdout is None:
@@ -178,46 +190,46 @@ def load_openai_codex_sdk() -> Any:
             kind="sdk_missing",
             cause=exc,
         ) from exc
+    missing = [name for name in REQUIRED_CODEX_SDK_SYMBOLS if getattr(sdk, name, None) is None]
+    if not any(getattr(sdk, name, None) is not None for name in CODEX_SDK_CONFIG_SYMBOLS):
+        missing.append("CodexConfig or AppServerConfig")
+    if getattr(sdk, "is_retryable_error", None) is None and getattr(sdk, "retry_on_overload", None) is None:
+        missing.append("is_retryable_error or retry_on_overload")
+    if missing:
+        missing_text = ", ".join(missing)
+        raise CodexAppServerError(
+            f"Codex Python SDK is missing required public SDK symbols: {missing_text}. {INSTALL_CODEX_SDK_HINT}",
+            kind="sdk_missing",
+        )
     _patch_codex_sdk_stdout_noise_filter(sdk)
     return sdk
+
+
+def build_codex_caption_tools() -> dict[str, Any]:
+    return dict(CODEX_CAPTION_TOOLS)
+
+
+def build_codex_caption_thread_config() -> dict[str, Any]:
+    return {
+        "tools": build_codex_caption_tools(),
+    }
+
+
+def _sdk_config_class(sdk: Any) -> Any | None:
+    for name in CODEX_SDK_CONFIG_SYMBOLS:
+        cls = getattr(sdk, name, None)
+        if cls is not None:
+            return cls
+    return None
 
 
 def build_thread_start_payload(config: CodexAppServerConfig, cwd: str | Path) -> dict[str, Any]:
     return {
         "cwd": str(Path(cwd).expanduser().resolve()),
         "model": config.model,
-        "sandbox": config.sandbox,
-        "approvalPolicy": "never",
         "ephemeral": True,
+        "config": build_codex_caption_thread_config(),
     }
-
-
-def build_turn_start_payload(
-    *,
-    thread_id: str,
-    prompt: str,
-    image_path: str | Path,
-    model: str,
-    service_tier: str = "",
-    reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
-    output_schema: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    payload = {
-        "threadId": thread_id,
-        "model": model,
-        "input": [
-            {"type": "text", "text": prompt},
-            {"type": "localImage", "path": str(Path(image_path).expanduser().resolve())},
-        ],
-        "outputSchema": output_schema or dict(CODEX_CAPTION_SCHEMA),
-    }
-    service_tier = str(service_tier or "").strip()
-    if service_tier:
-        payload["serviceTier"] = service_tier
-    reasoning_effort = normalize_codex_reasoning_effort(reasoning_effort)
-    if reasoning_effort:
-        payload["effort"] = reasoning_effort
-    return payload
 
 
 def normalize_codex_reasoning_effort(value: Any, default: str = DEFAULT_CODEX_REASONING_EFFORT) -> str:
@@ -355,7 +367,6 @@ def _close_sdk_client(client: Any) -> None:
         (("terminate",), ()),
         (("__exit__",), (None, None, None)),
         (("app_server", "close"), ()),
-        (("appServer", "close"), ()),
     )
     for path, args in close_attempts:
         method = _get_attr_path(client, path)
@@ -446,32 +457,48 @@ def _extract_text_from_content(value: Any) -> str:
     return ""
 
 
+def _item_value(value: Any, name: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(name)
+    return getattr(value, name, None)
+
+
+def _enum_text(value: Any) -> str:
+    return str(getattr(value, "value", value) or "")
+
+
+def _extract_assistant_final_response_from_items(items: Any) -> str:
+    if not isinstance(items, list):
+        return ""
+    final_phases = {"", "final", "final_answer", "completed", "complete"}
+    for item in reversed(items):
+        root = _item_value(item, "root") or _item_value(item, "item") or item
+        role = _enum_text(_item_value(root, "role")).lower()
+        item_type = _enum_text(_item_value(root, "type")).lower()
+        phase = _enum_text(_item_value(root, "phase")).lower()
+        if phase and phase not in final_phases:
+            continue
+        is_assistant = role == "assistant" or "agentmessage" in item_type or item_type in {"message", "assistantmessage"}
+        if not is_assistant:
+            continue
+        extracted = _extract_text_from_content(root)
+        if extracted:
+            return extracted
+    return ""
+
+
 def _extract_turn_output(response: Any) -> tuple[str, dict[str, Any] | None]:
     parsed = _first_mapping_value(response, ("parsed", "outputParsed", "output_parsed"))
     if isinstance(parsed, dict):
         return "", normalize_codex_caption_payload(parsed)
 
-    raw = _first_mapping_value(
-        response,
-        (
-            "finalResponse",
-            "final_response",
-            "finalMessage",
-            "final_message",
-            "outputText",
-            "output_text",
-            "message",
-            "text",
-            "raw",
-            "content",
-        ),
-    )
+    raw = _first_mapping_value(response, ("final_response",))
     extracted = _extract_text_from_content(raw)
     if extracted:
         return extracted, None
 
-    output = _first_mapping_value(response, ("output", "messages", "items"))
-    extracted = _extract_text_from_content(output)
+    items = _first_mapping_value(response, ("items",))
+    extracted = _extract_assistant_final_response_from_items(items)
     if extracted:
         return extracted, None
 
@@ -507,29 +534,26 @@ def build_codex_app_server_env(
 
 
 def _create_app_server_config(sdk: Any, config: CodexAppServerConfig) -> Any | None:
-    cls = getattr(sdk, "AppServerConfig", None)
+    cls = _sdk_config_class(sdk)
     if cls is None:
-        return None
-
-    attempts: list[dict[str, Any]] = []
+        raise CodexAppServerError(
+            f"Codex Python SDK is missing CodexConfig/AppServerConfig. {INSTALL_CODEX_SDK_HINT}",
+            kind="sdk_missing",
+        )
     sanitized_env = build_codex_app_server_env(config)
-    base: dict[str, Any] = {"env": sanitized_env}
+    kwargs: dict[str, Any] = {"env": sanitized_env}
     if config.runtime_path:
-        base["codex_bin"] = str(Path(config.runtime_path).expanduser())
+        kwargs["codex_bin"] = str(Path(config.runtime_path).expanduser())
     if config.isolated_cwd:
-        base["cwd"] = str(Path(config.isolated_cwd).expanduser())
-    attempts.append(base)
-    if config.runtime_path:
-        attempts.append({"codexBin": str(Path(config.runtime_path).expanduser()), "env": sanitized_env})
-    attempts.append({"env": sanitized_env})
-    if not any(os.environ.get(key) for key in API_KEY_ENV_VARS):
-        attempts.append({})
-
-    for kwargs in attempts:
-        built = _try_construct(cls, **kwargs)
-        if built is not None:
-            return built
-    return None
+        kwargs["cwd"] = str(Path(config.isolated_cwd).expanduser())
+    try:
+        return cls(**kwargs)
+    except TypeError as exc:
+        raise CodexAppServerError(
+            "Codex SDK config signature is not compatible with the published SDK contract.",
+            kind="protocol",
+            cause=exc,
+        ) from exc
 
 
 def _create_sdk_client(config: CodexAppServerConfig) -> Any:
@@ -539,51 +563,14 @@ def _create_sdk_client(config: CodexAppServerConfig) -> Any:
         raise CodexAppServerError("Codex Python SDK does not export Codex.", kind="protocol")
 
     app_server_config = _create_app_server_config(sdk, config)
-    if (
-        app_server_config is None
-        and config.auth_mode != "api_key"
-        and any(os.environ.get(key) for key in API_KEY_ENV_VARS)
-    ):
+    try:
+        return codex_cls(app_server_config)
+    except TypeError as exc:
         raise CodexAppServerError(
-            "Codex SDK cannot launch app-server with a sanitized environment; refusing to inherit API key env vars.",
-            kind="auth",
-        )
-    options_cls = getattr(sdk, "CodexOptions", None)
-    options = None
-    if options_cls is not None:
-        option_attempts: list[dict[str, Any]] = [
-            {"model": config.model, "app_server": app_server_config},
-            {"model": config.model, "appServer": app_server_config},
-            {"app_server": app_server_config},
-            {"appServer": app_server_config},
-            {"model": config.model},
-            {},
-        ]
-        for kwargs in option_attempts:
-            kwargs = {key: value for key, value in kwargs.items() if value is not None}
-            options = _try_construct(options_cls, **kwargs)
-            if options is not None:
-                break
-
-    client_attempts: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-    if options is not None:
-        client_attempts.extend([((options,), {}), ((), {"options": options})])
-    if app_server_config is not None:
-        client_attempts.extend(
-            [
-                ((app_server_config,), {}),
-                ((), {"config": app_server_config}),
-                ((), {"app_server": app_server_config}),
-                ((), {"appServer": app_server_config}),
-            ]
-        )
-    client_attempts.append(((), {}))
-
-    for args, kwargs in client_attempts:
-        built = _try_construct(codex_cls, *args, **kwargs)
-        if built is not None:
-            return built
-    raise CodexAppServerError("Codex Python SDK client could not be constructed.", kind="protocol")
+            "Codex SDK Codex(config) signature is not compatible with the published SDK contract.",
+            kind="protocol",
+            cause=exc,
+        ) from exc
 
 
 def _make_client(client_factory: Callable[..., Any] | None, config: CodexAppServerConfig) -> Any:
@@ -623,21 +610,142 @@ def _positive_int(value: Any, default: int = 1) -> int:
         return default
 
 
+_SANDBOX_ALIASES = {
+    "read-only": "read_only",
+    "read_only": "read_only",
+    "readonly": "read_only",
+    "workspace-write": "workspace_write",
+    "workspace_write": "workspace_write",
+    "workspacewrite": "workspace_write",
+    "danger-full-access": "full_access",
+    "danger_full_access": "full_access",
+    "full-access": "full_access",
+    "full_access": "full_access",
+}
+_SANDBOX_MODE_ATTRS = {
+    "read_only": "read_only",
+    "workspace_write": "workspace_write",
+    "full_access": "danger_full_access",
+}
+_SANDBOX_PUBLIC_ATTRS = {
+    "read_only": "read_only",
+    "workspace_write": "workspace_write",
+    "full_access": "full_access",
+}
+_SANDBOX_POLICY_TYPES = {
+    "read_only": ("ReadOnlySandboxPolicy", "readOnly"),
+    "workspace_write": ("WorkspaceWriteSandboxPolicy", "workspaceWrite"),
+    "full_access": ("DangerFullAccessSandboxPolicy", "dangerFullAccess"),
+}
+
+
+def normalize_codex_sandbox(value: Any) -> str:
+    sandbox = str(value or "").strip().lower()
+    if not sandbox:
+        sandbox = "read-only"
+    sandbox = sandbox.replace(" ", "-")
+    normalized = _SANDBOX_ALIASES.get(sandbox)
+    if normalized is None:
+        expected = ", ".join(sorted(_SANDBOX_ALIASES))
+        raise CodexAppServerError(
+            f"Unsupported Codex sandbox: {value}. Expected one of: {expected}",
+            kind="config",
+        )
+    return normalized
+
+
+def _get_optional_module(sdk: Any, attr_name: str, module_name: str) -> Any | None:
+    module = getattr(sdk, attr_name, None)
+    if module is not None:
+        return module
+    try:
+        return importlib.import_module(module_name)
+    except Exception:
+        return None
+
+
+def _get_generated_v2_module(sdk: Any) -> Any | None:
+    generated = getattr(sdk, "generated", None)
+    v2_all = getattr(generated, "v2_all", None) if generated is not None else None
+    if v2_all is not None:
+        return v2_all
+    try:
+        return importlib.import_module("openai_codex.generated.v2_all")
+    except Exception:
+        return None
+
+
+def _resolve_thread_sandbox_value(sdk: Any, sandbox: Any) -> Any | None:
+    semantic = normalize_codex_sandbox(sandbox)
+    public_sandbox = getattr(sdk, "Sandbox", None)
+    if public_sandbox is not None:
+        value = getattr(public_sandbox, _SANDBOX_PUBLIC_ATTRS[semantic], None)
+        if value is not None:
+            return value
+
+    types_module = _get_optional_module(sdk, "types", "openai_codex.types")
+    sandbox_mode = getattr(types_module, "SandboxMode", None) if types_module is not None else None
+    if sandbox_mode is None:
+        v2_all = _get_generated_v2_module(sdk)
+        sandbox_mode = getattr(v2_all, "SandboxMode", None) if v2_all is not None else None
+    if sandbox_mode is not None:
+        value = getattr(sandbox_mode, _SANDBOX_MODE_ATTRS[semantic], None)
+        if value is not None:
+            return value
+    return None
+
+
+def _resolve_run_sandbox_policy_value(sdk: Any, sandbox: Any) -> Any | None:
+    semantic = normalize_codex_sandbox(sandbox)
+    v2_all = _get_generated_v2_module(sdk)
+    if v2_all is None:
+        return None
+    wrapper_cls = getattr(v2_all, "SandboxPolicy", None)
+    policy_cls_name, policy_type = _SANDBOX_POLICY_TYPES[semantic]
+    policy_cls = getattr(v2_all, policy_cls_name, None)
+    if wrapper_cls is None or policy_cls is None:
+        return None
+    try:
+        return wrapper_cls(policy_cls(type=policy_type))
+    except Exception:
+        return None
+
+
+def _call_signature_parameters(method: Any) -> set[str]:
+    try:
+        return set(inspect.signature(method).parameters)
+    except (TypeError, ValueError):
+        return set()
+
+
+def _filter_kwargs_for_method(method: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    clean = {key: value for key, value in kwargs.items() if value is not None}
+    try:
+        signature = inspect.signature(method)
+    except (TypeError, ValueError):
+        return clean
+    parameters = signature.parameters
+    if any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()):
+        return clean
+    return {key: value for key, value in clean.items() if key in parameters}
+
+
+def _resolve_run_sandbox_kwargs(sdk: Any, thread: Any, sandbox: Any) -> dict[str, Any]:
+    method = getattr(thread, "run", None)
+    parameters = _call_signature_parameters(method)
+    if "sandbox" in parameters:
+        value = _resolve_thread_sandbox_value(sdk, sandbox)
+        return {"sandbox": value} if value is not None else {}
+    if "sandbox_policy" in parameters:
+        value = _resolve_run_sandbox_policy_value(sdk, sandbox)
+        return {"sandbox_policy": value} if value is not None else {}
+    return {}
+
+
 def _build_sdk_run_input(prompt: str, image_path: str | Path) -> list[Any]:
     image = str(Path(image_path).expanduser().resolve())
-    try:
-        import openai_codex as sdk  # type: ignore
-
-        text_cls = getattr(sdk, "TextInput", None)
-        image_cls = getattr(sdk, "LocalImageInput", None)
-        if text_cls is not None and image_cls is not None:
-            return [text_cls(text=prompt), image_cls(path=image)]
-    except Exception:
-        pass
-    return [
-        {"type": "text", "text": prompt},
-        {"type": "localImage", "path": image},
-    ]
+    sdk = load_openai_codex_sdk()
+    return [sdk.TextInput(text=prompt), sdk.LocalImageInput(path=image)]
 
 
 def _sdk_deny_all_approval_mode() -> Any | None:
@@ -699,35 +807,6 @@ def _summarize_stream_event(event: Any) -> str:
     return f"Codex app-server: event {method}"
 
 
-def _collect_streamed_turn_result(turn: Any, progress_callback: ProgressCallback | None) -> Any:
-    stream_method = getattr(turn, "stream", None)
-    if not callable(stream_method):
-        raise CodexAppServerError("Codex SDK turn handle does not expose stream().", kind="protocol")
-    turn_id = str(getattr(turn, "id", "") or "")
-    if not turn_id:
-        raise CodexAppServerError("Codex SDK turn handle did not expose an id.", kind="protocol")
-    _emit_progress(progress_callback, f"Codex app-server: turn handle ready ({turn_id})")
-
-    try:
-        from openai_codex._run import _collect_turn_result  # type: ignore
-    except Exception as exc:
-        raise CodexAppServerError("Codex SDK stream collector is not available.", kind="protocol", cause=exc) from exc
-
-    stream = stream_method()
-
-    def _events_with_progress() -> Any:
-        for event in stream:
-            _emit_progress(progress_callback, _summarize_stream_event(event))
-            yield event
-
-    try:
-        return _collect_turn_result(_events_with_progress(), turn_id=turn_id)
-    finally:
-        close = getattr(stream, "close", None)
-        if callable(close):
-            close()
-
-
 def _call_thread_run(
     thread: Any,
     *,
@@ -737,94 +816,24 @@ def _call_thread_run(
     output_schema: dict[str, Any] | None,
     progress_callback: ProgressCallback | None = None,
 ) -> Any:
+    sdk = load_openai_codex_sdk()
     input_items = _build_sdk_run_input(prompt, image_path)
     deny_all = _sdk_deny_all_approval_mode()
-    service_tier = (config.service_tier or "").strip() or None
-    reasoning_effort = normalize_codex_reasoning_effort(config.reasoning_effort)
-    attempts = [
-        {
-            "input": input_items,
-            "model": config.model,
-            "effort": reasoning_effort,
-            "service_tier": service_tier,
-            "output_schema": output_schema,
-            "approval_mode": deny_all,
-        },
-        {
-            "input": input_items,
-            "model": config.model,
-            "effort": reasoning_effort,
-            "output_schema": output_schema,
-            "approval_mode": deny_all,
-        },
-        {"input": input_items, "model": config.model, "output_schema": output_schema, "approval_mode": deny_all},
-        {
-            "input": input_items,
-            "model": config.model,
-            "effort": reasoning_effort,
-            "service_tier": service_tier,
-            "outputSchema": output_schema,
-        },
-        {
-            "input": input_items,
-            "model": config.model,
-            "effort": reasoning_effort,
-            "outputSchema": output_schema,
-        },
-        {"input": input_items, "model": config.model, "outputSchema": output_schema},
-        {
-            "input": input_items,
-            "effort": reasoning_effort,
-            "service_tier": service_tier,
-            "output_schema": output_schema,
-            "approval_mode": deny_all,
-        },
-        {
-            "input": input_items,
-            "effort": reasoning_effort,
-            "output_schema": output_schema,
-            "approval_mode": deny_all,
-        },
-        {"input": input_items, "output_schema": output_schema, "approval_mode": deny_all},
-        {
-            "input": input_items,
-            "effort": reasoning_effort,
-            "service_tier": service_tier,
-            "outputSchema": output_schema,
-        },
-        {"input": input_items, "effort": reasoning_effort, "outputSchema": output_schema},
-        {"input": input_items, "outputSchema": output_schema},
-        {"input": input_items},
-    ]
-    turn_method = getattr(thread, "turn", None)
-    if callable(turn_method):
-        for kwargs in attempts:
-            kwargs = {key: value for key, value in kwargs.items() if value is not None}
-            try:
-                _emit_progress(progress_callback, "Codex app-server: opening streamed turn")
-                turn = _run_maybe_awaitable(turn_method(**kwargs))
-            except TypeError:
-                continue
-            return _collect_streamed_turn_result(turn, progress_callback)
-        try:
-            _emit_progress(progress_callback, "Codex app-server: opening streamed turn")
-            turn = _run_maybe_awaitable(turn_method(input_items))
-        except TypeError:
-            pass
-        else:
-            return _collect_streamed_turn_result(turn, progress_callback)
-
     method = getattr(thread, "run", None)
     if not callable(method):
         raise CodexAppServerError("Codex SDK thread object does not expose run().", kind="protocol")
-    for kwargs in attempts:
-        kwargs = {key: value for key, value in kwargs.items() if value is not None}
-        try:
-            return _run_maybe_awaitable(method(**kwargs))
-        except TypeError:
-            continue
+    kwargs = {
+        "approval_mode": deny_all,
+        "model": config.model,
+        "effort": normalize_codex_reasoning_effort(config.reasoning_effort),
+        "service_tier": (config.service_tier or "").strip() or None,
+        "output_schema": output_schema,
+    }
+    kwargs.update(_resolve_run_sandbox_kwargs(sdk, thread, config.sandbox))
+    kwargs = _filter_kwargs_for_method(method, kwargs)
     try:
-        return _run_maybe_awaitable(method(input_items))
+        _emit_progress(progress_callback, "Codex app-server: running image turn")
+        return _run_maybe_awaitable(method(input_items, **kwargs))
     except TypeError as exc:
         raise CodexAppServerError("Codex SDK Thread.run signature is not compatible.", kind="protocol", cause=exc) from exc
 
@@ -891,47 +900,25 @@ class CodexAppServerCaptionClient:
             self._auth_checked = True
 
     def start_thread(self) -> tuple[str, Any | None]:
+        sdk = load_openai_codex_sdk()
         cwd = self.config.isolated_cwd or Path.cwd()
         payload = build_thread_start_payload(self.config, cwd)
-        method = _get_attr_path(self.client, ("thread_start",))
-        if method is not None:
-            deny_all = _sdk_deny_all_approval_mode()
-            sdk_payload = {
-                "cwd": payload["cwd"],
-                "model": payload["model"],
-                "sandbox": payload["sandbox"],
-                "ephemeral": payload["ephemeral"],
-            }
-            if deny_all is not None:
-                sdk_payload["approval_mode"] = deny_all
-            try:
-                response = _run_maybe_awaitable(method(**sdk_payload))
-            except TypeError:
-                response = _call_payload_method(
-                    self.client,
-                    (
-                        ("thread_start",),
-                        ("start_thread",),
-                        ("threadStart",),
-                        ("threads", "start"),
-                        ("thread", "start"),
-                        ("app_server", "thread_start"),
-                    ),
-                    payload,
-                )
-        else:
-            response = _call_payload_method(
-                self.client,
-                (
-                    ("start_thread",),
-                    ("threadStart",),
-                    ("threads", "start"),
-                    ("thread", "start"),
-                    ("app_server", "thread_start"),
-                ),
-                payload,
-            )
-        thread = response if callable(getattr(response, "turn", None)) or callable(getattr(response, "run", None)) else None
+        method = getattr(self.client, "thread_start", None)
+        if not callable(method):
+            raise CodexAppServerError("Codex SDK client does not expose thread_start().", kind="protocol")
+        sandbox = _resolve_thread_sandbox_value(sdk, self.config.sandbox)
+        if sandbox is not None:
+            payload["sandbox"] = sandbox
+        deny_all = _sdk_deny_all_approval_mode()
+        if deny_all is not None:
+            payload["approval_mode"] = deny_all
+        try:
+            response = _run_maybe_awaitable(method(**_filter_kwargs_for_method(method, payload)))
+        except TypeError as exc:
+            raise CodexAppServerError("Codex SDK thread_start signature is not compatible.", kind="protocol", cause=exc) from exc
+        thread = response if callable(getattr(response, "run", None)) else None
+        if thread is None:
+            raise CodexAppServerError("Codex SDK thread_start did not return a runnable thread.", kind="protocol")
         thread_id = _extract_thread_id(response)
         return thread_id, thread
 
@@ -958,7 +945,7 @@ class CodexAppServerCaptionClient:
                 progress_callback=progress_callback,
             )
         except CodexAppServerError as exc:
-            if _is_retryable_client_failure(exc.kind):
+            if _should_reset_client_after_failure(exc.kind):
                 self.close()
             raise
 
@@ -983,39 +970,15 @@ class CodexAppServerCaptionClient:
                 _emit_progress(progress_callback, "Codex app-server: starting ephemeral thread")
                 thread_id, thread = self.start_thread()
                 _emit_progress(progress_callback, f"Codex app-server: thread ready ({thread_id})")
-                if thread is not None:
-                    _emit_progress(progress_callback, "Codex app-server: sending image turn")
-                    response = _call_thread_run(
-                        thread,
-                        config=self.config,
-                        prompt=prompt,
-                        image_path=image,
-                        output_schema=output_schema,
-                        progress_callback=progress_callback,
-                    )
-                else:
-                    payload = build_turn_start_payload(
-                        thread_id=thread_id,
-                        prompt=prompt,
-                        image_path=image,
-                        model=self.config.model,
-                        service_tier=self.config.service_tier,
-                        reasoning_effort=self.config.reasoning_effort,
-                        output_schema=output_schema,
-                    )
-                    _emit_progress(progress_callback, "Codex app-server: sending image turn")
-                    response = _call_payload_method(
-                        self.client,
-                        (
-                            ("turn_start",),
-                            ("start_turn",),
-                            ("turnStart",),
-                            ("turns", "start"),
-                            ("turn", "start"),
-                            ("app_server", "turn_start"),
-                        ),
-                        payload,
-                    )
+                _emit_progress(progress_callback, "Codex app-server: sending image turn")
+                response = _call_thread_run(
+                    thread,
+                    config=self.config,
+                    prompt=prompt,
+                    image_path=image,
+                    output_schema=output_schema,
+                    progress_callback=progress_callback,
+                )
                 _emit_progress(progress_callback, "Codex app-server: turn completed")
             except CodexAppServerError:
                 raise
@@ -1076,6 +1039,31 @@ class CodexAppServerClientPool:
         if should_close:
             client.close()
 
+    def _replace_closed_client(self) -> None:
+        try:
+            replacement = CodexAppServerCaptionClient(self.config)
+        except Exception:
+            return
+        self._return_client(replacement)
+
+    def _acquire_client(self, deadline: float | None) -> CodexAppServerCaptionClient:
+        while True:
+            self._ensure_open()
+            wait_seconds = 0.1
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise CodexAppServerError(
+                        "Codex app-server client pool timed out waiting for an available client.",
+                        kind="timeout",
+                        retryable=True,
+                    )
+                wait_seconds = min(wait_seconds, remaining)
+            try:
+                return self._queue.get(timeout=wait_seconds)
+            except queue.Empty:
+                continue
+
     def close(self) -> None:
         with self._close_lock:
             if self._closed:
@@ -1097,24 +1085,21 @@ class CodexAppServerClientPool:
         timeout: float | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> CodexAppServerResult:
-        while True:
-            self._ensure_open()
-            try:
-                client = self._queue.get(timeout=0.1)
-                break
-            except queue.Empty:
-                continue
+        deadline = _timeout_deadline(timeout)
+        client = self._acquire_client(deadline)
+        client_timeout = _remaining_timeout_for_stage(deadline, "caption_image") if deadline is not None else timeout
         try:
             result = client.caption_image(
                 image_path=image_path,
                 prompt=prompt,
                 output_schema=output_schema,
-                timeout=timeout,
+                timeout=client_timeout,
                 progress_callback=progress_callback,
             )
         except CodexAppServerError as exc:
-            if _is_retryable_client_failure(exc.kind):
+            if _should_reset_client_after_failure(exc.kind):
                 client.close()
+                self._replace_closed_client()
             else:
                 self._return_client(client)
             raise
@@ -1251,7 +1236,7 @@ def caption_image_with_app_server(
             progress_callback=progress_callback,
         )
     except CodexAppServerError as exc:
-        if _is_retryable_client_failure(exc.kind):
+        if _should_reset_client_after_failure(exc.kind):
             if client_factory is None:
                 reset_codex_app_server_client_cache()
             elif client is not None:
@@ -1259,7 +1244,7 @@ def caption_image_with_app_server(
         raise
     except Exception as exc:
         coerced = _coerce_sdk_exception(exc, config, stage="client_startup")
-        if _is_retryable_client_failure(coerced.kind):
+        if _should_reset_client_after_failure(coerced.kind):
             if client_factory is None:
                 reset_codex_app_server_client_cache()
             elif client is not None:

@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import toml
 
 try:
@@ -46,6 +47,18 @@ def test_pyproject_declares_penguin_vl_local_extra():
     assert any(dep.startswith("decord") for dep in penguin_deps)
     assert "ffmpeg-python==0.2.0" in penguin_deps
     assert any(dep.startswith("einops") for dep in penguin_deps)
+
+
+def test_pyproject_codex_subscription_extra_uses_published_package_when_resolved():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    deps = pyproject["project"]["optional-dependencies"]["codex-subscription"]
+    direct_refs = [dep for dep in deps if dep.startswith("openai-codex @ git+")]
+
+    if direct_refs:
+        pytest.skip("package index cannot resolve `openai-codex`; keeping GitHub pin is a blocked migration")
+
+    assert any(dep == "openai-codex" or dep.startswith("openai-codex>=") for dep in deps)
+    assert not any("git+https://github.com/openai/codex" in dep for dep in deps)
 
 
 def test_pyproject_declares_lfm_vl_local_extra():

@@ -1234,7 +1234,7 @@ def test_codex_max_concurrency_limits_in_flight_calls(monkeypatch, tmp_path):
         return "caption"
 
     process_batch(
-        _process_batch_args(tmp_path, cloud_max_concurrency=4, codex_max_concurrency=2),
+        _process_batch_args(tmp_path, codex_max_concurrency=2),
         {},
         api_process_batch_fn=fake_api_process_batch_fn,
         transform2lance_fn=lambda **_kwargs: None,
@@ -1243,6 +1243,34 @@ def test_codex_max_concurrency_limits_in_flight_calls(monkeypatch, tmp_path):
     )
 
     assert max_in_flight == 2
+
+
+def test_codex_max_concurrency_does_not_require_cloud_max_concurrency(monkeypatch, tmp_path):
+    import io
+
+    from rich.console import Console
+
+    from module.caption_pipeline.orchestrator import process_batch
+
+    class FakeCodexProvider:
+        name = "codex_subscription"
+        capabilities = type("Capabilities", (), {"supports_cloud_concurrency": True})()
+
+    rows = _make_rows(tmp_path, ["a.png", "b.png"])
+    _patch_process_batch_io(monkeypatch, rows)
+    _fake_registry(monkeypatch, FakeCodexProvider)
+    buffer = io.StringIO()
+
+    process_batch(
+        _process_batch_args(tmp_path, codex_max_concurrency=2),
+        {},
+        api_process_batch_fn=lambda **_kwargs: "caption",
+        transform2lance_fn=lambda **_kwargs: None,
+        extract_from_lance_fn=lambda *_args, **_kwargs: None,
+        console_obj=Console(file=buffer, force_terminal=False),
+    )
+
+    assert "requires --cloud_max_concurrency" not in buffer.getvalue()
 
 
 def test_codex_default_remains_serial(monkeypatch, tmp_path):

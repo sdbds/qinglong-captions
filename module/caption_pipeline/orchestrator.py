@@ -392,14 +392,10 @@ def _resolve_cloud_concurrency_provider(args, mime: str):
 
 
 def _effective_cloud_concurrency(args, provider_class) -> int:
-    cloud_max = _positive_int(getattr(args, "cloud_max_concurrency", 1), 1)
-    if cloud_max <= 1:
-        return 1
-
     if getattr(provider_class, "name", "") == "codex_subscription":
-        codex_max = _positive_int(getattr(args, "codex_max_concurrency", 1), 1)
-        return min(cloud_max, codex_max)
+        return _positive_int(getattr(args, "codex_max_concurrency", 1), 1)
 
+    cloud_max = _positive_int(getattr(args, "cloud_max_concurrency", 1), 1)
     return cloud_max
 
 
@@ -413,14 +409,6 @@ def _resolve_batch_cloud_concurrency(args, jobs: list[CaptionJob], console_obj) 
         return None, 1
 
     provider_class = next(iter(eligible_providers))
-    if getattr(provider_class, "name", "") == "codex_subscription":
-        cloud_max = _positive_int(getattr(args, "cloud_max_concurrency", 1), 1)
-        codex_max = _positive_int(getattr(args, "codex_max_concurrency", 1), 1)
-        if cloud_max == 1 and codex_max > 1:
-            console_obj.print(
-                "[yellow]codex_max_concurrency > 1 requires --cloud_max_concurrency > 1; Codex image jobs remain serial.[/yellow]"
-            )
-
     max_workers = _effective_cloud_concurrency(args, provider_class)
     if max_workers <= 1:
         return None, 1

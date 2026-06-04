@@ -40,11 +40,12 @@ def report_startup_subscription_quota(args: Any, jobs: Iterable[Any], console: A
     if not providers:
         return
 
-    console.print("[blue]Checking subscription quota at startup...[/blue]")
+    console.print("[bold]Checking subscription quota at startup...[/bold]")
     for provider in providers:
         report = _query_subscription_quota(provider, args)
-        style = "blue" if report.ok else "yellow"
-        console.print(f"[{style}]Subscription quota ({report.provider}): {report.message}[/{style}]")
+        style = "green" if report.ok else "yellow"
+        console.print(f"[bold]Subscription quota[/bold] [dim]({report.provider})[/dim]")
+        console.print(report.message, style=style, markup=False)
 
 
 def _active_subscription_providers(args: Any, jobs: Iterable[Any]) -> list[str]:
@@ -96,7 +97,7 @@ def _query_codex_subscription_quota(args: Any) -> StartupQuotaReport:
         else:
             return StartupQuotaReport(
                 provider="codex_subscription",
-                message="live command " + formatted,
+                message="Status: live command\n" + formatted,
                 ok=True,
             )
 
@@ -104,7 +105,7 @@ def _query_codex_subscription_quota(args: Any) -> StartupQuotaReport:
     if fallback.ok:
         return StartupQuotaReport(
             provider="codex_subscription",
-            message=f"{live.message}; fallback {fallback.message}",
+            message=f"Status: {live.message}; fallback {fallback.message}",
             ok=True,
         )
     return StartupQuotaReport(
@@ -205,25 +206,27 @@ def _query_codex_last_known_quota(args: Any) -> StartupQuotaReport:
             message="last-known rate limit record did not include percent fields",
             ok=False,
         )
-    return StartupQuotaReport(provider="codex_subscription", message="last known " + formatted, ok=True)
+    return StartupQuotaReport(provider="codex_subscription", message="last known\n" + formatted, ok=True)
 
 
 def _format_rate_limits(rate_limits: dict[str, Any]) -> str:
     parts: list[str] = []
-    primary = _format_limit_window("primary", rate_limits.get("primary"))
-    secondary = _format_limit_window("secondary", rate_limits.get("secondary"))
-    if primary:
-        parts.append(primary)
-    if secondary:
-        parts.append(secondary)
-    if not parts:
-        return ""
-
+    windows: list[str] = []
     plan_type = rate_limits.get("plan_type")
     if plan_type:
-        parts.append(f"plan={plan_type}")
+        parts.append(f"Plan: {_format_plan_name(plan_type)}")
 
-    return "; ".join(parts)
+    primary = _format_limit_window("5-hour window", rate_limits.get("primary"))
+    secondary = _format_limit_window("Weekly window", rate_limits.get("secondary"))
+    if primary:
+        windows.append(primary)
+    if secondary:
+        windows.append(secondary)
+    if not windows:
+        return ""
+    parts.extend(windows)
+
+    return "\n".join(parts)
 
 
 def _codex_home(args: Any) -> Path:
@@ -345,11 +348,26 @@ def _format_limit_window(name: str, payload: Any) -> str:
     except (KeyError, TypeError, ValueError):
         return ""
     remaining = max(0.0, 100.0 - used)
-    pieces = [f"{name} remaining {remaining:.1f}% (used {used:.1f}%)"]
+    pieces = [f"{name:<14} {_quota_bar(remaining)} {remaining:.1f}% remaining ({used:.1f}% used)"]
     reset_at = _format_reset_at(payload.get("resets_at"))
     if reset_at:
         pieces.append(f"resets {reset_at}")
     return ", ".join(pieces)
+
+
+def _quota_bar(remaining_percent: float, *, cells: int = 20) -> str:
+    remaining = min(100.0, max(0.0, remaining_percent))
+    filled = int(round((remaining / 100.0) * cells))
+    filled = min(cells, max(0, filled))
+    return "[" + "■" * filled + "░" * (cells - filled) + "]"
+
+
+def _format_plan_name(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    normalized = text.replace("_", " ").replace("-", " ")
+    return " ".join(part.capitalize() for part in normalized.split())
 
 
 def _format_reset_at(value: Any) -> str:

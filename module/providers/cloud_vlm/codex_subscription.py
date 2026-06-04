@@ -80,6 +80,57 @@ def _delete_temp_file(path: Path | None) -> None:
         pass
 
 
+def _is_rate_limited_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return (
+        getattr(exc, "kind", "") == "rate_limited"
+        or "429" in text
+        or "too many requests" in text
+        or "rate limit" in text
+        or "rate_limited" in text
+    )
+
+
+def _codex_retry_wait(exc: Exception, args: Any) -> float | None:
+    if _is_rate_limited_error(exc):
+        try:
+            return max(0.0, float(getattr(args, "wait_time", 10.0)))
+        except (TypeError, ValueError):
+            return 10.0
+    if bool(getattr(exc, "retryable", False)):
+        return 0.0
+    return None
+
+
+def _codex_retry_exhausted_result(args: Any, exc: Exception) -> CaptionResult:
+    retryable = bool(getattr(exc, "retryable", False))
+    if _is_rate_limited_error(exc):
+        error_kind = "rate_limited"
+    elif retryable:
+        error_kind = str(getattr(exc, "kind", "") or "retryable")
+    else:
+        raise exc
+
+    backend = getattr(args, "codex_backend", "") or DEFAULT_CODEX_BACKEND
+    return CaptionResult(
+        raw="",
+        metadata={
+            "provider": CodexSubscriptionProvider.name,
+            "backend": backend,
+            "model": getattr(args, "codex_model_name", "") or "gpt-5.4",
+            "service_tier": _codex_service_tier(args),
+            "reasoning_effort": _codex_reasoning_effort(args),
+            "auth_mode": getattr(args, "codex_auth_mode", DEFAULT_CODEX_AUTH_MODE) or DEFAULT_CODEX_AUTH_MODE,
+            "structured": False,
+            "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
+            "skip_reason": error_kind,
+            "error_kind": error_kind,
+            "retry_exhausted": True,
+            "error": str(exc),
+        },
+    )
+
+
 def _codex_service_tier(args: Any) -> str:
     configured = str(getattr(args, "codex_service_tier", "") or "").strip()
     if configured:
@@ -338,10 +389,7 @@ class CodexSubscriptionProvider(CloudVLMProvider):
             runtime_path=getattr(args, "codex_runtime_path", "") or "",
             isolated_cwd=str(isolated_cwd),
         )
-        app_server_max_concurrency = min(
-            _positive_int(getattr(args, "cloud_max_concurrency", 1), 1),
-            _positive_int(getattr(args, "codex_max_concurrency", 1), 1),
-        )
+        app_server_max_concurrency = _positive_int(getattr(args, "codex_max_concurrency", 1), 1)
         source_image_path = Path(media.uri)
         send_image_path = source_image_path
         temp_image_path: Path | None = None
@@ -370,10 +418,12 @@ class CodexSubscriptionProvider(CloudVLMProvider):
         return result.parsed
 
     def get_retry_config(self) -> RetryConfig:
+        args = self.ctx.args
         return RetryConfig(
-            max_retries=2,
+            max_retries=_positive_int(getattr(args, "max_retries", 2), 2),
             base_wait=0.0,
-            classify_error=lambda exc: 0.0 if bool(getattr(exc, "retryable", False)) else None,
+            classify_error=lambda exc: _codex_retry_wait(exc, args),
+            on_exhausted=lambda exc: _codex_retry_exhausted_result(args, exc),
         )
 
     def display_name(self, mime: str) -> str:
