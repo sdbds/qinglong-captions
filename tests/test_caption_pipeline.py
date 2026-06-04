@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pyarrow as pa
 import pysrt
+import pytest
 from rich.console import Console
 
 
@@ -139,17 +140,135 @@ def test_update_dataset_captions_normalizes_list_and_dict():
             assert on == "uris"
             return MergeBuilder()
 
-    update_dataset_captions(
-        FakeDataset(),
+    dataset = FakeDataset()
+    result = update_dataset_captions(
+        dataset,
         ["a.jpg", "b.jpg"],
         [["short", "long"], {"description": "desc"}],
         merge_batch_size=10,
         console=_quiet_console(),
     )
 
+    assert result is dataset
     rows = executed_tables[0].to_pylist()
     assert rows[0]["captions"] == ["short\nlong"]
     assert json.loads(rows[1]["captions"][0])["description"] == "desc"
+
+
+def test_update_dataset_captions_rebuilds_from_sidecars_when_merge_fails(monkeypatch, tmp_path):
+    from module.caption_pipeline.dataset_sync import update_dataset_captions
+
+    merge_error = OSError("Blob struct missing `data` field")
+    rebuilt_dataset = object()
+    rebuild_calls = []
+
+    class MergeBuilder:
+        def when_matched_update_all(self):
+            return self
+
+        def execute(self, _table):
+            raise merge_error
+
+    class FakeDataset:
+        def merge_insert(self, on):
+            assert on == "uris"
+            return MergeBuilder()
+
+    def fake_rebuild(source_dir, **kwargs):
+        rebuild_calls.append((source_dir, kwargs))
+        return rebuilt_dataset
+
+    monkeypatch.setattr("module.caption_pipeline.dataset_sync.rebuild_lance_from_sidecars", fake_rebuild)
+
+    result = update_dataset_captions(
+        FakeDataset(),
+        ["a.jpg"],
+        ["caption"],
+        merge_batch_size=10,
+        console=_quiet_console(),
+        dataset_dir=str(tmp_path),
+        transform2lance_fn=lambda **_kwargs: None,
+        load_data_fn=lambda *_args, **_kwargs: [],
+    )
+
+    assert result is rebuilt_dataset
+    source_dir, kwargs = rebuild_calls[0]
+    assert source_dir == tmp_path
+    assert kwargs["output_name"] == "dataset"
+    assert kwargs["tag"] == "gemini"
+    assert kwargs["caption_extension"] is None
+
+
+def test_update_dataset_captions_raises_from_merge_error_when_rebuild_unavailable():
+    from module.caption_pipeline.dataset_sync import update_dataset_captions
+
+    merge_error = OSError("Blob struct missing `data` field")
+
+    class MergeBuilder:
+        def when_matched_update_all(self):
+            return self
+
+        def execute(self, _table):
+            raise merge_error
+
+    class FakeDataset:
+        def merge_insert(self, on):
+            assert on == "uris"
+            return MergeBuilder()
+
+    with pytest.raises(RuntimeError) as exc_info:
+        update_dataset_captions(
+            FakeDataset(),
+            ["a.jpg"],
+            ["caption"],
+            merge_batch_size=10,
+            console=_quiet_console(),
+            dataset_dir=object(),
+            transform2lance_fn=lambda **_kwargs: None,
+            load_data_fn=lambda *_args, **_kwargs: [],
+        )
+
+    assert "fallback rebuild is unavailable" in str(exc_info.value)
+    assert exc_info.value.__cause__ is merge_error
+
+
+def test_update_dataset_captions_rebuild_failure_preserves_merge_context(monkeypatch, tmp_path):
+    from module.caption_pipeline.dataset_sync import update_dataset_captions
+
+    merge_error = OSError("Blob struct missing `data` field")
+
+    class MergeBuilder:
+        def when_matched_update_all(self):
+            return self
+
+        def execute(self, _table):
+            raise merge_error
+
+    class FakeDataset:
+        def merge_insert(self, on):
+            assert on == "uris"
+            return MergeBuilder()
+
+    def fake_rebuild(*_args, **_kwargs):
+        raise ValueError("rebuild boom")
+
+    monkeypatch.setattr("module.caption_pipeline.dataset_sync.rebuild_lance_from_sidecars", fake_rebuild)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        update_dataset_captions(
+            FakeDataset(),
+            ["a.jpg"],
+            ["caption"],
+            merge_batch_size=10,
+            console=_quiet_console(),
+            dataset_dir=str(tmp_path),
+            transform2lance_fn=lambda **_kwargs: None,
+            load_data_fn=lambda *_args, **_kwargs: [],
+        )
+
+    assert "fallback rebuild also failed" in str(exc_info.value)
+    assert "rebuild boom" in str(exc_info.value)
+    assert exc_info.value.__cause__ is merge_error
 
 
 def test_deferred_provider_timing_prints_after_visual_and_save(monkeypatch, tmp_path):
@@ -192,6 +311,82 @@ def test_deferred_provider_timing_prints_after_visual_and_save(monkeypatch, tmp_
     saved_index = output.index("Saved captions to")
     timing_index = output.index("Codex caption completed: a.png in 1.2s")
     assert using_index < visual_index < saved_index < timing_index
+
+
+def test_process_batch_uses_rebuilt_dataset_for_extract(monkeypatch, tmp_path):
+    from module.caption_pipeline.orchestrator import process_batch
+
+    rows = _make_rows(tmp_path, ["a.png"])
+    original_dataset = _FakeDataset(rows)
+    rebuilt_dataset = object()
+    extract_calls = []
+    _fake_registry(monkeypatch, _FakeLocalProvider)
+
+    monkeypatch.setattr("module.caption_pipeline.orchestrator._resolve_dataset", lambda *_args, **_kwargs: original_dataset)
+    monkeypatch.setattr("module.caption_pipeline.orchestrator.create_scene_detector", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "module.caption_pipeline.orchestrator.postprocess_caption_content",
+        lambda output, *_args, **_kwargs: output,
+    )
+    monkeypatch.setattr(
+        "module.caption_pipeline.orchestrator.write_caption_output",
+        lambda path, output, mime: (path.with_suffix(".txt"), None),
+    )
+    monkeypatch.setattr(
+        "module.caption_pipeline.orchestrator.update_dataset_captions",
+        lambda *_args, **_kwargs: rebuilt_dataset,
+    )
+
+    process_batch(
+        _process_batch_args(tmp_path),
+        {},
+        api_process_batch_fn=lambda **_kwargs: "caption",
+        transform2lance_fn=lambda **_kwargs: None,
+        extract_from_lance_fn=lambda *call_args, **call_kwargs: extract_calls.append((call_args, call_kwargs)),
+        console_obj=_quiet_console(),
+    )
+
+    assert extract_calls[0][0][0] is rebuilt_dataset
+
+
+def test_concurrent_log_replay_does_not_rehighlight_plain_text(monkeypatch):
+    from types import SimpleNamespace
+
+    from module.caption_pipeline import orchestrator
+
+    jobs = [
+        orchestrator.CaptionJob(index=0, filepath="a.avif", mime="image/avif", duration=1000, sha256hash="hash-a"),
+        orchestrator.CaptionJob(index=1, filepath="b.avif", mime="image/avif", duration=1000, sha256hash="hash-b"),
+    ]
+    log_text = "Saved captions to D:\\CPL2\\atomic heart\\left (atomic heart), right (atomic heart)\\4227770.txt\n"
+
+    def fake_process_single_caption_job_buffered(job, *_args, **_kwargs):
+        return orchestrator.CaptionJobResult(index=job.index, filepath=job.filepath, mime=job.mime, output="caption", log_text=log_text)
+
+    class DummyProgress:
+        def update(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(orchestrator, "_process_single_caption_job_buffered", fake_process_single_caption_job_buffered)
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=True, color_system="truecolor")
+
+    orchestrator._run_caption_jobs_concurrently(
+        jobs,
+        SimpleNamespace(),
+        {},
+        api_process_batch_fn=lambda **_kwargs: "caption",
+        console_obj=console,
+        progress=DummyProgress(),
+        task_id="task",
+        max_workers=2,
+        provider_class=type("Provider", (), {"name": "fake_cloud"})(),
+    )
+
+    output = buffer.getvalue()
+    assert "\x1b[" not in output
+    assert "(atomic heart)" in output
+    assert "4227770.txt" in output
 
 
 def test_align_subtitles_with_scenes_falls_back_on_timeout():

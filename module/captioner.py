@@ -22,7 +22,7 @@ def api_process_batch(uri, mime, config, args, sha256hash, progress=None, task_i
 
 
 from module.lanceexport import extract_from_lance
-from module.lanceImport import transform2lance
+from module.lanceImport import load_data, transform2lance
 
 Image.MAX_IMAGE_PIXELS = None  # Disable image size limit check
 
@@ -37,6 +37,7 @@ def process_batch(args, config):
         transform2lance_fn=transform2lance,
         extract_from_lance_fn=extract_from_lance,
         console_obj=console,
+        load_data_fn=load_data,
     )
 
 

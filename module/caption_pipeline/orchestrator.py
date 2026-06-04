@@ -555,7 +555,7 @@ def _run_caption_jobs_concurrently(
                     f"Cloud caption job failed for {job.filepath} via {provider_name}: {exc}"
                 ) from exc
             if result.log_text:
-                console_obj.print(result.log_text, end="")
+                console_obj.print(result.log_text, end="", markup=False, highlight=False, soft_wrap=True)
             results[result.index] = result
             progress.update(task_id, advance=1)
 
@@ -570,6 +570,7 @@ def process_batch(
     transform2lance_fn,
     extract_from_lance_fn,
     console_obj,
+    load_data_fn=None,
 ):
     setattr(args, "cloud_max_concurrency", _positive_int(getattr(args, "cloud_max_concurrency", 1), 1))
     dataset = _resolve_dataset(args, transform2lance_fn)
@@ -648,11 +649,14 @@ def process_batch(
     processed_filepaths = [result.filepath for result in ordered_results]
     results = [result.output for result in ordered_results]
 
-    update_dataset_captions(
+    dataset = update_dataset_captions(
         dataset,
         processed_filepaths,
         results,
         merge_batch_size=getattr(args, "merge_batch_size", 1000),
         console=console_obj,
+        dataset_dir=args.dataset_dir,
+        transform2lance_fn=transform2lance_fn,
+        load_data_fn=load_data_fn,
     )
     extract_from_lance_fn(dataset, args.dataset_dir, clip_with_caption=not args.not_clip_with_caption)
