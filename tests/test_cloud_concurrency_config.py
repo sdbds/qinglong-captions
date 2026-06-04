@@ -18,6 +18,18 @@ def test_captioner_parser_accepts_cloud_max_concurrency():
     assert args.cloud_max_concurrency == 3
 
 
+def test_captioner_parser_accepts_kimi_code_thinking_mode():
+    from module.captioner import setup_parser
+
+    parser = setup_parser()
+
+    default_args = parser.parse_args(["dataset"])
+    assert default_args.kimi_code_thinking == ""
+
+    args = parser.parse_args(["dataset", "--kimi_code_thinking=disabled"])
+    assert args.kimi_code_thinking == "disabled"
+
+
 def test_captioner_parser_accepts_grok_build_subscription_options():
     from module.captioner import setup_parser
 
@@ -63,6 +75,14 @@ def test_captioner_powershell_passes_cloud_max_concurrency_only_when_gt_one():
     assert "$cloud_max_concurrency = 1" in script
     assert "if ($cloud_max_concurrency -gt 1)" in script
     assert '--cloud_max_concurrency=$cloud_max_concurrency' in script
+
+
+def test_captioner_powershell_passes_kimi_code_thinking():
+    script = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
+
+    assert '$kimi_code_thinking = "disabled"' in script
+    assert "if ($kimi_code_thinking)" in script
+    assert "--kimi_code_thinking=$kimi_code_thinking" in script
 
 
 def test_captioner_powershell_passes_grok_build_options_only_when_enabled():

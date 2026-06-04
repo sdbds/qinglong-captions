@@ -76,9 +76,13 @@ class KimiCodeProvider(CloudVLMProvider):
         else:
             return CaptionResult(raw="")
 
-        # 读取 thinking 配置
-        kimi_vl_config = self.ctx.config.get("kimi_vl", {})
-        thinking = kimi_vl_config.get("thinking", "enabled") if kimi_vl_config else "enabled"
+        # Kimi Code docs expose thinking as a boolean mode, not effort levels.
+        kimi_code_thinking = str(getattr(self.ctx.args, "kimi_code_thinking", "") or "").strip()
+        if kimi_code_thinking in ("enabled", "disabled"):
+            thinking = kimi_code_thinking
+        else:
+            kimi_vl_config = self.ctx.config.get("kimi_vl", {})
+            thinking = kimi_vl_config.get("thinking", "enabled") if kimi_vl_config else "enabled"
 
         timing_metadata = {}
         result = attempt_kimi_vl(
@@ -97,7 +101,7 @@ class KimiCodeProvider(CloudVLMProvider):
         )
         if "duration_seconds" in timing_metadata:
             timing_metadata["duration_log_label"] = f"Kimi Code caption completed: {Path(media.uri).name}"
-        metadata = {"provider": self.name, **timing_metadata}
+        metadata = {"provider": self.name, "thinking": thinking, **timing_metadata}
 
         # 处理 JSON 解析 - 尝试解析为 dict，根据 mode 过滤字段
         import json

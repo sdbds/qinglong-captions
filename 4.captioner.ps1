@@ -13,6 +13,7 @@ $kimi_base_url = "https://api.moonshot.cn/v1" # "https://integrate.api.nvidia.co
 $kimi_code_api_key = ""
 $kimi_code_model_path = "kimi-for-coding"
 $kimi_code_base_url = "https://api.kimi.com/coding/v1"
+$kimi_code_thinking = "disabled" # "", "enabled", "disabled"
 
 # Xiaomi MiMo API 配置（OpenAI 兼容接口）
 $mimo_api_key = ""              # MiMo API 密钥 (从 platform.xiaomimimo.com 获取)
@@ -344,6 +345,10 @@ if ($kimi_code_model_path -and $kimi_code_model_path -ne "kimi-for-coding") {
 
 if ($kimi_code_base_url) {
   [void]$ext_args.Add("--kimi_code_base_url=$kimi_code_base_url")
+}
+
+if ($kimi_code_thinking) {
+  [void]$ext_args.Add("--kimi_code_thinking=$kimi_code_thinking")
 }
 
 # MiMo API 参数

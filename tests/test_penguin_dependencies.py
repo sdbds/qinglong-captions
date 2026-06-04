@@ -518,6 +518,43 @@ def test_caption_step_builds_grok_build_overrides():
     assert "--grok_build_prompt_json_max_chars=12000" in args
 
 
+def test_caption_step_builds_kimi_code_thinking_arg():
+    CaptionStep = _load_caption_step("test_step4_caption_kimi_code_thinking")
+
+    step = CaptionStep()
+    step.api_keys = {"kimi_code_api_key": SimpleNamespace(value="kc-test")}
+    step.kimi_code_api_key_model = SimpleNamespace(value="k2p5")
+    step.kimi_code_thinking = SimpleNamespace(value="enabled")
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="kimi_code")
+    step.alm_model = SimpleNamespace(value="")
+    step.mode = SimpleNamespace(value="long")
+    step.pair_dir = SimpleNamespace(value="")
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--kimi_code_api_key=kc-test" in args
+    assert "--kimi_code_model_path=k2p5" in args
+    assert "--kimi_code_thinking=enabled" in args
+
+
+def test_caption_step_defaults_kimi_code_thinking_to_disabled():
+    CaptionStep = _load_caption_step("test_step4_caption_kimi_code_default_thinking")
+
+    step = CaptionStep()
+    step.api_keys = {"kimi_code_api_key": SimpleNamespace(value="kc-test")}
+    step.kimi_code_api_key_model = SimpleNamespace(value="kimi-for-coding")
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="kimi_code")
+    step.alm_model = SimpleNamespace(value="")
+    step.mode = SimpleNamespace(value="long")
+    step.pair_dir = SimpleNamespace(value="")
+
+    args = step._build_caption_args("demo-dataset")
+
+    assert "--kimi_code_thinking=disabled" in args
+
+
 def test_caption_step_builds_codex_subscription_args_without_api_key_fallback():
     CaptionStep = _load_caption_step("test_step4_caption_codex_args")
 

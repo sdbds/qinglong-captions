@@ -13,6 +13,7 @@ def make_provider_args(**kwargs):
         "qwenVL_api_key": "",
         "glm_api_key": "",
         "kimi_code_api_key": "",
+        "kimi_code_thinking": "",
         "kimi_api_key": "",
         "mimo_api_key": "",
         "mimo_base_url": "https://token-plan-sgp.xiaomimimo.com/v1",

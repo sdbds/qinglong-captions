@@ -923,6 +923,48 @@ class TestKimiCodeUserAgent:
         assert "###Long:" in captured["system_prompt"]
         assert "Do not return only a single long paragraph." in captured["system_prompt"]
 
+    def test_kimi_code_thinking_arg_overrides_config(self):
+        from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+        from module.providers.registry import get_registry
+        from rich.console import Console
+        import module.providers.cloud_vlm.kimi_vl as kimi_vl_module
+
+        reg = get_registry()
+        cls = reg.get_provider("kimi_code")
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO()),
+            config={"kimi_vl": {"thinking": "enabled"}, "prompts": {}},
+            args=SimpleNamespace(
+                kimi_code_api_key="test-key",
+                kimi_code_base_url="https://api.kimi.com/coding/v1",
+                kimi_code_model_path="k2p5",
+                kimi_code_thinking="disabled",
+                pair_dir="",
+                mode="long",
+                max_retries=1,
+                wait_time=0.01,
+            ),
+        )
+        instance = cls(ctx)
+
+        with (
+            patch("openai.OpenAI", MagicMock(return_value=MagicMock())),
+            patch.object(kimi_vl_module, "attempt_kimi_vl", return_value="{}") as mock_attempt,
+        ):
+            media = MediaContext(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                sha256hash="",
+                modality=MediaModality.IMAGE,
+                blob="base64data",
+                pixels=None,
+            )
+            result = instance.attempt(media, PromptContext(system="sys", user="usr"))
+
+        assert mock_attempt.call_args.kwargs["thinking"] == "disabled"
+        assert result.metadata["thinking"] == "disabled"
+
 
 class TestKimiStructuredDisplay:
 

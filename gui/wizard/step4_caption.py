@@ -297,6 +297,10 @@ class CaptionStep:
         "medium": "medium",
         "high": "high",
     }
+    KIMI_CODE_THINKING_OPTIONS = {
+        "disabled": "disabled",
+        "enabled": "enabled",
+    }
     GROK_BUILD_PERMISSION_MODE_OPTIONS = {
         "dontAsk": "dontAsk",
         "default": "default",
@@ -453,6 +457,7 @@ class CaptionStep:
             "grok_build_permission_mode": "dontAsk",
             "grok_build_sandbox": "read-only",
             "grok_build_prompt_json_max_chars": 24000,
+            "kimi_code_thinking": "disabled",
         }
         self.panel: "ExecutionPanel | None" = None
         self.api_keys = {}
@@ -1009,6 +1014,16 @@ class CaptionStep:
                         if self.config["document_image"]:
                             args.append("--document_image")
 
+                    if api_name == "Kimi-Code":
+                        thinking_control = getattr(self, "kimi_code_thinking", None)
+                        kimi_code_thinking = str(
+                            getattr(thinking_control, "value", None)
+                            or self.config.get("kimi_code_thinking", "disabled")
+                            or ""
+                        ).strip()
+                        if kimi_code_thinking:
+                            args.append(f"--kimi_code_thinking={kimi_code_thinking}")
+
             if hasattr(self, "openai_base_url") and self.openai_base_url.value:
                 args.append(f"--openai_base_url={self.openai_base_url.value}")
                 openai_key = self.api_keys.get("openai_api_key")
@@ -1499,6 +1514,16 @@ class CaptionStep:
                             new_value_mode="add-unique",
                         )
                         setattr(self, f"{config['key_name']}_model", model_select)
+
+                    if api_name == "Kimi-Code":
+                        self.kimi_code_thinking = styled_select(
+                            options=self.KIMI_CODE_THINKING_OPTIONS,
+                            value=self.config["kimi_code_thinking"],
+                            label=t("kimi_code_thinking"),
+                            icon="psychology",
+                            icon_color=COLORS["warning"],
+                            searchable=False,
+                        )
 
                     # Gemini 特有：任务名称
                     if config["supports_task"]:

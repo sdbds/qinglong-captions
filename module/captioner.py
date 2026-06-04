@@ -114,6 +114,13 @@ def setup_parser() -> argparse.ArgumentParser:
         default="https://api.kimi.com/coding/v1",
         help="Base URL for Kimi-Code API",
     )
+    parser.add_argument(
+        "--kimi_code_thinking",
+        type=str,
+        default="",
+        choices=["", "enabled", "disabled"],
+        help="Override Kimi-Code thinking mode (enabled/disabled). Empty uses config.",
+    )
 
     # Xiaomi MiMo (OpenAI-compatible API)
     parser.add_argument(
