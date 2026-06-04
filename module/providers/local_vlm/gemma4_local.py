@@ -38,6 +38,15 @@ _AUDIO_TASK_ALIASES = {
     "transcribe": "asr",
     "ast": "ast",
 }
+_AUDIO_CAPABLE_MODEL_PREFIXES = (
+    "gemma-4-e2b",
+    "gemma-4-e4b",
+    "gemma-4-12b",
+)
+_AUDIO_INCAPABLE_MODEL_PREFIXES = (
+    "gemma-4-26b",
+    "gemma-4-31b",
+)
 
 _IMAGE_SCORE_HEADING_RE = re.compile(r"^\s*\*\*(?:Evaluation\s+)?Scores:\*\*\s*$|^\s*(?:Evaluation\s+)?Scores:\s*$", re.IGNORECASE)
 _IMAGE_DESCRIPTION_HEADING_RE = re.compile(
@@ -154,9 +163,9 @@ class Gemma4LocalProvider(LocalVLMProvider):
         normalized = self._normalize_model_id(model_id or self.model_id)
         if not normalized:
             return True
-        if "gemma-4-e2b" in normalized or "gemma-4-e4b" in normalized:
+        if any(prefix in normalized for prefix in _AUDIO_CAPABLE_MODEL_PREFIXES):
             return True
-        if "gemma-4-26b" in normalized or "gemma-4-31b" in normalized:
+        if any(prefix in normalized for prefix in _AUDIO_INCAPABLE_MODEL_PREFIXES):
             return False
         return True
 
@@ -166,6 +175,8 @@ class Gemma4LocalProvider(LocalVLMProvider):
             return "google/gemma-4-31B-it"
         if "gemma-4-26b" in normalized:
             return "google/gemma-4-26B-A4B-it"
+        if "gemma-4-12b" in normalized:
+            return "google/gemma-4-12B-it"
         if "gemma-4-e4b" in normalized:
             return "google/gemma-4-E4B-it"
         if "gemma-4-e2b" in normalized:

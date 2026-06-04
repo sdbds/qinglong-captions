@@ -97,6 +97,39 @@ def test_gemma4_backfills_missing_chat_template_from_official_repo(tmp_path, mon
     assert processor.tokenizer.chat_template == "{{ messages }}"
 
 
+def test_gemma4_12b_base_chat_template_falls_back_to_it_repo(tmp_path, monkeypatch):
+    provider = _make_provider(
+        config={"gemma4_local": {"model_id": "google/gemma-4-12B"}},
+    )
+    template_path = tmp_path / "chat_template.jinja"
+    template_path.write_text("{{ messages }}", encoding="utf-8")
+    captured = {}
+
+    class FakeTokenizer:
+        chat_template = None
+
+    class FakeProcessor:
+        chat_template = None
+        tokenizer = FakeTokenizer()
+
+    def fake_hf_hub_download(repo_id, filename):
+        captured["repo_id"] = repo_id
+        captured["filename"] = filename
+        return str(template_path)
+
+    monkeypatch.setattr("module.providers.local_vlm.gemma4_local.hf_hub_download", fake_hf_hub_download)
+
+    processor = FakeProcessor()
+    provider._ensure_processor_chat_template(processor, provider.model_id)
+
+    assert captured == {
+        "repo_id": "google/gemma-4-12B-it",
+        "filename": "chat_template.jinja",
+    }
+    assert processor.chat_template == "{{ messages }}"
+    assert processor.tokenizer.chat_template == "{{ messages }}"
+
+
 def test_gemma4_keeps_existing_chat_template_without_download(monkeypatch):
     provider = _make_provider(
         config={"gemma4_local": {"model_id": "google/gemma-4-31B-it"}},
@@ -139,6 +172,19 @@ def test_gemma4_model_toml_lists_large_variants():
         == "nvidia/Gemma-4-31B-IT-NVFP4"
     )
     assert model_list["Gemma 4 31B IT NVFP4"]["meta"]["min_vram_gb"] == 64
+
+
+def test_gemma4_model_toml_lists_12b_unified_variants():
+    model_config = tomllib.loads((ROOT / "config" / "model.toml").read_text(encoding="utf-8"))
+    model_list = model_config["gemma4_local"]["model_list"]
+
+    assert model_list["Gemma 4 12B Unified it"]["model_id"] == "google/gemma-4-12B-it"
+    assert model_list["Gemma 4 12B Unified it"]["meta"]["min_vram_gb"] == 32
+    assert model_list["Gemma 4 12B Unified it"]["meta"]["supports_audio"] is True
+    assert model_list["Gemma 4 12B Unified base"]["model_id"] == "google/gemma-4-12B"
+    assert model_list["Gemma 4 12B Unified base"]["meta"]["min_vram_gb"] == 32
+    assert model_list["Gemma 4 12B Unified base"]["meta"]["supports_audio"] is True
+    assert model_list["Gemma 4 12B Unified base"]["meta"]["advanced"] is True
 
 
 def test_gemma4_attempt_delegates_input_preparation_to_common_helper(tmp_path, monkeypatch):
@@ -498,6 +544,38 @@ def test_gemma4_prepare_media_rejects_audio_over_limit(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError, match="GEMMA4_AUDIO_TOO_LONG"):
         provider.prepare_media(str(audio_path), "audio/wav", provider.ctx.args)
+
+
+def test_gemma4_12b_supports_audio(tmp_path):
+    audio_path = tmp_path / "clip.wav"
+    audio_path.write_bytes(b"audio")
+    provider = _make_provider(
+        args=make_provider_args(alm_model="gemma4_local", audio_task="asr"),
+        config={"gemma4_local": {"model_id": "google/gemma-4-12B-it"}},
+    )
+
+    media = provider.prepare_media(str(audio_path), "audio/wav", provider.ctx.args)
+
+    assert media.extras["model_id"] == "google/gemma-4-12B-it"
+    assert media.extras["audio_task"] == "asr"
+
+
+def test_gemma4_unknown_custom_model_id_still_supports_audio(tmp_path):
+    audio_path = tmp_path / "clip.wav"
+    audio_path.write_bytes(b"audio")
+    provider = _make_provider(
+        args=make_provider_args(
+            alm_model="gemma4_local",
+            audio_task="asr",
+            gemma4_model_id="custom/gemma4-local",
+        ),
+        config={"gemma4_local": {"model_id": ""}},
+    )
+
+    media = provider.prepare_media(str(audio_path), "audio/wav", provider.ctx.args)
+
+    assert media.extras["model_id"] == "custom/gemma4-local"
+    assert media.extras["audio_task"] == "asr"
 
 
 @pytest.mark.parametrize(
