@@ -13,8 +13,8 @@ from module.onnx_runtime import load_session_bundle
 CL_TAGGER_V2_OPTION = "cella110n/cl_tagger_v2"
 CL_TAGGER_V2_BACKEND_REPO = "celstk/cl-SigLIP2-lora-onnx"
 CL_TAGGER_V2_PROCESSOR_REPO = "google/siglip2-so400m-patch16-naflex"
-CL_TAGGER_V2_VERSIONS = ("v1_00", "v1_01", "v1_02", "v1_03", "v1_04", "v1_05", "v1_06", "v1_065")
-CL_TAGGER_V2_DEFAULT_VERSION = "v1_065"
+CL_TAGGER_V2_VERSIONS = ("v1_00", "v1_01", "v1_02", "v1_03", "v1_04", "v1_05", "v1_06", "v1_065", "v1_07")
+CL_TAGGER_V2_DEFAULT_VERSION = "v1_07"
 CL_TAGGER_V2_FALLBACK_THRESHOLD = 0.5
 CL_TAGGER_V2_THRESHOLD_OVERRIDES = {
     "v1_00": 0.6,
@@ -63,6 +63,7 @@ class Siglip2OnnxBundle:
     resolved_repo_id: str
     version: str
     cache_dir: Path
+    tag_metrics_path: Path | None = None
 
 
 def _emit_log(logger: Callable[..., Any] | None, message: str) -> None:
@@ -210,6 +211,16 @@ def _default_snapshot_download(**kwargs: Any) -> str:
     return snapshot_download_with_reporting(repo_id, **kwargs)
 
 
+def _prefer_same_stem_file(files: list[Path], stem: str, suffix: str) -> Path | None:
+    exact_path = next((path for path in files if path.name == f"{stem}{suffix}"), None)
+    return exact_path or (files[0] if files else None)
+
+
+def _resolve_tag_metrics_path(model_path: Path) -> Path | None:
+    tag_metrics_path = model_path.with_name(f"{model_path.stem}_tag_metrics.npz")
+    return tag_metrics_path if tag_metrics_path.is_file() else None
+
+
 def download_cl_tagger_v2_artifacts(
     *,
     repo_id: str,
@@ -259,8 +270,11 @@ def download_cl_tagger_v2_artifacts(
         raise FileNotFoundError(f"No *vocabulary.json file found in {version_dir}")
 
     model_path = onnx_files[0]
-    vocab_path = vocab_files[0]
-    metadata_path = metadata_files[0] if metadata_files else None
+    model_stem = model_path.stem
+    vocab_path = _prefer_same_stem_file(vocab_files, model_stem, "_vocabulary.json")
+    metadata_path = _prefer_same_stem_file(metadata_files, model_stem, "_metadata.json")
+    if vocab_path is None:
+        raise FileNotFoundError(f"No *vocabulary.json file found in {version_dir}")
     _emit_log(logger, f"[green]Resolved cl_tagger v2 ONNX[/green] {model_path}")
     _emit_log(logger, f"[green]Resolved cl_tagger v2 vocabulary[/green] {vocab_path}")
     if metadata_path is not None:
@@ -289,6 +303,9 @@ def load_cl_tagger_v2_bundle(
         snapshot_downloader=snapshot_downloader,
     )
     version = normalize_cl_tagger_v2_version(version)
+    tag_metrics_path = _resolve_tag_metrics_path(model_path)
+    if tag_metrics_path is not None:
+        _emit_log(logger, f"[green]Resolved cl_tagger v2 tag metrics[/green] {tag_metrics_path}")
     processor_repo, is_naflex = load_cl_tagger_v2_metadata(metadata_path)
     token = str(os.environ.get("HF_TOKEN", "")).strip() or None
     processor = _load_siglip2_processor(
@@ -311,6 +328,7 @@ def load_cl_tagger_v2_bundle(
         model_path=model_path,
         vocab_path=vocab_path,
         metadata_path=metadata_path,
+        tag_metrics_path=tag_metrics_path,
         processor_repo=processor_repo,
         resolved_repo_id=resolved_repo_id,
         version=version,

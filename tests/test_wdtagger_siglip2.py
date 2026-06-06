@@ -11,7 +11,10 @@ from utils.wdtagger_siglip2 import (
     CL_TAGGER_V2_DEFAULT_VERSION,
     CL_TAGGER_V2_OPTION,
     CL_TAGGER_V2_PROCESSOR_REPO,
+    CL_TAGGER_V2_VERSIONS,
     Siglip2InferenceContext,
+    Siglip2OnnxBundle,
+    Siglip2Vocabulary,
     _default_snapshot_download,
     _load_siglip2_processor,
     default_cl_tagger_v2_threshold,
@@ -30,9 +33,23 @@ def _write_siglip2_snapshot(
     version: str = CL_TAGGER_V2_DEFAULT_VERSION,
     stem: str | None = None,
     metadata: dict | None = None,
+    tag_metrics: bool = False,
 ) -> tuple[Path, Path, Path | None]:
     if stem is None:
-        stem = "step_205161" if version == "v1_04" else "step_486342" if version == "v1_02" else "step_270385"
+        if version == "v1_07":
+            stem = "step_720000"
+        elif version == "v1_065":
+            stem = "step_510000"
+        elif version == "v1_06":
+            stem = "step_495125"
+        elif version == "v1_05":
+            stem = "step_393524"
+        elif version == "v1_04":
+            stem = "step_205161"
+        elif version == "v1_02":
+            stem = "step_486342"
+        else:
+            stem = "step_270385"
 
     version_dir = root / version
     version_dir.mkdir(parents=True, exist_ok=True)
@@ -58,6 +75,8 @@ def _write_siglip2_snapshot(
     if metadata is not None:
         metadata_path = version_dir / f"{stem}_metadata.json"
         metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    if tag_metrics:
+        np.savez(version_dir / f"{stem}_tag_metrics.npz", best_thr=np.array([0.3, 0.4], dtype=np.float32))
     return model_path, vocab_path, metadata_path
 
 
@@ -70,9 +89,11 @@ def _install_fake_transformer_loader(monkeypatch, **attrs):
 
 
 def test_cl_tagger_v2_defaults_track_current_space_version():
-    assert CL_TAGGER_V2_DEFAULT_VERSION == "v1_065"
+    assert CL_TAGGER_V2_DEFAULT_VERSION == "v1_07"
+    assert CL_TAGGER_V2_VERSIONS[-1] == "v1_07"
     assert normalize_cl_tagger_v2_version("1.05") == "v1_05"
     assert normalize_cl_tagger_v2_version("1.065") == "v1_065"
+    assert normalize_cl_tagger_v2_version("1.07") == "v1_07"
     assert normalize_cl_tagger_v2_version("1.04") == "v1_04"
     assert normalize_cl_tagger_v2_version("v1_4") == "v1_04"
     assert default_cl_tagger_v2_threshold("v1_01") == 0.6
@@ -81,7 +102,26 @@ def test_cl_tagger_v2_defaults_track_current_space_version():
     assert default_cl_tagger_v2_threshold("v1_04") == 0.5
     assert default_cl_tagger_v2_threshold("v1_05") == 0.5
     assert default_cl_tagger_v2_threshold("v1_065") == 0.5
+    assert default_cl_tagger_v2_threshold("v1_07") == 0.5
     assert default_cl_tagger_v2_threshold("v2_00") == 0.5
+
+
+def test_siglip2_onnx_bundle_keeps_legacy_constructor_shape():
+    bundle = Siglip2OnnxBundle(
+        "session",
+        ("CPUExecutionProvider",),
+        Siglip2InferenceContext(processor="processor"),
+        Siglip2Vocabulary(names=[], category_indices={}, tag_index_to_category={}),
+        Path("model.onnx"),
+        Path("vocabulary.json"),
+        None,
+        CL_TAGGER_V2_PROCESSOR_REPO,
+        CL_TAGGER_V2_BACKEND_REPO,
+        CL_TAGGER_V2_DEFAULT_VERSION,
+        Path("cache"),
+    )
+
+    assert bundle.tag_metrics_path is None
 
 
 def test_default_snapshot_download_uses_rich_reporting(monkeypatch):
@@ -129,7 +169,7 @@ def test_download_cl_tagger_v2_artifacts_uses_explicit_v2_cache_dir(tmp_path, mo
             "force_download": force_download,
             "token": token,
         }
-        _write_siglip2_snapshot(Path(local_dir))
+        _write_siglip2_snapshot(Path(local_dir), tag_metrics=True)
         return local_dir
 
     resolved_repo_id, cache_dir, model_path, vocab_path, metadata_path = download_cl_tagger_v2_artifacts(
@@ -140,9 +180,10 @@ def test_download_cl_tagger_v2_artifacts_uses_explicit_v2_cache_dir(tmp_path, mo
 
     assert resolved_repo_id == CL_TAGGER_V2_BACKEND_REPO
     assert cache_dir == tmp_path / "cella110n_cl_tagger_v2"
-    assert model_path == cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_270385.onnx"
-    assert vocab_path == cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_270385_vocabulary.json"
+    assert model_path == cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_720000.onnx"
+    assert vocab_path == cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_720000_vocabulary.json"
     assert metadata_path is None
+    assert (cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_720000_tag_metrics.npz").is_file()
     assert captured["snapshot"]["repo_id"] == CL_TAGGER_V2_BACKEND_REPO
     assert captured["snapshot"]["allow_patterns"] == [f"{CL_TAGGER_V2_DEFAULT_VERSION}/*"]
     assert captured["snapshot"]["token"] == "hf_test"
@@ -268,6 +309,7 @@ def test_load_cl_tagger_v2_bundle_loads_processor_vocab_and_session(tmp_path):
                 "vision_encoder_repo": "google/siglip2-base-patch16-224",
                 "is_naflex": False,
             },
+            tag_metrics=True,
         )
         return local_dir
 
@@ -295,7 +337,8 @@ def test_load_cl_tagger_v2_bundle_loads_processor_vocab_and_session(tmp_path):
     assert bundle.vocabulary.category_indices["general"].tolist() == [1]
     assert bundle.vocabulary.category_indices["character"].tolist() == [2]
     assert bundle.vocabulary.category_indices["rating"].tolist() == [3]
-    assert bundle.metadata_path == bundle.cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_270385_metadata.json"
+    assert bundle.metadata_path == bundle.cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_720000_metadata.json"
+    assert bundle.tag_metrics_path == bundle.cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "step_720000_tag_metrics.npz"
     assert bundle.processor_repo == "google/siglip2-base-patch16-224"
     assert captured["processor_calls"] == [("google/siglip2-base-patch16-224", True, None)]
     assert captured["session_bundle"]["bundle_key"] == f"wdtagger:{CL_TAGGER_V2_OPTION}"

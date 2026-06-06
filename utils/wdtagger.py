@@ -7,6 +7,12 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+if __name__ == "__main__" and any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
+    from module.wdtagger.cli import setup_parser
+
+    setup_parser().parse_args()
+    raise SystemExit(0)
+
 from huggingface_hub import hf_hub_download
 
 from module.onnx_runtime import load_single_model_bundle

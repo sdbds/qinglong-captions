@@ -20,7 +20,7 @@
    - `translate` 默认模型更新为 `tencent/Hy-MT2-7B`，并保留轻量 FP8 变体
    - 基础依赖更新到 `pylance>=6.0.1`、`imageio>=2.37.3`、`imageio-ffmpeg>=0.6.0`、`mistralai>=2.4.7`、`google-genai>=2.6.0`、`scenedetect>=0.7`
 3. WDTagger / CL Tagger 路径更新：
-   - `cl_tagger_v2` 默认更新到 `v1_065`
+   - `cl_tagger_v2` 默认更新到 `v1_07`
    - `cl_tagger_v2` 后端模型需要先在 Hugging Face 接受访问条款，并在环境变量中设置 `HF_TOKEN`
    - 支持动态 tag category，并过滤未知分类的 wdtagger caption
    - WDTagger 主实现拆分为 `module/wdtagger/` 包，保留 `utils/wdtagger.py` 兼容入口
@@ -409,7 +409,7 @@ A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation,
    - Updated the default translation model to `tencent/Hy-MT2-7B`, while keeping the lightweight FP8 variant
    - Updated base dependencies to `pylance>=6.0.1`, `imageio>=2.37.3`, `imageio-ffmpeg>=0.6.0`, `mistralai>=2.4.7`, `google-genai>=2.6.0`, and `scenedetect>=0.7`
 3. Updated WDTagger / CL Tagger handling:
-   - Updated the default `cl_tagger_v2` snapshot to `v1_065`
+   - Updated the default `cl_tagger_v2` snapshot to `v1_07`
    - `cl_tagger_v2` requires accepting the Hugging Face backend model terms and setting the `HF_TOKEN` environment variable
    - Added dynamic tag category handling and filtered unknown wdtagger caption categories
    - Split the WDTagger implementation into the `module/wdtagger/` package while keeping `utils/wdtagger.py` as a compatibility entrypoint
