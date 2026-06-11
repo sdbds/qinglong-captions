@@ -93,10 +93,13 @@ class JobListDrawer:
         elapsed = job_manager.elapsed_str(job)
         is_active = job.status in (JobStatus.PENDING, JobStatus.RUNNING)
 
-        with ui.card().classes("w-full").style(
+        card = ui.card().classes("w-full job-card").style(
             "border-radius: 0; border: none; border-bottom: 1px solid var(--ql-border); "
             "background: transparent;"
-        ):
+        )
+        if job.status == JobStatus.RUNNING:
+            card.classes("job-card-running")
+        with card:
             with ui.row().classes("w-full items-center gap-3 q-pa-md"):
                 # 状态图标（运行中的旋转）
                 icon_el = ui.icon(icon_name, size="22px").style(f"color: {icon_color}; flex-shrink: 0;")
@@ -109,7 +112,7 @@ class JobListDrawer:
                         "color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
                     )
                     with ui.row().classes("items-center gap-2"):
-                        ui.label(status_label).classes("text-caption").style(f"color: {icon_color};")
+                        ui.label(status_label).classes(f"job-status-pill job-status-{job.status.value}")
                         ui.label("·").classes("text-caption").style("color: var(--ql-text-ghost);")
                         ui.label(elapsed).classes("text-caption").style("color: var(--ql-text-dim);")
 

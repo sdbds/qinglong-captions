@@ -867,7 +867,7 @@ class TestKimiCodeUserAgent:
             # 验证 OpenAI 创建时有 default_headers
             call_kwargs = mock_openai_cls.call_args
             assert "default_headers" in call_kwargs.kwargs
-            assert call_kwargs.kwargs["default_headers"]["User-Agent"] == "claude-code/0.1.0"
+            assert call_kwargs.kwargs["default_headers"]["User-Agent"] == "claude-code/2.1.162"
         finally:
             if saved is not None:
                 sys.modules["module.providers.kimi_vl_provider"] = saved

@@ -94,8 +94,8 @@ class ExecutionPanel:
             self.progress = (
                 ui.linear_progress(value=None)
                 .props("indeterminate color=primary")
-                .classes("w-full q-mt-sm")
-                .style("height: 4px;")
+                .classes("w-full q-mt-sm ql-progress")
+                .style("height: 5px;")
             )
             self.progress.set_visibility(False)
 

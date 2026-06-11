@@ -260,14 +260,17 @@ def home_page():
     def content():
         with ui.column().classes(get_classes("page_container") + " gap-6"):
             # Hero Section
-            with ui.element("div").classes("w-full text-center").style("padding: 48px 0 32px;"):
-                ui.label(t("app_title")).classes("text-h3").style(
-                    "font-weight: 600; "
-                    "background: linear-gradient(135deg, var(--ql-accent), var(--ql-secondary)); "
+            with ui.element("div").classes("w-full text-center animate-fade-in").style("padding: 48px 0 32px;"):
+                ui.label(APP_TITLE_EN).classes("hero-eyebrow").style("margin-bottom: 6px;")
+                ui.label(t("app_title")).classes("text-h3 hero-title").style(
+                    "font-weight: 700; "
+                    "background: linear-gradient(120deg, var(--ql-accent) 0%, var(--ql-accent-hover) 45%, var(--ql-secondary) 100%); "
                     "-webkit-background-clip: text; -webkit-text-fill-color: transparent; "
                     "background-clip: text;"
                 )
-                ui.label(t("app_description")).classes("text-body1 app-desc").style("margin-top: 8px;")
+                ui.label(t("app_description")).classes("text-body1 app-desc").style(
+                    "margin-top: 10px; max-width: 560px; margin-left: auto; margin-right: auto;"
+                )
 
             # Quick Start Cards
             with ui.card().classes(get_classes("card") + " w-full q-pa-lg"):

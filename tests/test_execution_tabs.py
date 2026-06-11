@@ -20,6 +20,37 @@ def test_task_tab_dataclass_accepts_defaults_after_created_at():
     assert tab.error_message is None
 
 
+def test_runtime_venv_creation_uses_uv_python_311_seed(monkeypatch, tmp_path):
+    uv_path = "C:\\Users\\qinglongshengzhe\\.local\\bin\\uv.exe"
+
+    monkeypatch.setattr(
+        execution_tabs_module.shutil,
+        "which",
+        lambda name: uv_path if name == "uv" else None,
+    )
+
+    cmd, needs_seed_bootstrap = execution_tabs_module._venv_create_command(tmp_path / "tab-0002")
+
+    assert cmd == [uv_path, "venv", "-p", "3.11", "--seed", str(tmp_path / "tab-0002")]
+    assert needs_seed_bootstrap is False
+
+
+def test_runtime_venv_creation_fallback_targets_python_311_and_bootstraps_seed(monkeypatch, tmp_path):
+    py_launcher = "C:\\Windows\\py.exe"
+
+    monkeypatch.setattr(execution_tabs_module.sys, "platform", "win32")
+    monkeypatch.setattr(
+        execution_tabs_module.shutil,
+        "which",
+        lambda name: py_launcher if name == "py" else None,
+    )
+
+    cmd, needs_seed_bootstrap = execution_tabs_module._venv_create_command(tmp_path / "tab-0002")
+
+    assert cmd == [py_launcher, "-3.11", "-m", "venv", str(tmp_path / "tab-0002")]
+    assert needs_seed_bootstrap is True
+
+
 def test_default_tab_runner_kwargs_keeps_legacy_python_resolution_but_includes_tab_metadata():
     tabs = ExecutionTabs.__new__(ExecutionTabs)
     tabs.tabs = [

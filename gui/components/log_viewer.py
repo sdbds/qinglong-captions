@@ -107,7 +107,7 @@ class LogViewer:
             # 日志 HTML 渲染区域
             with (
                 ui.element("div")
-                .classes("w-full" if embedded else "w-full q-px-md q-mb-md")
+                .classes(("w-full" if embedded else "w-full q-px-md q-mb-md") + " ql-console")
                 .style(f"""
                 background: var(--ql-console-bg);
                 border: 1px solid var(--ql-console-border);
@@ -119,7 +119,7 @@ class LogViewer:
                 with self.scroll_area:
                     self.log_container = ui.element("div").style(
                         "width: 100%; box-sizing: border-box; "
-                        "font-family: 'Cascadia Code', 'Consolas', 'Monaco', monospace; "
+                        "font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', 'Monaco', monospace; "
                         "font-size: 13px; line-height: 1.5; padding: 12px; "
                         "white-space: pre-wrap; word-break: break-all; "
                         "color: var(--ql-console-text);"

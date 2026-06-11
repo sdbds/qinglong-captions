@@ -44,6 +44,15 @@ def _load_current_route_model_ids() -> dict[str, str]:
     return load_current_route_model_ids_from_toml(route_names)
 
 
+def _normalize_kimi_code_model_path(value: str) -> str:
+    model = str(value or "").strip()
+    if not model:
+        return "kimi-for-coding"
+    if model.lower() in {"k2p5", "kimi-code"}:
+        return "kimi-for-coding"
+    return model
+
+
 def get_cached_gpu_probe(*, refresh: bool = False):
     from module.gpu_profile import get_cached_gpu_probe as _get_cached_gpu_probe
 
@@ -165,7 +174,6 @@ class CaptionStep:
             "key_name": "kimi_code_api_key",
             "models": [
                 "kimi-for-coding",
-                "k2p5",
             ],
             "default_model": "kimi-for-coding",
             "supports_video": True,
@@ -1002,7 +1010,10 @@ class CaptionStep:
 
                     model_select = getattr(self, f"{config['key_name']}_model", None)
                     if model_select and model_select.value:
-                        args.append(f"--{config['key_name'].replace('api_key', 'model_path')}={model_select.value}")
+                        model_path = str(model_select.value)
+                        if api_name == "Kimi-Code":
+                            model_path = _normalize_kimi_code_model_path(model_path)
+                        args.append(f"--{config['key_name'].replace('api_key', 'model_path')}={model_path}")
 
                     if config["supports_task"]:
                         task_input = getattr(self, f"{config['key_name']}_task", None)

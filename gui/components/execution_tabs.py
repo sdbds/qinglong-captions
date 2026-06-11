@@ -21,6 +21,7 @@ from gui.utils.i18n import t
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TABS_CONFIG_PATH = PROJECT_ROOT / "config" / "task_tabs.toml"
 RUNTIME_VENVS_DIR = PROJECT_ROOT / ".runtime_venvs"
+RUNTIME_VENV_PYTHON = "3.11"
 
 
 @dataclass
@@ -59,6 +60,23 @@ def _resolve_stored_path(value: Optional[str]) -> Optional[Path]:
 
 def _python_for_venv(venv_path: Path) -> Path:
     return venv_path / ("Scripts" if sys.platform == "win32" else "bin") / ("python.exe" if sys.platform == "win32" else "python")
+
+
+def _venv_create_command(venv_path: Path) -> tuple[list[str], bool]:
+    uv = shutil.which("uv")
+    if uv:
+        return [uv, "venv", "-p", RUNTIME_VENV_PYTHON, "--seed", str(venv_path)], False
+
+    if sys.platform == "win32":
+        py_launcher = shutil.which("py")
+        if py_launcher:
+            return [py_launcher, f"-{RUNTIME_VENV_PYTHON}", "-m", "venv", str(venv_path)], True
+
+    python311 = shutil.which("python3.11")
+    if python311:
+        return [python311, "-m", "venv", str(venv_path)], True
+
+    return [sys.executable, "-m", "venv", str(venv_path)], True
 
 
 def _default_tab() -> TaskTab:
@@ -429,11 +447,7 @@ class ExecutionTabs:
             self._log(tab.id, f"{tab.name} venv ready: {tab.python_path}", "success")
             return
 
-        cmd = [shutil.which("uv") or sys.executable]
-        if shutil.which("uv"):
-            cmd.extend(["venv", str(venv_path)])
-        else:
-            cmd.extend(["-m", "venv", str(venv_path)])
+        cmd, needs_seed_bootstrap = _venv_create_command(venv_path)
 
         self._log(tab.id, f"creating venv for {tab.name}: {' '.join(cmd)}")
         try:
@@ -456,6 +470,25 @@ class ExecutionTabs:
                 raise RuntimeError(f"venv creation failed with code {return_code}")
             if not python_path.exists():
                 raise RuntimeError(f"venv python not found: {python_path}")
+            if needs_seed_bootstrap:
+                seed_cmd = [str(python_path), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"]
+                self._log(tab.id, f"seeding venv build tools: {' '.join(seed_cmd)}")
+                seed_process = await asyncio.create_subprocess_exec(
+                    *seed_cmd,
+                    cwd=str(PROJECT_ROOT),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    creationflags=creationflags,
+                )
+                if seed_process.stdout is not None:
+                    while True:
+                        line = await seed_process.stdout.readline()
+                        if not line:
+                            break
+                        self._log(tab.id, line.decode("utf-8", errors="replace").rstrip())
+                seed_return_code = await seed_process.wait()
+                if seed_return_code != 0:
+                    raise RuntimeError(f"venv seed bootstrap failed with code {seed_return_code}")
             tab.python_path = _relative_or_absolute(python_path)
             tab.status = "ready"
             self._log(tab.id, f"{tab.name} venv ready: {tab.python_path}", "success")

@@ -534,7 +534,7 @@ def test_caption_step_builds_kimi_code_thinking_arg():
     args = step._build_caption_args("demo-dataset")
 
     assert "--kimi_code_api_key=kc-test" in args
-    assert "--kimi_code_model_path=k2p5" in args
+    assert "--kimi_code_model_path=kimi-for-coding" in args
     assert "--kimi_code_thinking=enabled" in args
 
 

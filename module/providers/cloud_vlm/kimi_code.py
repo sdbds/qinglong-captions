@@ -1,7 +1,7 @@
 """Kimi Code Provider
 
 注意：kimi_code 和 kimi_vl 是两个独立的 provider：
-- kimi_code: 使用 api.moonshot.cn，支持 thinking 模式
+- kimi_code: 使用 api.kimi.com/coding，支持 thinking 模式
 - kimi_vl: 使用 integrate.api.nvidia.com，支持 JSON 结构化输出
 
 优先级：kimi_code > kimi_vl
@@ -17,15 +17,27 @@ from module.providers.utils import build_vision_messages
 
 @register_provider("kimi_code")
 class KimiCodeProvider(CloudVLMProvider):
-    """Kimi Code Provider (Moonshot API)"""
+    """Kimi Code Provider."""
 
     @classmethod
     def can_handle(cls, args, mime: str) -> bool:
         """kimi_code 优先级高于 kimi_vl"""
         return getattr(args, "kimi_code_api_key", "") != "" and mime.startswith(("image", "video"))
 
-    # Kimi Code API 通过 User-Agent 识别 coding agent，必须设置此 header
-    KIMI_CODE_USER_AGENT = "claude-code/0.1.0"
+    KIMI_CODE_DEFAULT_MODEL = "kimi-for-coding"
+    KIMI_CODE_LEGACY_MODEL_ALIASES = frozenset({"k2p5", "kimi-code"})
+
+    # Kimi Coding API identifies coding agents by User-Agent.
+    KIMI_CODE_USER_AGENT = "claude-code/2.1.162"
+
+    @classmethod
+    def normalize_model_path(cls, model_path: str) -> str:
+        normalized = str(model_path or "").strip()
+        if not normalized:
+            return cls.KIMI_CODE_DEFAULT_MODEL
+        if normalized.lower() in cls.KIMI_CODE_LEGACY_MODEL_ALIASES:
+            return cls.KIMI_CODE_DEFAULT_MODEL
+        return normalized
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         from openai import OpenAI
@@ -85,9 +97,12 @@ class KimiCodeProvider(CloudVLMProvider):
             thinking = kimi_vl_config.get("thinking", "enabled") if kimi_vl_config else "enabled"
 
         timing_metadata = {}
+        model_path = self.normalize_model_path(
+            getattr(self.ctx.args, "kimi_code_model_path", self.KIMI_CODE_DEFAULT_MODEL)
+        )
         result = attempt_kimi_vl(
             client=client,
-            model_path=getattr(self.ctx.args, "kimi_code_model_path", "kimi-for-coding"),
+            model_path=model_path,
             messages=messages,
             console=self.ctx.console,
             progress=self.ctx.progress,

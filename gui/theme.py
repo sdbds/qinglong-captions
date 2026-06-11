@@ -125,7 +125,7 @@ def _css_variables() -> str:
     --ql-text-ghost:      rgba(195, 202, 214, 0.38);
     --ql-text-on-accent:  #141920;
 
-    --ql-border:          #465262;
+    --ql-border:          #3f4a59;
     --ql-border-hover:    #5b6a7d;
 
     --ql-success:         #72d89e;
@@ -162,11 +162,54 @@ def _css_variables() -> str:
 
     --ql-card-bg:         var(--ql-surface-raised);
     --ql-card-border:     var(--ql-border);
-    --ql-card-shadow:     0 16px 38px rgba(4, 9, 14, 0.24);
+    --ql-card-shadow:     var(--ql-shadow-sm);
 
     --ql-input-bg:        #19212b;
     --ql-input-border:    var(--ql-border);
     --ql-input-focus:     rgba(114, 216, 158, 0.24);
+
+    /* Radius scale — matches de-facto usage: 8px controls, 12px cards */
+    --ql-radius-sm:   8px;
+    --ql-radius-md:   12px;
+    --ql-radius-lg:   16px;
+    --ql-radius-pill: 999px;
+
+    /* Layered shadow system — contact + ambient */
+    --ql-shadow-xs:   0 1px 2px rgba(2, 6, 10, 0.30);
+    --ql-shadow-sm:   0 1px 2px rgba(2, 6, 10, 0.28), 0 3px 8px rgba(2, 6, 10, 0.22);
+    --ql-shadow-md:   0 2px 4px rgba(2, 6, 10, 0.26), 0 10px 28px rgba(2, 6, 10, 0.30);
+    --ql-shadow-lg:   0 4px 10px rgba(2, 6, 10, 0.30), 0 24px 64px rgba(2, 6, 10, 0.38);
+
+    /* Hairlines — quieter than --ql-border, for inner dividers */
+    --ql-hairline:        rgba(195, 202, 214, 0.10);
+    --ql-hairline-strong: rgba(195, 202, 214, 0.18);
+
+    /* Focus ring */
+    --ql-focus-ring: 0 0 0 3px rgba(114, 216, 158, 0.22);
+
+    /* Motion (theme-invariant) */
+    --ql-ease:        cubic-bezier(0.22, 1, 0.36, 1);
+    --ql-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --ql-dur-fast:    140ms;
+    --ql-dur-base:    220ms;
+    --ql-dur-slow:    420ms;
+
+    /* Job status tokens — mint/gold timeline palette */
+    --ql-status-pending:          #d8b85e;
+    --ql-status-pending-soft:     rgba(216, 184, 94, 0.14);
+    --ql-status-pending-border:   rgba(216, 184, 94, 0.30);
+    --ql-status-running:          #72d89e;
+    --ql-status-running-soft:     rgba(114, 216, 158, 0.14);
+    --ql-status-running-border:   rgba(114, 216, 158, 0.32);
+    --ql-status-success:          #8ce4b1;
+    --ql-status-success-soft:     rgba(114, 216, 158, 0.10);
+    --ql-status-success-border:   rgba(114, 216, 158, 0.22);
+    --ql-status-error:            #c76388;
+    --ql-status-error-soft:       rgba(199, 99, 136, 0.14);
+    --ql-status-error-border:     rgba(199, 99, 136, 0.30);
+    --ql-status-cancelled:        #8e98a9;
+    --ql-status-cancelled-soft:   rgba(142, 152, 169, 0.12);
+    --ql-status-cancelled-border: rgba(142, 152, 169, 0.26);
 
     --q-primary: var(--ql-accent);
     --q-color-primary: var(--ql-accent);
@@ -281,12 +324,42 @@ body:not(.dark-mode) {
     --ql-nav-shadow:      rgba(128, 97, 138, 0.18);
 
     --ql-card-bg:         var(--ql-surface);
-    --ql-card-border:     #d2c0aa;
-    --ql-card-shadow:     0 8px 22px rgba(58, 47, 43, 0.08);
+    --ql-card-border:     #d8c8b3;
+    --ql-card-shadow:     var(--ql-shadow-sm);
 
     --ql-input-bg:        var(--ql-surface);
     --ql-input-border:    #b6a28a;
     --ql-input-focus:     rgba(128, 97, 138, 0.20);
+
+    /* Layered shadows — barely-there warm umber for the ivory canvas */
+    --ql-shadow-xs:   0 1px 2px rgba(58, 47, 43, 0.06);
+    --ql-shadow-sm:   0 1px 2px rgba(58, 47, 43, 0.05), 0 3px 8px rgba(58, 47, 43, 0.06);
+    --ql-shadow-md:   0 2px 4px rgba(58, 47, 43, 0.05), 0 10px 26px rgba(58, 47, 43, 0.08);
+    --ql-shadow-lg:   0 4px 10px rgba(58, 47, 43, 0.06), 0 22px 56px rgba(58, 47, 43, 0.10);
+
+    /* Hairlines */
+    --ql-hairline:        rgba(108, 95, 88, 0.10);
+    --ql-hairline-strong: rgba(108, 95, 88, 0.18);
+
+    /* Focus ring */
+    --ql-focus-ring: 0 0 0 3px rgba(128, 97, 138, 0.18);
+
+    /* Job status tokens — deepened for contrast on ivory */
+    --ql-status-pending:          #8d602f;
+    --ql-status-pending-soft:     rgba(141, 96, 47, 0.10);
+    --ql-status-pending-border:   rgba(141, 96, 47, 0.26);
+    --ql-status-running:          #567860;
+    --ql-status-running-soft:     rgba(86, 120, 96, 0.10);
+    --ql-status-running-border:   rgba(86, 120, 96, 0.30);
+    --ql-status-success:          #4d7a5c;
+    --ql-status-success-soft:     rgba(86, 120, 96, 0.08);
+    --ql-status-success-border:   rgba(86, 120, 96, 0.20);
+    --ql-status-error:            #a65466;
+    --ql-status-error-soft:       rgba(166, 84, 102, 0.10);
+    --ql-status-error-border:     rgba(166, 84, 102, 0.26);
+    --ql-status-cancelled:        #93857b;
+    --ql-status-cancelled-soft:   rgba(147, 133, 123, 0.10);
+    --ql-status-cancelled-border: rgba(147, 133, 123, 0.24);
 
     --q-primary: var(--ql-accent);
     --q-color-primary: var(--ql-accent);
@@ -338,7 +411,7 @@ def _base_styles() -> str:
     """Global base styles."""
     return """
 /* ===== Base ===== */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 html {
     background: var(--ql-bg);
@@ -348,9 +421,20 @@ body {
     font-family: 'Inter', -apple-system, 'Microsoft YaHei', 'Segoe UI', sans-serif;
     background: var(--ql-bg);
     color: var(--ql-text);
+    line-height: 1.55;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
+
+/* ===== Typography scale — negative tracking at display sizes ===== */
+.text-h3 { letter-spacing: -1px;   font-weight: 600; line-height: 1.15; }
+.text-h4 { letter-spacing: -0.6px; line-height: 1.2; }
+.text-h5 { letter-spacing: -0.4px; line-height: 1.25; }
+.text-h6 { letter-spacing: -0.3px; line-height: 1.3; }
+.text-subtitle1 { letter-spacing: -0.1px; }
+.text-caption { letter-spacing: 0.1px; line-height: 1.45; }
+
+::selection { background: var(--ql-accent-muted); }
 
 body.dark-mode {
     background:
@@ -420,14 +504,32 @@ body.dark-mode .ql-page::before {
 }
 
 /* ===== Scrollbar ===== */
-::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
     background: var(--ql-border);
-    border-radius: 4px;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--ql-border-hover);
+    background-color: var(--ql-border-hover);
+}
+
+/* ===== Page entrance ===== */
+@keyframes ql-page-enter {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+}
+.ql-page { animation: ql-page-enter var(--ql-dur-slow) var(--ql-ease) both; }
+
+/* ===== Reduced motion ===== */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
 }
 """
 
@@ -462,7 +564,19 @@ def _header_styles() -> str:
     text-transform: none;
     letter-spacing: 0;
     box-shadow: 0 1px 3px var(--ql-nav-shadow);
-    transition: background 0.15s, box-shadow 0.15s;
+    transition: background var(--ql-dur-fast) var(--ql-ease),
+                box-shadow var(--ql-dur-fast) var(--ql-ease),
+                border-color var(--ql-dur-fast) var(--ql-ease),
+                transform var(--ql-dur-fast) var(--ql-ease);
+}
+
+.q-btn.ql-nav-btn:active {
+    transform: translateY(1px);
+}
+
+.q-btn.ql-nav-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--ql-focus-ring);
 }
 
 .q-btn.ql-nav-btn:hover,
@@ -506,9 +620,11 @@ def _card_styles() -> str:
 .ql-card, .modern-card, .section-card {
     background: var(--ql-card-bg);
     border: 1px solid var(--ql-card-border);
-    border-radius: 12px;
+    border-radius: var(--ql-radius-md);
     box-shadow: var(--ql-card-shadow);
-    transition: border-color 0.2s;
+    transition: border-color var(--ql-dur-base) var(--ql-ease),
+                box-shadow var(--ql-dur-base) var(--ql-ease),
+                transform var(--ql-dur-base) var(--ql-ease);
 }
 
 .ql-card:hover, .modern-card:hover, .section-card:hover {
@@ -528,12 +644,14 @@ body.dark-mode .q-card {
 .ql-card--hover { cursor: pointer; }
 .ql-card--hover:hover {
     border-color: var(--ql-accent-border);
+    transform: translateY(-2px);
+    box-shadow: var(--ql-shadow-md);
 }
 
 .ql-card-header, .modern-card-header {
-    border-bottom: 1px solid var(--ql-border);
+    border-bottom: 1px solid var(--ql-hairline-strong);
     padding: 14px 20px;
-    border-radius: 12px 12px 0 0;
+    border-radius: var(--ql-radius-md) var(--ql-radius-md) 0 0;
 }
 
 /* Quasar card override */
@@ -562,14 +680,16 @@ def _button_styles() -> str:
     background: var(--ql-btn-bg) !important;
     color: var(--ql-btn-text) !important;
     border: 1px solid var(--ql-btn-border) !important;
-    border-radius: 8px;
+    border-radius: var(--ql-radius-sm);
     padding: 8px 20px;
     font-weight: 600;
     font-size: 13px;
     text-transform: none;
     letter-spacing: 0;
     box-shadow: 0 1px 2px var(--ql-btn-shadow) !important;
-    transition: background 0.15s, box-shadow 0.15s;
+    transition: background var(--ql-dur-fast) var(--ql-ease),
+                box-shadow var(--ql-dur-fast) var(--ql-ease),
+                transform var(--ql-dur-fast) var(--ql-ease);
 }
 
 .q-btn.ql-btn-primary:hover, .q-btn.modern-btn-primary:hover, .q-btn.modern-btn-success:hover,
@@ -577,7 +697,7 @@ def _button_styles() -> str:
 .ql-btn-primary:hover, .modern-btn-primary:hover, .modern-btn-success:hover,
 .gold-btn:hover, .green-btn:hover {
     background: var(--ql-btn-hover) !important;
-    box-shadow: 0 2px 8px var(--ql-btn-shadow) !important;
+    box-shadow: 0 1px 2px var(--ql-btn-shadow), 0 4px 12px var(--ql-btn-shadow) !important;
 }
 
 .ql-btn-primary .q-btn__content > span, .modern-btn-primary .q-btn__content > span,
@@ -597,13 +717,15 @@ def _button_styles() -> str:
     background: transparent;
     color: var(--ql-text);
     border: 1px solid var(--ql-border);
-    border-radius: 8px;
+    border-radius: var(--ql-radius-sm);
     padding: 8px 20px;
     font-weight: 500;
     font-size: 13px;
     text-transform: none;
     box-shadow: none;
-    transition: background 0.15s, border-color 0.15s;
+    transition: background var(--ql-dur-fast) var(--ql-ease),
+                border-color var(--ql-dur-fast) var(--ql-ease),
+                transform var(--ql-dur-fast) var(--ql-ease);
 }
 
 .ql-btn-secondary:hover, .modern-btn-secondary:hover {
@@ -620,13 +742,14 @@ def _button_styles() -> str:
     background: var(--ql-error);
     color: #ffffff;
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: var(--ql-radius-sm);
     padding: 8px 20px;
     font-weight: 600;
     font-size: 13px;
     text-transform: none;
     box-shadow: 0 1px 2px var(--ql-error-soft);
-    transition: background 0.15s;
+    transition: background var(--ql-dur-fast) var(--ql-ease),
+                transform var(--ql-dur-fast) var(--ql-ease);
 }
 
 .ql-btn-danger:hover, .modern-btn-danger:hover, .red-btn:hover {
@@ -643,13 +766,16 @@ def _button_styles() -> str:
     background: transparent;
     color: var(--ql-text-secondary);
     border: 1px solid var(--ql-border);
-    border-radius: 8px;
+    border-radius: var(--ql-radius-sm);
     padding: 8px 20px;
     font-weight: 500;
     font-size: 13px;
     text-transform: none;
     box-shadow: none;
-    transition: color 0.15s, border-color 0.15s;
+    transition: color var(--ql-dur-fast) var(--ql-ease),
+                border-color var(--ql-dur-fast) var(--ql-ease),
+                background var(--ql-dur-fast) var(--ql-ease),
+                transform var(--ql-dur-fast) var(--ql-ease);
 }
 
 .ql-btn-ghost:hover, .modern-btn-ghost:hover {
@@ -666,6 +792,27 @@ def _button_styles() -> str:
 .gold-btn.bg-primary, .green-btn.bg-primary, .red-btn.bg-primary {
     background: inherit;
 }
+
+/* Press feedback — transform untouched by !important overrides */
+.q-btn.ql-btn-primary:active, .q-btn.modern-btn-primary:active, .q-btn.modern-btn-success:active,
+.q-btn.gold-btn:active, .q-btn.green-btn:active,
+.ql-btn-secondary:active, .ql-btn-danger:active, .ql-btn-ghost:active,
+.modern-btn-secondary:active, .modern-btn-danger:active, .modern-btn-ghost:active,
+.red-btn:active {
+    transform: translateY(1px) scale(0.985);
+}
+
+/* Focus ring */
+.q-btn.ql-btn-primary:focus-visible, .q-btn.modern-btn-primary:focus-visible,
+.q-btn.gold-btn:focus-visible, .q-btn.green-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--ql-focus-ring) !important;
+}
+.ql-btn-secondary:focus-visible, .ql-btn-danger:focus-visible, .ql-btn-ghost:focus-visible,
+.modern-btn-secondary:focus-visible, .modern-btn-danger:focus-visible, .modern-btn-ghost:focus-visible {
+    outline: none;
+    box-shadow: var(--ql-focus-ring);
+}
 """
 
 
@@ -676,10 +823,11 @@ def _input_styles() -> str:
 .q-field__control {
     background: var(--ql-input-bg);
     border: 1px solid var(--ql-input-border);
-    border-radius: 8px;
+    border-radius: var(--ql-radius-sm);
     min-height: 40px;
     padding-left: 12px;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition: border-color var(--ql-dur-fast) var(--ql-ease),
+                box-shadow var(--ql-dur-fast) var(--ql-ease);
 }
 
 body.dark-mode .q-field__control {
@@ -695,7 +843,7 @@ body.dark-mode .q-field__control {
 
 .q-field--focused .q-field__control {
     border-color: var(--ql-accent);
-    box-shadow: 0 0 0 2px var(--ql-input-focus);
+    box-shadow: var(--ql-focus-ring);
 }
 
 /* Remove Quasar default field decorations */
@@ -864,9 +1012,9 @@ def _menu_styles() -> str:
 .q-menu {
     background: var(--ql-surface-raised);
     border: 1px solid var(--ql-border);
-    border-radius: 10px;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.25);
-    animation: ql-slide-down 0.15s ease-out;
+    border-radius: var(--ql-radius-md);
+    box-shadow: var(--ql-shadow-md);
+    animation: ql-slide-down var(--ql-dur-fast) var(--ql-ease);
     transform-origin: top;
 }
 
@@ -993,7 +1141,7 @@ button[class*="slider-value"]:hover {
     height: 4px;
     background: var(--ql-accent);
     border-radius: 2px;
-    transition: width 0.15s ease;
+    transition: width var(--ql-dur-fast) var(--ql-ease);
 }
 
 .slider-thumb {
@@ -1003,7 +1151,7 @@ button[class*="slider-value"]:hover {
     border: 2px solid var(--ql-surface);
     border-radius: 50%;
     box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-    transition: left 0.15s ease;
+    transition: left var(--ql-dur-fast) var(--ql-ease);
     z-index: 2;
 }
 
@@ -1170,7 +1318,100 @@ body.dark-mode .modern-log {
         linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0) 100%),
         var(--ql-console-bg);
     border-color: var(--ql-console-border);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        inset 0 0 32px rgba(0, 0, 0, 0.16);
+}
+
+/* ===== Terminal-style console wrapper (LogViewer) ===== */
+.ql-console {
+    background: var(--ql-console-bg);
+    border: 1px solid var(--ql-console-border);
+    border-radius: var(--ql-radius-md);
+    overflow: hidden;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        inset 0 -16px 24px -20px rgba(0, 0, 0, 0.35);
+}
+
+body:not(.dark-mode) .ql-console {
+    box-shadow: inset 0 1px 2px rgba(58, 47, 43, 0.06);
+}
+
+/* ===== Job Status Pills — Cursor-timeline style, mint/gold palette ===== */
+.job-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    border-radius: var(--ql-radius-pill);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    border: 1px solid transparent;
+    line-height: 1.6;
+}
+.job-status-pending {
+    color: var(--ql-status-pending);
+    background: var(--ql-status-pending-soft);
+    border-color: var(--ql-status-pending-border);
+}
+.job-status-running {
+    color: var(--ql-status-running);
+    background: var(--ql-status-running-soft);
+    border-color: var(--ql-status-running-border);
+}
+.job-status-success {
+    color: var(--ql-status-success);
+    background: var(--ql-status-success-soft);
+    border-color: var(--ql-status-success-border);
+}
+.job-status-error {
+    color: var(--ql-status-error);
+    background: var(--ql-status-error-soft);
+    border-color: var(--ql-status-error-border);
+}
+.job-status-cancelled {
+    color: var(--ql-status-cancelled);
+    background: var(--ql-status-cancelled-soft);
+    border-color: var(--ql-status-cancelled-border);
+}
+
+/* Running job — breathing left edge bar */
+@keyframes ql-breathe {
+    0%, 100% { box-shadow: inset 3px 0 0 var(--ql-status-running-border); }
+    50%      { box-shadow: inset 3px 0 0 var(--ql-status-running); }
+}
+.job-card-running {
+    animation: ql-breathe 2.4s var(--ql-ease-in-out) infinite;
+}
+
+/* Job drawer card hover */
+.job-card {
+    transition: background var(--ql-dur-fast) var(--ql-ease);
+}
+.job-card:hover {
+    background: var(--ql-inset-bg) !important;
+}
+
+/* ===== Progress shimmer ===== */
+.ql-progress {
+    border-radius: var(--ql-radius-pill);
+    overflow: hidden;
+    position: relative;
+}
+.ql-progress .q-linear-progress__track { opacity: 0.18; }
+@keyframes ql-shimmer {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(100%); }
+}
+.ql-progress::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+    animation: ql-shimmer 1.6s var(--ql-ease-in-out) infinite;
+    pointer-events: none;
 }
 
 .title-glow {
@@ -1243,9 +1484,10 @@ body.dark-mode .q-stepper__header {
 .q-expansion-item {
     background: var(--ql-surface);
     border: 1px solid var(--ql-border);
-    border-radius: 10px;
+    border-radius: var(--ql-radius-md);
     margin-bottom: 8px;
     overflow: hidden;
+    transition: border-color var(--ql-dur-fast) var(--ql-ease);
 }
 
 body.dark-mode .q-expansion-item {
@@ -1254,16 +1496,20 @@ body.dark-mode .q-expansion-item {
         var(--ql-surface-raised);
 }
 
-.q-expansion-item__container { border-radius: 10px; }
+.q-expansion-item:hover { border-color: var(--ql-border-hover); }
+
+.q-expansion-item__container { border-radius: var(--ql-radius-md); }
 
 /* ===== Badges ===== */
 .ql-badge {
     background: var(--ql-accent-muted);
     color: var(--ql-accent);
-    border-radius: 16px;
-    padding: 2px 10px;
+    border: 1px solid var(--ql-accent-border);
+    border-radius: var(--ql-radius-pill);
+    padding: 3px 10px;
     font-size: 12px;
     font-weight: 600;
+    letter-spacing: 0.2px;
 }
 
 .ql-badge--primary {
@@ -1302,8 +1548,8 @@ body.dark-mode .q-expansion-item {
 
 /* ===== Notifications ===== */
 .q-notification {
-    border-radius: 10px;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+    border-radius: var(--ql-radius-md);
+    box-shadow: var(--ql-shadow-md);
 }
 
 /* ===== Section Titles ===== */
@@ -1311,6 +1557,7 @@ body.dark-mode .q-expansion-item {
     color: var(--ql-text);
     font-weight: 600;
     font-size: 14px;
+    letter-spacing: -0.1px;
     border-left: 3px solid var(--ql-accent);
     padding-left: 10px;
     margin-bottom: 8px;
@@ -1337,10 +1584,12 @@ def _homepage_styles() -> str:
 .step-card {
     background: var(--ql-surface);
     border: 1px solid var(--ql-border);
-    border-radius: 12px;
+    border-radius: var(--ql-radius-md);
     padding: 24px 16px;
     text-align: center;
-    transition: border-color 0.2s, transform 0.2s;
+    transition: border-color var(--ql-dur-base) var(--ql-ease),
+                transform var(--ql-dur-base) var(--ql-ease),
+                box-shadow var(--ql-dur-base) var(--ql-ease);
     position: relative;
     overflow: hidden;
     box-shadow: var(--ql-card-shadow);
@@ -1350,21 +1599,34 @@ def _homepage_styles() -> str:
     align-items: center;
     justify-content: flex-start;
     cursor: pointer;
+    animation: ql-rise var(--ql-dur-slow) var(--ql-ease) backwards;
 }
+
+/* Staggered entrance */
+@keyframes ql-rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: none; }
+}
+.step-card:nth-child(2) { animation-delay: 50ms; }
+.step-card:nth-child(3) { animation-delay: 100ms; }
+.step-card:nth-child(4) { animation-delay: 150ms; }
+.step-card:nth-child(5) { animation-delay: 200ms; }
+.step-card:nth-child(6) { animation-delay: 250ms; }
 
 .step-card::before {
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 2px;
-    background: var(--ql-accent);
+    background: linear-gradient(90deg, var(--ql-accent), var(--ql-secondary));
     opacity: 0;
-    transition: opacity 0.2s;
+    transition: opacity var(--ql-dur-base) var(--ql-ease);
 }
 
 .step-card:hover {
     border-color: var(--ql-accent-border);
-    transform: translateY(-2px);
+    transform: translateY(-3px);
+    box-shadow: var(--ql-shadow-md);
 }
 
 .step-card:hover::before { opacity: 1; }
@@ -1373,10 +1635,10 @@ def _homepage_styles() -> str:
     color: var(--ql-accent);
     font-size: 40px;
     margin-bottom: 12px;
-    transition: transform 0.2s;
+    transition: transform var(--ql-dur-base) var(--ql-ease);
 }
 
-.step-card:hover .q-icon { transform: scale(1.1); }
+.step-card:hover .q-icon { transform: scale(1.08) translateY(-1px); }
 
 .step-card .step-title,
 .step-card .text-h6 { color: var(--ql-text); font-weight: 600; }
@@ -1389,13 +1651,17 @@ def _homepage_styles() -> str:
 .model-item {
     background: var(--ql-surface-raised);
     border: 1px solid var(--ql-border);
-    border-radius: 8px;
+    border-radius: var(--ql-radius-sm);
     padding: 10px 14px;
-    transition: border-color 0.15s;
+    transition: border-color var(--ql-dur-fast) var(--ql-ease),
+                background var(--ql-dur-fast) var(--ql-ease),
+                transform var(--ql-dur-fast) var(--ql-ease);
 }
 
 .model-item:hover {
     border-color: var(--ql-accent-border);
+    background: var(--ql-accent-soft);
+    transform: translateX(2px);
 }
 
 .model-item .model-name { color: var(--ql-text); font-weight: 500; }
@@ -1404,6 +1670,25 @@ def _homepage_styles() -> str:
 
 /* ===== App Desc ===== */
 .app-desc { color: var(--ql-text-secondary); }
+
+/* ===== Hero ===== */
+.hero-eyebrow {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--ql-text-muted);
+}
+
+.hero-title {
+    letter-spacing: -1.2px;
+    line-height: 1.1;
+    font-weight: 700;
+}
+
+body.dark-mode .hero-title {
+    filter: drop-shadow(0 2px 18px rgba(114, 216, 158, 0.18));
+}
 """
 
 
@@ -1418,7 +1703,9 @@ def _theme_toggle_styles() -> str:
     width: 36px; height: 36px;
     padding: 0;
     display: flex; align-items: center; justify-content: center;
-    transition: border-color 0.15s, background 0.15s;
+    transition: border-color var(--ql-dur-fast) var(--ql-ease),
+                background var(--ql-dur-fast) var(--ql-ease),
+                transform var(--ql-dur-fast) var(--ql-ease);
     cursor: pointer;
 }
 
@@ -1427,10 +1714,15 @@ def _theme_toggle_styles() -> str:
     border-color: var(--ql-accent-border);
 }
 
+.theme-toggle-btn:active { transform: scale(0.94); }
+
 .theme-toggle-btn .q-icon {
     color: var(--ql-text-secondary);
     font-size: 20px;
+    transition: transform var(--ql-dur-base) var(--ql-ease);
 }
+
+.theme-toggle-btn:hover .q-icon { transform: rotate(40deg); }
 
 /* ===== Language Selector ===== */
 .lang-selector {
@@ -1440,7 +1732,7 @@ def _theme_toggle_styles() -> str:
 .lang-selector .q-field__control {
     background: var(--ql-input-bg);
     border: 1px solid var(--ql-border);
-    border-radius: 8px;
+    border-radius: var(--ql-radius-sm);
     height: 36px; min-height: 36px;
 }
 
@@ -1571,7 +1863,7 @@ body .q-btn.modern-btn-success:hover,
 body .q-btn.gold-btn:hover,
 body .q-btn.green-btn:hover {
     background: var(--ql-btn-hover) !important;
-    box-shadow: 0 2px 8px var(--ql-btn-shadow) !important;
+    box-shadow: 0 1px 2px var(--ql-btn-shadow), 0 4px 12px var(--ql-btn-shadow) !important;
 }
 
 body .q-btn.ql-btn-primary .q-btn__content > span,
@@ -1615,11 +1907,11 @@ body .q-btn.modern-btn-ghost .q-icon {
 
 /* Animation Keyframes */
 @keyframes ql-fade-in {
-    from { opacity: 0; transform: translateY(6px); }
+    from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
-.animate-fade-in { animation: ql-fade-in 0.3s ease forwards; }
+.animate-fade-in { animation: ql-fade-in var(--ql-dur-slow) var(--ql-ease) forwards; }
 
 @keyframes ql-glow {
     0%, 100% { box-shadow: 0 0 4px var(--ql-accent-border); }
@@ -1627,6 +1919,17 @@ body .q-btn.modern-btn-ghost .q-icon {
 }
 
 .animate-glow { animation: ql-glow 2s ease-in-out infinite; }
+
+/* ===== Reduced motion — kill infinite/entrance animations explicitly ===== */
+@media (prefers-reduced-motion: reduce) {
+    .rotating-icon, .job-card-running, .ql-progress::after,
+    .animate-glow, .step-card, .ql-page, .animate-fade-in {
+        animation: none !important;
+    }
+    .step-card:hover, .ql-card--hover:hover, .model-item:hover {
+        transform: none !important;
+    }
+}
 """
 
 
@@ -1656,7 +1959,7 @@ html {
     --ql-surface-raised: #2a3440;
     --ql-surface-strong: #141b24;
     --ql-overlay: #313b48;
-    --ql-border: #465262;
+    --ql-border: #3f4a59;
     --ql-border-hover: #5b6a7d;
     --ql-inset-bg: rgba(255, 255, 255, 0.055);
     --ql-inset-border: rgba(255, 255, 255, 0.11);
@@ -1697,7 +2000,7 @@ html {
     --ql-nav-active-icon: #9ce8bb;
     --ql-nav-active-border: rgba(114, 216, 158, 0.36);
     --ql-card-bg: #2a3440;
-    --ql-card-border: #465262;
+    --ql-card-border: #3f4a59;
     --q-primary: #72d89e !important;
     --q-color-primary: #72d89e !important;
 }
@@ -1748,7 +2051,7 @@ html:not(.dark-mode) {
     --ql-nav-active-icon: #80618a;
     --ql-nav-active-border: #6d5978;
     --ql-card-bg: #fffaf4;
-    --ql-card-border: #d2c0aa;
+    --ql-card-border: #d8c8b3;
     --q-primary: #80618a !important;
     --q-color-primary: #80618a !important;
 }
