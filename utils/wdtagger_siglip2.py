@@ -13,8 +13,8 @@ from module.onnx_runtime import load_session_bundle
 CL_TAGGER_V2_OPTION = "cella110n/cl_tagger_v2"
 CL_TAGGER_V2_BACKEND_REPO = "celstk/cl-SigLIP2-lora-onnx"
 CL_TAGGER_V2_PROCESSOR_REPO = "google/siglip2-so400m-patch16-naflex"
-CL_TAGGER_V2_VERSIONS = ("v1_00", "v1_01", "v1_02", "v1_03", "v1_04", "v1_05", "v1_06", "v1_065", "v1_07")
-CL_TAGGER_V2_DEFAULT_VERSION = "v1_07"
+CL_TAGGER_V2_VERSIONS = ("v1_00", "v1_01", "v1_02", "v1_03", "v1_04", "v1_05", "v1_06", "v1_065", "v1_07", "v1_075", "v1_08")
+CL_TAGGER_V2_DEFAULT_VERSION = "v1_08"
 CL_TAGGER_V2_FALLBACK_THRESHOLD = 0.5
 CL_TAGGER_V2_THRESHOLD_OVERRIDES = {
     "v1_00": 0.6,
@@ -64,6 +64,7 @@ class Siglip2OnnxBundle:
     version: str
     cache_dir: Path
     tag_metrics_path: Path | None = None
+    ood_ref_path: Path | None = None
 
 
 def _emit_log(logger: Callable[..., Any] | None, message: str) -> None:
@@ -221,6 +222,11 @@ def _resolve_tag_metrics_path(model_path: Path) -> Path | None:
     return tag_metrics_path if tag_metrics_path.is_file() else None
 
 
+def _resolve_ood_ref_path(model_path: Path) -> Path | None:
+    ood_ref_path = model_path.with_name(f"{model_path.stem}_ood_ref.npz")
+    return ood_ref_path if ood_ref_path.is_file() else None
+
+
 def download_cl_tagger_v2_artifacts(
     *,
     repo_id: str,
@@ -306,6 +312,9 @@ def load_cl_tagger_v2_bundle(
     tag_metrics_path = _resolve_tag_metrics_path(model_path)
     if tag_metrics_path is not None:
         _emit_log(logger, f"[green]Resolved cl_tagger v2 tag metrics[/green] {tag_metrics_path}")
+    ood_ref_path = _resolve_ood_ref_path(model_path)
+    if ood_ref_path is not None:
+        _emit_log(logger, f"[green]Resolved cl_tagger v2 OOD reference[/green] {ood_ref_path}")
     processor_repo, is_naflex = load_cl_tagger_v2_metadata(metadata_path)
     token = str(os.environ.get("HF_TOKEN", "")).strip() or None
     processor = _load_siglip2_processor(
@@ -333,6 +342,7 @@ def load_cl_tagger_v2_bundle(
         resolved_repo_id=resolved_repo_id,
         version=version,
         cache_dir=cache_dir,
+        ood_ref_path=ood_ref_path,
     )
 
 

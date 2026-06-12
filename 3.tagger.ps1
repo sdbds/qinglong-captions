@@ -7,7 +7,7 @@
 $Config = @{
     train_data_dir     = "./datasets"                                # Input images path | 图片输入路径
     repo_id            = "cella110n/cl_tagger_v2"                    # Model repo ID from Hugging Face
-    cl_tagger_v2_version = "v1_07"                                    # cl_tagger v2 model version
+    cl_tagger_v2_version = "v1_08"                                    # cl_tagger v2 model version
     model_dir          = "wd14_tagger_model"                         # Local model folder path | 本地模型文件夹路径
     batch_size         = 12                                          # Batch size for inference
     thresh             = 0.5                                         # Concept threshold
