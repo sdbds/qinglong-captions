@@ -11,15 +11,30 @@ import numpy as np
 from module.onnx_runtime import load_session_bundle
 
 CL_TAGGER_V2_OPTION = "cella110n/cl_tagger_v2"
-CL_TAGGER_V2_BACKEND_REPO = "celstk/cl-SigLIP2-lora-onnx"
+CL_TAGGER_V2_BACKEND_REPO = CL_TAGGER_V2_OPTION
+CL_TAGGER_V2_LEGACY_BACKEND_REPO = "celstk/cl-SigLIP2-lora-onnx"
 CL_TAGGER_V2_PROCESSOR_REPO = "google/siglip2-so400m-patch16-naflex"
-CL_TAGGER_V2_VERSIONS = ("v1_00", "v1_01", "v1_02", "v1_03", "v1_04", "v1_05", "v1_06", "v1_065", "v1_07", "v1_075", "v1_08")
-CL_TAGGER_V2_DEFAULT_VERSION = "v1_08"
+CL_TAGGER_V2_VERSIONS = (
+    "v1_00",
+    "v1_01",
+    "v1_02",
+    "v1_03",
+    "v1_04",
+    "v1_05",
+    "v1_06",
+    "v1_065",
+    "v1_07",
+    "v1_075",
+    "v1_08",
+    "v2_00",
+)
+CL_TAGGER_V2_DEFAULT_VERSION = "v2_00"
 CL_TAGGER_V2_FALLBACK_THRESHOLD = 0.5
 CL_TAGGER_V2_THRESHOLD_OVERRIDES = {
     "v1_00": 0.6,
     "v1_01": 0.6,
     "v1_02": 0.9,
+    "v2_00": 0.55,
 }
 CL_TAGGER_V2_DEFAULT_MAX_NUM_PATCHES = 256
 CL_TAGGER_V2_OUTPUT_NAME = "logits"
@@ -74,13 +89,11 @@ def _emit_log(logger: Callable[..., Any] | None, message: str) -> None:
 
 def is_cl_tagger_v2_repo(repo_id: str) -> bool:
     normalized = str(repo_id or "").strip()
-    return normalized in {CL_TAGGER_V2_OPTION, CL_TAGGER_V2_BACKEND_REPO}
+    return normalized in {CL_TAGGER_V2_OPTION, CL_TAGGER_V2_BACKEND_REPO, CL_TAGGER_V2_LEGACY_BACKEND_REPO}
 
 
 def resolve_cl_tagger_v2_backend_repo(repo_id: str) -> str:
     normalized = str(repo_id or "").strip()
-    if normalized == CL_TAGGER_V2_OPTION:
-        return CL_TAGGER_V2_BACKEND_REPO
     return normalized
 
 
