@@ -27,6 +27,8 @@ trt_layer_norm_fp32_fallback = true
 
 [onnx_runtime.waterdetect]
 
+[onnx_runtime.paddle_ocr]
+
 [onnx_runtime.vocal_midi.tensorrt]
 trt_fp16_enable = false
 trt_layer_norm_fp32_fallback = true

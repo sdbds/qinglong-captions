@@ -26,6 +26,11 @@ _READ_ONLY_FIELDS = {"svg_model_id"}
 # Fields rendered as user-editable dropdowns (allow custom HuggingFace repo IDs)
 _MODEL_ID_FIELDS = {"model_id"}
 
+# Fields rendered as fixed dropdowns scoped by model config section
+_ENUM_FIELD_OPTIONS = {
+    ("paddle_ocr", "model_tier"): ("tiny", "small", "medium"),
+}
+
 # Row layout shared between all field rows
 _ROW_STYLE = (
     "border-bottom: 1px solid var(--color-border); "
@@ -122,6 +127,10 @@ class ModelConfigPanel:
             return
         control.value = value
 
+    def _enum_options_for_field(self, key: str) -> tuple[str, ...]:
+        section = self._section_name or self._current_route or ""
+        return _ENUM_FIELD_OPTIONS.get((section, key), ())
+
     # ── Rendering ──────────────────────────────────────────────────────
 
     def _render(self, route_name: str) -> None:
@@ -210,6 +219,11 @@ class ModelConfigPanel:
                 ).classes("text-caption").style(
                     "color: var(--color-text-secondary); opacity: 0.6; font-size: 10px; margin-left: 4px;"
                 )
+            return
+
+        enum_options = self._enum_options_for_field(key)
+        if enum_options and isinstance(value, str):
+            self._render_enum_select(key, value, parent_dict, enum_options)
             return
 
         # model_id → model_list select (if available) + free-text input
@@ -349,6 +363,22 @@ class ModelConfigPanel:
                                 p[k] = lines
 
                     ta.on_value_change(_sync_list)
+
+    def _render_enum_select(self, key: str, value: str, parent_dict: dict, options: tuple[str, ...]) -> None:
+        """Render a fixed-value string field as a dropdown."""
+        option_map = {option: option for option in options}
+        current_value = value if value in option_map else None
+        with ui.row().classes("w-full items-center").style(_ROW_STYLE):
+            ui.label(key).classes("text-caption text-weight-medium").style(
+                "color: var(--color-text-secondary); min-width: 160px; flex-shrink: 0;"
+            )
+            select = (
+                ui.select(options=option_map, value=current_value, label="")
+                .classes("flex-1 modern-select force-light-bg")
+                .props("dense outlined options-dense")
+                .style("font-size: 13px;")
+            )
+            select.on_value_change(lambda e, k=key, p=parent_dict: p.__setitem__(k, e.value or ""))
 
     def _render_model_id_input(self, key: str, value: str, parent_dict: dict) -> None:
         """Plain model_id input with datalist autocomplete (no model_list)."""

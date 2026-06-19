@@ -382,7 +382,7 @@ class CaptionStep:
 
     OCR_EXTRA_MAP = {
         "infinity_parser2_ocr": "infinity-parser2-ocr",
-        "paddle_ocr": "paddleocr",
+        "paddle_ocr": "paddleocr-onnx",
         "deepseek_ocr": "deepseek-ocr",
         "logics_ocr": "logics-ocr",
         "lighton_ocr": "lighton-ocr",

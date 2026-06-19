@@ -224,10 +224,10 @@ function Uninstall-PaddleTorchStack {
   [void]$UninstallArgs.Add("torchvision")
   [void]$UninstallArgs.Add("torchaudio")
 
-  Write-Output "检测到 paddleocr，先卸载共享环境中的 torch / torchvision / torchaudio"
+  Write-Output "检测到 paddleocr-native，先卸载共享环境中的 torch / torchvision / torchaudio"
   uv @UninstallArgs
   if (!($?)) {
-    Write-Warning "torch 栈卸载命令返回非零，继续安装 paddleocr 当前依赖"
+    Write-Warning "torch 栈卸载命令返回非零，继续安装 paddleocr-native 当前依赖"
   }
 }
 
@@ -259,7 +259,7 @@ function Install-UvDependencyPatch {
   $UniqueGroups = @($Groups | Select-Object -Unique)
   $PythonExe = Get-ProjectPython
 
-  if ($UniqueExtras -contains "paddleocr") {
+  if ($UniqueExtras -contains "paddleocr-native") {
     Uninstall-PaddleTorchStack -PythonExe $PythonExe
   }
 
@@ -557,7 +557,7 @@ if ($ocr_model) {
     Add-UvExtra "infinity-parser2-ocr"
   }
   elseif ($ocr_model -eq "paddle_ocr") {
-    Add-UvExtra "paddleocr"
+    Add-UvExtra "paddleocr-onnx"
   }
   elseif ($ocr_model -eq "deepseek_ocr") {
     Add-UvExtra "deepseek-ocr"

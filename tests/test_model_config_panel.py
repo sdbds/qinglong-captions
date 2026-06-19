@@ -131,6 +131,31 @@ def test_model_config_panel_renders_model_id_as_editable_searchable_combobox(mon
     assert parent_dict["model_id"] == "Qwen/Qwen2.5-VL-31B-Instruct-AWQ"
 
 
+def test_model_config_panel_renders_paddle_ocr_model_tier_as_fixed_select(monkeypatch):
+    panel_module = _load_model_config_panel_module("test_model_config_panel_paddle_ocr_model_tier")
+    fake_select = _FakeSelect()
+    fake_ui = _FakeUI([fake_select])
+
+    monkeypatch.setattr(panel_module, "ui", fake_ui)
+
+    panel = panel_module.ModelConfigPanel(parent=SimpleNamespace(clear=lambda: None))
+    panel._section_name = "paddle_ocr"
+    panel._current_route = "paddle_ocr"
+    parent_dict = {"model_tier": "medium"}
+
+    panel._render_field("model_tier", "medium", parent_dict)
+
+    assert fake_select.options == {"tiny": "tiny", "small": "small", "medium": "medium"}
+    assert fake_select.value == "medium"
+    combined_props = " ".join(fake_select.props_calls)
+    assert "use-input" not in combined_props
+    assert fake_select.on_value_change_handler is not None
+
+    fake_select.on_value_change_handler(SimpleNamespace(value="small"))
+
+    assert parent_dict["model_tier"] == "small"
+
+
 def test_model_config_panel_build_model_id_options_does_not_probe_gpu_by_default(monkeypatch):
     panel_module = _load_model_config_panel_module("test_model_config_panel_no_gpu_probe")
     calls = []

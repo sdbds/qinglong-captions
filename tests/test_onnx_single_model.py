@@ -100,6 +100,56 @@ def test_load_single_model_bundle_forwards_logger_when_loader_supports_it(tmp_pa
     assert callable(captured["download"][2]["logger"])
 
 
+def test_load_single_model_bundle_downloads_optional_support_files(tmp_path):
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.single_model import OnnxModelSpec, load_single_model_bundle
+
+    captured = {}
+
+    class FakeSession:
+        @staticmethod
+        def get_inputs():
+            return []
+
+    def fake_download(repo_id, onnx_filename, **kwargs):
+        captured["download"] = (repo_id, onnx_filename, kwargs)
+        model_path = tmp_path / onnx_filename
+        model_path.write_text("onnx", encoding="utf-8")
+        return model_path
+
+    def fake_support_download(repo_id, files, **kwargs):
+        captured["support"] = (repo_id, dict(files), kwargs)
+        return {name: tmp_path / filename for name, filename in files.items()}
+
+    def fake_load_session_bundle(**kwargs):
+        return SimpleNamespace(
+            sessions={"model": FakeSession()},
+            providers=("CPUExecutionProvider",),
+        )
+
+    spec = OnnxModelSpec(
+        repo_id="repo/model",
+        onnx_filename="inference.onnx",
+        local_dir=tmp_path,
+        bundle_key="single:model",
+        support_files={"inference_config": "inference.yml"},
+    )
+
+    bundle = load_single_model_bundle(
+        spec=spec,
+        runtime_config=OnnxRuntimeConfig(execution_provider="cpu"),
+        artifact_loader=fake_download,
+        support_file_loader=fake_support_download,
+        session_bundle_loader=fake_load_session_bundle,
+        logger=lambda message: None,
+    )
+
+    assert captured["support"][0] == "repo/model"
+    assert captured["support"][1] == {"inference_config": "inference.yml"}
+    assert callable(captured["support"][2]["logger"])
+    assert bundle.support_paths == {"inference_config": tmp_path / "inference.yml"}
+
+
 def test_load_multi_model_bundle_downloads_artifacts_and_support_files(tmp_path):
     from module.onnx_runtime.config import OnnxRuntimeConfig
     from module.onnx_runtime.multi_model import OnnxMultiModelSpec, load_multi_model_bundle

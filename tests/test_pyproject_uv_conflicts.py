@@ -50,22 +50,22 @@ def test_penguin_vl_local_conflicts_with_lfm_vl_local():
 
 
 def test_paddleocr_conflicts_with_lfm_vl_local():
-    assert _has_extra_conflict("paddleocr", "lfm-vl-local")
+    assert _has_extra_conflict("paddleocr-native", "lfm-vl-local")
 
 
 def test_paddleocr_conflicts_with_logics_ocr():
-    assert _has_extra_conflict("paddleocr", "logics-ocr")
+    assert _has_extra_conflict("paddleocr-native", "logics-ocr")
 
 
 def test_paddleocr_conflicts_with_wdtagger_cl_tagger_v2():
-    assert _has_extra_conflict("paddleocr", "wdtagger-cl-tagger-v2")
+    assert _has_extra_conflict("paddleocr-native", "wdtagger-cl-tagger-v2")
 
 
 def test_paddleocr_conflicts_with_all_torch_stack_extras():
     torch_extras = [
         name
         for name, deps in _load_optional_dependencies().items()
-        if name != "paddleocr"
+        if name not in {"paddleocr", "paddleocr-onnx", "paddleocr-native"}
         and (
             any(dep.startswith(("torch", "torchvision", "torchaudio")) for dep in deps)
             or "qinglong-captions[torch-base]" in deps
@@ -74,7 +74,7 @@ def test_paddleocr_conflicts_with_all_torch_stack_extras():
     ]
 
     for extra in torch_extras:
-        assert _has_extra_conflict("paddleocr", extra)
+        assert _has_extra_conflict("paddleocr-native", extra)
 
 
 def test_lighton_ocr_conflicts_with_translate():
@@ -89,7 +89,22 @@ def test_translate_extra_uses_hy_mt2_dependency_stack():
 
 
 def test_lighton_ocr_conflicts_with_paddleocr():
-    assert _has_extra_conflict("lighton-ocr", "paddleocr")
+    assert _has_extra_conflict("lighton-ocr", "paddleocr-native")
+
+
+def test_paddleocr_onnx_extra_uses_onnx_base_without_native_paddle_wheels():
+    deps = _load_optional_dependencies()["paddleocr-onnx"]
+
+    assert "qinglong-captions[onnx-base]" in deps
+    assert any(dep.startswith("paddleocr>=3.7.0") for dep in deps)
+    assert not any("paddlepaddle" in dep for dep in deps)
+
+
+def test_paddleocr_native_extra_keeps_legacy_paddle_gpu_stack():
+    deps = _load_optional_dependencies()["paddleocr-native"]
+
+    assert any("paddlepaddle-gpu" in dep for dep in deps)
+    assert any(dep.startswith("paddleocr[doc-parser]") for dep in deps)
 
 
 def test_dots_ocr_conflicts_with_known_transformers_incompatible_extras():
@@ -170,7 +185,7 @@ def test_marlin_2b_local_conflicts_with_known_transformers_incompatible_extras()
 
 def test_infinity_parser2_ocr_conflicts_with_known_transformers_incompatible_extras():
     expected_pairs = [
-        ("infinity-parser2-ocr", "paddleocr"),
+        ("infinity-parser2-ocr", "paddleocr-native"),
         ("infinity-parser2-ocr", "deepseek-ocr"),
         ("infinity-parser2-ocr", "dots-ocr"),
         ("infinity-parser2-ocr", "penguin-vl-local"),
