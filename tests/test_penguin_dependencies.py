@@ -49,6 +49,13 @@ def test_pyproject_declares_penguin_vl_local_extra():
     assert any(dep.startswith("einops") for dep in penguin_deps)
 
 
+def test_pyproject_base_dependencies_include_direct_pillow_runtime_dependency():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = pyproject["project"]["dependencies"]
+
+    assert any(dep == "pillow" or dep.startswith("pillow>=") for dep in dependencies)
+
+
 def test_pyproject_codex_subscription_extra_uses_published_package_when_resolved():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     deps = pyproject["project"]["optional-dependencies"]["codex-subscription"]

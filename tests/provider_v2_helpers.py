@@ -46,6 +46,7 @@ def make_provider_args(**kwargs):
         "codex_max_concurrency": 1,
         "cloud_max_concurrency": 1,
         "codex_auto_install_sdk": False,
+        "codex_disable_mcp": True,
         "grok_build_subscription": False,
         "grok_build_backend": "headless",
         "grok_build_auth_mode": "cached_token",
