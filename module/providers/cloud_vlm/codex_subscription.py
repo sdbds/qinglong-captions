@@ -18,6 +18,7 @@ from module.providers.codex_app_server import (
     SUPPORTED_CODEX_BACKENDS,
     CodexAppServerConfig,
     CodexAppServerError,
+    build_codex_disable_mcp_config_overrides,
     caption_image_with_app_server,
     normalize_codex_reasoning_effort,
 )
@@ -377,6 +378,8 @@ class CodexSubscriptionProvider(CloudVLMProvider):
         isolated_cwd.mkdir(parents=True, exist_ok=True)
 
         auth_mode = getattr(args, "codex_auth_mode", "") or DEFAULT_CODEX_AUTH_MODE
+        codex_home = getattr(args, "codex_home", "") or ""
+        disable_mcp = bool(getattr(args, "codex_disable_mcp", True))
         config = CodexAppServerConfig(
             model=model,
             service_tier=service_tier,
@@ -385,9 +388,10 @@ class CodexSubscriptionProvider(CloudVLMProvider):
             sandbox=getattr(args, "codex_sandbox", "") or "read-only",
             auth_mode=auth_mode,
             api_key=getattr(args, "codex_api_key", "") or "",
-            codex_home=getattr(args, "codex_home", "") or "",
+            codex_home=codex_home,
             runtime_path=getattr(args, "codex_runtime_path", "") or "",
             isolated_cwd=str(isolated_cwd),
+            config_overrides=build_codex_disable_mcp_config_overrides(codex_home) if disable_mcp else (),
         )
         app_server_max_concurrency = _positive_int(getattr(args, "codex_max_concurrency", 1), 1)
         source_image_path = Path(media.uri)

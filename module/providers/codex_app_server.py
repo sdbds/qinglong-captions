@@ -32,9 +32,18 @@ SUPPORTED_CODEX_BACKENDS = {DEFAULT_CODEX_BACKEND, "exec"}
 SUPPORTED_CODEX_AUTH_MODES = {DEFAULT_CODEX_AUTH_MODE, "api_key", "existing"}
 DEFAULT_CODEX_REASONING_EFFORT = "none"
 SUPPORTED_CODEX_REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
+CODEX_CAPTION_DISABLE_MCP_SERVER_NAMES = ("node_repl",)
+CODEX_CAPTION_DISABLE_MCP_CONFIG_OVERRIDES = tuple(
+    f"mcp_servers.{name}.enabled=false" for name in CODEX_CAPTION_DISABLE_MCP_SERVER_NAMES
+)
+CODEX_CAPTION_DISABLE_PLUGIN_CONFIG_OVERRIDES = ("features.plugins=false",)
+_MCP_SERVER_TABLE_RE = re.compile(r"^\s*\[\s*mcp_servers\.([A-Za-z0-9_-]+)(?:\.|\s*\])")
 
 INSTALL_CODEX_SDK_HINT = "Install it with: uv sync --extra codex-subscription"
 API_KEY_ENV_VARS = ("OPENAI_API_KEY", "CODEX_API_KEY")
+CODEX_APP_SERVER_LOG_LEVEL_ENV = "CODEX_LOG_LEVEL"
+DEFAULT_CODEX_APP_SERVER_LOG_LEVEL = "ERROR"
+RUST_LOG_ENV = "RUST_LOG"
 RETRYABLE_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport", "rate_limited", "closed"})
 RESET_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport"})
 REQUIRED_CODEX_SDK_SYMBOLS = ("Codex", "TextInput", "LocalImageInput", "TurnResult")
@@ -43,7 +52,7 @@ DEFAULT_CODEX_TIMEOUT_SECONDS = 60.0
 _WINDOWS_PROCESS_TERMINATED_RE = re.compile(
     r"^SUCCESS: The process with PID \d+(?: \(child process of PID \d+\))? has been terminated\.\s*$"
 )
-CODEX_CAPTION_TOOLS = {"view_image": True}
+CODEX_CAPTION_TOOLS: dict[str, Any] = {}
 
 
 @dataclass(frozen=True)
@@ -58,6 +67,7 @@ class CodexAppServerConfig:
     codex_home: str = ""
     runtime_path: str = ""
     isolated_cwd: str = ""
+    config_overrides: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -129,9 +139,6 @@ def _patch_codex_sdk_stdout_noise_filter(_sdk: Any) -> None:
         client_module = importlib.import_module("openai_codex.client")
     except Exception:
         return
-    client_cls = getattr(client_module, "AppServerClient", None)
-    if client_cls is None or getattr(client_cls, "_qinglong_stdout_noise_filter", False):
-        return
 
     app_server_error = getattr(client_module, "AppServerError", None) or getattr(client_module, "CodexError", None)
     transport_closed_error = getattr(client_module, "TransportClosedError", None)
@@ -158,8 +165,12 @@ def _patch_codex_sdk_stdout_noise_filter(_sdk: Any) -> None:
                 raise app_server_error(f"Invalid JSON-RPC payload: {message!r}")
             return message
 
-    client_cls._read_message = _read_message_with_noise_filter
-    client_cls._qinglong_stdout_noise_filter = True
+    for class_name in ("AppServerClient", "CodexClient"):
+        client_cls = getattr(client_module, class_name, None)
+        if client_cls is None or getattr(client_cls, "_qinglong_stdout_noise_filter", False):
+            continue
+        client_cls._read_message = _read_message_with_noise_filter
+        client_cls._qinglong_stdout_noise_filter = True
 
 
 def _coerce_sdk_exception(
@@ -213,6 +224,42 @@ def build_codex_caption_thread_config() -> dict[str, Any]:
     return {
         "tools": build_codex_caption_tools(),
     }
+
+
+def _configured_mcp_server_names(codex_home: str = "") -> tuple[str, ...]:
+    if not codex_home:
+        return ()
+    config_path = Path(codex_home).expanduser() / "config.toml"
+    try:
+        lines = config_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ()
+    names: list[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        match = _MCP_SERVER_TABLE_RE.match(line)
+        if match is None:
+            continue
+        name = match.group(1)
+        if name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+    return tuple(names)
+
+
+def build_codex_disable_mcp_config_overrides(codex_home: str = "") -> tuple[str, ...]:
+    """Return app-server config overrides that keep caption runs off user MCP/plugins."""
+    names = (*CODEX_CAPTION_DISABLE_MCP_SERVER_NAMES, *_configured_mcp_server_names(codex_home))
+    seen: set[str] = set()
+    overrides: list[str] = []
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        overrides.append(f"mcp_servers.{name}.enabled=false")
+    overrides.extend(CODEX_CAPTION_DISABLE_PLUGIN_CONFIG_OVERRIDES)
+    return tuple(overrides)
 
 
 def _sdk_config_class(sdk: Any) -> Any | None:
@@ -302,6 +349,8 @@ def _run_with_timeout(
     stage: str,
     progress_callback: ProgressCallback | None = None,
     heartbeat_seconds: float = 15.0,
+    on_timeout: Callable[[], None] | None = None,
+    timeout_cleanup_grace: float = 0.5,
 ) -> Any:
     """Run a blocking SDK call with a caller-visible timeout boundary."""
     timeout_seconds = _coerce_timeout_seconds(timeout)
@@ -326,6 +375,14 @@ def _run_with_timeout(
         elapsed = time.monotonic() - started_at
         remaining = timeout_seconds - elapsed
         if remaining <= 0:
+            if on_timeout is not None:
+                try:
+                    on_timeout()
+                except Exception:
+                    pass
+                cleanup_grace = _coerce_timeout_seconds(timeout_cleanup_grace)
+                if cleanup_grace > 0:
+                    worker.join(timeout=cleanup_grace)
             raise CodexAppServerError(
                 f"Codex app-server {stage} timed out after {timeout_seconds:.0f}s.",
                 kind="timeout",
@@ -522,6 +579,8 @@ def build_codex_app_server_env(
     env = dict(source_env)
     for key in API_KEY_ENV_VARS:
         env.pop(key, None)
+    env.pop(RUST_LOG_ENV, None)
+    env[CODEX_APP_SERVER_LOG_LEVEL_ENV] = DEFAULT_CODEX_APP_SERVER_LOG_LEVEL
 
     if config.auth_mode == "api_key":
         api_key = config.api_key or source_env.get("OPENAI_API_KEY", "")
@@ -542,6 +601,8 @@ def _create_app_server_config(sdk: Any, config: CodexAppServerConfig) -> Any | N
         )
     sanitized_env = build_codex_app_server_env(config)
     kwargs: dict[str, Any] = {"env": sanitized_env}
+    if config.config_overrides:
+        kwargs["config_overrides"] = tuple(config.config_overrides)
     if config.runtime_path:
         kwargs["codex_bin"] = str(Path(config.runtime_path).expanduser())
     if config.isolated_cwd:
@@ -600,6 +661,7 @@ def _cache_key(config: CodexAppServerConfig) -> tuple[Any, ...]:
         str(Path(config.codex_home).expanduser()) if config.codex_home else "",
         str(Path(config.runtime_path).expanduser()) if config.runtime_path else "",
         str(Path(config.isolated_cwd).expanduser()) if config.isolated_cwd else "",
+        tuple(config.config_overrides),
     )
 
 
@@ -947,6 +1009,7 @@ class CodexAppServerCaptionClient:
                 timeout=self.config.timeout if timeout is None else timeout,
                 stage="caption_image",
                 progress_callback=progress_callback,
+                on_timeout=self.close,
             )
         except CodexAppServerError as exc:
             if _should_reset_client_after_failure(exc.kind):

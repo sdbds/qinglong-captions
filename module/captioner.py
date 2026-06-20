@@ -408,6 +408,20 @@ def setup_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow launcher scripts to install the optional Codex Python SDK extra.",
     )
+    codex_mcp_group = parser.add_mutually_exclusive_group()
+    codex_mcp_group.add_argument(
+        "--codex_disable_mcp",
+        dest="codex_disable_mcp",
+        action="store_true",
+        default=True,
+        help="Disable user-configured MCP servers and plugins for Codex app-server captioning. Default: enabled.",
+    )
+    codex_mcp_group.add_argument(
+        "--no_codex_disable_mcp",
+        dest="codex_disable_mcp",
+        action="store_false",
+        help="Allow Codex app-server captioning to load user-configured MCP servers and plugins.",
+    )
     parser.add_argument(
         "--grok_build_subscription",
         action="store_true",

@@ -103,6 +103,7 @@ def test_codex_app_server_closed_client_and_pool_errors_are_retryable(monkeypatc
     assert pool_exc.value.kind == "closed"
     assert pool_exc.value.retryable is True
 
+
 def test_codex_sdk_stdout_noise_filter_skips_windows_taskkill_success():
     from module.providers.codex_app_server import load_openai_codex_sdk
 
@@ -114,6 +115,27 @@ def test_codex_sdk_stdout_noise_filter_skips_windows_taskkill_success():
         pytest.skip("PyPI openai-codex no longer exposes the old AppServerClient stdout reader")
 
     client = AppServerClient()
+    client._proc = SimpleNamespace(
+        stdout=io.StringIO(
+            "SUCCESS: The process with PID 209968 (child process of PID 66372) has been terminated.\n"
+            '{"id":"ok","result":{}}\n'
+        )
+    )
+
+    assert client._read_message() == {"id": "ok", "result": {}}
+
+
+def test_codex_sdk_stdout_noise_filter_skips_windows_taskkill_success_for_codex_client():
+    from module.providers.codex_app_server import load_openai_codex_sdk
+
+    load_openai_codex_sdk()
+
+    try:
+        from openai_codex.client import CodexClient
+    except ImportError:
+        pytest.skip("PyPI openai-codex does not expose the current CodexClient stdout reader")
+
+    client = CodexClient()
     client._proc = SimpleNamespace(
         stdout=io.StringIO(
             "SUCCESS: The process with PID 209968 (child process of PID 66372) has been terminated.\n"
@@ -497,7 +519,7 @@ def test_codex_app_server_uses_thread_and_turn_payloads_without_api_key_env(monk
     assert any("turn completed" in event for event in progress_events)
     thread_call = [payload for name, payload in fake.calls if name == "thread_start"][0]
     assert thread_call["config"] == {
-        "tools": {"view_image": True},
+        "tools": {},
     }
     assert captured["model"] == "gpt-5.4"
     assert captured["output_schema"] == {"type": "object"}
@@ -568,6 +590,15 @@ def test_codex_app_server_env_clears_api_keys_unless_explicit_api_key_mode(tmp_p
     assert "CODEX_API_KEY" not in subscription_env
     assert subscription_env["PATH"] == "demo-path"
     assert subscription_env["CODEX_HOME"].endswith("codex-home")
+    assert subscription_env["CODEX_LOG_LEVEL"] == "ERROR"
+    assert "RUST_LOG" not in subscription_env
+
+    noisy_env = build_codex_app_server_env(
+        CodexAppServerConfig(auth_mode="chatgpt"),
+        base_env={**base_env, "CODEX_LOG_LEVEL": "TRACE", "RUST_LOG": "trace"},
+    )
+    assert noisy_env["CODEX_LOG_LEVEL"] == "ERROR"
+    assert "RUST_LOG" not in noisy_env
 
     api_key_env = build_codex_app_server_env(
         CodexAppServerConfig(auth_mode="api_key", api_key="sk-explicit"),
@@ -575,12 +606,78 @@ def test_codex_app_server_env_clears_api_keys_unless_explicit_api_key_mode(tmp_p
     )
     assert api_key_env["OPENAI_API_KEY"] == "sk-explicit"
     assert "CODEX_API_KEY" not in api_key_env
+    assert api_key_env["CODEX_LOG_LEVEL"] == "ERROR"
+    assert "RUST_LOG" not in api_key_env
 
     api_key_env_from_source = build_codex_app_server_env(
         CodexAppServerConfig(auth_mode="api_key"),
         base_env=base_env,
     )
     assert api_key_env_from_source["OPENAI_API_KEY"] == "sk-env"
+
+
+def test_codex_app_server_disable_mcp_overrides_do_not_materialize_server_tables(tmp_path):
+    from module.providers.codex_app_server import (
+        CODEX_CAPTION_DISABLE_MCP_CONFIG_OVERRIDES,
+        build_codex_disable_mcp_config_overrides,
+    )
+
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        """
+[mcp_servers.node_repl]
+command = "node_repl"
+
+[mcp_servers.local-tool]
+command = "node"
+args = ["./mcp/server.mjs", "--stdio"]
+
+[plugins."gmail@openai-curated"]
+enabled = true
+
+[plugins."browser@openai-bundled".mcp_servers.browser]
+enabled = true
+""",
+        encoding="utf-8",
+    )
+
+    overrides = build_codex_disable_mcp_config_overrides(str(codex_home))
+
+    assert CODEX_CAPTION_DISABLE_MCP_CONFIG_OVERRIDES[0] == "mcp_servers.node_repl.enabled=false"
+    assert "mcp_servers.node_repl.enabled=false" in overrides
+    assert "mcp_servers.local-tool.enabled=false" in overrides
+    assert "mcp_servers.node_repl.enabled=false" in overrides
+    assert "features.plugins=false" in overrides
+    assert "mcp_servers={}" not in overrides
+    assert not any('"node_repl"' in override or '"local-tool"' in override for override in overrides)
+    assert "plugins={}" not in overrides
+
+
+def test_codex_app_server_config_passes_mcp_disable_overrides_to_sdk(tmp_path):
+    from module.providers.codex_app_server import CodexAppServerConfig, _create_app_server_config
+
+    captured = {}
+
+    class FakeCodexConfig:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    sdk = SimpleNamespace(CodexConfig=FakeCodexConfig)
+    from module.providers.codex_app_server import CODEX_CAPTION_DISABLE_MCP_CONFIG_OVERRIDES
+
+    overrides = CODEX_CAPTION_DISABLE_MCP_CONFIG_OVERRIDES
+
+    _create_app_server_config(
+        sdk,
+        CodexAppServerConfig(
+            auth_mode="chatgpt",
+            isolated_cwd=str(tmp_path / "work"),
+            config_overrides=overrides,
+        ),
+    )
+
+    assert captured["config_overrides"] == overrides
 
 
 def test_codex_app_server_supports_typed_thread_run_shape(tmp_path):
@@ -631,7 +728,7 @@ def test_codex_app_server_supports_typed_thread_run_shape(tmp_path):
 
     assert captured["thread_start"]["ephemeral"] is True
     assert captured["thread_start"]["config"] == {
-        "tools": {"view_image": True},
+        "tools": {},
     }
     assert captured["model"] == "gpt-5.4"
     assert captured["output_schema"] == {"type": "object"}
@@ -1496,6 +1593,32 @@ def test_codex_app_server_timeout_emits_waiting_heartbeat():
     assert any("caption_image still waiting" in event for event in progress_events)
 
 
+def test_codex_app_server_timeout_runs_cleanup_before_returning():
+    import threading
+
+    from module.providers.codex_app_server import CodexAppServerError, _run_with_timeout
+
+    cleanup_started = threading.Event()
+    worker_finished_after_cleanup = threading.Event()
+
+    def blocking_call():
+        cleanup_started.wait(timeout=1.0)
+        worker_finished_after_cleanup.set()
+
+    with pytest.raises(CodexAppServerError) as exc_info:
+        _run_with_timeout(
+            blocking_call,
+            timeout=0.02,
+            stage="caption_image",
+            on_timeout=cleanup_started.set,
+            timeout_cleanup_grace=0.5,
+        )
+
+    assert exc_info.value.kind == "timeout"
+    assert cleanup_started.is_set()
+    assert worker_finished_after_cleanup.is_set()
+
+
 def test_codex_app_server_missing_sdk_error_mentions_optional_extra(monkeypatch):
     import builtins
 
@@ -1545,7 +1668,19 @@ def test_codex_subscription_defaults_to_sdk_app_server(monkeypatch, tmp_path):
         )
 
     monkeypatch.setattr(codex_subscription, "caption_image_with_app_server", fake_caption)
-    args = make_provider_args(codex_subscription=True)
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        """
+[mcp_servers.node_repl]
+command = "node_repl"
+
+[plugins."gmail@openai-curated"]
+enabled = true
+""",
+        encoding="utf-8",
+    )
+    args = make_provider_args(codex_subscription=True, codex_home=str(codex_home))
     provider = CodexSubscriptionProvider(ProviderContext(console=Console(), args=args))
     media = MediaContext(uri=str(image), mime="image/png", sha256hash="", modality=MediaModality.IMAGE)
 
@@ -1557,9 +1692,47 @@ def test_codex_subscription_defaults_to_sdk_app_server(monkeypatch, tmp_path):
     assert captured["config"].auth_mode == "chatgpt"
     assert captured["config"].api_key == ""
     assert captured["config"].reasoning_effort == "none"
+    assert "mcp_servers.node_repl.enabled=false" in captured["config"].config_overrides
+    assert "features.plugins=false" in captured["config"].config_overrides
+    assert "mcp_servers={}" not in captured["config"].config_overrides
+    assert not any('"node_repl"' in override for override in captured["config"].config_overrides)
+    assert "plugins={}" not in captured["config"].config_overrides
     assert captured["output_schema"]["type"] == "object"
     assert captured["progress_callback"] is None
     assert result.parsed["long_description"] == "long"
+
+
+def test_codex_subscription_can_allow_user_mcp_config(monkeypatch, tmp_path):
+    from rich.console import Console
+
+    from module.providers.base import MediaContext, MediaModality, ProviderContext, PromptContext
+    from module.providers.cloud_vlm import codex_subscription
+    from module.providers.cloud_vlm.codex_subscription import CodexSubscriptionProvider
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+    captured = {}
+
+    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+        captured["config"] = config
+        return SimpleNamespace(
+            parsed={
+                "short_description": "short",
+                "long_description": "long",
+                "tags": ["tag"],
+                "rating": "general",
+                "confidence": 0.8,
+            }
+        )
+
+    monkeypatch.setattr(codex_subscription, "caption_image_with_app_server", fake_caption)
+    args = make_provider_args(codex_subscription=True, codex_disable_mcp=False)
+    provider = CodexSubscriptionProvider(ProviderContext(console=Console(), args=args))
+    media = MediaContext(uri=str(image), mime="image/png", sha256hash="", modality=MediaModality.IMAGE)
+
+    provider.attempt(media, PromptContext(system="sys", user="user"))
+
+    assert captured["config"].config_overrides == ()
 
 
 def test_codex_subscription_retries_retryable_app_server_transport(monkeypatch, tmp_path):
