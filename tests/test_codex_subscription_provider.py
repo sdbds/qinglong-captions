@@ -1413,6 +1413,63 @@ def test_codex_app_server_pool_replaces_reset_slot(monkeypatch, tmp_path):
     pool.close()
 
 
+def test_codex_app_server_pool_replaces_closed_client(monkeypatch, tmp_path):
+    from module.providers import codex_app_server
+    from module.providers.codex_app_server import (
+        CodexAppServerClientPool,
+        CodexAppServerConfig,
+        CodexAppServerError,
+        CodexAppServerResult,
+    )
+
+    image = tmp_path / "image.png"
+    image.write_bytes(b"fake")
+    created = []
+    calls = 0
+
+    class FakeSdkClient:
+        def __init__(self):
+            self.closed = False
+            created.append(self)
+
+        def close(self):
+            self.closed = True
+
+    def fake_caption_image(self, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise CodexAppServerError("client closed", kind="closed", retryable=True)
+        return CodexAppServerResult(
+            raw='{"long_description": "recovered"}',
+            parsed={"long_description": "recovered"},
+            thread_id="thread-2",
+            turn_id="turn-2",
+            metadata={},
+        )
+
+    monkeypatch.setattr(codex_app_server, "_create_sdk_client", lambda _config: FakeSdkClient())
+    monkeypatch.setattr(codex_app_server.CodexAppServerCaptionClient, "caption_image", fake_caption_image)
+    pool = CodexAppServerClientPool(
+        CodexAppServerConfig(auth_mode="chatgpt", isolated_cwd=str(tmp_path / "work")),
+        1,
+    )
+
+    with pytest.raises(CodexAppServerError) as exc_info:
+        pool.caption_image(image_path=image, prompt="caption")
+
+    assert exc_info.value.kind == "closed"
+    assert exc_info.value.retryable is True
+    assert len(created) == 2
+    assert created[0].closed is True
+    assert created[1].closed is False
+
+    result = pool.caption_image(image_path=image, prompt="caption", timeout=0.5)
+
+    assert result.parsed["long_description"] == "recovered"
+    pool.close()
+
+
 def test_codex_app_server_direct_client_timeout_closes_sdk_client(tmp_path):
     import time
 
