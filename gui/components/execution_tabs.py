@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TABS_CONFIG_PATH = PROJECT_ROOT / "config" / "task_tabs.toml"
 RUNTIME_VENVS_DIR = PROJECT_ROOT / ".runtime_venvs"
 RUNTIME_VENV_PYTHON = "3.11"
+DEFAULT_UV_INDEX_STRATEGY = "unsafe-best-match"
+BASE_INSTALL_MARKER = ".qinglong_base_installed"
 
 
 @dataclass
@@ -62,8 +65,18 @@ def _python_for_venv(venv_path: Path) -> Path:
     return venv_path / ("Scripts" if sys.platform == "win32" else "bin") / ("python.exe" if sys.platform == "win32" else "python")
 
 
-def _venv_create_command(venv_path: Path) -> tuple[list[str], bool]:
+def _find_uv_executable() -> Optional[str]:
     uv = shutil.which("uv")
+    if uv:
+        return uv
+    local_uv = Path.home() / ".local" / "bin" / ("uv.exe" if sys.platform == "win32" else "uv")
+    if local_uv.exists():
+        return str(local_uv)
+    return None
+
+
+def _venv_create_command(venv_path: Path) -> tuple[list[str], bool]:
+    uv = _find_uv_executable()
     if uv:
         return [uv, "venv", "-p", RUNTIME_VENV_PYTHON, "--seed", str(venv_path)], False
 
@@ -77,6 +90,34 @@ def _venv_create_command(venv_path: Path) -> tuple[list[str], bool]:
         return [python311, "-m", "venv", str(venv_path)], True
 
     return [sys.executable, "-m", "venv", str(venv_path)], True
+
+
+def _base_dependency_install_command(python_path: Path) -> list[str]:
+    uv = _find_uv_executable()
+    if uv:
+        index_strategy = os.environ.get("UV_INDEX_STRATEGY", DEFAULT_UV_INDEX_STRATEGY).strip()
+        cmd = [uv, "pip", "install", "--no-build-isolation"]
+        if index_strategy:
+            cmd.extend(["--index-strategy", index_strategy])
+        cmd.extend(["--python", str(python_path), "-r", "pyproject.toml"])
+        return cmd
+
+    return [str(python_path), "-m", "pip", "install", "--no-build-isolation", "-r", "pyproject.toml"]
+
+
+def _base_install_marker_path(venv_path: Path) -> Path:
+    return venv_path / BASE_INSTALL_MARKER
+
+
+def _base_install_needed(venv_path: Path) -> bool:
+    marker = _base_install_marker_path(venv_path)
+    if not marker.exists():
+        return True
+    pyproject_path = PROJECT_ROOT / "pyproject.toml"
+    try:
+        return pyproject_path.stat().st_mtime > marker.stat().st_mtime
+    except OSError:
+        return True
 
 
 def _default_tab() -> TaskTab:
@@ -278,7 +319,9 @@ class ExecutionTabs:
         if tab.index == 1:
             return True
         if tab.status == "ready" and tab.python_path and tab.venv_path:
-            if _resolve_stored_path(tab.python_path).exists():
+            python_path = _resolve_stored_path(tab.python_path)
+            venv_path = _resolve_stored_path(tab.venv_path)
+            if python_path.exists() and not _base_install_needed(venv_path):
                 return True
             tab.status = "missing"
             tab.error_message = None
@@ -427,6 +470,48 @@ class ExecutionTabs:
         self._render_tabs()
         self._notify_tab_change()
 
+    async def _run_logged_command(
+        self,
+        tab: TaskTab,
+        cmd: list[str],
+        *,
+        creationflags: int,
+        failure_label: str,
+    ) -> None:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(PROJECT_ROOT),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            creationflags=creationflags,
+        )
+        if process.stdout is not None:
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                self._log(tab.id, line.decode("utf-8", errors="replace").rstrip())
+        return_code = await process.wait()
+        if return_code != 0:
+            raise RuntimeError(f"{failure_label} failed with code {return_code}")
+
+    async def _install_base_dependencies_for_tab(
+        self,
+        tab: TaskTab,
+        *,
+        venv_path: Path,
+        python_path: Path,
+        creationflags: int,
+    ) -> None:
+        base_cmd = _base_dependency_install_command(python_path)
+        self._log(tab.id, "Exporting base project dependencies from pyproject.toml")
+        self._log(tab.id, f"uv pip install target environment: {venv_path.name}")
+        self._log(tab.id, "uv pip install dependency profile: base-only")
+        self._log(tab.id, "基础安装直接使用 uv pip install -r pyproject.toml，不启用任何 extra")
+        self._log(tab.id, f"开始基础依赖安装: {' '.join(base_cmd)}")
+        await self._run_logged_command(tab, base_cmd, creationflags=creationflags, failure_label="base dependency install")
+        _base_install_marker_path(venv_path).write_text(datetime.now().isoformat(), encoding="utf-8")
+
     async def _create_venv_for_tab(self, tab: TaskTab) -> None:
         if tab.index == 1 or not tab.venv_path:
             return
@@ -438,57 +523,38 @@ class ExecutionTabs:
 
         venv_path = _resolve_stored_path(tab.venv_path)
         python_path = _python_for_venv(venv_path)
-        if python_path.exists():
-            tab.python_path = _relative_or_absolute(python_path)
-            tab.status = "ready"
-            save_task_tabs(self.tabs)
-            self._render_tabs()
-            self._notify_tab_change()
-            self._log(tab.id, f"{tab.name} venv ready: {tab.python_path}", "success")
-            return
-
-        cmd, needs_seed_bootstrap = _venv_create_command(venv_path)
-
-        self._log(tab.id, f"creating venv for {tab.name}: {' '.join(cmd)}")
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         try:
-            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                cwd=str(PROJECT_ROOT),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                creationflags=creationflags,
-            )
-            if process.stdout is not None:
-                while True:
-                    line = await process.stdout.readline()
-                    if not line:
-                        break
-                    self._log(tab.id, line.decode("utf-8", errors="replace").rstrip())
-            return_code = await process.wait()
-            if return_code != 0:
-                raise RuntimeError(f"venv creation failed with code {return_code}")
+            if python_path.exists():
+                if _base_install_needed(venv_path):
+                    self._log(tab.id, f"{tab.name} venv exists; installing missing base dependencies")
+                    await self._install_base_dependencies_for_tab(
+                        tab,
+                        venv_path=venv_path,
+                        python_path=python_path,
+                        creationflags=creationflags,
+                    )
+                tab.python_path = _relative_or_absolute(python_path)
+                tab.status = "ready"
+                self._log(tab.id, f"{tab.name} venv ready: {tab.python_path}", "success")
+                return
+
+            cmd, needs_seed_bootstrap = _venv_create_command(venv_path)
+
+            self._log(tab.id, f"creating venv for {tab.name}: {' '.join(cmd)}")
+            await self._run_logged_command(tab, cmd, creationflags=creationflags, failure_label="venv creation")
             if not python_path.exists():
                 raise RuntimeError(f"venv python not found: {python_path}")
             if needs_seed_bootstrap:
                 seed_cmd = [str(python_path), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"]
                 self._log(tab.id, f"seeding venv build tools: {' '.join(seed_cmd)}")
-                seed_process = await asyncio.create_subprocess_exec(
-                    *seed_cmd,
-                    cwd=str(PROJECT_ROOT),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,
-                    creationflags=creationflags,
-                )
-                if seed_process.stdout is not None:
-                    while True:
-                        line = await seed_process.stdout.readline()
-                        if not line:
-                            break
-                        self._log(tab.id, line.decode("utf-8", errors="replace").rstrip())
-                seed_return_code = await seed_process.wait()
-                if seed_return_code != 0:
-                    raise RuntimeError(f"venv seed bootstrap failed with code {seed_return_code}")
+                await self._run_logged_command(tab, seed_cmd, creationflags=creationflags, failure_label="venv seed bootstrap")
+            await self._install_base_dependencies_for_tab(
+                tab,
+                venv_path=venv_path,
+                python_path=python_path,
+                creationflags=creationflags,
+            )
             tab.python_path = _relative_or_absolute(python_path)
             tab.status = "ready"
             self._log(tab.id, f"{tab.name} venv ready: {tab.python_path}", "success")

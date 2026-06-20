@@ -23,11 +23,7 @@ def test_task_tab_dataclass_accepts_defaults_after_created_at():
 def test_runtime_venv_creation_uses_uv_python_311_seed(monkeypatch, tmp_path):
     uv_path = "C:\\Users\\qinglongshengzhe\\.local\\bin\\uv.exe"
 
-    monkeypatch.setattr(
-        execution_tabs_module.shutil,
-        "which",
-        lambda name: uv_path if name == "uv" else None,
-    )
+    monkeypatch.setattr(execution_tabs_module, "_find_uv_executable", lambda: uv_path)
 
     cmd, needs_seed_bootstrap = execution_tabs_module._venv_create_command(tmp_path / "tab-0002")
 
@@ -38,6 +34,7 @@ def test_runtime_venv_creation_uses_uv_python_311_seed(monkeypatch, tmp_path):
 def test_runtime_venv_creation_fallback_targets_python_311_and_bootstraps_seed(monkeypatch, tmp_path):
     py_launcher = "C:\\Windows\\py.exe"
 
+    monkeypatch.setattr(execution_tabs_module, "_find_uv_executable", lambda: None)
     monkeypatch.setattr(execution_tabs_module.sys, "platform", "win32")
     monkeypatch.setattr(
         execution_tabs_module.shutil,
@@ -49,6 +46,113 @@ def test_runtime_venv_creation_fallback_targets_python_311_and_bootstraps_seed(m
 
     assert cmd == [py_launcher, "-3.11", "-m", "venv", str(tmp_path / "tab-0002")]
     assert needs_seed_bootstrap is True
+
+
+def test_base_dependency_install_command_uses_uv_pyproject_base_only(monkeypatch, tmp_path):
+    uv_path = "C:\\Users\\qinglongshengzhe\\.local\\bin\\uv.exe"
+    python_path = tmp_path / "tab-0002" / "Scripts" / "python.exe"
+
+    monkeypatch.setattr(execution_tabs_module, "_find_uv_executable", lambda: uv_path)
+    monkeypatch.setenv("UV_INDEX_STRATEGY", "unsafe-best-match")
+
+    cmd = execution_tabs_module._base_dependency_install_command(python_path)
+
+    assert cmd == [
+        uv_path,
+        "pip",
+        "install",
+        "--no-build-isolation",
+        "--index-strategy",
+        "unsafe-best-match",
+        "--python",
+        str(python_path),
+        "-r",
+        "pyproject.toml",
+    ]
+
+
+def test_create_venv_installs_base_dependencies_before_ready(monkeypatch, tmp_path):
+    tabs = ExecutionTabs.__new__(ExecutionTabs)
+    venv_path = tmp_path / "tab-0002"
+    tab = TaskTab(
+        id="tab-0002",
+        name="任务 2",
+        index=2,
+        work_dir=".",
+        venv_path=str(venv_path),
+        python_path=str(venv_path / "Scripts" / "python.exe"),
+        created_at=datetime.now(),
+        status="missing",
+    )
+    tabs.tabs = [tab]
+    tabs._render_tabs = lambda: None
+    tabs._notify_tab_change = lambda: None
+    tabs._log = lambda *_args, **_kwargs: None
+    commands = []
+    create_cmd = ["uv", "venv", "-p", "3.11", "--seed", str(venv_path)]
+    base_cmd = ["uv", "pip", "install", "--no-build-isolation", "--python", str(venv_path / "Scripts" / "python.exe"), "-r", "pyproject.toml"]
+
+    async def fake_run_logged_command(tab_arg, cmd, *, creationflags, failure_label):
+        commands.append((cmd, failure_label))
+        if failure_label == "venv creation":
+            python_path = venv_path / "Scripts" / "python.exe"
+            python_path.parent.mkdir(parents=True, exist_ok=True)
+            python_path.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(execution_tabs_module, "save_task_tabs", lambda value: None)
+    monkeypatch.setattr(execution_tabs_module, "_venv_create_command", lambda value: (create_cmd, False))
+    monkeypatch.setattr(execution_tabs_module, "_base_dependency_install_command", lambda value: base_cmd)
+    tabs._run_logged_command = fake_run_logged_command
+
+    import asyncio
+
+    asyncio.run(ExecutionTabs._create_venv_for_tab(tabs, tab))
+
+    assert commands == [
+        (create_cmd, "venv creation"),
+        (base_cmd, "base dependency install"),
+    ]
+    assert tab.status == "ready"
+
+
+def test_ready_existing_venv_without_base_marker_installs_base_before_start(monkeypatch, tmp_path):
+    tabs = ExecutionTabs.__new__(ExecutionTabs)
+    venv_path = tmp_path / "tab-0002"
+    python_path = venv_path / "Scripts" / "python.exe"
+    python_path.parent.mkdir(parents=True, exist_ok=True)
+    python_path.write_text("", encoding="utf-8")
+    tab = TaskTab(
+        id="tab-0002",
+        name="任务 2",
+        index=2,
+        work_dir=".",
+        venv_path=str(venv_path),
+        python_path=str(python_path),
+        created_at=datetime.now(),
+        status="ready",
+    )
+    tabs.tabs = [tab]
+    tabs.active_tab_id = tab.id
+    tabs._render_tabs = lambda: None
+    tabs._notify_tab_change = lambda: None
+    tabs._log = lambda *_args, **_kwargs: None
+    base_cmd = ["uv", "pip", "install", "--no-build-isolation", "--python", str(python_path), "-r", "pyproject.toml"]
+    commands = []
+
+    async def fake_run_logged_command(tab_arg, cmd, *, creationflags, failure_label):
+        commands.append((cmd, failure_label))
+
+    monkeypatch.setattr(execution_tabs_module, "save_task_tabs", lambda value: None)
+    monkeypatch.setattr(execution_tabs_module, "_base_dependency_install_command", lambda value: base_cmd)
+    tabs._run_logged_command = fake_run_logged_command
+
+    import asyncio
+
+    assert asyncio.run(ExecutionTabs.ensure_active_tab_runtime_ready(tabs)) is True
+
+    assert commands == [(base_cmd, "base dependency install")]
+    assert execution_tabs_module._base_install_marker_path(venv_path).exists()
+    assert tab.status == "ready"
 
 
 def test_default_tab_runner_kwargs_keeps_legacy_python_resolution_but_includes_tab_metadata():
