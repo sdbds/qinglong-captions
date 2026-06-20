@@ -495,7 +495,7 @@ class ProcessRunner:
 
     @staticmethod
     def _needs_sync_patch(extras: list[str]) -> bool:
-        return "paddleocr" in extras
+        return "paddleocr-native" in extras
 
     @staticmethod
     def _profile_uses_torch(extras: list[str], groups: list[str]) -> bool:
@@ -1055,7 +1055,7 @@ class ProcessRunner:
                     uninstall_cmd.extend(["--python", target_python])
                 uninstall_cmd.extend(["torch", "torchvision", "torchaudio"])
                 uninstall_action = "uv pip uninstall"
-                self._notify_log("检测到 paddleocr，先卸载共享环境中的 torch / torchvision / torchaudio")
+                self._notify_log("检测到 paddleocr-native，先卸载共享环境中的 torch / torchvision / torchaudio")
                 self._notify_log(f"{uninstall_action} target environment: {env_name}")
                 self._notify_log(f"{uninstall_action} dependency profile: {', '.join(profile_parts)}")
                 self._notify_log(
@@ -1065,7 +1065,7 @@ class ProcessRunner:
                 uninstall_code = await self._run_logged_subprocess(uninstall_cmd, work_dir, env)
                 self.process = None
                 if uninstall_code != 0:
-                    self._notify_log("torch 栈卸载命令返回非零，继续安装 paddleocr 当前依赖")
+                    self._notify_log("torch 栈卸载命令返回非零，继续安装 paddleocr-native 当前依赖")
 
             cmd = [uv, "pip", "install", "--no-build-isolation"]
             action = "uv pip install"

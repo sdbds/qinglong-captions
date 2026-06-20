@@ -87,8 +87,8 @@ def test_patch_shared_environment_ignores_existing_lockfile_and_reads_pyproject(
     assert install_cmd[install_cmd.index("--extra") + 1] == "qwen-vl-local"
 
 
-def test_patch_shared_environment_uninstalls_torch_stack_for_paddleocr(tmp_path, monkeypatch):
-    _write_project(tmp_path, with_lock=False, optional_deps={"paddleocr": ["paddleocr[doc-parser]", "numpy"]})
+def test_patch_shared_environment_uninstalls_torch_stack_for_paddleocr_native(tmp_path, monkeypatch):
+    _write_project(tmp_path, with_lock=False, optional_deps={"paddleocr-native": ["paddleocr[doc-parser]", "numpy"]})
     runner = ProcessRunner()
     commands: list[list[str]] = []
 
@@ -99,7 +99,7 @@ def test_patch_shared_environment_uninstalls_torch_stack_for_paddleocr(tmp_path,
     monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
 
     result = asyncio.run(
-        runner._patch_shared_environment("uv", tmp_path, {}, "test-env", ["paddleocr"], []),
+        runner._patch_shared_environment("uv", tmp_path, {}, "test-env", ["paddleocr-native"], []),
     )
 
     assert result is None
@@ -114,7 +114,28 @@ def test_patch_shared_environment_uninstalls_torch_stack_for_paddleocr(tmp_path,
     install_cmd = commands[1]
     assert install_cmd[:4] == ["uv", "pip", "install", "--no-build-isolation"]
     assert install_cmd[install_cmd.index("-r") + 1] == "pyproject.toml"
-    assert install_cmd[install_cmd.index("--extra") + 1] == "paddleocr"
+    assert install_cmd[install_cmd.index("--extra") + 1] == "paddleocr-native"
+
+
+def test_patch_shared_environment_does_not_uninstall_torch_stack_for_paddleocr_onnx(tmp_path, monkeypatch):
+    _write_project(tmp_path, with_lock=False, optional_deps={"paddleocr-onnx": ["paddleocr>=3.7.0"]})
+    runner = ProcessRunner()
+    commands: list[list[str]] = []
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+
+    result = asyncio.run(
+        runner._patch_shared_environment("uv", tmp_path, {}, "test-env", ["paddleocr-onnx"], []),
+    )
+
+    assert result is None
+    assert len(commands) == 1
+    assert commands[0][:4] == ["uv", "pip", "install", "--no-build-isolation"]
+    assert commands[0][commands[0].index("--extra") + 1] == "paddleocr-onnx"
 
 
 def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_path, monkeypatch):

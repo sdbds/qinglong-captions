@@ -769,6 +769,10 @@ model_id = "datalab-to/chandra-ocr-2"
 max_new_tokens = 12384
 prompt_type = "ocr_layout"
 
+[paddle_ocr]
+backend = "ppocrv6_onnx"
+model_tier = "medium"
+
 [paddle_ocr.save]
 save_json = true
 save_markdown = true
@@ -781,12 +785,26 @@ save_video = false
 [paddle_ocr.pipeline]
 use_doc_orientation_classify = false
 use_doc_unwarping = false
+use_textline_orientation = false
+lang = ""
+device = ""
+text_det_limit_side_len = ""
+text_det_limit_type = ""
+text_det_thresh = ""
+text_det_box_thresh = ""
+text_det_unclip_ratio = ""
+text_rec_score_thresh = ""
+text_recognition_batch_size = ""
+textline_orientation_batch_size = ""
+return_word_box = ""
+
+[paddle_ocr.vl_pipeline]
+use_doc_orientation_classify = false
+use_doc_unwarping = false
 use_layout_detection = false
 use_chart_recognition = ""
 use_seal_recognition = ""
 use_ocr_for_image_block = true
-enable_hpi = ""
-use_tensorrt = ""
 format_block_content = true
 merge_layout_blocks = true
 markdown_ignore_labels = []
@@ -794,12 +812,12 @@ layout_threshold = ""
 layout_nms = ""
 layout_unclip_ratio = ""
 layout_merge_bboxes_mode = ""
+use_queues = ""
 
 [paddle_ocr.pdf]
-use_queues = ""
-merge_table = ""
+merge_tables = ""
 relevel_titles = ""
-merge_pages = ""
+concatenate_pages = ""
 
 [ark]
 fps = 2

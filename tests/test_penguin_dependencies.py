@@ -313,6 +313,17 @@ def test_caption_step_includes_infinity_parser2_ocr_extra():
     assert step._build_local_extra_args() == ["--extra", "infinity-parser2-ocr"]
 
 
+def test_caption_step_includes_paddleocr_onnx_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_paddleocr_onnx")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="paddle_ocr")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="")
+
+    assert step._build_local_extra_args() == ["--extra", "paddleocr-onnx"]
+
+
 def test_caption_step_includes_logics_ocr_extra():
     CaptionStep = _load_caption_step("test_step4_caption_logics")
 

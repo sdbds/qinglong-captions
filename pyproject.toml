@@ -127,6 +127,13 @@ olmocr = [
     "img2pdf",
 ]
 paddleocr = [
+    "qinglong-captions[paddleocr-onnx]",
+]
+paddleocr-onnx = [
+    "qinglong-captions[onnx-base]",
+    "paddleocr>=3.7.0",
+]
+paddleocr-native = [
     "rich>=14.3.1",
     "pillow",
     "pyarrow",
@@ -394,39 +401,47 @@ allow-direct-references = true
 package = false
 conflicts = [
     [
+        { extra = "paddleocr-native" },
+        { extra = "paddleocr-onnx" },
+    ],
+    [
+        { extra = "paddleocr-native" },
+        { extra = "paddleocr" },
+    ],
+    [
         { extra = "deepseek-ocr" },
         { extra = "translate" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "wdtagger-cl-tagger-v2" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "reward-model" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "image-align" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "see-through" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "gemma4-local" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "marlin-2b-local" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "cohere-transcribe-local" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "mega-asr-local" },
     ],
     [
@@ -521,7 +536,7 @@ conflicts = [
         # Infinity Parser2 uses Transformers >=5.3.0; keep it away from
         # pinned older stacks, <5.3 caps, and forked Transformers runtimes.
         { extra = "infinity-parser2-ocr" },
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "deepseek-ocr" },
         { extra = "dots-ocr" },
         { extra = "penguin-vl-local" },
@@ -592,7 +607,7 @@ conflicts = [
     ],
     [
         { extra = "olmocr" },
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
     ],
     [
         { extra = "olmocr" },
@@ -635,99 +650,99 @@ conflicts = [
         { extra = "reka-edge-local" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "moondream" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "translate" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "torch-base" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "onnx-base" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "wdtagger" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "deepseek-ocr" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "logics-ocr" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "hunyuan-ocr" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "glm-ocr" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "firered-ocr" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "chandra-ocr" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "dots-ocr" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "qwen-vl-local" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "step-vl-local" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "penguin-vl-local" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "lfm-vl-local" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "vocal-midi" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "reka-edge-local" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "nanonets-ocr" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "qianfan-ocr" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "lighton-ocr" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "music-flamingo-local" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "eureka-audio-local" },
     ],
     [
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
         { extra = "acestep-transcriber-local" },
     ],
     [
@@ -744,7 +759,7 @@ conflicts = [
     ],
     [
         { group = "test" },
-        { extra = "paddleocr" },
+        { extra = "paddleocr-native" },
     ],
     [
         { group = "test" },

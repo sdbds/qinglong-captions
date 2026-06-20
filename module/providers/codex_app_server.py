@@ -35,8 +35,8 @@ SUPPORTED_CODEX_REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium
 
 INSTALL_CODEX_SDK_HINT = "Install it with: uv sync --extra codex-subscription"
 API_KEY_ENV_VARS = ("OPENAI_API_KEY", "CODEX_API_KEY")
-RETRYABLE_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport", "rate_limited"})
-RESET_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport"})
+RETRYABLE_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport", "rate_limited", "closed"})
+RESET_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport", "closed"})
 REQUIRED_CODEX_SDK_SYMBOLS = ("Codex", "TextInput", "LocalImageInput", "TurnResult")
 CODEX_SDK_CONFIG_SYMBOLS = ("CodexConfig", "AppServerConfig")
 DEFAULT_CODEX_TIMEOUT_SECONDS = 60.0
@@ -855,7 +855,11 @@ class CodexAppServerCaptionClient:
 
     def _ensure_open(self) -> None:
         if self._closed:
-            raise CodexAppServerError("Codex app-server client is closed.", kind="closed")
+            raise CodexAppServerError(
+                "Codex app-server client is closed.",
+                kind="closed",
+                retryable=_is_retryable_client_failure("closed"),
+            )
 
     def close(self) -> None:
         with self._close_lock:
@@ -1027,7 +1031,11 @@ class CodexAppServerClientPool:
 
     def _ensure_open(self) -> None:
         if self._closed:
-            raise CodexAppServerError("Codex app-server client pool is closed.", kind="closed")
+            raise CodexAppServerError(
+                "Codex app-server client pool is closed.",
+                kind="closed",
+                retryable=_is_retryable_client_failure("closed"),
+            )
 
     def _return_client(self, client: CodexAppServerCaptionClient) -> None:
         with self._close_lock:
