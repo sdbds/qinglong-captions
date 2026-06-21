@@ -264,6 +264,7 @@ def download_cl_tagger_v2_artifacts(
             snapshot_downloader(
                 repo_id=resolved_repo_id,
                 allow_patterns=[f"{version}/*"],
+                ignore_patterns=[f"{version}/model_split_files/*"],
                 local_dir=str(local_cache_dir),
                 force_download=force_download,
                 token=token,

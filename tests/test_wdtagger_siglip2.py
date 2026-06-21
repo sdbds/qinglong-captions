@@ -186,10 +186,11 @@ def test_download_cl_tagger_v2_artifacts_uses_explicit_v2_cache_dir(tmp_path, mo
     captured = {}
     monkeypatch.setenv("HF_TOKEN", "hf_test")
 
-    def fake_snapshot_download(*, repo_id, allow_patterns, local_dir, force_download, token=None):
+    def fake_snapshot_download(*, repo_id, allow_patterns, local_dir, force_download, token=None, ignore_patterns=None):
         captured["snapshot"] = {
             "repo_id": repo_id,
             "allow_patterns": list(allow_patterns),
+            "ignore_patterns": list(ignore_patterns or []),
             "local_dir": local_dir,
             "force_download": force_download,
             "token": token,
@@ -212,6 +213,7 @@ def test_download_cl_tagger_v2_artifacts_uses_explicit_v2_cache_dir(tmp_path, mo
     assert (cache_dir / CL_TAGGER_V2_DEFAULT_VERSION / "model_ood_ref.npz").is_file()
     assert captured["snapshot"]["repo_id"] == CL_TAGGER_V2_OPTION
     assert captured["snapshot"]["allow_patterns"] == [f"{CL_TAGGER_V2_DEFAULT_VERSION}/*"]
+    assert captured["snapshot"]["ignore_patterns"] == [f"{CL_TAGGER_V2_DEFAULT_VERSION}/model_split_files/*"]
     assert captured["snapshot"]["token"] == "hf_test"
 
 
@@ -328,7 +330,7 @@ def test_load_cl_tagger_v2_bundle_loads_processor_vocab_and_session(tmp_path):
             captured.setdefault("processor_calls", []).append((repo_id, local_files_only, token))
             return "processor"
 
-    def fake_snapshot_download(*, repo_id, allow_patterns, local_dir, force_download, token=None):
+    def fake_snapshot_download(*, repo_id, allow_patterns, local_dir, force_download, token=None, ignore_patterns=None):
         _write_siglip2_snapshot(
             Path(local_dir),
             metadata={
