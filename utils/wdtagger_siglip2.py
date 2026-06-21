@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -27,14 +28,16 @@ CL_TAGGER_V2_VERSIONS = (
     "v1_075",
     "v1_08",
     "v2_00",
+    "v2_01a",
 )
-CL_TAGGER_V2_DEFAULT_VERSION = "v2_00"
+CL_TAGGER_V2_DEFAULT_VERSION = "v2_01a"
 CL_TAGGER_V2_FALLBACK_THRESHOLD = 0.5
 CL_TAGGER_V2_THRESHOLD_OVERRIDES = {
     "v1_00": 0.6,
     "v1_01": 0.6,
     "v1_02": 0.9,
     "v2_00": 0.55,
+    "v2_01a": 0.55,
 }
 CL_TAGGER_V2_DEFAULT_MAX_NUM_PATCHES = 256
 CL_TAGGER_V2_OUTPUT_NAME = "logits"
@@ -48,6 +51,7 @@ _KNOWN_CATEGORY_KEYS = (
     "quality",
     "model",
 )
+_VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)([a-z]+)?$")
 
 
 @dataclass(frozen=True)
@@ -110,12 +114,11 @@ def normalize_cl_tagger_v2_version(version: str | None) -> str:
     if normalized.startswith("v"):
         normalized = normalized[1:]
     normalized = normalized.replace("_", ".")
-    parts = normalized.split(".")
-    if len(parts) == 2 and all(part.isdigit() for part in parts):
-        major = int(parts[0])
-        minor = parts[1]
+    match = _VERSION_PATTERN.fullmatch(normalized)
+    if match:
+        major, minor, suffix = match.groups()
         minor_width = 3 if len(minor) > 2 else 2
-        return f"v{major}_{int(minor):0{minor_width}d}"
+        return f"v{int(major)}_{int(minor):0{minor_width}d}{suffix or ''}"
     return value
 
 
@@ -270,7 +273,7 @@ def download_cl_tagger_v2_artifacts(
         hint = ""
         message = str(exc).lower()
         if any(marker in message for marker in ("401", "403", "forbidden", "gated", "access")):
-            hint = " Set HF_TOKEN after accepting the backend model access terms."
+            hint = " Set HF_TOKEN after accepting the model access terms."
         raise RuntimeError(
             f"Failed to download cl_tagger v2 artifacts from {resolved_repo_id}.{hint}"
         ) from exc

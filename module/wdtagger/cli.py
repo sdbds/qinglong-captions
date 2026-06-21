@@ -26,7 +26,7 @@ def setup_parser() -> argparse.ArgumentParser:
         "--cl_tagger_v2_version",
         type=str,
         default=CL_TAGGER_V2_DEFAULT_VERSION,
-        help="cl_tagger v2 model version to download, e.g. v2_00 or 2.0",
+        help="cl_tagger v2 model version to download, e.g. v2_01a or 2.01a",
     )
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for inference")
     parser.add_argument("--caption_extension", type=str, default=".txt", help="Extension for caption files")

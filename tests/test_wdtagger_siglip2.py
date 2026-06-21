@@ -37,7 +37,7 @@ def _write_siglip2_snapshot(
     ood_ref: bool = False,
 ) -> tuple[Path, Path, Path | None]:
     if stem is None:
-        if version == "v2_00":
+        if version in {"v2_00", "v2_01a"}:
             stem = "model"
         elif version == "v1_08":
             stem = "step_888514"
@@ -104,8 +104,8 @@ def _install_fake_transformer_loader(monkeypatch, **attrs):
 
 
 def test_cl_tagger_v2_defaults_track_current_space_version():
-    assert CL_TAGGER_V2_DEFAULT_VERSION == "v2_00"
-    assert CL_TAGGER_V2_VERSIONS[-3:] == ("v1_075", "v1_08", "v2_00")
+    assert CL_TAGGER_V2_DEFAULT_VERSION == "v2_01a"
+    assert CL_TAGGER_V2_VERSIONS[-4:] == ("v1_075", "v1_08", "v2_00", "v2_01a")
     assert normalize_cl_tagger_v2_version("1.05") == "v1_05"
     assert normalize_cl_tagger_v2_version("1.065") == "v1_065"
     assert normalize_cl_tagger_v2_version("1.07") == "v1_07"
@@ -113,6 +113,8 @@ def test_cl_tagger_v2_defaults_track_current_space_version():
     assert normalize_cl_tagger_v2_version("1.08") == "v1_08"
     assert normalize_cl_tagger_v2_version("2.0") == "v2_00"
     assert normalize_cl_tagger_v2_version("2.00") == "v2_00"
+    assert normalize_cl_tagger_v2_version("2.01a") == "v2_01a"
+    assert normalize_cl_tagger_v2_version("v2_1a") == "v2_01a"
     assert normalize_cl_tagger_v2_version("1.04") == "v1_04"
     assert normalize_cl_tagger_v2_version("v1_4") == "v1_04"
     assert default_cl_tagger_v2_threshold("v1_01") == 0.6
@@ -125,6 +127,7 @@ def test_cl_tagger_v2_defaults_track_current_space_version():
     assert default_cl_tagger_v2_threshold("v1_075") == 0.5
     assert default_cl_tagger_v2_threshold("v1_08") == 0.5
     assert default_cl_tagger_v2_threshold("v2_00") == 0.55
+    assert default_cl_tagger_v2_threshold("v2_01a") == 0.55
 
 
 def test_siglip2_onnx_bundle_keeps_legacy_constructor_shape():
