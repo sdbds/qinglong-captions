@@ -40,7 +40,7 @@ dependencies = [
 
 [project.optional-dependencies]
 torch-base = [
-    "torch==2.11.0",
+    "torch==2.12.1",
     "torchvision",
     "accelerate",
     "huggingface_hub[hf_xet]>=0.35.2",
@@ -959,7 +959,7 @@ explicit = true
 [tool.uv.sources]
 dots_ocr = { path = "third_party/dots.ocr", editable = true }
 flash-attn = [
-    { url = "https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.11.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32'" },
+    { url = "https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.12.1cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32'" },
 ]
 onnxruntime-gpu = { index = "onnxruntime-cuda13" }
 torch = [
