@@ -23,6 +23,7 @@ and accessing the data through PyTorch datasets.
 import argparse
 import hashlib
 import mimetypes
+from collections.abc import Iterable, Iterator, Sized
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -502,9 +503,20 @@ class FileProcessor:
             return None
 
 
-def _iter_candidate_files(root: Path, recursive: bool = True) -> List[Path]:
-    iterator = root.rglob("*") if recursive else root.iterdir()
-    return sorted(path for path in iterator if path.is_file())
+def _sorted_directory_entries(root: Path) -> List[Path]:
+    try:
+        return sorted(root.iterdir())
+    except OSError as exc:
+        print_exception(console, exc, prefix=f"Error scanning directory {root}", summary_style="yellow")
+        return []
+
+
+def _iter_candidate_files(root: Path, recursive: bool = True) -> Iterator[Path]:
+    for path in _sorted_directory_entries(root):
+        if path.is_file():
+            yield path
+        elif recursive and not path.is_symlink() and path.is_dir():
+            yield from _iter_candidate_files(path, recursive=True)
 
 
 def _read_caption_file(path: Path) -> List[str]:
@@ -536,16 +548,39 @@ def _make_data_item(file_path: Path, caption: Optional[List[str]] = None) -> Dic
     }
 
 
-def load_data(datasets_dir: str, texts_dir: Optional[str] = None, include_text_assets: bool = True) -> List[Dict[str, Any]]:
-    """
-    Load primary assets and optional sidecar text files from directories.
+def _iter_data_items_in_directory(directory: Path, include_text_assets: bool) -> Iterator[Dict[str, Any]]:
+    entries = _sorted_directory_entries(directory)
+    files = [path for path in entries if path.is_file()]
+    non_text_stems = {
+        file_path.with_suffix("")
+        for file_path in files
+        if file_path.suffix.lower() in _non_text_primary_ext_set
+    }
 
-    Sidecar detection only applies to .txt/.md/.srt files paired with a
-    non-text asset of the same stem. Standalone .txt/.md files are imported
-    as primary assets by default.
-    """
+    for path in entries:
+        if path.is_file():
+            suffix = path.suffix.lower()
+            if suffix in _non_text_primary_ext_set:
+                yield _make_data_item(path, _find_sidecar_caption(path))
+                continue
+
+            if not include_text_assets or suffix not in _text_ext_set:
+                continue
+
+            if suffix in _sidecar_text_ext_set and path.with_suffix("") in non_text_stems:
+                continue
+
+            yield _make_data_item(path)
+        elif not path.is_symlink() and path.is_dir():
+            yield from _iter_data_items_in_directory(path, include_text_assets)
+
+
+def iter_data_items(
+    datasets_dir: str,
+    texts_dir: Optional[str] = None,
+    include_text_assets: bool = True,
+) -> Iterator[Dict[str, Any]]:
     dataset_root = Path(datasets_dir).absolute()
-    data: List[Dict[str, Any]] = []
 
     if texts_dir:
         caption_root = Path(texts_dir).absolute()
@@ -554,39 +589,43 @@ def load_data(datasets_dir: str, texts_dir: Optional[str] = None, include_text_a
             if file_path.suffix.lower() not in allowed_exts:
                 continue
             caption = _find_sidecar_caption(file_path, caption_root=caption_root, dataset_root=dataset_root)
-            data.append(_make_data_item(file_path, caption))
-        return data
+            yield _make_data_item(file_path, caption)
+        return
 
-    files = _iter_candidate_files(dataset_root, recursive=True)
-    non_text_stems = {file_path.with_suffix("") for file_path in files if file_path.suffix.lower() in _non_text_primary_ext_set}
+    yield from _iter_data_items_in_directory(dataset_root, include_text_assets)
 
-    for file_path in files:
-        suffix = file_path.suffix.lower()
-        if suffix in _non_text_primary_ext_set:
-            data.append(_make_data_item(file_path, _find_sidecar_caption(file_path)))
-            continue
 
-        if not include_text_assets or suffix not in _text_ext_set:
-            continue
+def load_data(datasets_dir: str, texts_dir: Optional[str] = None, include_text_assets: bool = True) -> List[Dict[str, Any]]:
+    """
+    Load primary assets and optional sidecar text files from directories.
 
-        if suffix in _sidecar_text_ext_set and file_path.with_suffix("") in non_text_stems:
-            continue
+    Sidecar detection only applies to .txt/.md/.srt files paired with a
+    non-text asset of the same stem. Standalone .txt/.md files are imported
+    as primary assets by default.
+    """
+    return list(iter_data_items(datasets_dir, texts_dir, include_text_assets=include_text_assets))
 
-        data.append(_make_data_item(file_path))
 
-    return data
+def _known_total(data: Iterable[Dict[str, Any]]) -> Optional[int]:
+    if not isinstance(data, Sized):
+        return None
+    try:
+        return len(data)
+    except TypeError:
+        return None
+
 
 def process(
-    data: List[Dict[str, Any]],
+    data: Iterable[Dict[str, Any]],
     save_binary: bool = False,
     import_mode: VideoImportMode = VideoImportMode.ALL,
     schema: Optional[pa.Schema] = None,
-) -> pa.RecordBatch:
+) -> Iterator[pa.RecordBatch]:
     """
     Process image-caption pairs into Lance format.
 
     Args:
-        data: List of dictionaries containing file paths and captions.
+        data: Iterable of dictionaries containing file paths and captions.
         save_binary: Whether to save binary data.
         import_mode: Mode for importing video components:
                     - ALL: Complete video with audio
@@ -595,7 +634,7 @@ def process(
                     - VIDEO_SPLIT_AUDIO: Split video and audio
 
     Returns:
-        A PyArrow RecordBatch containing the processed data.
+        PyArrow RecordBatches containing the processed data.
     """
     processor = FileProcessor()
     target_schema = schema or build_lance_schema(
@@ -623,7 +662,7 @@ def process(
 
         console = progress.console
 
-        task = progress.add_task("[green]Processing file...", total=len(data))
+        task = progress.add_task("[green]Processing file...", total=_known_total(data))
 
         for item in data:
             file_path = item["file_path"]
@@ -711,17 +750,21 @@ def transform2lance(
     not_save_disk: bool = False,
     import_mode: VideoImportMode = VideoImportMode.ALL,
     tag: str = "gemini",
-    load_condition: Callable[..., List[Dict[str, Any]]] = load_data,
+    load_condition: Callable[..., Iterable[Dict[str, Any]]] = load_data,
     include_text_assets: bool = True,
     data_storage_version: str = DEFAULT_BLOB_DATA_STORAGE_VERSION,
 ) -> Optional[lance.LanceDataset]:
     """
     Transform dataset assets into Lance format.
     """
-    try:
-        data = load_condition(dataset_dir, caption_dir, include_text_assets=include_text_assets)
-    except TypeError:
-        data = load_condition(dataset_dir, caption_dir)
+    if load_condition is load_data:
+        console.print(f"[blue]Streaming dataset files from {Path(dataset_dir).absolute()}[/blue]")
+        data = iter_data_items(dataset_dir, caption_dir, include_text_assets=include_text_assets)
+    else:
+        try:
+            data = load_condition(dataset_dir, caption_dir, include_text_assets=include_text_assets)
+        except TypeError:
+            data = load_condition(dataset_dir, caption_dir)
 
     try:
         dataset_path = Path(dataset_dir) / f"{output_name}.lance"

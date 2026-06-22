@@ -79,6 +79,81 @@ def test_lanceimport_cli_defaults_to_no_binary_save():
     assert parser.parse_args(["dataset", "--save_binary"]).save_binary is True
 
 
+def test_lanceimport_process_accepts_unsized_iterable(monkeypatch, tmp_path):
+    import module.lanceImport as lance_import
+
+    source = tmp_path / "image.png"
+    source.write_bytes(b"image")
+    metadata = lance_import.Metadata(
+        uris=str(source),
+        mime="image/png",
+        width=1,
+        height=1,
+        depth=8,
+        channels=3,
+        hash="hash",
+        size=5,
+        has_audio=False,
+        duration=0,
+        num_frames=1,
+        frame_rate=0.0,
+        blob=b"",
+    )
+    monkeypatch.setattr(lance_import.FileProcessor, "load_metadata", staticmethod(lambda *_args, **_kwargs: metadata))
+
+    rows = (
+        row
+        for row in [
+            {
+                "file_path": str(source),
+                "caption": ["caption"],
+                "chunk_offsets": [],
+            }
+        ]
+    )
+
+    batches = list(lance_import.process(rows, save_binary=False))
+
+    assert len(batches) == 1
+    assert batches[0].num_rows == 1
+
+
+def test_transform2lance_uses_streaming_default_loader(monkeypatch, tmp_path):
+    import module.lanceImport as lance_import
+
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"video")
+    media.with_suffix(".txt").write_text("paired caption", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("standalone text", encoding="utf-8")
+    captured_rows = []
+
+    class FakeRecordBatchReader:
+        @staticmethod
+        def from_batches(_schema, batches):
+            return ("reader", batches)
+
+    def fake_process(data, *_args, **_kwargs):
+        assert not isinstance(data, list)
+        captured_rows.extend(list(data))
+        return []
+
+    def fake_write_dataset(reader, *_args, **_kwargs):
+        assert reader[0] == "reader"
+        return object()
+
+    monkeypatch.setattr(lance_import.pa, "RecordBatchReader", FakeRecordBatchReader)
+    monkeypatch.setattr(lance_import, "process", fake_process)
+    monkeypatch.setattr(lance_import.lance, "write_dataset", fake_write_dataset)
+    monkeypatch.setattr(lance_import, "update_or_create_tag", lambda *_args, **_kwargs: None)
+
+    dataset = lance_import.transform2lance(str(tmp_path))
+
+    assert dataset is not None
+    assert [Path(row["file_path"]).name for row in captured_rows] == ["clip.mp4", "notes.txt"]
+    assert captured_rows[0]["caption"] == ["paired caption"]
+    assert captured_rows[1]["caption"] == []
+
+
 class ReadableBlob:
     def __init__(self, payload: bytes):
         self._stream = io.BytesIO(payload)
