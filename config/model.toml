@@ -45,22 +45,6 @@ max_output_tokens = 8192
 response_modalities = ["image", "text"]
 response_mime_type = "text/plain"
 
-[generation_config.gemini-3-pro-preview]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-
-[generation_config.gemini-3-pro-image-preview]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["image", "text"]
-response_mime_type = "text/plain"
-
 [generation_config.gemini-3_1-pro-preview]
 temperature = 1.0
 top_p = 0.95
@@ -69,20 +53,44 @@ max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
 
-[generation_config.gemini-3_1-flash-image-preview]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["image", "text"]
-response_mime_type = "text/plain"
-
-[generation_config.gemini-3_1-flash-lite-preview]
+[generation_config.gemini-3_5-flash]
 temperature = 1.0
 top_p = 0.95
 top_k = 64
 max_output_tokens = 65536
 response_modalities = ["text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-3-flash-preview]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-3_1-flash-lite]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-3_1-flash-image]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 8192
+response_modalities = ["image", "text"]
+response_mime_type = "text/plain"
+
+[generation_config.gemini-3-pro-image]
+temperature = 1.0
+top_p = 0.95
+top_k = 64
+max_output_tokens = 65536
+response_modalities = ["image", "text"]
 response_mime_type = "text/plain"
 
 [olmocr]

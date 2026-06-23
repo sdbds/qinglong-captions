@@ -269,7 +269,7 @@ class GeminiProvider(VisionAPIProvider):
         client = genai.Client(api_key=self.ctx.args.gemini_api_key)
         model_path = self.ctx.args.gemini_model_path
         if getattr(self.ctx.args, "gemini_task", "") and media.mime.startswith("image"):
-            model_path = "gemini-3-pro-image-preview"
+            model_path = "gemini-3-pro-image"
 
         # 获取 generation config
         generation_config = self._get_generation_config()
