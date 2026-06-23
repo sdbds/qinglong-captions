@@ -3,9 +3,29 @@
 <details>
 <summary>中文说明（点击展开）</summary>
 
-# 青龙字幕工具 (4.4.0)
+# 青龙字幕工具 (4.5.0)
 
 ## 更新日志
+
+### 4.5 - 新增 OCR Provider、Grok Build 订阅与 GUI 任务标签页
+
+1. 新增 Provider：
+   - 新增 `unlimited_ocr`，基于 `baidu/Unlimited-OCR` 3B 模型，支持图片与 PDF OCR，提供 `gundam` / `base` 两种图像模式
+   - 新增 `infinity_parser2` OCR Provider
+   - 新增 `grok_build_subscription` 订阅 Provider，通过无头浏览器自动化使用 Grok Build 进行字幕生成
+2. PaddleOCR 迁移到 PP-OCRv6 ONNX 后端，统一走 ONNX Runtime 配置
+3. GUI 新增任务标签页（Task Tabs），支持隔离运行时并发执行多个任务
+4. `gemma4_local` 新增 12B 本地模型支持
+5. Kimi Code 新增 thinking mode 选项
+6. 云端 Provider 新增 image-only 并发模式，图片输入可并行调用 API
+7. 图片预处理新增 resize 限制 GUI 暴露，OpenCV GPU 初始化逻辑优化
+8. Lance 数据集导入改为流式处理，降低内存占用
+9. Codex 订阅 Provider 稳定性修复：超时清理、客户端重试、MCP 启动隔离、传输与评分默认值
+10. Grok Build 支持 image MIME 转码，适配不同图片格式输入
+11. 新增全局目录名上下文，可在 caption prompt 中引用输入目录名称
+12. 依赖安装默认使用阿里云 PyPI 镜像，加速国内安装
+13. Provider 声明重构，统一 `CaptionResult` 返回类型
+14. 修复 Unlimited-OCR 输出 Markdown 缺少硬换行（双空格结尾）导致预览不换行的问题
 
 ### 4.4 - 本地模型、GUI 与 WDTagger 更新
 
@@ -390,11 +410,31 @@ python -m gui.launch --native --port 7899
 
 </details>
 
-# qinglong-captioner (4.4.0)
+# qinglong-captioner (4.5.0)
 
 A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation, audio separation, and cloud / local provider routing.
 
 ## Changelog
+
+### 4.5 - New OCR Providers, Grok Build Subscription, And GUI Task Tabs
+
+1. New Providers:
+   - Added `unlimited_ocr` based on `baidu/Unlimited-OCR` 3B, supporting image and PDF OCR with `gundam` / `base` image modes
+   - Added `infinity_parser2` OCR provider
+   - Added `grok_build_subscription` subscription provider using headless browser automation for Grok Build captioning
+2. Migrated PaddleOCR to the PP-OCRv6 ONNX backend, now unified under ONNX Runtime configuration
+3. Added GUI Task Tabs with isolated runtimes for concurrent job execution
+4. Added Gemma 4 12B local model support to `gemma4_local`
+5. Added Kimi Code thinking mode option
+6. Implemented image-only cloud concurrency for parallel API captioning
+7. Exposed preprocess resize limits in GUI and optimized OpenCV GPU initialization
+8. Streamed Lance dataset import for lower memory usage
+9. Fixed Codex subscription stability: timeout cleanup, client retry, MCP startup isolation, transport, and scoring defaults
+10. Added Grok Build image MIME transcoding for different image format inputs
+11. Added global directory name context for caption prompts
+12. Switched default dependency installs to the Aliyun PyPI mirror for faster downloads in China
+13. Refactored provider declarations with a unified `CaptionResult` return type
+14. Fixed Unlimited-OCR Markdown output missing hard line breaks (double-space suffix) causing preview to not render line breaks
 
 ### 4.4 - Local Models, GUI, And WDTagger Updates
 
