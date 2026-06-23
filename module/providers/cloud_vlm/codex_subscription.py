@@ -35,6 +35,12 @@ from module.providers.codex_schema import (
     filter_caption_payload_by_mode,
     load_caption_schema,
 )
+from module.providers.image_template import (
+    active_image_template,
+    build_freeform_caption_prompt,
+    image_template_output,
+    parse_freeform_caption_output,
+)
 from module.providers.registry import register_provider
 from module.providers.utils import encode_image_to_blob
 from utils.console_util import print_exception
@@ -251,7 +257,20 @@ class CodexSubscriptionProvider(CloudVLMProvider):
 
         model = getattr(args, "codex_model_name", "") or "gpt-5.4"
         mode = getattr(args, "mode", "all")
-        prompt = build_codex_caption_prompt(system_prompt=prompts.system, user_prompt=prompts.user)
+        # Image prompt template: when a non-default template is active, yield the
+        # forced rating schema and let the model follow the template freely.
+        template_id = active_image_template(args)
+        structured = not template_id
+        if structured:
+            prompt = build_codex_caption_prompt(system_prompt=prompts.system, user_prompt=prompts.user)
+            output_contract = ""
+        else:
+            output_contract = image_template_output(self.ctx.config.get("prompts", {}), template_id)
+            prompt = build_freeform_caption_prompt(
+                system_prompt=prompts.system,
+                user_prompt=prompts.user,
+                output=output_contract,
+            )
         service_tier = _codex_service_tier(args)
         reasoning_effort = _codex_reasoning_effort(args)
         image_name = Path(media.uri).name
@@ -259,9 +278,9 @@ class CodexSubscriptionProvider(CloudVLMProvider):
 
         try:
             if backend == "exec":
-                parsed = self._attempt_exec(media, prompt)
+                result = self._attempt_exec(media, prompt, structured=structured)
             else:
-                parsed = self._attempt_app_server(media, prompt)
+                result = self._attempt_app_server(media, prompt, structured=structured)
         except (CodexAppServerError, CodexExecError) as exc:
             if getattr(exc, "kind", "") != "timeout":
                 raise
@@ -285,7 +304,29 @@ class CodexSubscriptionProvider(CloudVLMProvider):
             )
         elapsed = time.perf_counter() - started_at
 
-        parsed = filter_caption_payload_by_mode(parsed, mode)
+        if not structured:
+            caption_raw, parsed = parse_freeform_caption_output(result.raw, output_contract)
+            return CaptionResult(
+                raw=caption_raw,
+                parsed=parsed,
+                metadata={
+                    "provider": self.name,
+                    "backend": backend,
+                    "model": model,
+                    "service_tier": service_tier,
+                    "reasoning_effort": reasoning_effort,
+                    "auth_mode": getattr(args, "codex_auth_mode", DEFAULT_CODEX_AUTH_MODE) or DEFAULT_CODEX_AUTH_MODE,
+                    "structured": False,
+                    "image_template": template_id,
+                    "output_contract": output_contract,
+                    "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
+                    "duration_seconds": round(elapsed, 3),
+                    "duration_log_label": f"Codex caption completed: {image_name}",
+                    "duration_log_style": "green",
+                },
+            )
+
+        parsed = filter_caption_payload_by_mode(result.parsed, mode)
         return CaptionResult(
             raw=json.dumps(parsed, ensure_ascii=False),
             parsed=parsed,
@@ -304,7 +345,7 @@ class CodexSubscriptionProvider(CloudVLMProvider):
             },
         )
 
-    def _attempt_exec(self, media: MediaContext, prompt: str) -> dict:
+    def _attempt_exec(self, media: MediaContext, prompt: str, *, structured: bool = True):
         args = self.ctx.args
         command = getattr(args, "codex_command", "") or "codex"
         model = getattr(args, "codex_model_name", "") or "gpt-5.4"
@@ -321,7 +362,10 @@ class CodexSubscriptionProvider(CloudVLMProvider):
             isolated_cwd = Path(configured_isolated_cwd).expanduser() if configured_isolated_cwd else tmp_path / "work"
             isolated_cwd.mkdir(parents=True, exist_ok=True)
 
-            if configured_schema:
+            if not structured:
+                # Freeform template path: no rating schema is forced.
+                schema_path = None
+            elif configured_schema:
                 schema_path = Path(configured_schema).expanduser()
                 if not schema_path.exists():
                     raise CodexExecError(
@@ -349,6 +393,7 @@ class CodexSubscriptionProvider(CloudVLMProvider):
                     prompt=prompt,
                     schema_path=schema_path,
                     output_path=output_path,
+                    structured=structured,
                 )
             except CodexExecError:
                 raise
@@ -356,19 +401,23 @@ class CodexSubscriptionProvider(CloudVLMProvider):
                 print_exception(self.ctx.console, exc, prefix="Codex subscription provider failed")
                 raise
 
-        return exec_result.parsed
+        return exec_result
 
-    def _attempt_app_server(self, media: MediaContext, prompt: str) -> dict:
+    def _attempt_app_server(self, media: MediaContext, prompt: str, *, structured: bool = True):
         args = self.ctx.args
         configured_schema = getattr(args, "codex_output_schema", "") or ""
         model = getattr(args, "codex_model_name", "") or "gpt-5.4"
         timeout = float(getattr(args, "codex_timeout", DEFAULT_CODEX_TIMEOUT_SECONDS) or DEFAULT_CODEX_TIMEOUT_SECONDS)
         service_tier = _codex_service_tier(args)
         reasoning_effort = _codex_reasoning_effort(args)
-        try:
-            output_schema = load_caption_schema(configured_schema)
-        except Exception as exc:
-            raise CodexAppServerError(str(exc), kind="schema", cause=exc) from exc
+        if structured:
+            try:
+                output_schema = load_caption_schema(configured_schema)
+            except Exception as exc:
+                raise CodexAppServerError(str(exc), kind="schema", cause=exc) from exc
+        else:
+            # Freeform template path: no rating schema is forced.
+            output_schema = None
 
         configured_isolated_cwd = getattr(args, "codex_isolated_cwd", "") or ""
         if configured_isolated_cwd:
@@ -404,6 +453,7 @@ class CodexSubscriptionProvider(CloudVLMProvider):
             "image_path": str(send_image_path),
             "prompt": prompt,
             "output_schema": output_schema,
+            "structured": structured,
         }
         if app_server_max_concurrency > 1:
             caption_kwargs["max_concurrency"] = app_server_max_concurrency
@@ -419,7 +469,7 @@ class CodexSubscriptionProvider(CloudVLMProvider):
             raise
         finally:
             _delete_temp_file(temp_image_path)
-        return result.parsed
+        return result
 
     def get_retry_config(self) -> RetryConfig:
         args = self.ctx.args

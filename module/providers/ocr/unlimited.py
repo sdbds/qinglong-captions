@@ -6,7 +6,6 @@ Model: https://huggingface.co/baidu/Unlimited-OCR
 """
 from __future__ import annotations
 
-import shutil
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -97,17 +96,38 @@ def attempt_unlimited_ocr(
         )
 
     tokenizer = _TRANS_LOADER.get_or_load_processor(model_id, AutoTokenizer, console=console)
-    model = _TRANS_LOADER.get_or_load_model(
-        model_id,
-        AutoModel,
-        dtype=dtype,
-        attn_impl=attn_impl,
-        trust_remote_code=True,
-        low_cpu_mem_usage=True,
-        device_map="auto",
-        use_safetensors=True,
-        console=console,
-    )
+    try:
+        model = _TRANS_LOADER.get_or_load_model(
+            model_id,
+            AutoModel,
+            dtype=dtype,
+            attn_impl=attn_impl,
+            trust_remote_code=True,
+            low_cpu_mem_usage=True,
+            device_map="auto",
+            use_safetensors=True,
+            console=console,
+        )
+    except KeyError:
+        # Unlimited-OCR custom code comments out mha_flash_attention_2 in
+        # ATTENTION_CLASSES; fall back to eager if the resolved impl is unsupported.
+        if console:
+            console.print(
+                f"[yellow]attn_impl={attn_impl} not supported by model, "
+                f"falling back to eager[/yellow]"
+            )
+        attn_impl = "eager"
+        model = _TRANS_LOADER.get_or_load_model(
+            model_id,
+            AutoModel,
+            dtype=dtype,
+            attn_impl="eager",
+            trust_remote_code=True,
+            low_cpu_mem_usage=True,
+            device_map="auto",
+            use_safetensors=True,
+            console=console,
+        )
 
     if p.suffix.lower() == ".pdf":
         content = _process_pdf(
@@ -139,6 +159,9 @@ def attempt_unlimited_ocr(
 
     if not content or not content.strip():
         raise RuntimeError("Unlimited-OCR returned empty output")
+
+    # Add two spaces before newlines for markdown hard line breaks
+    content = content.replace("\n", "  \n")
 
     try:
         write_markdown_output(Path(output_dir), content)
@@ -199,16 +222,14 @@ def _process_single_image(
         no_repeat_ngram_size=no_repeat_ngram_size,
     )
 
-    try:
-        mmd_path = Path(output_dir) / "result.mmd"
-        if mmd_path.exists():
-            result_md_path = Path(output_dir) / "result.md"
-            shutil.move(mmd_path, result_md_path)
-            content = result_md_path.read_text(encoding="utf-8")
-        else:
-            content = str(res) if not isinstance(res, str) else res
-    except Exception:
-        content = str(res) if not isinstance(res, str) else res
+    # Unlimited-OCR writes result.md directly (not result.mmd like DeepSeek)
+    result_md_path = Path(output_dir) / "result.md"
+    if result_md_path.exists():
+        content = result_md_path.read_text(encoding="utf-8")
+    elif isinstance(res, str):
+        content = res
+    else:
+        content = str(res)
 
     return content
 
@@ -261,17 +282,17 @@ def _process_pdf(
     except Exception as exc:
         raise RuntimeError("Unlimited-OCR multi-page parsing failed") from exc
 
-    # Try reading result.mmd first (same as deepseek), then fallback to return value
-    try:
-        mmd_path = Path(output_dir) / "result.mmd"
-        if mmd_path.exists():
-            result_md_path = Path(output_dir) / "result.md"
-            shutil.move(mmd_path, result_md_path)
-            content = result_md_path.read_text(encoding="utf-8")
-        else:
-            content = str(res) if not isinstance(res, str) else res
-    except Exception:
-        content = str(res) if not isinstance(res, str) else res
+    # Unlimited-OCR infer_multi writes result.md directly and returns
+    # a tuple (outputs, output_tokens) — read the file, not the return value.
+    result_md_path = Path(output_dir) / "result.md"
+    if result_md_path.exists():
+        content = result_md_path.read_text(encoding="utf-8")
+    elif isinstance(res, tuple) and res:
+        content = str(res[0])
+    elif isinstance(res, str):
+        content = res
+    else:
+        content = str(res)
 
     return content
 

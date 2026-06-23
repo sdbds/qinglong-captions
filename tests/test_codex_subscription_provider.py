@@ -1708,7 +1708,7 @@ def test_codex_subscription_defaults_to_sdk_app_server(monkeypatch, tmp_path):
     image.write_bytes(b"fake")
     captured = {}
 
-    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+    def fake_caption(config, *, image_path, prompt, output_schema, structured=True, progress_callback=None):
         captured["config"] = config
         captured["image_path"] = image_path
         captured["prompt"] = prompt
@@ -1770,7 +1770,7 @@ def test_codex_subscription_can_allow_user_mcp_config(monkeypatch, tmp_path):
     image.write_bytes(b"fake")
     captured = {}
 
-    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+    def fake_caption(config, *, image_path, prompt, output_schema, structured=True, progress_callback=None):
         captured["config"] = config
         return SimpleNamespace(
             parsed={
@@ -1805,7 +1805,7 @@ def test_codex_subscription_retries_retryable_app_server_transport(monkeypatch, 
     Image.new("RGB", (32, 32), color=(20, 40, 80)).save(image)
     calls = 0
 
-    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+    def fake_caption(config, *, image_path, prompt, output_schema, structured=True, progress_callback=None):
         nonlocal calls
         calls += 1
         if calls == 1:
@@ -1846,7 +1846,7 @@ def test_codex_subscription_rate_limit_exhaustion_returns_skip_result(monkeypatc
     Image.new("RGB", (32, 32), color=(20, 40, 80)).save(image)
     calls = 0
 
-    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+    def fake_caption(config, *, image_path, prompt, output_schema, structured=True, progress_callback=None):
         nonlocal calls
         calls += 1
         raise CodexAppServerError(
@@ -1897,7 +1897,7 @@ def test_codex_subscription_execute_displays_structured_rating(monkeypatch, tmp_
         "average_score": 8.0,
     }
 
-    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+    def fake_caption(config, *, image_path, prompt, output_schema, structured=True, progress_callback=None):
         return SimpleNamespace(parsed=payload)
 
     monkeypatch.setattr(codex_subscription, "caption_image_with_app_server", fake_caption)
@@ -1928,7 +1928,7 @@ def test_codex_subscription_fast_mode_sets_app_server_service_tier(monkeypatch, 
     image.write_bytes(b"fake")
     captured = {}
 
-    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+    def fake_caption(config, *, image_path, prompt, output_schema, structured=True, progress_callback=None):
         captured["config"] = config
         return SimpleNamespace(
             parsed={
@@ -1962,7 +1962,7 @@ def test_codex_subscription_explicit_service_tier_overrides_fast_shortcut(monkey
     image.write_bytes(b"fake")
     captured = {}
 
-    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+    def fake_caption(config, *, image_path, prompt, output_schema, structured=True, progress_callback=None):
         captured["config"] = config
         return SimpleNamespace(
             parsed={
@@ -1996,7 +1996,7 @@ def test_codex_subscription_explicit_reasoning_effort_overrides_default(monkeypa
     image.write_bytes(b"fake")
     captured = {}
 
-    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+    def fake_caption(config, *, image_path, prompt, output_schema, structured=True, progress_callback=None):
         captured["config"] = config
         return SimpleNamespace(
             parsed={
@@ -2030,7 +2030,7 @@ def test_codex_subscription_app_server_timeout_returns_empty_result(monkeypatch,
     image = tmp_path / "image.png"
     image.write_bytes(b"fake")
 
-    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+    def fake_caption(config, *, image_path, prompt, output_schema, structured=True, progress_callback=None):
         raise CodexAppServerError("Codex app-server caption_image timed out after 180s.", kind="timeout")
 
     monkeypatch.setattr(codex_subscription, "caption_image_with_app_server", fake_caption)
@@ -2059,7 +2059,7 @@ def test_codex_subscription_exec_timeout_returns_empty_result(monkeypatch, tmp_p
     image = tmp_path / "image.png"
     image.write_bytes(b"fake")
 
-    def fake_exec(config, *, image_path, prompt, schema_path, output_path):
+    def fake_exec(config, *, image_path, prompt, output_path, schema_path=None, structured=True):
         raise CodexExecError("Codex exec timed out after 180s.", kind="timeout")
 
     monkeypatch.setattr(codex_subscription, "run_codex_exec_caption", fake_exec)
@@ -2088,7 +2088,7 @@ def test_codex_subscription_passes_effective_app_server_concurrency(monkeypatch,
     image.write_bytes(b"fake")
     captured = {}
 
-    def fake_caption(config, *, image_path, prompt, output_schema, max_concurrency=None, progress_callback=None):
+    def fake_caption(config, *, image_path, prompt, output_schema, structured=True, max_concurrency=None, progress_callback=None):
         captured["max_concurrency"] = max_concurrency
         return SimpleNamespace(
             parsed={
@@ -2123,7 +2123,7 @@ def test_codex_subscription_passes_folder_name_into_app_server_prompt(monkeypatc
     image.write_bytes(b"fake")
     captured = {}
 
-    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+    def fake_caption(config, *, image_path, prompt, output_schema, structured=True, progress_callback=None):
         captured["config"] = config
         captured["image_path"] = image_path
         captured["prompt"] = prompt
@@ -2173,7 +2173,7 @@ def test_codex_subscription_transcodes_avif_for_app_server(monkeypatch, tmp_path
         converted.write_bytes(b"jpeg")
         return converted
 
-    def fake_caption(config, *, image_path, prompt, output_schema, progress_callback=None):
+    def fake_caption(config, *, image_path, prompt, output_schema, structured=True, progress_callback=None):
         captured["image_path"] = Path(image_path)
         captured["converted_existed_during_call"] = Path(image_path).exists()
         return SimpleNamespace(
@@ -2213,7 +2213,7 @@ def test_codex_subscription_exec_backend_is_explicit(monkeypatch, tmp_path):
     image.write_bytes(b"fake")
     called = {}
 
-    def fake_exec(config, *, image_path, prompt, schema_path, output_path):
+    def fake_exec(config, *, image_path, prompt, output_path, schema_path=None, structured=True):
         called["config"] = config
         called["image_path"] = image_path
         return SimpleNamespace(

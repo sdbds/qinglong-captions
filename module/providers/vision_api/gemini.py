@@ -13,6 +13,7 @@ from rich.text import Text
 from rich_pixels import Pixels
 
 from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.image_template import active_image_template
 from module.providers.registry import register_provider
 from module.providers.vision_api_base import StructuredOutputConfig, VisionAPIProvider
 from utils.console_util import print_exception
@@ -248,6 +249,10 @@ class GeminiProvider(VisionAPIProvider):
 
         if getattr(args, "gemini_task", ""):
             # Task 模式不使用结构化输出
+            return StructuredOutputConfig(enabled=False)
+
+        # Non-default image prompt template: let model follow template freely
+        if active_image_template(args):
             return StructuredOutputConfig(enabled=False)
 
         if getattr(args, "pair_dir", ""):

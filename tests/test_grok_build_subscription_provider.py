@@ -377,7 +377,7 @@ def test_grok_build_subscription_attempt_uses_headless_backend(monkeypatch, tmp_
     image = _write_image(tmp_path / "image.jpg")
     calls = {}
 
-    def fake_caption(config, *, image_path, prompt, mime):
+    def fake_caption(config, *, image_path, prompt, mime, structured=True):
         calls["config"] = config
         calls["image_path"] = image_path
         calls["prompt"] = prompt
@@ -414,7 +414,7 @@ def test_grok_build_subscription_passes_effort_settings(monkeypatch, tmp_path):
     image = _write_image(tmp_path / "image.jpg")
     calls = {}
 
-    def fake_caption(config, *, image_path, prompt, mime):
+    def fake_caption(config, *, image_path, prompt, mime, structured=True):
         calls["config"] = config
         return SimpleNamespace(parsed=_caption_payload("fake short", "fake long"), prompt_json_chars=123)
 
@@ -448,7 +448,7 @@ def test_grok_build_subscription_timeout_returns_empty_result(monkeypatch, tmp_p
 
     image = _write_image(tmp_path / "image.jpg")
 
-    def fake_caption(config, *, image_path, prompt, mime):
+    def fake_caption(config, *, image_path, prompt, mime, structured=True):
         raise GrokBuildHeadlessError("timeout", kind="timeout")
 
     monkeypatch.setattr(grok_build_subscription, "run_grok_build_headless_caption", fake_caption)

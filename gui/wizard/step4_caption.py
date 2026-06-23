@@ -29,6 +29,15 @@ def _load_gemini_task_names() -> list[str]:
     except Exception:
         return []
 
+def _load_image_templates() -> dict[str, str]:
+    import toml
+    try:
+        cfg = toml.load(Path(__file__).resolve().parent.parent.parent / "config" / "prompts.toml")
+        templates = cfg.get("prompts", {}).get("image_templates", {})
+        return {tid: t.get("label", tid) for tid, t in templates.items() if isinstance(t, dict)}
+    except Exception:
+        return {}
+
 
 def _load_current_route_model_ids() -> dict[str, str]:
     """从 model.toml 读取当前 route -> model_id 映射。"""
@@ -1083,6 +1092,10 @@ class CaptionStep:
             if self._alm_requires_audio_task() and self._has_text(alm_audio_task):
                 args.append(f"--audio_task={alm_audio_task}")
 
+        tpl = getattr(getattr(self, "image_prompt_template", None), "value", "") or ""
+        if tpl and tpl != "custom":
+            args.append(f"--image_prompt_template={tpl}")
+
         return args
 
     def _build_job_name(self) -> str:
@@ -1431,6 +1444,18 @@ class CaptionStep:
 
             # 配对目录
             self.pair_dir = create_path_selector(label=t("pair_dir"), selection_type="dir", placeholder=t("pair_dir_hint"))
+
+            # Image VLM prompt template
+            template_options = {"": t("template_follow_model")} | _load_image_templates()
+            self.image_prompt_template = styled_select(
+                options=template_options,
+                value="",
+                label=t("image_prompt_template"),
+                icon="dashboard_customize",
+                icon_color=COLORS["primary"],
+                searchable=False,
+                flex=1,
+            )
 
             with ui.row().classes("w-full gap-4 q-mt-md"):
                 # 模式 - 带图标的现代化下拉框

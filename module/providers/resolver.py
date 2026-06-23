@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from .base import PromptContext, Provider
 from .catalog import canonicalize_provider_name, provider_prompt_fallback_keys, provider_prompt_prefixes
+from .image_template import active_image_template
 
 
 @dataclass
@@ -51,11 +52,17 @@ class PromptResolver:
         media: Any | None = None,
     ) -> PromptContext:
         """解析最终使用的 prompt"""
+        self._args = args
+
         # 基础选择
         system, user = self._base_prompts(mime)
 
         # Provider 特定覆盖
         system, user = self._provider_override(system, user, mime)
+
+        # Image template override (higher than provider-specific keys)
+        if mime.startswith("image"):
+            system, user = self._image_template_override(system, user)
 
         # Pair 模式覆盖
         if mime.startswith("image") and self._is_pair_mode(args, media):
@@ -123,6 +130,26 @@ class PromptResolver:
         if self.provider_class is not None:
             return tuple(self.provider_class.prompt_fallback_keys(mime, field))
         return provider_prompt_fallback_keys(self.provider_name, mime, field)
+
+    def _image_template_override(self, system: str, user: str) -> Tuple[str, str]:
+        """Image VLM prompt template override layer.
+
+        When args.image_prompt_template is set to a non-empty, non-'custom' value,
+        look up the template in prompts['image_templates'] and override system/user
+        with the referenced prompt keys. Unknown ids fall back silently.
+        """
+        template_id = active_image_template(self._args)
+        if not template_id:
+            return system, user
+        templates = self.prompts.get("image_templates", {})
+        tpl = templates.get(template_id)
+        if not tpl:
+            return system, user
+        sys_key = tpl.get("system_key", "")
+        usr_key = tpl.get("user_key", "")
+        new_system = self.prompts.get(sys_key, system) if sys_key else system
+        new_user = self.prompts.get(usr_key, "") if usr_key else ""
+        return new_system, new_user
 
     def _pair_override(self, system: str, user: str, mime: str) -> Tuple[str, str]:
         """Pair 模式覆盖（处理命名不一致）"""

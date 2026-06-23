@@ -13,6 +13,7 @@ from config.config import (
     VIDEO_EXTENSIONS_SET,
 )
 from module.providers.base import CaptionResult
+from module.providers.image_template import active_image_template
 from utils.parse_display import extract_code_block_content, process_llm_response
 from utils.path_safety import safe_child_path, safe_leaf_name
 
@@ -229,7 +230,16 @@ def postprocess_caption_content(output, filepath, args, console):
         if isinstance(parsed, dict):
             return CaptionResult(raw=output, parsed=parsed, metadata=metadata)
     except json.JSONDecodeError:
-        pass
+        # JSON image prompt templates may wrap output in a ```json fence; strip and retry.
+        if active_image_template(args):
+            fenced = extract_code_block_content(output, "json", console)
+            if fenced:
+                try:
+                    fenced_parsed = json.loads(fenced)
+                except json.JSONDecodeError:
+                    fenced_parsed = None
+                if isinstance(fenced_parsed, dict):
+                    return CaptionResult(raw=fenced, parsed=fenced_parsed, metadata=metadata)
 
     if "###" in output:
         shortdescription, long_description = process_llm_response(output)

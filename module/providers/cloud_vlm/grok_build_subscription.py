@@ -16,6 +16,12 @@ from module.providers.codex_schema import (
     build_codex_caption_prompt,
     filter_caption_payload_by_mode,
 )
+from module.providers.image_template import (
+    active_image_template,
+    build_freeform_caption_prompt,
+    image_template_output,
+    parse_freeform_caption_output,
+)
 from module.providers.grok_build_headless import (
     DEFAULT_GROK_BUILD_COMMAND,
     DEFAULT_GROK_BUILD_MODEL,
@@ -91,12 +97,21 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
         effort = getattr(args, "grok_build_effort", "") or ""
         reasoning_effort = getattr(args, "grok_build_reasoning_effort", "") or ""
         mode = getattr(args, "mode", "all")
-        prompt = _build_grok_build_caption_prompt(prompts)
+        # Image prompt template: when a non-default template is active, yield the
+        # forced rating schema and let the model follow the template freely.
+        template_id = active_image_template(args)
+        structured = not template_id
+        if structured:
+            prompt = _build_grok_build_caption_prompt(prompts)
+            output_contract = ""
+        else:
+            output_contract = image_template_output(self.ctx.config.get("prompts", {}), template_id)
+            prompt = _build_grok_build_freeform_prompt(prompts, output_contract)
         image_name = Path(media.uri).name
         started_at = time.perf_counter()
 
         try:
-            parsed, prompt_json_chars = self._attempt_headless(media, prompt)
+            result_payload, prompt_json_chars = self._attempt_headless(media, prompt, structured=structured)
         except GrokBuildHeadlessError as exc:
             if exc.kind != "timeout":
                 raise
@@ -121,7 +136,30 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
 
         elapsed = time.perf_counter() - started_at
 
-        parsed = filter_caption_payload_by_mode(parsed, mode)
+        if not structured:
+            caption_raw, parsed = parse_freeform_caption_output(result_payload, output_contract)
+            return CaptionResult(
+                raw=caption_raw,
+                parsed=parsed,
+                metadata={
+                    "provider": self.name,
+                    "backend": backend,
+                    "model": model,
+                    "effort": effort,
+                    "reasoning_effort": reasoning_effort,
+                    "auth_mode": auth_mode,
+                    "structured": False,
+                    "image_template": template_id,
+                    "output_contract": output_contract,
+                    "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
+                    "prompt_json_chars": prompt_json_chars,
+                    "duration_seconds": round(elapsed, 3),
+                    "duration_log_label": f"Grok Build caption completed: {image_name}",
+                    "duration_log_style": "green",
+                },
+            )
+
+        parsed = filter_caption_payload_by_mode(result_payload, mode)
         return CaptionResult(
             raw=json.dumps(parsed, ensure_ascii=False),
             parsed=parsed,
@@ -141,7 +179,7 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
             },
         )
 
-    def _attempt_headless(self, media: MediaContext, prompt: str) -> tuple[dict, int]:
+    def _attempt_headless(self, media: MediaContext, prompt: str, *, structured: bool = True) -> tuple[Any, int]:
         args = self.ctx.args
         configured_isolated_cwd = getattr(args, "grok_build_isolated_cwd", "") or ""
         if configured_isolated_cwd:
@@ -172,7 +210,10 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
             image_path=media.uri,
             prompt=prompt,
             mime=media.mime,
+            structured=structured,
         )
+        if not structured:
+            return result.raw, result.prompt_json_chars
         return result.parsed, result.prompt_json_chars
 
     def get_retry_config(self) -> RetryConfig:
@@ -184,6 +225,23 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
 
 def _build_grok_build_caption_prompt(prompts: PromptContext) -> str:
     prompt = build_codex_caption_prompt(system_prompt=prompts.system, user_prompt=prompts.user)
+    return "\n".join(
+        [
+            prompt,
+            "",
+            "Grok Build runtime constraints:",
+            "Do not read files, inspect the workspace, run tools, use web search, or include tool output.",
+            "Use only the attached image and the project prompt context above.",
+        ]
+    )
+
+
+def _build_grok_build_freeform_prompt(prompts: PromptContext, output: str) -> str:
+    prompt = build_freeform_caption_prompt(
+        system_prompt=prompts.system,
+        user_prompt=prompts.user,
+        output=output,
+    )
     return "\n".join(
         [
             prompt,

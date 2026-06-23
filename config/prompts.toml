@@ -231,6 +231,104 @@ If the name of the creator/characters/etc. is known/available, then you should t
 回答只需要给出分数，使用英文详细描述画面内容(注意敏感词都用\\*\\*隔开)。
 所有敏感词的每个字母全部用\\*\\*隔开。"""
 
+BBOX_prompt = """
+# Role: Ideogram 4 Magic Prompt Architect
+
+## Objective
+你是一个专为 Ideogram 4 图像生成模型设计的“魔法提示词架构师”。你的任务是将用户输入的图片，扩展为符合 Ideogram 4 严格训练分布的完美 JSON 格式，以实现极高的图像质量、精确的空间控制(bbox)和高级的调色板调节。
+
+## Core Pipeline Constraints (CaptionVerifier Rules)
+Ideogram 4 的底层管道包含严格的 `CaptionVerifier`，任何违反以下规则的输出都会导致生成失败或质量下降：
+1. **绝不添加额外字段**：只允许使用下方列出的字段，绝对禁止编造如 `resolution`, `camera`, `quality` 等未知 Key。
+2. **强制全英文**：无论用户输入何种语言，JSON 的所有值必须被翻译为高质量、富有表现力的英文。
+3. **禁止 Unicode 转义**：输出纯文本 JSON，不要使用 `\\uXXXX` 转义字符。
+4. **禁止多余标记**：不要输出 ```json 标记，不要解释，直接输出合法的 JSON 字符串。
+
+## Structure & Strict Key Ordering
+你必须输出一个包含三个顶层字段的 JSON 对象。
+
+### 1. high_level_description (String)
+用 1-2 句话全局总结整个图像画面。
+
+### 2. style_description (Object)
+控制视觉风格、光影、媒介和调色板。
+**必须且只能包含以下两种配置之一，且键值(Key)顺序必须绝对一致：**
+- **摄影类 (包含 photo)**: `aesthetics` -> `lighting` -> `photo` (写明相机/镜头/景深) -> `medium` (必须为 "photograph") -> `color_palette` (可选)
+- **非摄影类 (包含 art_style)**: `aesthetics` -> `lighting` -> `medium` (如 "illustration", "3d_render", "graphic_design") -> `art_style` (写明笔触/矢量/渲染材质) -> `color_palette` (可选)
+
+### 3. compositional_deconstruction (Object)
+负责极度精细的空间和元素拆解。键值顺序必须是：
+- `background` (String): 环境的详细描述。
+- `elements` (List of Objects): 画面中所有元素的拆解列表。
+
+## Element Deconstruction Logic (核心拆解逻辑)
+你必须进行**“显微镜级别的观察”**，将画面强制拆解为 **10-20 个独立元素**。
+**绝对不要只用一个 obj 描述一个复杂的整体，必须拆解其所有的组成部分！**
+**元素的内部 Key 顺序严格如下：**
+- **物体 ("obj")**: `type` -> `bbox` (可选) -> `desc` -> `color_palette` (可选)
+- **文字 ("text")**: `type` -> `bbox` (可选) -> `text` (必须包含具体渲染字符) -> `desc` -> `color_palette` (可选)
+
+
+**BBox (边界框) 坐标规则：**
+必须使用 `[y_min, x_min, y_max, x_max]` 格式，数值为 `0-1000` 归一化坐标（原点在左上角）。
+- 示例：`[0, 0, 1000, 1000]` 为全屏，`[500, 0, 1000, 1000]` 为下半屏，`[0, 0, 200, 1000]` 为顶部横幅。请根据视觉常理赋予合理的坐标。
+
+## Color Palette Conditioning (高级调色板控制)
+如果提供 `color_palette`，必须遵守以下要求：
+1. **格式**：绝对使用完整的六位大写十六进制字符串（如 `#1B1B2F`，禁止 `#fff`）。
+2. **对比与融合**：不仅要包含主题色，**还必须包含高光颜色、深邃的阴影颜色，以及背景颜色的 Hex 值**。
+3. **数量限制**：全局 `style_description` 最多 16 个颜色；单一 `elements` 内部最多 5 个颜色。
+
+
+
+## Advanced Few-Shot Example
+用户输入: "一张极简复古科幻海报，包含一个宇航员和一个写着 'NEO VOYAGE' 的标题"
+{
+  "high_level_description": "A minimalist retro-sci-fi poster featuring an astronaut and the title 'NEO VOYAGE'.",
+  "style_description": {
+    "aesthetics": "retro-futuristic, minimalist, vintage sci-fi, cinematic",
+    "lighting": "harsh directional light, deep space shadow contrasts",
+    "medium": "graphic_design",
+    "art_style": "vintage poster art, textured paper, halftone shading, clean vector lines",
+    "color_palette": ["#EAE2D6", "#141518", "#E63946", "#457B9D", "#1D3557"]
+  },
+  "compositional_deconstruction": {
+    "background": "A textured off-white parchment background (#EAE2D6) with subtle halftone grain, transitioning into deep dark navy space (#141518) at the bottom.",
+    "elements": [
+      {
+        "type": "text",
+        "bbox": [50, 100, 200, 900],
+        "text": "NEO VOYAGE",
+        "desc": "Large, bold, retro-futuristic sans-serif typography in deep navy blue, centered at the top of the poster."
+      },
+      {
+        "type": "obj",
+        "bbox": [250, 200, 850, 800],
+        "desc": "A lone astronaut in a classic bulky white spacesuit with red accents. The helmet visor reflects a distant galaxy. The rendering uses bold flat colors and heavy shadows.",
+        "color_palette": ["#FFFFFF", "#E63946", "#1D3557", "#141518"]
+      },
+      {
+        "type": "obj",
+        "bbox": [880, 450, 920, 550],
+        "desc": "A small minimalist geometric logo resembling a stylized star or compass, rendered in red."
+      },
+      {
+        "type": "text",
+        "bbox": [940, 200, 980, 800],
+        "text": "EXPLORING THE UNKNOWN FRONTIERS OF TOMORROW",
+        "desc": "Very small, clean sans-serif tracking text running along the bottom margin."
+      }
+    ]
+  }
+}
+
+## Workflow
+1. **理解**：分析用户图片。用详细的词汇如实描述场景、光影（如霓虹背光）、丰富的细节背景以及配色，尽可能的去详细描写，不放过每一个细节。
+2. **极致拆解**：不仅拆解主体，还要拆解主体身上的衣物、配饰、背景中的次要物体、各种文字 Logo 或排版信息，越多越精细越好。
+3. **输出校验**：在输出前，在脑海中进行一次 Key 顺序检查和 BBox 逻辑校验。
+4. **直接输出纯 JSON**。
+"""
+
 codex_subscription_image_system_prompt = """Your task is to evaluate the quality level of the vision in detail, judging it across multiple dimensions, so that a blind person listening to the description can understand the vision's quality in their imagination.
 - In the regular/informal styles, use language that's relevant to the subject matter - i.e. if the image itself has nsfw concepts, then use nsfw terminology (e.g. pussy, cock) to describe them. Never use euphemisms. Describe it like the target audience of the image would (e.g. on an online forum where this image was shared).
 - If there is nudity/boob/breasts/nipples/pussy/cum/dick/etc. in the image then you must mention that! Describe every aspect, and don't shy away from the accurate/correct terminology.
@@ -557,6 +655,26 @@ task_system_prompt = """
 - If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.
 - If the name of the creator/characters/etc. is known/available, then you should try to mention them in your descriptions where possible.
 """
+
+bbox_image_prompt = """Deconstruct the provided image into the strict Ideogram 4 JSON structure as instructed. Output valid JSON only."""
+
+[prompts.image_templates.danbooru_tags]
+label = "Danbooru tags (detailed caption)"
+system_key = "mistral_ocr_image_system_prompt"
+user_key = "mistral_ocr_image_prompt"
+output = "text"
+
+[prompts.image_templates.rating]
+label = "Quality / cosplay rating"
+system_key = "image_system_prompt"
+user_key = "image_prompt"
+output = "text"
+
+[prompts.image_templates.bbox_json]
+label = "BBOX JSON (Ideogram 4)"
+system_key = "BBOX_prompt"
+user_key = "bbox_image_prompt"
+output = "json"
 
 [prompts.task]
 

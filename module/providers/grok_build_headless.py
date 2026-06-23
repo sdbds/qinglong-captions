@@ -245,6 +245,7 @@ def run_grok_build_headless_caption(
     image_path: str | Path,
     prompt: str,
     mime: str,
+    structured: bool = True,
     env: Mapping[str, str] | None = None,
 ) -> GrokBuildHeadlessResult:
     prepared = build_grok_build_prompt_json(
@@ -292,6 +293,16 @@ def run_grok_build_headless_caption(
         )
 
     raw = stdout.strip()
+    if not structured:
+        # Freeform template path: return raw output verbatim, no rating schema parse.
+        return GrokBuildHeadlessResult(
+            raw=raw,
+            parsed={},
+            stdout=stdout,
+            stderr=stderr,
+            returncode=completed.returncode,
+            prompt_json_chars=prepared.prompt_json_chars,
+        )
     try:
         parsed = parse_grok_build_output(raw)
     except CodexCaptionOutputError as exc:

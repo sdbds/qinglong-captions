@@ -80,8 +80,8 @@ def build_codex_exec_command(
     *,
     image_path: str | Path,
     prompt: str,
-    schema_path: str | Path,
     output_path: str | Path,
+    schema_path: str | Path | None = None,
 ) -> list[str]:
     command = [
         resolve_codex_command(config.command),
@@ -96,12 +96,18 @@ def build_codex_exec_command(
         config.model,
         "--image",
         str(Path(image_path).resolve()),
-        "--output-schema",
-        str(Path(schema_path).resolve()),
-        "--output-last-message",
-        str(Path(output_path).resolve()),
-        "-",
     ]
+    # Only force a structured output schema when one is provided. Freeform image
+    # prompt templates yield the schema so the model follows the template.
+    if schema_path is not None:
+        command.extend(["--output-schema", str(Path(schema_path).resolve())])
+    command.extend(
+        [
+            "--output-last-message",
+            str(Path(output_path).resolve()),
+            "-",
+        ]
+    )
     config_overrides = []
     reasoning_effort = normalize_codex_reasoning_effort(config.reasoning_effort)
     if reasoning_effort:
@@ -182,8 +188,9 @@ def run_codex_exec_caption(
     *,
     image_path: str | Path,
     prompt: str,
-    schema_path: str | Path,
     output_path: str | Path,
+    schema_path: str | Path | None = None,
+    structured: bool = True,
     env: Mapping[str, str] | None = None,
 ) -> CodexExecResult:
     command = build_codex_exec_command(
@@ -243,6 +250,16 @@ def run_codex_exec_caption(
     raw = output_file.read_text(encoding="utf-8").strip() if output_file.exists() else ""
     if not raw:
         raw = stdout.strip()
+    if not structured:
+        # Freeform template path: return raw output verbatim, no rating schema parse.
+        return CodexExecResult(
+            raw=raw,
+            parsed={},
+            stdout=stdout,
+            stderr=stderr,
+            returncode=completed.returncode,
+            output_file=str(output_file),
+        )
     try:
         parsed = parse_codex_caption_output(raw)
     except CodexCaptionOutputError as exc:

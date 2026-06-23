@@ -544,10 +544,15 @@ def _extract_assistant_final_response_from_items(items: Any) -> str:
     return ""
 
 
-def _extract_turn_output(response: Any) -> tuple[str, dict[str, Any] | None]:
+def _extract_turn_output(response: Any, structured: bool = True) -> tuple[str, dict[str, Any] | None]:
     parsed = _first_mapping_value(response, ("parsed", "outputParsed", "output_parsed"))
     if isinstance(parsed, dict):
-        return "", normalize_codex_caption_payload(parsed)
+        if structured:
+            return "", normalize_codex_caption_payload(parsed)
+        # Freeform template path: keep the raw JSON, do not coerce to rating shape.
+        import json
+
+        return json.dumps(parsed, ensure_ascii=False), None
 
     raw = _first_mapping_value(response, ("final_response",))
     extracted = _extract_text_from_content(raw)
@@ -994,6 +999,7 @@ class CodexAppServerCaptionClient:
         image_path: str | Path,
         prompt: str,
         output_schema: dict[str, Any] | None = None,
+        structured: bool = True,
         timeout: float | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> CodexAppServerResult:
@@ -1004,6 +1010,7 @@ class CodexAppServerCaptionClient:
                     image_path=image_path,
                     prompt=prompt,
                     output_schema=output_schema,
+                    structured=structured,
                     progress_callback=progress_callback,
                 ),
                 timeout=self.config.timeout if timeout is None else timeout,
@@ -1022,6 +1029,7 @@ class CodexAppServerCaptionClient:
         image_path: str | Path,
         prompt: str,
         output_schema: dict[str, Any] | None = None,
+        structured: bool = True,
         progress_callback: ProgressCallback | None = None,
     ) -> CodexAppServerResult:
         with self._request_lock:
@@ -1053,12 +1061,15 @@ class CodexAppServerCaptionClient:
                 raise _coerce_sdk_exception(exc, self.config, stage="request") from exc
 
             _emit_progress(progress_callback, "Codex app-server: parsing structured output")
-            raw, parsed = _extract_turn_output(response)
-            if parsed is None:
+            raw, parsed = _extract_turn_output(response, structured=structured)
+            if parsed is None and structured:
                 try:
                     parsed = parse_codex_caption_output(raw)
                 except CodexCaptionOutputError as exc:
                     raise CodexAppServerError(str(exc), kind="output", detail=exc.raw or raw, cause=exc) from exc
+            if parsed is None:
+                # Freeform template path: no rating payload to expose.
+                parsed = {}
             if not raw:
                 import json
 
@@ -1153,6 +1164,7 @@ class CodexAppServerClientPool:
         image_path: str | Path,
         prompt: str,
         output_schema: dict[str, Any] | None = None,
+        structured: bool = True,
         timeout: float | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> CodexAppServerResult:
@@ -1164,6 +1176,7 @@ class CodexAppServerClientPool:
                 image_path=image_path,
                 prompt=prompt,
                 output_schema=output_schema,
+                structured=structured,
                 timeout=client_timeout,
                 progress_callback=progress_callback,
             )
@@ -1268,6 +1281,7 @@ def caption_image_with_app_server(
     image_path: str | Path,
     prompt: str,
     output_schema: dict[str, Any] | None = None,
+    structured: bool = True,
     client_factory: Callable[..., Any] | None = None,
     max_concurrency: int = 1,
     progress_callback: ProgressCallback | None = None,
@@ -1288,6 +1302,7 @@ def caption_image_with_app_server(
                 image_path=image_path,
                 prompt=prompt,
                 output_schema=output_schema,
+                structured=structured,
                 timeout=_remaining_timeout_for_stage(deadline, "caption_image"),
                 progress_callback=progress_callback,
             )
@@ -1303,6 +1318,7 @@ def caption_image_with_app_server(
             image_path=image_path,
             prompt=prompt,
             output_schema=output_schema,
+            structured=structured,
             timeout=_remaining_timeout_for_stage(deadline, "caption_image"),
             progress_callback=progress_callback,
         )

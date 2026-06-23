@@ -643,6 +643,13 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--image_prompt_template",
+        type=str,
+        default="",
+        help="Image VLM prompt template id (e.g. danbooru_tags / rating / bbox_json). Empty = follow model (current behavior).",
+    )
+
+    parser.add_argument(
         "--tags_highlightrate",
         type=float,
         default=0.4,
