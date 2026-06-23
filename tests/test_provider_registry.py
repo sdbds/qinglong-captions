@@ -39,6 +39,7 @@ class TestProviderRegistry:
             "kimi_vl",
             "mimo",
             "infinity_parser2_ocr",
+            "unlimited_ocr",
             "deepseek_ocr",
             "logics_ocr",
             "dots_ocr",

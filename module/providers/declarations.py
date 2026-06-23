@@ -169,6 +169,15 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
         capabilities=capabilities(supports_images=True, supports_documents=True),
     ),
     ProviderDeclaration(
+        name="unlimited_ocr",
+        module_path="module.providers.ocr.unlimited",
+        priority=125,
+        routes=(route("ocr_model", order=85),),
+        config_sections=("unlimited_ocr",),
+        prompt_prefixes=("unlimited_ocr",),
+        capabilities=capabilities(supports_images=True, supports_documents=True),
+    ),
+    ProviderDeclaration(
         name="deepseek_ocr",
         module_path="module.providers.ocr.deepseek",
         priority=130,

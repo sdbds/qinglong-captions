@@ -144,6 +144,23 @@ def test_pyproject_declares_infinity_parser2_ocr_extra():
     assert "img2pdf" in deps
 
 
+def test_pyproject_declares_unlimited_ocr_extra():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_deps = pyproject["project"]["optional-dependencies"]
+
+    assert "unlimited-ocr" in optional_deps
+    deps = optional_deps["unlimited-ocr"]
+    assert "qinglong-captions[torch-base]" in deps
+    assert any(dep.startswith("transformers[serving]==4.57.1") for dep in deps)
+    assert "matplotlib" in deps
+    assert "einops" in deps
+    assert "addict" in deps
+    assert "easydict" in deps
+    assert "psutil" in deps
+    assert "PyMuPDF" in deps
+    assert "img2pdf" in deps
+
+
 def test_pyproject_declares_music_flamingo_local_extra():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     optional_deps = pyproject["project"]["optional-dependencies"]
@@ -318,6 +335,17 @@ def test_caption_step_includes_infinity_parser2_ocr_extra():
     step.alm_model = SimpleNamespace(value="")
 
     assert step._build_local_extra_args() == ["--extra", "infinity-parser2-ocr"]
+
+
+def test_caption_step_includes_unlimited_ocr_extra():
+    CaptionStep = _load_caption_step("test_step4_caption_unlimited_ocr")
+
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="unlimited_ocr")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="")
+
+    assert step._build_local_extra_args() == ["--extra", "unlimited-ocr"]
 
 
 def test_caption_step_includes_paddleocr_onnx_extra():
@@ -976,6 +1004,19 @@ def test_run_ps1_mentions_infinity_parser2_ocr_extra():
         assert 'Add-UvExtra "infinity-parser2-ocr"' in content
 
 
+def test_run_ps1_mentions_unlimited_ocr_extra():
+    captioner_content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
+
+    contents = [captioner_content]
+    run_path = ROOT / "4、run.ps1"
+    if run_path.exists():
+        contents.append(run_path.read_text(encoding="utf-8"))
+
+    for content in contents:
+        assert '"unlimited_ocr"' in content
+        assert 'Add-UvExtra "unlimited-ocr"' in content
+
+
 def test_run_ps1_uses_generic_extra_fallback_for_music_flamingo():
     content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
 
@@ -1109,6 +1150,26 @@ def test_config_declares_infinity_parser2_ocr_defaults():
     assert "image_patch_size = 16" in runtime_toml
 
     assert "infinity_parser2_ocr_prompt" in prompts_toml
+
+
+def test_config_declares_unlimited_ocr_defaults():
+    model_toml = (ROOT / "config" / "model.toml").read_text(encoding="utf-8")
+    runtime_toml = (ROOT / "config" / "config.toml").read_text(encoding="utf-8")
+    prompts_toml = (ROOT / "config" / "prompts.toml").read_text(encoding="utf-8")
+
+    assert "[unlimited_ocr]" in model_toml
+    assert 'model_id = "baidu/Unlimited-OCR"' in model_toml
+    assert 'image_mode = "gundam"' in model_toml
+    assert "base_size = 1024" in model_toml
+    assert "image_size = 640" in model_toml
+    assert "crop_mode = true" in model_toml
+    assert "max_length = 32768" in model_toml
+    assert "no_repeat_ngram_size = 35" in model_toml
+
+    assert "[unlimited_ocr]" in runtime_toml
+    assert 'model_id = "baidu/Unlimited-OCR"' in runtime_toml
+    assert "unlimited_ocr_prompt" in runtime_toml
+    assert "unlimited_ocr_prompt" in prompts_toml
 
 
 def test_config_declares_logics_ocr_defaults():

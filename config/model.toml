@@ -98,6 +98,18 @@ base_size = 1024
 image_size = 768
 crop_mode = true
 
+# Unlimited-OCR configuration
+# Model: https://huggingface.co/baidu/Unlimited-OCR
+[unlimited_ocr]
+model_list."Unlimited OCR" = { model_id = "baidu/Unlimited-OCR", meta = { min_vram_gb = 12 } }
+model_id = "baidu/Unlimited-OCR"
+image_mode = "gundam"
+base_size = 1024
+image_size = 640
+crop_mode = true
+max_length = 32768
+no_repeat_ngram_size = 35
+
 # Logics-Parsing-v2 configuration
 # Model: https://huggingface.co/Logics-MLLM/Logics-Parsing-v2
 [logics_ocr]

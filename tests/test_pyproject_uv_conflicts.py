@@ -199,6 +199,22 @@ def test_infinity_parser2_ocr_conflicts_with_known_transformers_incompatible_ext
         assert _has_extra_conflict(*pair)
 
 
+def test_unlimited_ocr_conflicts_with_known_transformers_incompatible_extras():
+    expected_pairs = [
+        ("unlimited-ocr", "paddleocr-native"),
+        ("unlimited-ocr", "deepseek-ocr"),
+        ("unlimited-ocr", "dots-ocr"),
+        ("unlimited-ocr", "penguin-vl-local"),
+        ("unlimited-ocr", "eureka-audio-local"),
+        ("unlimited-ocr", "cohere-transcribe-local"),
+        ("unlimited-ocr", "reward-model"),
+        ("unlimited-ocr", "music-flamingo-local"),
+    ]
+
+    for pair in expected_pairs:
+        assert _has_extra_conflict(*pair)
+
+
 def test_flash_attn_windows_url_is_centralized_in_uv_sources():
     pyproject = _load_pyproject()
     pyproject_text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")

@@ -166,6 +166,20 @@ deepseek-ocr = [
     "PyMuPDF",
     "img2pdf",
 ]
+unlimited-ocr = [
+    "qinglong-captions[torch-base]",
+    "transformers[serving]==4.57.1",
+    "matplotlib",
+    "einops",
+    "addict",
+    "easydict",
+    "psutil",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
+    "triton-windows; sys_platform == 'win32'",
+    "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
+    "PyMuPDF",
+    "img2pdf",
+]
 logics-ocr = [
     "qinglong-captions[torch-base]",
     "transformers[serving]>=4.57.0",
@@ -537,6 +551,19 @@ conflicts = [
         # Infinity Parser2 uses Transformers >=5.3.0; keep it away from
         # pinned older stacks, <5.3 caps, and forked Transformers runtimes.
         { extra = "infinity-parser2-ocr" },
+        { extra = "paddleocr-native" },
+        { extra = "deepseek-ocr" },
+        { extra = "dots-ocr" },
+        { extra = "penguin-vl-local" },
+        { extra = "eureka-audio-local" },
+        { extra = "cohere-transcribe-local" },
+        { extra = "reward-model" },
+        { extra = "music-flamingo-local" },
+    ],
+    [
+        # Unlimited-OCR pins Transformers ==4.57.1; keep it away from
+        # pinned older stacks, <5.3 caps, and forked Transformers runtimes.
+        { extra = "unlimited-ocr" },
         { extra = "paddleocr-native" },
         { extra = "deepseek-ocr" },
         { extra = "dots-ocr" },

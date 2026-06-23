@@ -360,6 +360,7 @@ class TestFindProvider:
         reg = get_registry()
         for name in (
             "infinity_parser2_ocr",
+            "unlimited_ocr",
             "deepseek_ocr",
             "logics_ocr",
             "dots_ocr",
@@ -386,3 +387,25 @@ class TestFindProvider:
         )
 
         assert provider is not None and provider.name == "infinity_parser2_ocr"
+
+    def test_unlimited_ocr_handles_pdf(self):
+        from module.providers.registry import get_registry
+
+        reg = get_registry()
+        provider = reg.find_provider(
+            make_provider_args(ocr_model="unlimited_ocr"),
+            "application/pdf",
+        )
+
+        assert provider is not None and provider.name == "unlimited_ocr"
+
+    def test_unlimited_ocr_handles_document_images(self):
+        from module.providers.registry import get_registry
+
+        reg = get_registry()
+        provider = reg.find_provider(
+            make_provider_args(ocr_model="unlimited_ocr", document_image=True),
+            "image/png",
+        )
+
+        assert provider is not None and provider.name == "unlimited_ocr"

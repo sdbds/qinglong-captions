@@ -556,6 +556,9 @@ if ($ocr_model) {
   if ($ocr_model -eq "infinity_parser2_ocr") {
     Add-UvExtra "infinity-parser2-ocr"
   }
+  elseif ($ocr_model -eq "unlimited_ocr") {
+    Add-UvExtra "unlimited-ocr"
+  }
   elseif ($ocr_model -eq "paddle_ocr") {
     Add-UvExtra "paddleocr-onnx"
   }

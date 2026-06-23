@@ -35,6 +35,10 @@ deepseek_ocr_prompt = """
 <|grounding|>Convert the document to markdown. 
 """
 
+unlimited_ocr_prompt = """
+<image>document parsing.
+"""
+
 # Logics-Parsing-v2 prompt (official default)
 logics_ocr_prompt = """QwenVL HTML"""
 
@@ -685,6 +689,17 @@ model_id = "deepseek-ai/DeepSeek-OCR-2"
 base_size = 1024
 image_size = 768
 crop_mode = true
+
+# Unlimited-OCR configuration
+# Model: https://huggingface.co/baidu/Unlimited-OCR
+[unlimited_ocr]
+model_id = "baidu/Unlimited-OCR"
+image_mode = "gundam"
+base_size = 1024
+image_size = 640
+crop_mode = true
+max_length = 32768
+no_repeat_ngram_size = 35
 
 # Logics-Parsing-v2 configuration
 # Model: https://huggingface.co/Logics-MLLM/Logics-Parsing-v2

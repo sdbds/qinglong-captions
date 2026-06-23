@@ -32,6 +32,10 @@ deepseek_ocr_prompt = """
 <|grounding|>Convert the document to markdown.
 """
 
+unlimited_ocr_prompt = """
+<image>document parsing.
+"""
+
 # Logics-Parsing-v2 prompt (official default)
 logics_ocr_prompt = """QwenVL HTML"""
 
