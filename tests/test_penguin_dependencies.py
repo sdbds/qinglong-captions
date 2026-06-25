@@ -1165,6 +1165,7 @@ def test_config_declares_unlimited_ocr_defaults():
     assert "crop_mode = true" in model_toml
     assert "max_length = 32768" in model_toml
     assert "no_repeat_ngram_size = 35" in model_toml
+    assert "page_budget = 30" in model_toml
 
     assert "[unlimited_ocr]" in runtime_toml
     assert 'model_id = "baidu/Unlimited-OCR"' in runtime_toml

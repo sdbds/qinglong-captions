@@ -67,6 +67,7 @@ def attempt_unlimited_ocr(
     crop_mode: Optional[bool] = None,
     max_length: int = 32768,
     no_repeat_ngram_size: int = 35,
+    page_budget: int = 30,
 ) -> str:
     """Run local Unlimited-OCR on a single image or PDF and return markdown text.
 
@@ -74,6 +75,9 @@ def attempt_unlimited_ocr(
       uri: path to the image or PDF file
       prompt_text: OCR instruction for single image; PDF uses internal fixed prompt
       image_mode: "gundam" or "base"; PDF always uses base
+      page_budget: max pages per infer_multi call. PDFs beyond it are parsed in
+        page_budget-sized chunks so the 32K context ceiling cannot silently
+        truncate trailing pages. Set <=0 to always use a single call.
     """
     start_time = time.time()
 
@@ -139,6 +143,7 @@ def attempt_unlimited_ocr(
             pixels=pixels,
             max_length=max_length,
             no_repeat_ngram_size=no_repeat_ngram_size,
+            page_budget=page_budget,
         )
     else:
         content = _process_single_image(
@@ -234,6 +239,46 @@ def _process_single_image(
     return content
 
 
+def _run_infer_multi(
+    *,
+    model,
+    tokenizer,
+    image_files: list[str],
+    out_dir: str,
+    max_length: int,
+    no_repeat_ngram_size: int,
+) -> str:
+    """One long-horizon infer_multi call over a batch of page images.
+
+    Unlimited-OCR writes result.md directly into out_dir and returns a tuple
+    (outputs, output_tokens); read the file, fall back to the return value.
+    """
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    try:
+        res = model.infer_multi(
+            tokenizer,
+            prompt=_MULTI_PAGE_PROMPT,
+            image_files=image_files,
+            output_path=out_dir,
+            image_size=1024,
+            save_results=True,
+            max_length=max_length,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+            ngram_window=1024,
+        )
+    except Exception as exc:
+        raise RuntimeError("Unlimited-OCR multi-page parsing failed") from exc
+
+    result_md_path = Path(out_dir) / "result.md"
+    if result_md_path.exists():
+        return result_md_path.read_text(encoding="utf-8")
+    if isinstance(res, tuple) and res:
+        return str(res[0])
+    if isinstance(res, str):
+        return res
+    return str(res)
+
+
 def _process_pdf(
     *,
     p: Path,
@@ -244,8 +289,16 @@ def _process_pdf(
     pixels: Optional[Pixels],
     max_length: int,
     no_repeat_ngram_size: int,
+    page_budget: int,
 ) -> str:
-    """Process a multi-page PDF using model.infer_multi (one-shot long-horizon)."""
+    """Process a multi-page PDF using model.infer_multi (one-shot long-horizon).
+
+    Within page_budget pages: a single infer_multi call (the model's native
+    long-horizon path). Beyond it: parse in page_budget-sized chunks so the 32K
+    context ceiling can't silently drop trailing pages — the paper itself caps
+    one-shot parsing around 40-50 pages and ships no chunking. page_budget <=0
+    forces a single call.
+    """
     images = pdf_to_images_high_quality(str(p))
     if not images:
         raise RuntimeError("Unlimited-OCR multi-page parsing failed: no images extracted from PDF")
@@ -267,33 +320,44 @@ def _process_pdf(
     if not image_files:
         raise RuntimeError("Unlimited-OCR multi-page parsing failed: no valid page images")
 
-    try:
-        res = model.infer_multi(
-            tokenizer,
-            prompt=_MULTI_PAGE_PROMPT,
+    # Within budget: one shot — identical to a plain single infer_multi call.
+    if page_budget <= 0 or len(image_files) <= page_budget:
+        return _run_infer_multi(
+            model=model,
+            tokenizer=tokenizer,
             image_files=image_files,
-            output_path=output_dir,
-            image_size=1024,
-            save_results=True,
+            out_dir=output_dir,
             max_length=max_length,
             no_repeat_ngram_size=no_repeat_ngram_size,
-            ngram_window=1024,
         )
-    except Exception as exc:
-        raise RuntimeError("Unlimited-OCR multi-page parsing failed") from exc
 
-    # Unlimited-OCR infer_multi writes result.md directly and returns
-    # a tuple (outputs, output_tokens) — read the file, not the return value.
-    result_md_path = Path(output_dir) / "result.md"
-    if result_md_path.exists():
-        content = result_md_path.read_text(encoding="utf-8")
-    elif isinstance(res, tuple) and res:
-        content = str(res[0])
-    elif isinstance(res, str):
-        content = res
-    else:
-        content = str(res)
+    # Over budget: chunk so the 32K ceiling can't silently truncate. Each chunk
+    # gets its own dir so per-chunk result.md files don't clobber each other;
+    # a failed chunk propagates (fail loud > silently incomplete markdown).
+    total = len(image_files)
+    console.print(
+        f"[yellow]Unlimited-OCR:[/yellow] {total} pages exceed page_budget={page_budget}; "
+        f"parsing in {page_budget}-page chunks to avoid 32K truncation."
+    )
+    chunk_texts: list[str] = []
+    for start in range(0, total, page_budget):
+        chunk_idx = start // page_budget + 1
+        batch = image_files[start : start + page_budget]
+        chunk_dir = Path(output_dir) / f"chunk_{chunk_idx:04d}"
+        chunk_text = _run_infer_multi(
+            model=model,
+            tokenizer=tokenizer,
+            image_files=batch,
+            out_dir=str(chunk_dir),
+            max_length=max_length,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+        )
+        if chunk_text and chunk_text.strip():
+            chunk_texts.append(chunk_text.strip())
 
+    content = "\n<--- Page Split --->\n".join(chunk_texts).strip()
+    if not content:
+        raise RuntimeError("Unlimited-OCR multi-page parsing failed")
     return content
 
 
@@ -327,6 +391,7 @@ class UnlimitedOCRProvider(OCRProvider):
             crop_mode=self._get_model_config("crop_mode", None),
             max_length=self._get_model_config("max_length", 32768),
             no_repeat_ngram_size=self._get_model_config("no_repeat_ngram_size", 35),
+            page_budget=self._get_model_config("page_budget", 30),
         )
 
         return CaptionResult(

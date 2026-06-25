@@ -708,6 +708,9 @@ image_size = 640
 crop_mode = true
 max_length = 32768
 no_repeat_ngram_size = 35
+# PDFs beyond page_budget pages are parsed in chunks so the 32K context ceiling
+# can't silently truncate trailing pages. Set <=0 to always use a single call.
+page_budget = 30
 
 # Logics-Parsing-v2 configuration
 # Model: https://huggingface.co/Logics-MLLM/Logics-Parsing-v2

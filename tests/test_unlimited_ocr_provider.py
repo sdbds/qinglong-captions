@@ -190,6 +190,77 @@ def test_attempt_pdf_calls_infer_multi(tmp_path, monkeypatch):
     mock_model.infer.assert_not_called()
 
 
+def test_attempt_pdf_chunks_when_over_budget(tmp_path, monkeypatch):
+    from module.providers.ocr import unlimited as mod
+
+    pdf_path = tmp_path / "big.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    output_dir = tmp_path / "out"
+
+    mock_model = MagicMock()
+    mock_model.infer_multi.return_value = "chunk text"
+    mock_tokenizer = MagicMock()
+
+    pages = [Image.new("RGB", (8, 8), "white") for _ in range(5)]
+    monkeypatch.setattr(mod, "_TRANS_LOADER", MagicMock())
+    monkeypatch.setattr(mod, "resolve_device_dtype", lambda: ("cpu", "float32", "eager"))
+    monkeypatch.setattr(mod, "pdf_to_images_high_quality", lambda _: pages)
+    monkeypatch.setattr(mod, "display_markdown", lambda **kwargs: None)
+    monkeypatch.setattr(mod, "write_markdown_output", lambda *a, **kw: None)
+    mod._TRANS_LOADER.get_or_load_processor.return_value = mock_tokenizer
+    mod._TRANS_LOADER.get_or_load_model.return_value = mock_model
+
+    result = mod.attempt_unlimited_ocr(
+        uri=str(pdf_path),
+        console=_console(),
+        progress=None,
+        task_id=None,
+        output_dir=str(output_dir),
+        page_budget=2,
+    )
+
+    # 5 pages / budget 2 -> 3 chunks -> 3 infer_multi calls, joined by page split
+    assert mock_model.infer_multi.call_count == 3
+    assert result.count("<--- Page Split --->") == 2
+    for call in mock_model.infer_multi.call_args_list:
+        assert len(call.kwargs["image_files"]) <= 2
+
+
+def test_attempt_pdf_budget_zero_forces_single_call(tmp_path, monkeypatch):
+    from module.providers.ocr import unlimited as mod
+
+    pdf_path = tmp_path / "big.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    output_dir = tmp_path / "out"
+
+    mock_model = MagicMock()
+    mock_model.infer_multi.return_value = "all pages"
+    mock_tokenizer = MagicMock()
+
+    pages = [Image.new("RGB", (8, 8), "white") for _ in range(5)]
+    monkeypatch.setattr(mod, "_TRANS_LOADER", MagicMock())
+    monkeypatch.setattr(mod, "resolve_device_dtype", lambda: ("cpu", "float32", "eager"))
+    monkeypatch.setattr(mod, "pdf_to_images_high_quality", lambda _: pages)
+    monkeypatch.setattr(mod, "display_markdown", lambda **kwargs: None)
+    monkeypatch.setattr(mod, "write_markdown_output", lambda *a, **kw: None)
+    mod._TRANS_LOADER.get_or_load_processor.return_value = mock_tokenizer
+    mod._TRANS_LOADER.get_or_load_model.return_value = mock_model
+
+    result = mod.attempt_unlimited_ocr(
+        uri=str(pdf_path),
+        console=_console(),
+        progress=None,
+        task_id=None,
+        output_dir=str(output_dir),
+        page_budget=0,
+    )
+
+    # Budget disabled -> all 5 pages in one call, no page-split marker
+    mock_model.infer_multi.assert_called_once()
+    assert len(mock_model.infer_multi.call_args.kwargs["image_files"]) == 5
+    assert result == "all pages"
+
+
 def test_attempt_empty_output_raises(tmp_path, monkeypatch):
     from module.providers.ocr import unlimited as mod
 
