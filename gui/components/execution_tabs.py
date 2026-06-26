@@ -382,7 +382,10 @@ class ExecutionTabs:
 
     def _notify_tab_change(self) -> None:
         if self._on_tab_change is not None:
-            self._on_tab_change(self.active_tab)
+            try:
+                self._on_tab_change(self.active_tab)
+            except RuntimeError:
+                pass
 
     def _log(self, tab_id: str, message: str, level: str = "info") -> None:
         if self._on_tab_log is not None:
@@ -391,7 +394,10 @@ class ExecutionTabs:
     def _render_tabs(self) -> None:
         if self._tab_bar is None:
             return
-        self._tab_bar.clear()
+        try:
+            self._tab_bar.clear()
+        except RuntimeError:
+            return
         with self._tab_bar:
             for tab in self.tabs:
                 active = tab.id == self.active_tab_id
