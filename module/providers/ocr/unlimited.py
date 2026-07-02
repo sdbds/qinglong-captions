@@ -20,7 +20,7 @@ from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from utils.parse_display import display_markdown
 from utils.output_writer import write_markdown_output
-from utils.stream_util import pdf_to_images_high_quality
+from utils.stream_util import iter_pdf_pages_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
 _TRANS_LOADER: Optional[transformerLoader] = None
@@ -299,23 +299,24 @@ def _process_pdf(
     one-shot parsing around 40-50 pages and ships no chunking. page_budget <=0
     forces a single call.
     """
-    images = pdf_to_images_high_quality(str(p))
-    if not images:
-        raise RuntimeError("Unlimited-OCR multi-page parsing failed: no images extracted from PDF")
-
     image_files: list[str] = []
-    for idx, pil_img in enumerate(images):
-        page_dir = Path(output_dir) / f"page_{idx + 1:04d}"
-        page_dir.mkdir(parents=True, exist_ok=True)
-        page_img_path = page_dir / f"page_{idx + 1:04d}.png"
+    for rendered_page in iter_pdf_pages_high_quality(str(p)):
+        page_number = rendered_page.page_number
+        pil_img = rendered_page.image
         try:
-            pil_img.save(page_img_path)
-        except Exception:
+            page_dir = Path(output_dir) / f"page_{page_number:04d}"
+            page_dir.mkdir(parents=True, exist_ok=True)
+            page_img_path = page_dir / f"page_{page_number:04d}.png"
             try:
-                pil_img.convert("RGB").save(page_img_path)
+                pil_img.save(page_img_path)
             except Exception:
-                continue
-        image_files.append(str(page_img_path))
+                try:
+                    pil_img.convert("RGB").save(page_img_path)
+                except Exception:
+                    continue
+            image_files.append(str(page_img_path))
+        finally:
+            pil_img.close()
 
     if not image_files:
         raise RuntimeError("Unlimited-OCR multi-page parsing failed: no valid page images")

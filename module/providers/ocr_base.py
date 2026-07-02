@@ -165,7 +165,7 @@ class OCRProvider(Provider):
         """Run OCR via a local OpenAI-compatible server while keeping OCR side effects."""
         from utils.console_util import print_exception
         from utils.parse_display import display_markdown
-        from utils.stream_util import pdf_to_images_high_quality
+        from utils.stream_util import iter_pdf_pages_high_quality
 
         runtime = self.get_runtime_backend()
         backend = OpenAIChatRuntime(runtime)
@@ -181,29 +181,33 @@ class OCRProvider(Provider):
             return backend.complete(messages)
 
         if media.mime.startswith("application/pdf"):
-            images = pdf_to_images_high_quality(media.uri)
             all_contents = []
-            for idx, pil_img in enumerate(images):
-                page_dir = Path(output_dir) / f"page_{idx + 1:04d}"
-                page_dir.mkdir(parents=True, exist_ok=True)
-                page_img_path = page_dir / f"page_{idx + 1:04d}.png"
+            for rendered_page in iter_pdf_pages_high_quality(media.uri):
+                page_number = rendered_page.page_number
+                pil_img = rendered_page.image
                 try:
-                    pil_img.save(page_img_path)
-                except Exception:
+                    page_dir = Path(output_dir) / f"page_{page_number:04d}"
+                    page_dir.mkdir(parents=True, exist_ok=True)
+                    page_img_path = page_dir / f"page_{page_number:04d}.png"
                     try:
-                        pil_img.convert("RGB").save(page_img_path)
+                        pil_img.save(page_img_path)
                     except Exception:
-                        continue
+                        try:
+                            pil_img.convert("RGB").save(page_img_path)
+                        except Exception:
+                            continue
 
-                page_blob, _ = encode_image_to_blob(str(page_img_path), to_rgb=True, quality=self.get_image_quality())
-                if not page_blob:
-                    continue
-                page_content = infer_from_blob(page_blob)
-                try:
-                    write_markdown_output(page_dir, page_content)
-                except Exception as exc:
-                    print_exception(self.ctx.console, exc, prefix=f"Failed to write OCR page markdown: {page_dir}")
-                all_contents.append(page_content.strip())
+                    page_blob, _ = encode_image_to_blob(str(page_img_path), to_rgb=True, quality=self.get_image_quality())
+                    if not page_blob:
+                        continue
+                    page_content = infer_from_blob(page_blob)
+                    try:
+                        write_markdown_output(page_dir, page_content)
+                    except Exception as exc:
+                        print_exception(self.ctx.console, exc, prefix=f"Failed to write OCR page markdown: {page_dir}")
+                    all_contents.append(page_content.strip())
+                finally:
+                    pil_img.close()
 
             content = "\n<--- Page Split --->\n".join(all_contents)
         else:

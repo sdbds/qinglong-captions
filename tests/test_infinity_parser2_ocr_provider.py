@@ -57,6 +57,19 @@ def _ctx(config):
     )
 
 
+def _pdf_page(pdf_path: Path, page_number: int, image: Image.Image):
+    return SimpleNamespace(
+        pdf_path=pdf_path,
+        page_index=page_number - 1,
+        page_number=page_number,
+        page_count=2,
+        image=image,
+        size=image.size,
+        dpi=144,
+        image_format="PNG",
+    )
+
+
 def test_infinity_parser2_ocr_uses_flash_by_default():
     from module.providers.ocr.infinity_parser2 import InfinityParser2OCRProvider
 
@@ -194,8 +207,11 @@ def test_attempt_infinity_parser2_pdf_writes_pages_and_root_result(tmp_path, mon
 
     monkeypatch.setattr(
         mod,
-        "pdf_to_images_high_quality",
-        lambda _: [Image.new("RGB", (8, 8), "white"), Image.new("RGB", (8, 8), "white")],
+        "iter_pdf_pages_high_quality",
+        lambda _path: [
+            _pdf_page(source, 1, Image.new("RGB", (8, 8), "white")),
+            _pdf_page(source, 2, Image.new("RGB", (8, 8), "white")),
+        ],
     )
     monkeypatch.setattr(mod, "display_markdown", lambda **kwargs: None)
 
@@ -226,8 +242,11 @@ def test_attempt_infinity_parser2_pdf_raises_when_all_pages_fail(tmp_path, monke
 
     monkeypatch.setattr(
         mod,
-        "pdf_to_images_high_quality",
-        lambda _: [Image.new("RGB", (8, 8), "white"), Image.new("RGB", (8, 8), "white")],
+        "iter_pdf_pages_high_quality",
+        lambda _path: [
+            _pdf_page(source, 1, Image.new("RGB", (8, 8), "white")),
+            _pdf_page(source, 2, Image.new("RGB", (8, 8), "white")),
+        ],
     )
     monkeypatch.setattr(mod, "display_markdown", lambda **kwargs: None)
 

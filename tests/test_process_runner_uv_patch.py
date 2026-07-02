@@ -784,6 +784,35 @@ def test_see_through_uses_dedicated_uv_extra_by_default(monkeypatch):
     assert commands == [["python", "./module/see_through/cli.py", "--help"]]
 
 
+def test_sheet_music_musvit_uses_dedicated_uv_extra_by_default(monkeypatch):
+    runner = ProcessRunner()
+    captured: dict[str, list[str]] = {}
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(runner, "_find_uv", staticmethod(lambda: "uv"))
+    monkeypatch.setattr(runner, "_resolve_project_python", staticmethod(lambda work_dir, env: "python"))
+
+    async def fake_patch(uv, work_dir, env, env_name, extras, groups, *rest):
+        captured["extras"] = list(extras)
+        captured["groups"] = list(groups)
+        return None
+
+    async def fake_run(cmd, work_dir, env):
+        commands.append(list(cmd))
+        return 0
+
+    monkeypatch.setattr(runner, "_patch_shared_environment", fake_patch)
+    monkeypatch.setattr(runner, "_run_logged_subprocess", fake_run)
+
+    result = asyncio.run(
+        runner.run_python_script("module.sheet_music_musvit", ["--help"], native_console=False),
+    )
+
+    assert result.status.value == "成功"
+    assert captured == {"extras": ["musvit-onnx"], "groups": []}
+    assert commands == [["python", "./module/sheet_music_musvit.py", "--help"]]
+
+
 def test_reward_model_uses_dedicated_uv_extra_by_default(monkeypatch):
     runner = ProcessRunner()
     captured: dict[str, list[str]] = {}

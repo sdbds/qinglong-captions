@@ -47,6 +47,17 @@ def test_vocal_midi_depends_on_onnx_base():
     assert any(dep.startswith("numpy") for dep in vocal_midi_deps)
 
 
+def test_musvit_onnx_depends_on_onnx_base_without_transformers_runtime():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    musvit_deps = pyproject["project"]["optional-dependencies"]["musvit-onnx"]
+
+    assert "qinglong-captions[onnx-base]" in musvit_deps
+    assert any(dep.lower().startswith("pillow") for dep in musvit_deps)
+    assert any(dep.startswith("numpy") for dep in musvit_deps)
+    assert "PyMuPDF" in musvit_deps
+    assert not any(dep.startswith("transformers") for dep in musvit_deps)
+
+
 def test_see_through_extra_includes_bitsandbytes_for_nf4_repos():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     see_through_deps = pyproject["project"]["optional-dependencies"]["see-through"]

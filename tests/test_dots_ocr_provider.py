@@ -746,11 +746,6 @@ def test_pdf_path_uses_upstream_loader_instead_of_legacy_splitter(monkeypatch, t
         raising=False,
     )
     monkeypatch.setattr(
-        "module.providers.ocr.dots.pdf_to_images_high_quality",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("legacy pdf splitter should not be used")),
-        raising=False,
-    )
-    monkeypatch.setattr(
         "module.providers.ocr.dots._save_pdf_page_image",
         lambda *args, **kwargs: str(args[1]),
         raising=False,

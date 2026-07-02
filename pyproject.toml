@@ -97,6 +97,12 @@ see-through = [
     "triton-windows; sys_platform == 'win32'",
     "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
 ]
+musvit-onnx = [
+    "qinglong-captions[onnx-base]",
+    "numpy",
+    "pillow>=11.3",
+    "PyMuPDF",
+]
 wdtagger = [
     "pillow>=11.3",
     "opencv-contrib-python; sys_platform == 'win32'",

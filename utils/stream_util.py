@@ -1,8 +1,9 @@
 import math
 import re
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Iterator, Optional, Tuple
 
 import toml
 from rich.console import Console
@@ -12,6 +13,24 @@ from utils.console_util import print_exception
 from utils.tag_highlighting import get_tag_classifier
 
 console = Console(color_system="truecolor", force_terminal=True)
+
+
+@dataclass(frozen=True)
+class PdfRenderPage:
+    pdf_path: Path
+    page_index: int
+    page_count: int
+    image: "Image.Image"
+    dpi: int
+    image_format: str
+
+    @property
+    def page_number(self) -> int:
+        return self.page_index + 1
+
+    @property
+    def size(self) -> tuple[int, int]:
+        return self.image.size
 
 
 def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kwargs):
@@ -499,30 +518,50 @@ def format_description(text: str, tag_description: str = "") -> str:
     return text, highlight_rate
 
 
-def pdf_to_images_high_quality(pdf_path: str, dpi: int = 144, image_format: str = "PNG"):
+def iter_pdf_pages_high_quality(pdf_path: str | Path, dpi: int = 144, image_format: str = "PNG") -> Iterator[PdfRenderPage]:
     import io
 
     import fitz
     from PIL import Image
 
-    images = []
-    pdf_document = fitz.open(pdf_path)
-    zoom = dpi / 72.0
-    matrix = fitz.Matrix(zoom, zoom)
-    for page_num in range(pdf_document.page_count):
-        page = pdf_document[page_num]
-        pixmap = page.get_pixmap(matrix=matrix, alpha=False)
-        Image.MAX_IMAGE_PIXELS = None
-        img_data = pixmap.tobytes("png")
-        img = Image.open(io.BytesIO(img_data))
-        if image_format.upper() != "PNG":
-            if img.mode in ("RGBA", "LA"):
-                background = Image.new("RGB", img.size, (255, 255, 255))
-                background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
-                img = background
-        images.append(img)
-    pdf_document.close()
-    return images
+    pdf_path = Path(pdf_path).expanduser()
+    try:
+        pdf_document = fitz.open(str(pdf_path))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to open PDF: {pdf_path}") from exc
+
+    try:
+        page_count = int(getattr(pdf_document, "page_count", 0))
+        if page_count <= 0:
+            raise ValueError(f"PDF contains no renderable pages: {pdf_path}")
+
+        zoom = dpi / 72.0
+        matrix = fitz.Matrix(zoom, zoom)
+        for page_num in range(page_count):
+            try:
+                page = pdf_document[page_num]
+                pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+                Image.MAX_IMAGE_PIXELS = None
+                img_data = pixmap.tobytes("png")
+                img = Image.open(io.BytesIO(img_data))
+                img.load()
+                if image_format.upper() != "PNG" and img.mode in ("RGBA", "LA"):
+                    background = Image.new("RGB", img.size, (255, 255, 255))
+                    background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+                    img = background
+            except Exception as exc:
+                raise RuntimeError(f"Failed to render PDF page {page_num + 1} from {pdf_path}") from exc
+
+            yield PdfRenderPage(
+                pdf_path=pdf_path,
+                page_index=page_num,
+                page_count=page_count,
+                image=img,
+                dpi=int(dpi),
+                image_format=str(image_format),
+            )
+    finally:
+        pdf_document.close()
 
 
 def pil_to_pdf_img2pdf(pil_images, output_path: str):

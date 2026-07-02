@@ -23,6 +23,24 @@ def test_model_toml_contains_see_through_section():
     assert parsed["see_through"]["group_offload"] is False
 
 
+def test_model_toml_contains_musvit_section():
+    parsed = tomllib.loads((ROOT / "config" / "model.toml").read_text(encoding="utf-8"))
+
+    assert parsed["musvit"]["repo_id"] == "bdsqlsz/musvit-onnx"
+    assert parsed["musvit"]["model_dir"] == "huggingface"
+    assert parsed["musvit"]["batch_size"] == 1
+    assert parsed["musvit"]["preprocess_mode"] == "page_resize"
+    assert parsed["musvit"]["pdf_dpi"] == 144
+    assert parsed["musvit"]["recursive"] is True
+    assert parsed["musvit"]["skip_completed"] is True
+
+
+def test_onnx_toml_contains_musvit_runtime_section():
+    parsed = tomllib.loads((ROOT / "config" / "onnx.toml").read_text(encoding="utf-8"))
+
+    assert "musvit" in parsed["onnx_runtime"]
+
+
 def test_split_loader_reads_see_through_file(tmp_path):
     (tmp_path / "model.toml").write_text("[see_through]\nresolution = 1024\n", encoding="utf-8")
 

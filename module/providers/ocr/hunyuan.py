@@ -16,7 +16,7 @@ from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from utils.parse_display import display_markdown
 from utils.output_writer import write_markdown_output
-from utils.stream_util import pdf_to_images_high_quality
+from utils.stream_util import iter_pdf_pages_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
 _TRANS_LOADER: Optional[transformerLoader] = None
@@ -146,31 +146,35 @@ def attempt_hunyuan_ocr(
         return output_texts[0] if output_texts else ""
 
     if p.suffix.lower() == ".pdf":
-        images = pdf_to_images_high_quality(str(p))
         all_contents = []
 
-        for idx, pil_img in enumerate(images):
-            page_dir = Path(output_dir) / f"page_{idx + 1:04d}"
-            page_dir.mkdir(parents=True, exist_ok=True)
-            page_img_path = page_dir / f"page_{idx + 1:04d}.png"
-
+        for rendered_page in iter_pdf_pages_high_quality(str(p)):
+            page_number = rendered_page.page_number
+            pil_img = rendered_page.image
             try:
-                pil_img.save(page_img_path)
-            except Exception:
+                page_dir = Path(output_dir) / f"page_{page_number:04d}"
+                page_dir.mkdir(parents=True, exist_ok=True)
+                page_img_path = page_dir / f"page_{page_number:04d}.png"
+
                 try:
-                    pil_img.convert("RGB").save(page_img_path)
+                    pil_img.save(page_img_path)
                 except Exception:
-                    continue
+                    try:
+                        pil_img.convert("RGB").save(page_img_path)
+                    except Exception:
+                        continue
 
-            page_content = _infer_single_image(str(page_img_path), pil_img)
+                page_content = _infer_single_image(str(page_img_path), pil_img)
 
-            # Save individual page result
-            try:
-                write_markdown_output(page_dir, page_content)
-            except Exception:
-                pass
+                # Save individual page result
+                try:
+                    write_markdown_output(page_dir, page_content)
+                except Exception:
+                    pass
 
-            all_contents.append(page_content.strip())
+                all_contents.append(page_content.strip())
+            finally:
+                pil_img.close()
 
         content = "\n<--- Page Split --->\n".join(all_contents)
 

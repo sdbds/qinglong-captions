@@ -19,7 +19,7 @@ from module.providers.registry import register_provider
 from utils.console_util import print_exception
 from utils.output_writer import write_markdown_output
 from utils.parse_display import display_markdown
-from utils.stream_util import pdf_to_images_high_quality
+from utils.stream_util import iter_pdf_pages_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
 DEFAULT_MODEL_ID = "infly/Infinity-Parser2-Flash"
@@ -274,34 +274,38 @@ def attempt_infinity_parser2_ocr(
 
     if source_path.suffix.lower() == ".pdf":
         page_outputs: list[str] = []
-        images = pdf_to_images_high_quality(str(source_path))
-        for page_index, pil_img in enumerate(images, start=1):
-            page_dir = Path(output_dir) / f"page_{page_index:04d}"
-            page_img_path = page_dir / f"page_{page_index:04d}.png"
-            page_dir.mkdir(parents=True, exist_ok=True)
+        for rendered_page in iter_pdf_pages_high_quality(str(source_path)):
+            page_index = rendered_page.page_number
+            pil_img = rendered_page.image
             try:
-                pil_img.save(page_img_path)
-            except Exception:
+                page_dir = Path(output_dir) / f"page_{page_index:04d}"
+                page_img_path = page_dir / f"page_{page_index:04d}.png"
+                page_dir.mkdir(parents=True, exist_ok=True)
                 try:
-                    pil_img.convert("RGB").save(page_img_path)
+                    pil_img.save(page_img_path)
+                except Exception:
+                    try:
+                        pil_img.convert("RGB").save(page_img_path)
+                    except Exception as exc:
+                        print_exception(
+                            console,
+                            exc,
+                            prefix=f"Infinity Parser2 OCR page {page_index} image save failed",
+                            summary_style="yellow",
+                        )
+                        continue
+
+                try:
+                    page_content = infer_image(pil_img)
                 except Exception as exc:
-                    print_exception(
-                        console,
-                        exc,
-                        prefix=f"Infinity Parser2 OCR page {page_index} image save failed",
-                        summary_style="yellow",
-                    )
+                    print_exception(console, exc, prefix=f"Infinity Parser2 OCR page {page_index} failed", summary_style="yellow")
                     continue
 
-            try:
-                page_content = infer_image(pil_img)
-            except Exception as exc:
-                print_exception(console, exc, prefix=f"Infinity Parser2 OCR page {page_index} failed", summary_style="yellow")
-                continue
-
-            if page_content.strip():
-                write_markdown_output(page_dir, page_content)
-                page_outputs.append(page_content.strip())
+                if page_content.strip():
+                    write_markdown_output(page_dir, page_content)
+                    page_outputs.append(page_content.strip())
+            finally:
+                pil_img.close()
 
         content = "\n<--- Page Split --->\n".join(page_outputs).strip()
         if not content:

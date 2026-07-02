@@ -18,7 +18,7 @@ from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from utils.output_writer import write_markdown_output
 from utils.parse_display import display_markdown
-from utils.stream_util import pdf_to_images_high_quality
+from utils.stream_util import iter_pdf_pages_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -367,33 +367,38 @@ class QianfanOCRProvider(OCRProvider):
 
         if media.mime.startswith("application/pdf"):
             page_contents: list[str] = []
-            for idx, pil_img in enumerate(pdf_to_images_high_quality(media.uri), start=1):
-                page_dir = output_dir / f"page_{idx:04d}"
-                page_dir.mkdir(parents=True, exist_ok=True)
-                page_img_path = page_dir / f"page_{idx:04d}.png"
+            for rendered_page in iter_pdf_pages_high_quality(media.uri):
+                page_number = rendered_page.page_number
+                pil_img = rendered_page.image
                 try:
-                    pil_img.save(page_img_path)
-                except Exception:
+                    page_dir = output_dir / f"page_{page_number:04d}"
+                    page_dir.mkdir(parents=True, exist_ok=True)
+                    page_img_path = page_dir / f"page_{page_number:04d}.png"
                     try:
-                        pil_img.convert("RGB").save(page_img_path)
+                        pil_img.save(page_img_path)
                     except Exception:
-                        continue
+                        try:
+                            pil_img.convert("RGB").save(page_img_path)
+                        except Exception:
+                            continue
 
-                raw_page = self._run_direct_generation(
-                    image_path=str(page_img_path),
-                    question=prompts.user,
-                    model_id=model_id,
-                    max_new_tokens=max_new_tokens,
-                    input_size=input_size,
-                    max_num=max_num,
-                )
-                cleaned_page = self._write_clean_markdown(
-                    page_dir,
-                    raw_page,
-                    source_image_path=page_img_path,
-                    asset_prefix=f"{page_dir.name}-image",
-                )
-                page_contents.append(_prefix_rendered_image_paths(cleaned_page.strip(), page_dir.name))
+                    raw_page = self._run_direct_generation(
+                        image_path=str(page_img_path),
+                        question=prompts.user,
+                        model_id=model_id,
+                        max_new_tokens=max_new_tokens,
+                        input_size=input_size,
+                        max_num=max_num,
+                    )
+                    cleaned_page = self._write_clean_markdown(
+                        page_dir,
+                        raw_page,
+                        source_image_path=page_img_path,
+                        asset_prefix=f"{page_dir.name}-image",
+                    )
+                    page_contents.append(_prefix_rendered_image_paths(cleaned_page.strip(), page_dir.name))
+                finally:
+                    pil_img.close()
 
             content = "\n<--- Page Split --->\n".join(page_contents)
             write_markdown_output(output_dir, content)

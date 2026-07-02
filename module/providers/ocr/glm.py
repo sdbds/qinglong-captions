@@ -17,7 +17,7 @@ from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from utils.parse_display import display_markdown
 from utils.output_writer import write_markdown_output
-from utils.stream_util import pdf_to_images_high_quality
+from utils.stream_util import iter_pdf_pages_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
 _TRANS_LOADER: Optional[transformerLoader] = None
@@ -75,52 +75,56 @@ def attempt_glm_ocr(
     )
 
     if p.suffix.lower() == ".pdf":
-        images = pdf_to_images_high_quality(str(p))
         all_contents = []
-        for idx, pil_img in enumerate(images):
-            page_dir = Path(output_dir) / f"page_{idx + 1:04d}"
-            page_dir.mkdir(parents=True, exist_ok=True)
-            page_img_path = page_dir / f"page_{idx + 1:04d}.png"
+        for rendered_page in iter_pdf_pages_high_quality(str(p)):
+            page_number = rendered_page.page_number
+            pil_img = rendered_page.image
             try:
-                pil_img.save(page_img_path)
-            except Exception:
+                page_dir = Path(output_dir) / f"page_{page_number:04d}"
+                page_dir.mkdir(parents=True, exist_ok=True)
+                page_img_path = page_dir / f"page_{page_number:04d}.png"
                 try:
-                    pil_img.convert("RGB").save(page_img_path)
+                    pil_img.save(page_img_path)
                 except Exception:
-                    continue
+                    try:
+                        pil_img.convert("RGB").save(page_img_path)
+                    except Exception:
+                        continue
 
-            # Process with GLM-OCR
-            messages = [
-                Provider.build_message(
-                    "user",
-                    [
-                        Provider.build_image_part(str(page_img_path), field_name="url"),
-                        Provider.build_text_part(prompt_text),
-                    ],
+                # Process with GLM-OCR
+                messages = [
+                    Provider.build_message(
+                        "user",
+                        [
+                            Provider.build_image_part(str(page_img_path), field_name="url"),
+                            Provider.build_text_part(prompt_text),
+                        ],
+                    )
+                ]
+
+                inputs = processor.apply_chat_template(
+                    messages,
+                    tokenize=True,
+                    add_generation_prompt=True,
+                    return_dict=True,
+                    return_tensors="pt",
+                ).to(model.device)
+                inputs.pop("token_type_ids", None)
+
+                generated_ids = model.generate(**inputs, max_new_tokens=max_new_tokens)
+                output_text = processor.decode(
+                    generated_ids[0][inputs["input_ids"].shape[1] :],
+                    skip_special_tokens=True,
                 )
-            ]
 
-            inputs = processor.apply_chat_template(
-                messages,
-                tokenize=True,
-                add_generation_prompt=True,
-                return_dict=True,
-                return_tensors="pt",
-            ).to(model.device)
-            inputs.pop("token_type_ids", None)
+                # Process line breaks for display - add two spaces before newlines for markdown line breaks
+                output_text = output_text.replace("\n", "  \n")
 
-            generated_ids = model.generate(**inputs, max_new_tokens=max_new_tokens)
-            output_text = processor.decode(
-                generated_ids[0][inputs["input_ids"].shape[1] :],
-                skip_special_tokens=True,
-            )
-
-            # Process line breaks for display - add two spaces before newlines for markdown line breaks
-            output_text = output_text.replace("\n", "  \n")
-
-            # Save result
-            write_markdown_output(page_dir, output_text, filename=f"{p.stem}_{idx + 1:04d}.md")
-            all_contents.append(output_text.strip())
+                # Save result
+                write_markdown_output(page_dir, output_text, filename=f"{p.stem}_{page_number:04d}.md")
+                all_contents.append(output_text.strip())
+            finally:
+                pil_img.close()
 
         content = "\n<--- Page Split --->\n".join(all_contents)
         # Process line breaks for merged content - add two spaces before newlines for markdown line breaks

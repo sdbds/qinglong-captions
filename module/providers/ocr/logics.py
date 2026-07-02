@@ -19,7 +19,7 @@ from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from utils.parse_display import display_markdown
 from utils.output_writer import write_markdown_output
-from utils.stream_util import pdf_to_images_high_quality
+from utils.stream_util import iter_pdf_pages_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
 _TRANS_LOADER: Optional[transformerLoader] = None
@@ -209,23 +209,27 @@ def attempt_logics_ocr(
 
     if source_path.suffix.lower() == ".pdf":
         page_outputs: list[str] = []
-        images = pdf_to_images_high_quality(str(source_path))
-        for page_index, pil_img in enumerate(images, start=1):
-            page_dir = Path(output_dir) / f"page_{page_index:04d}"
-            page_img_path = page_dir / f"page_{page_index:04d}.png"
-            page_dir.mkdir(parents=True, exist_ok=True)
+        for rendered_page in iter_pdf_pages_high_quality(str(source_path)):
+            page_index = rendered_page.page_number
+            pil_img = rendered_page.image
             try:
-                pil_img.save(page_img_path)
-            except Exception:
+                page_dir = Path(output_dir) / f"page_{page_index:04d}"
+                page_img_path = page_dir / f"page_{page_index:04d}.png"
+                page_dir.mkdir(parents=True, exist_ok=True)
                 try:
-                    pil_img.convert("RGB").save(page_img_path)
+                    pil_img.save(page_img_path)
                 except Exception:
-                    continue
+                    try:
+                        pil_img.convert("RGB").save(page_img_path)
+                    except Exception:
+                        continue
 
-            raw_page, markdown_page = infer_single_image(page_img_path, pil_img)
-            persist_outputs(page_dir, page_img_path.stem, raw_page, markdown_page)
-            if markdown_page.strip():
-                page_outputs.append(markdown_page.strip())
+                raw_page, markdown_page = infer_single_image(page_img_path, pil_img)
+                persist_outputs(page_dir, page_img_path.stem, raw_page, markdown_page)
+                if markdown_page.strip():
+                    page_outputs.append(markdown_page.strip())
+            finally:
+                pil_img.close()
 
         content = "\n<--- Page Split --->\n".join(page_outputs).strip()
         if content:

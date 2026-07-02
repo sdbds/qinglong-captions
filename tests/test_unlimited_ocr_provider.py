@@ -26,6 +26,19 @@ def _ctx(config):
     )
 
 
+def _pdf_page(pdf_path: Path, page_number: int, image: Image.Image, *, page_count: int = 1):
+    return SimpleNamespace(
+        pdf_path=pdf_path,
+        page_index=page_number - 1,
+        page_number=page_number,
+        page_count=page_count,
+        image=image,
+        size=image.size,
+        dpi=144,
+        image_format="PNG",
+    )
+
+
 def test_unlimited_ocr_default_model_id():
     from module.providers.ocr.unlimited import UnlimitedOCRProvider
 
@@ -161,8 +174,11 @@ def test_attempt_pdf_calls_infer_multi(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "resolve_device_dtype", lambda: ("cpu", "float32", "eager"))
     monkeypatch.setattr(
         mod,
-        "pdf_to_images_high_quality",
-        lambda _: [Image.new("RGB", (8, 8), "white"), Image.new("RGB", (8, 8), "white")],
+        "iter_pdf_pages_high_quality",
+        lambda _path: [
+            _pdf_page(pdf_path, 1, Image.new("RGB", (8, 8), "white"), page_count=2),
+            _pdf_page(pdf_path, 2, Image.new("RGB", (8, 8), "white"), page_count=2),
+        ],
     )
     monkeypatch.setattr(mod, "display_markdown", lambda **kwargs: None)
     monkeypatch.setattr(mod, "write_markdown_output", lambda *a, **kw: None)
@@ -201,10 +217,16 @@ def test_attempt_pdf_chunks_when_over_budget(tmp_path, monkeypatch):
     mock_model.infer_multi.return_value = "chunk text"
     mock_tokenizer = MagicMock()
 
-    pages = [Image.new("RGB", (8, 8), "white") for _ in range(5)]
     monkeypatch.setattr(mod, "_TRANS_LOADER", MagicMock())
     monkeypatch.setattr(mod, "resolve_device_dtype", lambda: ("cpu", "float32", "eager"))
-    monkeypatch.setattr(mod, "pdf_to_images_high_quality", lambda _: pages)
+    monkeypatch.setattr(
+        mod,
+        "iter_pdf_pages_high_quality",
+        lambda _path: [
+            _pdf_page(pdf_path, page, Image.new("RGB", (8, 8), "white"), page_count=5)
+            for page in range(1, 6)
+        ],
+    )
     monkeypatch.setattr(mod, "display_markdown", lambda **kwargs: None)
     monkeypatch.setattr(mod, "write_markdown_output", lambda *a, **kw: None)
     mod._TRANS_LOADER.get_or_load_processor.return_value = mock_tokenizer
@@ -237,10 +259,16 @@ def test_attempt_pdf_budget_zero_forces_single_call(tmp_path, monkeypatch):
     mock_model.infer_multi.return_value = "all pages"
     mock_tokenizer = MagicMock()
 
-    pages = [Image.new("RGB", (8, 8), "white") for _ in range(5)]
     monkeypatch.setattr(mod, "_TRANS_LOADER", MagicMock())
     monkeypatch.setattr(mod, "resolve_device_dtype", lambda: ("cpu", "float32", "eager"))
-    monkeypatch.setattr(mod, "pdf_to_images_high_quality", lambda _: pages)
+    monkeypatch.setattr(
+        mod,
+        "iter_pdf_pages_high_quality",
+        lambda _path: [
+            _pdf_page(pdf_path, page, Image.new("RGB", (8, 8), "white"), page_count=5)
+            for page in range(1, 6)
+        ],
+    )
     monkeypatch.setattr(mod, "display_markdown", lambda **kwargs: None)
     monkeypatch.setattr(mod, "write_markdown_output", lambda *a, **kw: None)
     mod._TRANS_LOADER.get_or_load_processor.return_value = mock_tokenizer
@@ -341,8 +369,8 @@ def test_attempt_pdf_reads_result_md_with_tuple_return(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "resolve_device_dtype", lambda: ("cpu", "float32", "eager"))
     monkeypatch.setattr(
         mod,
-        "pdf_to_images_high_quality",
-        lambda _: [Image.new("RGB", (8, 8), "white")],
+        "iter_pdf_pages_high_quality",
+        lambda _path: [_pdf_page(pdf_path, 1, Image.new("RGB", (8, 8), "white"))],
     )
     monkeypatch.setattr(mod, "display_markdown", lambda **kwargs: None)
     monkeypatch.setattr(mod, "write_markdown_output", lambda *a, **kw: None)

@@ -17,7 +17,7 @@ from module.providers.registry import register_provider
 from utils.console_util import print_exception
 from utils.parse_display import display_markdown
 from utils.output_writer import write_markdown_output
-from utils.stream_util import pdf_to_images_high_quality
+from utils.stream_util import iter_pdf_pages_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
 # Global lazy cache for model and processor
@@ -147,52 +147,56 @@ def attempt_olmocr(
     )
 
     if mime.startswith("application/pdf"):
-        images = pdf_to_images_high_quality(uri)
         all_contents: list[str] = []
-        for idx, pil_img in enumerate(images):
-            page_dir = Path(output_dir) / f"page_{idx + 1:04d}"
-            page_dir.mkdir(parents=True, exist_ok=True)
-            page_img_path = page_dir / f"page_{idx + 1:04d}.png"
+        for rendered_page in iter_pdf_pages_high_quality(uri):
+            page_number = rendered_page.page_number
+            pil_img = rendered_page.image
             try:
-                pil_img.save(page_img_path)
-            except Exception:
+                page_dir = Path(output_dir) / f"page_{page_number:04d}"
+                page_dir.mkdir(parents=True, exist_ok=True)
+                page_img_path = page_dir / f"page_{page_number:04d}.png"
                 try:
-                    pil_img.convert("RGB").save(page_img_path)
+                    pil_img.save(page_img_path)
                 except Exception:
-                    continue
+                    try:
+                        pil_img.convert("RGB").save(page_img_path)
+                    except Exception:
+                        continue
 
-            try:
-                # Use provided base64_image if available, otherwise convert from PIL image
-                page_base64 = None
-                if base64_image and base64_image.strip():
-                    page_base64 = base64_image.strip()
-                else:
-                    import base64
-                    import io
+                try:
+                    # Use provided base64_image if available, otherwise convert from PIL image
+                    page_base64 = None
+                    if base64_image and base64_image.strip():
+                        page_base64 = base64_image.strip()
+                    else:
+                        import base64
+                        import io
 
-                    buffer = io.BytesIO()
-                    pil_img.convert("RGB").save(buffer, format="PNG")
-                    page_base64 = base64.b64encode(buffer.getvalue()).decode()
+                        buffer = io.BytesIO()
+                        pil_img.convert("RGB").save(buffer, format="PNG")
+                        page_base64 = base64.b64encode(buffer.getvalue()).decode()
 
-                page_content = _generate_for_image(
-                    base64_image=page_base64,
-                    prompt_text=str(prompt_text),
-                    model=model,
-                    processor=processor,
-                    device=device,
-                    temperature=temperature,
-                    max_new_tokens=max_new_tokens,
-                )
-            except Exception as e:
-                print_exception(console, e, prefix=f"OLM OCR page {idx + 1} failed", summary_style="yellow")
-                page_content = ""
+                    page_content = _generate_for_image(
+                        base64_image=page_base64,
+                        prompt_text=str(prompt_text),
+                        model=model,
+                        processor=processor,
+                        device=device,
+                        temperature=temperature,
+                        max_new_tokens=max_new_tokens,
+                    )
+                except Exception as e:
+                    print_exception(console, e, prefix=f"OLM OCR page {page_number} failed", summary_style="yellow")
+                    page_content = ""
 
-            try:
-                write_markdown_output(page_dir, page_content)
-            except Exception:
-                pass
+                try:
+                    write_markdown_output(page_dir, page_content)
+                except Exception:
+                    pass
 
-            all_contents.append(page_content.strip())
+                all_contents.append(page_content.strip())
+            finally:
+                pil_img.close()
 
         content = "\n<--- Page Split --->\n".join(all_contents)
         try:

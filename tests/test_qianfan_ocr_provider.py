@@ -33,6 +33,19 @@ def _write_png(path: Path):
     Image.new("RGB", (32, 32), color="white").save(path)
 
 
+def _pdf_page(pdf_path: Path, page_number: int, image: Image.Image):
+    return SimpleNamespace(
+        pdf_path=pdf_path,
+        page_index=page_number - 1,
+        page_number=page_number,
+        page_count=2,
+        image=image,
+        size=image.size,
+        dpi=144,
+        image_format="PNG",
+    )
+
+
 def test_compose_question_uses_base_prompt_by_default():
     provider = QianfanOCRProvider(make_ctx({"qianfan_ocr": {}}))
 
@@ -295,8 +308,11 @@ def test_attempt_pdf_writes_cleaned_page_results_and_merged_markdown(monkeypatch
     provider = QianfanOCRProvider(ctx)
     monkeypatch.setattr(
         qianfan_module,
-        "pdf_to_images_high_quality",
-        lambda _uri: [Image.new("RGB", (32, 32), color="white"), Image.new("RGB", (32, 32), color="white")],
+        "iter_pdf_pages_high_quality",
+        lambda _uri: [
+            _pdf_page(pdf_path, 1, Image.new("RGB", (32, 32), color="white")),
+            _pdf_page(pdf_path, 2, Image.new("RGB", (32, 32), color="white")),
+        ],
         raising=False,
     )
     responses = iter([
@@ -328,8 +344,11 @@ def test_attempt_pdf_renders_placeholder_images_for_pages_and_root_markdown(monk
     provider = QianfanOCRProvider(ctx)
     monkeypatch.setattr(
         qianfan_module,
-        "pdf_to_images_high_quality",
-        lambda _uri: [Image.new("RGB", (100, 100), color="white"), Image.new("RGB", (100, 100), color="white")],
+        "iter_pdf_pages_high_quality",
+        lambda _uri: [
+            _pdf_page(pdf_path, 1, Image.new("RGB", (100, 100), color="white")),
+            _pdf_page(pdf_path, 2, Image.new("RGB", (100, 100), color="white")),
+        ],
         raising=False,
     )
     responses = iter(

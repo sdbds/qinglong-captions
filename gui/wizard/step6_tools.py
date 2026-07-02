@@ -24,6 +24,10 @@ DEFAULT_VOCAL_MIDI_T0 = 0.0
 DEFAULT_VOCAL_MIDI_NSTEPS = 8
 DEFAULT_VOCAL_MIDI_EST_THRESHOLD = 0.2
 DEFAULT_VOCAL_MIDI_OUTPUT_FORMATS = "mid"
+DEFAULT_SHEET_MUSIC_REPO_ID = "bdsqlsz/musvit-onnx"
+DEFAULT_SHEET_MUSIC_MODEL_DIR = "huggingface"
+DEFAULT_SHEET_MUSIC_OUTPUT_DIR = "workspace/musvit_output"
+DEFAULT_SHEET_MUSIC_PDF_DPI = 144
 
 GAME_ONNX_MODEL_LABELS: dict[str, str] = {
     "bdsqlsz/GAME-1.0-small-ONNX": "GAME-1.0-small-ONNX",
@@ -176,6 +180,7 @@ class ToolsStep:
         ("preprocess", "preprocess", "image"),
         ("reward", "reward_model", "stars"),
         ("audio_separator", "audio_separator", "graphic_eq"),
+        ("sheet_music", "sheet_music", "library_music"),
         ("translate", "translate", "translate"),
         ("see_through", "see_through", "layers"),
     )
@@ -211,6 +216,10 @@ class ToolsStep:
     SEE_THROUGH_OFFLOAD_POLICY_LABEL_KEYS = {
         "delete": "see_through_offload_delete",
         "cpu": "see_through_offload_cpu",
+    }
+    SHEET_MUSIC_PREPROCESS_MODE_LABEL_KEYS = {
+        "page_resize": "sheet_music_preprocess_page_resize",
+        "pad_square": "sheet_music_preprocess_pad_square",
     }
 
     # 水印检测模型
@@ -294,6 +303,12 @@ class ToolsStep:
             "audio_separator_vocal_midi_t0": DEFAULT_VOCAL_MIDI_T0,
             "audio_separator_vocal_midi_nsteps": DEFAULT_VOCAL_MIDI_NSTEPS,
             "audio_separator_vocal_midi_est_threshold": DEFAULT_VOCAL_MIDI_EST_THRESHOLD,
+            "sheet_music_batch_size": 1,
+            "sheet_music_pdf_dpi": DEFAULT_SHEET_MUSIC_PDF_DPI,
+            "sheet_music_recursive": True,
+            "sheet_music_skip_completed": True,
+            "sheet_music_overwrite": False,
+            "sheet_music_force_download": False,
             "translate_max_chars": 2200,
             "translate_context_chars": 300,
             "translate_max_new_tokens": 4096,
@@ -339,6 +354,7 @@ class ToolsStep:
             "preprocess": self._render_preprocess_tool,
             "reward": self._render_reward_tool,
             "audio_separator": self._render_audio_separator_tool,
+            "sheet_music": self._render_sheet_music_tool,
             "translate": self._render_translate_tool,
             "see_through": self._render_see_through_tool,
         }
@@ -386,6 +402,7 @@ class ToolsStep:
             "preprocess": ("start_preprocess", self._start_preprocess),
             "reward": ("start_scoring", self._start_reward),
             "audio_separator": ("start_audio_separator", self._start_audio_separator),
+            "sheet_music": ("start_sheet_music", self._start_sheet_music),
             "translate": ("start_translate", self._start_translate),
             "see_through": ("start_see_through", self._start_see_through),
         }
@@ -438,6 +455,12 @@ class ToolsStep:
         return {
             option: t(label_key)
             for option, label_key in self.SEE_THROUGH_OFFLOAD_POLICY_LABEL_KEYS.items()
+        }
+
+    def _sheet_music_preprocess_mode_options(self) -> dict[str, str]:
+        return {
+            option: t(label_key)
+            for option, label_key in self.SHEET_MUSIC_PREPROCESS_MODE_LABEL_KEYS.items()
         }
 
     def _refresh_see_through_summary(self) -> None:
@@ -953,6 +976,86 @@ class ToolsStep:
                             decimals=2,
                         )
 
+    def _render_sheet_music_tool(self):
+        """渲染乐谱扫描 embedding 工具"""
+        with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
+            with ui.row().classes("w-full items-center gap-2 q-mb-md"):
+                ui.icon("library_music", size="22px").style(f"color: {COLORS['secondary']};")
+                ui.label(t("sheet_music")).classes("text-h6 text-weight-bold").style("color: var(--color-text);")
+
+            ui.label(t("sheet_music_desc")).classes("text-body2 q-mb-md").style("color: var(--color-text-secondary);")
+
+            self.sheet_music_input = create_path_selector(
+                label=t("input_path"),
+                selection_type="file",
+                file_filter=".png .jpg .jpeg .webp .bmp .tif .tiff .pdf",
+                placeholder=t("input_path_placeholder"),
+            )
+            self.sheet_music_output = create_path_selector(
+                label=t("output_dir"),
+                default_path=DEFAULT_SHEET_MUSIC_OUTPUT_DIR,
+                selection_type="dir",
+                placeholder=t("path_placeholder"),
+            )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                self.sheet_music_repo_id = styled_select(
+                    options={DEFAULT_SHEET_MUSIC_REPO_ID: DEFAULT_SHEET_MUSIC_REPO_ID},
+                    value=DEFAULT_SHEET_MUSIC_REPO_ID,
+                    label=t("sheet_music_repo_id"),
+                    icon="cloud_download",
+                    icon_color=COLORS["primary"],
+                    new_value_mode="add-unique",
+                    flex=1,
+                )
+                self.sheet_music_model_dir = styled_input(
+                    value=DEFAULT_SHEET_MUSIC_MODEL_DIR,
+                    label=t("sheet_music_model_dir"),
+                    icon="folder",
+                    icon_color=COLORS["info"],
+                    flex=1,
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                self.sheet_music_preprocess_mode = styled_select(
+                    options=self._sheet_music_preprocess_mode_options(),
+                    value="page_resize",
+                    label=t("sheet_music_preprocess_mode"),
+                    icon="crop",
+                    icon_color=COLORS["secondary"],
+                    searchable=False,
+                    flex=1,
+                )
+                editable_slider(
+                    label_key="batch_size",
+                    value_ref=self.config,
+                    value_key="sheet_music_batch_size",
+                    min_val=1,
+                    max_val=16,
+                    step=1,
+                    decimals=0,
+                    flex=1,
+                )
+                editable_slider(
+                    label_key="sheet_music_pdf_dpi",
+                    label_default="PDF DPI",
+                    value_ref=self.config,
+                    value_key="sheet_music_pdf_dpi",
+                    min_val=72,
+                    max_val=300,
+                    step=12,
+                    decimals=0,
+                    flex=1,
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                toggle_switch("recursive", self.config, "sheet_music_recursive")
+                toggle_switch("skip_completed", self.config, "sheet_music_skip_completed")
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                toggle_switch("overwrite", self.config, "sheet_music_overwrite")
+                toggle_switch("sheet_music_force_download", self.config, "sheet_music_force_download")
+
     def _render_translate_tool(self):
         """渲染文本/文档翻译工具"""
         with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
@@ -1229,6 +1332,59 @@ class ToolsStep:
     def _on_audio_separator_vocal_midi_toggle(self, enabled: bool) -> None:
         if hasattr(self, "_audio_separator_vocal_midi_container"):
             self._audio_separator_vocal_midi_container.set_visibility(enabled)
+
+    async def _start_sheet_music(self):
+        """开始乐谱扫描 embedding 提取"""
+        input_path = getattr(getattr(self, "sheet_music_input", None), "value", "")
+        if not input_path or not Path(input_path).exists():
+            ui.notify(t("select_valid_input"), type="warning")
+            return
+
+        output_path = str(getattr(getattr(self, "sheet_music_output", None), "value", "") or "").strip()
+        repo_id = str(
+            getattr(getattr(self, "sheet_music_repo_id", None), "value", DEFAULT_SHEET_MUSIC_REPO_ID)
+            or DEFAULT_SHEET_MUSIC_REPO_ID
+        ).strip()
+        model_dir = str(
+            getattr(getattr(self, "sheet_music_model_dir", None), "value", DEFAULT_SHEET_MUSIC_MODEL_DIR)
+            or DEFAULT_SHEET_MUSIC_MODEL_DIR
+        ).strip()
+        preprocess_mode = str(
+            getattr(getattr(self, "sheet_music_preprocess_mode", None), "value", "page_resize") or "page_resize"
+        ).strip()
+
+        args = [input_path]
+        if output_path:
+            args.append(f"--output_dir={output_path}")
+        args.append(f"--repo_id={repo_id}")
+        args.append(f"--model_dir={model_dir}")
+        args.append(f"--batch_size={int(self.config['sheet_music_batch_size'])}")
+        args.append(f"--pdf_dpi={int(self.config['sheet_music_pdf_dpi'])}")
+        args.append(f"--preprocess_mode={preprocess_mode}")
+        args.append("--recursive" if self.config["sheet_music_recursive"] else "--no-recursive")
+        args.append("--skip_completed" if self.config["sheet_music_skip_completed"] else "--no-skip_completed")
+        if self.config["sheet_music_overwrite"]:
+            args.append("--overwrite")
+        if self.config["sheet_music_force_download"]:
+            args.append("--force_download")
+
+        def pre_log(lv):
+            lv.info(t("log_start_sheet_music"))
+            lv.info(f"{t('log_input_path')}: {input_path}")
+            if output_path:
+                lv.info(f"{t('log_output_dir')}: {output_path}")
+            lv.info(f"{t('log_model')}: {repo_id}")
+            lv.info(f"{t('log_params')}: {args}")
+
+        panel = self._ensure_execution_panel()
+        await panel.run_job(
+            "module.sheet_music_musvit",
+            args,
+            name=t("job_name_sheet_music"),
+            pre_log=pre_log,
+            on_success=lambda r: ui.notify(t("sheet_music_success"), type="positive"),
+            on_failure=lambda r: ui.notify(t("sheet_music_failed"), type="negative"),
+        )
 
     async def _start_see_through(self):
         """开始 see-through 批处理"""
