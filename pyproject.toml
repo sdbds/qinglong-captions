@@ -411,6 +411,7 @@ codex-subscription = [
 test = [
     "pytest",
     "ruff==0.12.2",
+    "einops",
     "transformers>=4.57.0",
     "torch==2.11.0",
     "scikit-learn>=1.4.0",

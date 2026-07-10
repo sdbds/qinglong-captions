@@ -11,6 +11,28 @@ import pytest
 from tests.provider_v2_helpers import make_provider_args
 
 
+class _FakeCodexSdkInput:
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+@pytest.fixture(autouse=True)
+def _use_fake_codex_sdk_for_offline_unit_tests(monkeypatch, request):
+    if request.node.get_closest_marker("optional_runtime") is not None:
+        return
+
+    fake_sdk = SimpleNamespace(
+        Codex=object,
+        CodexConfig=object,
+        TextInput=_FakeCodexSdkInput,
+        LocalImageInput=_FakeCodexSdkInput,
+        TurnResult=object,
+        retry_on_overload=lambda fn: fn,
+    )
+    monkeypatch.setitem(sys.modules, "openai_codex", fake_sdk)
+
+
 def _make_fake_codex(tmp_path: Path, script_body: str) -> Path:
     script = tmp_path / "fake_codex.py"
     script.write_text(script_body, encoding="utf-8")
@@ -166,14 +188,18 @@ def test_codex_app_server_closed_client_and_pool_errors_are_retryable(monkeypatc
     assert pool_exc.value.retryable is True
 
 
+@pytest.mark.optional_runtime
 def test_codex_sdk_stdout_noise_filter_skips_windows_taskkill_success():
     from module.providers.codex_app_server import load_openai_codex_sdk
 
+    client_module = pytest.importorskip(
+        "openai_codex.client",
+        reason="requires the real openai-codex SDK stdout reader",
+    )
     load_openai_codex_sdk()
 
-    try:
-        from openai_codex.client import AppServerClient
-    except ImportError:
+    AppServerClient = getattr(client_module, "AppServerClient", None)
+    if AppServerClient is None:
         pytest.skip("PyPI openai-codex no longer exposes the old AppServerClient stdout reader")
 
     client = AppServerClient()
@@ -187,14 +213,18 @@ def test_codex_sdk_stdout_noise_filter_skips_windows_taskkill_success():
     assert client._read_message() == {"id": "ok", "result": {}}
 
 
+@pytest.mark.optional_runtime
 def test_codex_sdk_stdout_noise_filter_skips_windows_taskkill_success_for_codex_client():
     from module.providers.codex_app_server import load_openai_codex_sdk
 
+    client_module = pytest.importorskip(
+        "openai_codex.client",
+        reason="requires the real openai-codex SDK stdout reader",
+    )
     load_openai_codex_sdk()
 
-    try:
-        from openai_codex.client import CodexClient
-    except ImportError:
+    CodexClient = getattr(client_module, "CodexClient", None)
+    if CodexClient is None:
         pytest.skip("PyPI openai-codex does not expose the current CodexClient stdout reader")
 
     client = CodexClient()

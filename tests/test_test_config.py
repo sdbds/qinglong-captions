@@ -26,3 +26,9 @@ def test_test_dependency_group_declares_ruff():
     dependencies = _pyproject()["dependency-groups"]["test"]
 
     assert any(dependency == "ruff" or dependency.startswith("ruff==") for dependency in dependencies)
+
+
+def test_test_dependency_group_declares_collection_time_einops():
+    dependencies = _pyproject()["dependency-groups"]["test"]
+
+    assert any(dependency == "einops" or dependency.startswith("einops==") for dependency in dependencies)
