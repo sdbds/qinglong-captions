@@ -193,12 +193,13 @@ def test_caption_step_uses_fresh_model_id_map_for_gpu_fit_entries():
 
 def test_caption_step_gpu_fit_header_starts_in_pending_state():
     step4 = _load_step4_module("test_step4_gpu_fit_pending_header")
+    step4.t = lambda key: {"gpu": "GPU", "checking": "Checking..."}[key]
 
     step = step4.CaptionStep()
 
     header = step._local_model_fit_header()
 
-    assert "检查中" in header
+    assert header == "GPU: Checking..."
 
 
 def test_caption_step_warns_for_large_custom_model_ids_from_name():
