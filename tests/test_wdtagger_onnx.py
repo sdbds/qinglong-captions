@@ -9,7 +9,6 @@ import numpy as np
 import pyarrow as pa
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def _import_wdtagger_with_stubbed_runtime(monkeypatch, tmp_path):

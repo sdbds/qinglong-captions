@@ -4,8 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
+
+pytestmark = pytest.mark.compat
+
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 from module.caption_pipeline.postprocess import _assign_ocr_image_names, _rewrite_ocr_image_paths

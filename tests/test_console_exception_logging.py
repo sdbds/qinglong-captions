@@ -6,7 +6,6 @@ from rich.console import Console
 
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def _raise_runtime_error():

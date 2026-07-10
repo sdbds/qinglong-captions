@@ -15,7 +15,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def test_cohere_transcribe_defaults_to_official_model_id():

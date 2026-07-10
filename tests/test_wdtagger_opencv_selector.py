@@ -11,7 +11,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 from utils.wdtagger_opencv import (  # noqa: E402
     CUDA_OPENCV_REQUIREMENTS,
@@ -158,8 +157,8 @@ def test_main_plan_install_emits_json(capsys, monkeypatch):
 
 
 def test_probe_cv2_runtime_reports_success(monkeypatch):
-    sys.modules.pop("cv2", None)
-    sys.modules.pop("torch", None)
+    monkeypatch.delitem(sys.modules, "cv2", raising=False)
+    monkeypatch.delitem(sys.modules, "torch", raising=False)
     fake_torch = types.SimpleNamespace(
         __version__="2.11.0+cu130",
         cuda=types.SimpleNamespace(is_available=lambda: True, device_count=lambda: 1),
@@ -185,8 +184,8 @@ def test_probe_cv2_runtime_reports_success(monkeypatch):
 
 
 def test_probe_cv2_runtime_reports_import_error(monkeypatch):
-    sys.modules.pop("cv2", None)
-    sys.modules.pop("torch", None)
+    monkeypatch.delitem(sys.modules, "cv2", raising=False)
+    monkeypatch.delitem(sys.modules, "torch", raising=False)
     real_import = builtins.__import__
     fake_torch = types.SimpleNamespace(
         __version__="2.11.0+cu130",
@@ -211,8 +210,8 @@ def test_probe_cv2_runtime_reports_import_error(monkeypatch):
 
 
 def test_probe_cv2_runtime_imports_torch_before_cv2(monkeypatch):
-    sys.modules.pop("cv2", None)
-    sys.modules.pop("torch", None)
+    monkeypatch.delitem(sys.modules, "cv2", raising=False)
+    monkeypatch.delitem(sys.modules, "torch", raising=False)
     real_import = builtins.__import__
     import_order: list[str] = []
     fake_torch = types.SimpleNamespace(

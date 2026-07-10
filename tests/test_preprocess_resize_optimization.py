@@ -1,25 +1,41 @@
 import io
+import importlib
 import sys
 import types
+from importlib.machinery import ModuleSpec
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 from rich.console import Console
 
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+fake_cv2 = None
+preprocess_datasets = None
 
-fake_cv2 = types.SimpleNamespace(
-    cuda=types.SimpleNamespace(getCudaEnabledDeviceCount=lambda: 0),
-    INTER_AREA=3,
-    COLOR_BGR2RGB=1,
-    COLOR_GRAY2BGR=2,
-)
-sys.modules.setdefault("cv2", fake_cv2)
 
-import utils.preprocess_datasets as preprocess_datasets
+@pytest.fixture(autouse=True)
+def _isolated_preprocess_module(monkeypatch):
+    global fake_cv2, preprocess_datasets
+
+    module_name = "utils.preprocess_datasets"
+    previous_module = sys.modules.pop(module_name, None)
+    fake_cv2 = types.ModuleType("cv2")
+    fake_cv2.__spec__ = ModuleSpec("cv2", loader=None)
+    fake_cv2.cuda = types.SimpleNamespace(getCudaEnabledDeviceCount=lambda: 0)
+    fake_cv2.INTER_AREA = 3
+    fake_cv2.COLOR_BGR2RGB = 1
+    fake_cv2.COLOR_GRAY2BGR = 2
+    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
+    preprocess_datasets = importlib.import_module(module_name)
+
+    yield
+
+    sys.modules.pop(module_name, None)
+    if previous_module is not None:
+        sys.modules[module_name] = previous_module
 
 
 def _quiet_console():

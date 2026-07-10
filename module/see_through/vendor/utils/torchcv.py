@@ -82,8 +82,18 @@ def cluster_inpaint_part(depth, mask, img, inpaint='lama',**kwargs):
     extracted_parts = []
 
     if inpaint == 'lama':
-        from annotators.lama_inpainter import apply_inpaint
-        from utils.io_utils import save_tmp_img
+        try:
+            from module.see_through.vendor.annotators.lama_inpainter import apply_inpaint
+        except ModuleNotFoundError as exc:
+            if exc.name not in {
+                'module.see_through.vendor.annotators',
+                'module.see_through.vendor.annotators.lama_inpainter',
+            }:
+                raise
+            raise RuntimeError(
+                "The optional See-Through LaMa inpainter is not bundled; use inpaint='cv2' instead."
+            ) from exc
+        from .io_utils import save_tmp_img
         inpaint_method = apply_inpaint
     else:
         inpaint_method = lambda img, mask, *args, **kwargs: cv2.inpaint(img, mask, 3, cv2.INPAINT_NS)

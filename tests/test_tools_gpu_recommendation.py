@@ -2,9 +2,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-sys.path.insert(1, str(ROOT / "gui"))
-sys.path.insert(2, str(ROOT / "gui" / "wizard"))
 
 from gui.wizard import step6_tools
 from gui.utils.i18n import get_i18n, set_language

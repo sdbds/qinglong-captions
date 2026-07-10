@@ -410,6 +410,7 @@ codex-subscription = [
 [dependency-groups]
 test = [
     "pytest",
+    "ruff==0.12.2",
     "transformers>=4.57.0",
     "torch==2.11.0",
     "scikit-learn>=1.4.0",
@@ -421,6 +422,10 @@ allow-direct-references = true
 [tool.uv]
 package = false
 conflicts = [
+    [
+        { extra = "paddleocr-native" },
+        { extra = "musvit-onnx" },
+    ],
     [
         { extra = "paddleocr-native" },
         { extra = "paddleocr-onnx" },
@@ -1030,3 +1035,11 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.pytest.ini_options]
+markers = [
+    "compat: small cross-version and cross-platform compatibility smoke tests",
+    "optional_runtime: requires an optional package stack or external executable",
+    "gpu: requires compatible GPU hardware and drivers",
+    "network: requires live network access or a remote service",
+]

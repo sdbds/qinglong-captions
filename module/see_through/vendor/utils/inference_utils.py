@@ -1,14 +1,14 @@
 import os
 import os.path as osp
 
-from modules.layerdiffuse.diffusers_kdiffusion_sdxl import KDiffusionStableDiffusionXLPipeline, UNetFrameConditionModel
-from modules.layerdiffuse.vae import TransparentVAE
-from modules.layerdiffuse.layerdiff3d import UNetFrameConditionModel
-from modules.marigold import MarigoldDepthPipeline
-from utils.cv import center_square_pad_resize, img_alpha_blending, smart_resize
-from utils.torch_utils import seed_everything
-from utils.io_utils import json2dict, dict2json, load_parts, save_tmp_img, load_part, save_psd
-from utils.torchcv import cluster_inpaint_part
+from ..modules.layerdiffuse.diffusers_kdiffusion_sdxl import KDiffusionStableDiffusionXLPipeline, UNetFrameConditionModel
+from ..modules.layerdiffuse.vae import TransparentVAE
+from ..modules.layerdiffuse.layerdiff3d import UNetFrameConditionModel
+from ..modules.marigold import MarigoldDepthPipeline
+from .cv import center_square_pad_resize, img_alpha_blending, smart_resize
+from .torch_utils import seed_everything
+from .io_utils import json2dict, dict2json, load_parts, save_tmp_img, load_part, save_psd
+from .torchcv import cluster_inpaint_part
 
 from psd_tools import PSDImage
 from safetensors.torch import load_file
@@ -406,7 +406,7 @@ def tag_lr_split(tag: str, tag2pinfo):
         tag2pinfo.update(part_lr_split(tag, part_info))
 
 
-def further_extr(srcd: str, rotate=True, save_to_psd=False, tblr_split=True):
+def further_extr(srcd: str, rotate=True, save_to_psd=False, tblr_split=True, inpaint="lama"):
 
 
     saved = osp.join(srcd, 'optimized')
@@ -468,7 +468,7 @@ def further_extr(srcd: str, rotate=True, save_to_psd=False, tblr_split=True):
 
         if 'hair' in tag2pinfo:
             part_info = tag2pinfo.pop('hair')
-            parts = cluster_inpaint_part(**part_info)
+            parts = cluster_inpaint_part(**part_info, inpaint=inpaint)
             parts.sort(key=lambda x: x['depth_median'])
             tag2pinfo['hairf'] = parts[0]
             tag2pinfo['hairb'] = parts[1]

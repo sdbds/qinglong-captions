@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def test_logics_html_postprocess_handles_structured_blocks():

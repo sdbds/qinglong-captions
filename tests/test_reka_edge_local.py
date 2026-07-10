@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def test_reka_build_messages_wraps_system_prompt_as_text_blocks():

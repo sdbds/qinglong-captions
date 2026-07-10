@@ -94,8 +94,8 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
             raise GrokBuildHeadlessError(f"Unsupported Grok Build auth mode for subscription provider: {auth_mode}", kind="config")
 
         model = getattr(args, "grok_build_model_name", "") or DEFAULT_GROK_BUILD_MODEL
-        effort = getattr(args, "grok_build_effort", "") or ""
         reasoning_effort = getattr(args, "grok_build_reasoning_effort", "") or ""
+        disable_web_search = _grok_build_disable_web_search(args)
         mode = getattr(args, "mode", "all")
         # Image prompt template: when a non-default template is active, yield the
         # forced rating schema and let the model follow the template freely.
@@ -117,14 +117,14 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
                 raise
             elapsed = time.perf_counter() - started_at
             self.log(f"Grok Build caption timed out: {image_name} after {elapsed:.1f}s; returning empty caption", "yellow")
-            return CaptionResult(
-                raw="",
+            return CaptionResult.failed(
+                str(exc),
                 metadata={
                     "provider": self.name,
                     "backend": backend,
                     "model": model,
-                    "effort": effort,
                     "reasoning_effort": reasoning_effort,
+                    "disable_web_search": disable_web_search,
                     "auth_mode": auth_mode,
                     "structured": False,
                     "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
@@ -145,8 +145,8 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
                     "provider": self.name,
                     "backend": backend,
                     "model": model,
-                    "effort": effort,
                     "reasoning_effort": reasoning_effort,
+                    "disable_web_search": disable_web_search,
                     "auth_mode": auth_mode,
                     "structured": False,
                     "image_template": template_id,
@@ -167,8 +167,8 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
                 "provider": self.name,
                 "backend": backend,
                 "model": model,
-                "effort": effort,
                 "reasoning_effort": reasoning_effort,
+                "disable_web_search": disable_web_search,
                 "auth_mode": auth_mode,
                 "structured": True,
                 "schema_version": CODEX_CAPTION_SCHEMA_VERSION,
@@ -191,8 +191,8 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
         config = GrokBuildHeadlessConfig(
             command=getattr(args, "grok_build_command", "") or DEFAULT_GROK_BUILD_COMMAND,
             model=getattr(args, "grok_build_model_name", "") or DEFAULT_GROK_BUILD_MODEL,
-            effort=getattr(args, "grok_build_effort", "") or "",
             reasoning_effort=getattr(args, "grok_build_reasoning_effort", "") or "",
+            disable_web_search=_grok_build_disable_web_search(args),
             timeout=float(
                 getattr(args, "grok_build_timeout", DEFAULT_GROK_BUILD_TIMEOUT_SECONDS)
                 or DEFAULT_GROK_BUILD_TIMEOUT_SECONDS
@@ -224,33 +224,39 @@ class GrokBuildSubscriptionProvider(CloudVLMProvider):
 
 
 def _build_grok_build_caption_prompt(prompts: PromptContext) -> str:
-    prompt = build_codex_caption_prompt(system_prompt=prompts.system, user_prompt=prompts.user)
-    return "\n".join(
-        [
-            prompt,
-            "",
-            "Grok Build runtime constraints:",
-            "Do not read files, inspect the workspace, run tools, use web search, or include tool output.",
-            "Use only the attached image and the project prompt context above.",
-        ]
+    return _append_grok_build_local_runtime_constraints(
+        build_codex_caption_prompt(system_prompt=prompts.system, user_prompt=prompts.user)
     )
 
 
 def _build_grok_build_freeform_prompt(prompts: PromptContext, output: str) -> str:
-    prompt = build_freeform_caption_prompt(
-        system_prompt=prompts.system,
-        user_prompt=prompts.user,
-        output=output,
+    return _append_grok_build_local_runtime_constraints(
+        build_freeform_caption_prompt(
+            system_prompt=prompts.system,
+            user_prompt=prompts.user,
+            output=output,
+        )
     )
+
+
+def _append_grok_build_local_runtime_constraints(prompt: str) -> str:
     return "\n".join(
         [
             prompt,
             "",
-            "Grok Build runtime constraints:",
-            "Do not read files, inspect the workspace, run tools, use web search, or include tool output.",
-            "Use only the attached image and the project prompt context above.",
+            "Grok Build local runtime constraints:",
+            "Do not read local files, inspect the local workspace, or rely on local shell/MCP tool results.",
+            "Do not include local paths, local file contents, shell output, or MCP output.",
+            "Use only the attached image and the project prompt context above for local caption context.",
         ]
     )
+
+
+def _grok_build_disable_web_search(args: Any) -> bool:
+    value = getattr(args, "grok_build_disable_web_search", True)
+    if value is None:
+        return True
+    return bool(value)
 
 
 def _positive_int(value: Any, default: int = 1) -> int:

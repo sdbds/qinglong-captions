@@ -2,9 +2,13 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
+
+pytestmark = pytest.mark.compat
+
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def test_write_caption_output_writes_structured_text_and_json(tmp_path):

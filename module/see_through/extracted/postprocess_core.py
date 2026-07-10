@@ -10,35 +10,17 @@ import json
 import shutil
 from pathlib import Path
 
-from ..vendor_bootstrap import ensure_vendor_imports
-
-
 def run_postprocess_core(*, source_path: Path, output_dir: Path, save_to_psd: bool, tblr_split: bool) -> dict[str, Path]:
-    ensure_vendor_imports()
+    import module.see_through.vendor.utils.inference_utils as vendor_inference_utils
 
-    import utils.inference_utils as vendor_inference_utils
-    import utils.torchcv as vendor_torchcv
-
-    original_torchcv_cluster_inpaint_part = vendor_torchcv.cluster_inpaint_part
-    original_inference_cluster_inpaint_part = vendor_inference_utils.cluster_inpaint_part
-
-    def cluster_inpaint_part_cv2(*args, **kwargs):
-        kwargs.setdefault("inpaint", "cv2")
-        return original_torchcv_cluster_inpaint_part(*args, **kwargs)
-
-    vendor_torchcv.cluster_inpaint_part = cluster_inpaint_part_cv2
-    vendor_inference_utils.cluster_inpaint_part = cluster_inpaint_part_cv2
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        vendor_inference_utils.further_extr(
-            str(output_dir),
-            rotate=False,
-            save_to_psd=save_to_psd,
-            tblr_split=tblr_split,
-        )
-    finally:
-        vendor_torchcv.cluster_inpaint_part = original_torchcv_cluster_inpaint_part
-        vendor_inference_utils.cluster_inpaint_part = original_inference_cluster_inpaint_part
+    output_dir.mkdir(parents=True, exist_ok=True)
+    vendor_inference_utils.further_extr(
+        str(output_dir),
+        rotate=False,
+        save_to_psd=save_to_psd,
+        tblr_split=tblr_split,
+        inpaint="cv2",
+    )
 
     optimized_dir = output_dir / "optimized"
     optimized_dir.mkdir(parents=True, exist_ok=True)

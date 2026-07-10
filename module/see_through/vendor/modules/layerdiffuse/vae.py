@@ -12,7 +12,7 @@ from diffusers.models.unets.unet_2d_blocks import UNetMidBlock2D, get_down_block
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 
 
-from utils.cv import pad_rgb, checkerboard
+from ...utils.cv import pad_rgb, checkerboard
 
 
 class LatentTransparencyOffsetEncoder(torch.nn.Module):

@@ -10,7 +10,6 @@ from rich.console import Console
 
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def _quiet_console():
@@ -87,8 +86,10 @@ def _patch_process_batch_io(monkeypatch, rows, update_calls=None, sidecar_calls=
         sidecar_calls.append((str(path), output, mime))
         return path.with_suffix(".txt"), None
 
-    def fake_update(dataset, processed_filepaths, results, **kwargs):
-        update_calls.append((list(processed_filepaths), list(results), kwargs))
+    def fake_update(dataset, updates, results=None, **kwargs):
+        assert results is None
+        update_calls.append(([update.uri for update in updates], [update.caption for update in updates], kwargs))
+        return dataset
 
     monkeypatch.setattr("module.caption_pipeline.orchestrator.write_caption_output", fake_write)
     monkeypatch.setattr("module.caption_pipeline.orchestrator.update_dataset_captions", fake_update)
@@ -113,34 +114,18 @@ class _FakeLocalProvider:
     capabilities = type("Capabilities", (), {"supports_cloud_concurrency": False})()
 
 
-def test_update_dataset_captions_normalizes_list_and_dict():
+def test_update_dataset_captions_normalizes_list_and_dict(monkeypatch):
+    import module.caption_pipeline.dataset_sync as dataset_sync
     from module.caption_pipeline.dataset_sync import update_dataset_captions
 
-    executed_tables = []
-
-    class MergeBuilder:
-        def when_matched_update_all(self):
-            return self
-
-        def execute(self, table):
-            executed_tables.append(table)
-
-    class FakeTags:
-        def create(self, name, value):
-            self.created = (name, value)
-
-        def update(self, name, value):
-            self.updated = (name, value)
-
-    class FakeDataset:
-        def __init__(self):
-            self.tags = FakeTags()
-
-        def merge_insert(self, on):
-            assert on == "uris"
-            return MergeBuilder()
-
-    dataset = FakeDataset()
+    captured = []
+    monkeypatch.setattr(
+        dataset_sync,
+        "merge_rows_preserving_schema",
+        lambda dataset, updates, **kwargs: captured.extend(updates),
+    )
+    monkeypatch.setattr(dataset_sync, "update_or_create_tag", lambda *_args, **_kwargs: None)
+    dataset = object()
     result = update_dataset_captions(
         dataset,
         ["a.jpg", "b.jpg"],
@@ -150,38 +135,22 @@ def test_update_dataset_captions_normalizes_list_and_dict():
     )
 
     assert result is dataset
-    rows = executed_tables[0].to_pylist()
-    assert rows[0]["captions"] == ["short\nlong"]
-    assert json.loads(rows[1]["captions"][0])["description"] == "desc"
+    assert captured[0].values["captions"] == ["short\nlong"]
+    assert json.loads(captured[1].values["captions"][0])["description"] == "desc"
 
 
-def test_update_dataset_captions_rebuilds_from_sidecars_when_merge_fails(monkeypatch, tmp_path):
+def test_update_dataset_captions_does_not_rebuild_when_merge_fails(monkeypatch, tmp_path):
+    import module.caption_pipeline.dataset_sync as dataset_sync
     from module.caption_pipeline.dataset_sync import update_dataset_captions
+    from utils.lance_updates import LanceUpdateStorageError
 
-    merge_error = OSError("Blob struct missing `data` field")
-    rebuilt_dataset = object()
-    rebuild_calls = []
+    merge_error = LanceUpdateStorageError("Blob read failed")
+    monkeypatch.setattr(dataset_sync, "merge_rows_preserving_schema", lambda *_args, **_kwargs: (_ for _ in ()).throw(merge_error))
+    monkeypatch.setattr(dataset_sync, "update_or_create_tag", lambda *_args, **_kwargs: pytest.fail("failed merge must not move tag"))
 
-    class MergeBuilder:
-        def when_matched_update_all(self):
-            return self
-
-        def execute(self, _table):
-            raise merge_error
-
-    class FakeDataset:
-        def merge_insert(self, on):
-            assert on == "uris"
-            return MergeBuilder()
-
-    def fake_rebuild(source_dir, **kwargs):
-        rebuild_calls.append((source_dir, kwargs))
-        return rebuilt_dataset
-
-    monkeypatch.setattr("module.caption_pipeline.dataset_sync.rebuild_lance_from_sidecars", fake_rebuild)
-
-    result = update_dataset_captions(
-        FakeDataset(),
+    with pytest.raises(LanceUpdateStorageError) as exc_info:
+        update_dataset_captions(
+        object(),
         ["a.jpg"],
         ["caption"],
         merge_batch_size=10,
@@ -189,36 +158,23 @@ def test_update_dataset_captions_rebuilds_from_sidecars_when_merge_fails(monkeyp
         dataset_dir=str(tmp_path),
         transform2lance_fn=lambda **_kwargs: None,
         load_data_fn=lambda *_args, **_kwargs: [],
-    )
+        )
 
-    assert result is rebuilt_dataset
-    source_dir, kwargs = rebuild_calls[0]
-    assert source_dir == tmp_path
-    assert kwargs["output_name"] == "dataset"
-    assert kwargs["tag"] == "gemini"
-    assert kwargs["caption_extension"] is None
+    assert exc_info.value is merge_error
 
 
-def test_update_dataset_captions_raises_from_merge_error_when_rebuild_unavailable():
+def test_update_dataset_captions_propagates_validation_error(monkeypatch):
+    import module.caption_pipeline.dataset_sync as dataset_sync
     from module.caption_pipeline.dataset_sync import update_dataset_captions
+    from utils.lance_updates import LanceUpdateValidationError
 
-    merge_error = OSError("Blob struct missing `data` field")
+    merge_error = LanceUpdateValidationError("missing target")
+    monkeypatch.setattr(dataset_sync, "merge_rows_preserving_schema", lambda *_args, **_kwargs: (_ for _ in ()).throw(merge_error))
+    monkeypatch.setattr(dataset_sync, "update_or_create_tag", lambda *_args, **_kwargs: pytest.fail("failed merge must not move tag"))
 
-    class MergeBuilder:
-        def when_matched_update_all(self):
-            return self
-
-        def execute(self, _table):
-            raise merge_error
-
-    class FakeDataset:
-        def merge_insert(self, on):
-            assert on == "uris"
-            return MergeBuilder()
-
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(LanceUpdateValidationError) as exc_info:
         update_dataset_captions(
-            FakeDataset(),
+            object(),
             ["a.jpg"],
             ["caption"],
             merge_batch_size=10,
@@ -228,35 +184,21 @@ def test_update_dataset_captions_raises_from_merge_error_when_rebuild_unavailabl
             load_data_fn=lambda *_args, **_kwargs: [],
         )
 
-    assert "fallback rebuild is unavailable" in str(exc_info.value)
-    assert exc_info.value.__cause__ is merge_error
+    assert exc_info.value is merge_error
 
 
-def test_update_dataset_captions_rebuild_failure_preserves_merge_context(monkeypatch, tmp_path):
+def test_update_dataset_captions_propagates_conflict_error(monkeypatch, tmp_path):
+    import module.caption_pipeline.dataset_sync as dataset_sync
     from module.caption_pipeline.dataset_sync import update_dataset_captions
+    from utils.lance_updates import LanceUpdateConflictError
 
-    merge_error = OSError("Blob struct missing `data` field")
+    merge_error = LanceUpdateConflictError("commit conflict")
+    monkeypatch.setattr(dataset_sync, "merge_rows_preserving_schema", lambda *_args, **_kwargs: (_ for _ in ()).throw(merge_error))
+    monkeypatch.setattr(dataset_sync, "update_or_create_tag", lambda *_args, **_kwargs: pytest.fail("failed merge must not move tag"))
 
-    class MergeBuilder:
-        def when_matched_update_all(self):
-            return self
-
-        def execute(self, _table):
-            raise merge_error
-
-    class FakeDataset:
-        def merge_insert(self, on):
-            assert on == "uris"
-            return MergeBuilder()
-
-    def fake_rebuild(*_args, **_kwargs):
-        raise ValueError("rebuild boom")
-
-    monkeypatch.setattr("module.caption_pipeline.dataset_sync.rebuild_lance_from_sidecars", fake_rebuild)
-
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(LanceUpdateConflictError) as exc_info:
         update_dataset_captions(
-            FakeDataset(),
+            object(),
             ["a.jpg"],
             ["caption"],
             merge_batch_size=10,
@@ -266,9 +208,7 @@ def test_update_dataset_captions_rebuild_failure_preserves_merge_context(monkeyp
             load_data_fn=lambda *_args, **_kwargs: [],
         )
 
-    assert "fallback rebuild also failed" in str(exc_info.value)
-    assert "rebuild boom" in str(exc_info.value)
-    assert exc_info.value.__cause__ is merge_error
+    assert exc_info.value is merge_error
 
 
 def test_deferred_provider_timing_prints_after_visual_and_save(monkeypatch, tmp_path):
@@ -311,6 +251,34 @@ def test_deferred_provider_timing_prints_after_visual_and_save(monkeypatch, tmp_
     saved_index = output.index("Saved captions to")
     timing_index = output.index("Codex caption completed: a.png in 1.2s")
     assert using_index < visual_index < saved_index < timing_index
+
+
+def test_process_batch_persists_only_successful_caption_pairs(monkeypatch, tmp_path):
+    from module.caption_pipeline.orchestrator import process_batch
+    from module.providers.base import CaptionResult
+
+    rows = _make_rows(tmp_path, ["ok.png", "skip.png", "fail.png"])
+    update_calls, sidecar_calls = _patch_process_batch_io(monkeypatch, rows)
+    _fake_registry(monkeypatch, _FakeLocalProvider)
+    outcomes = {
+        "ok.png": CaptionResult(raw="caption"),
+        "skip.png": CaptionResult.skipped("policy", raw="diagnostic"),
+        "fail.png": CaptionResult.failed("backend", raw="diagnostic"),
+    }
+
+    process_batch(
+        _process_batch_args(tmp_path),
+        {},
+        api_process_batch_fn=lambda **kwargs: outcomes[Path(kwargs["uri"]).name],
+        transform2lance_fn=lambda **_kwargs: None,
+        extract_from_lance_fn=lambda *_args, **_kwargs: None,
+        console_obj=_quiet_console(),
+    )
+
+    assert [Path(call[0]).name for call in sidecar_calls] == ["ok.png"]
+    assert len(update_calls) == 1
+    assert [Path(uri).name for uri in update_calls[0][0]] == ["ok.png"]
+    assert update_calls[0][1] == ["caption"]
 
 
 def test_process_batch_uses_rebuilt_dataset_for_extract(monkeypatch, tmp_path):
@@ -772,16 +740,16 @@ def test_process_batch_skips_segmentation_when_segment_time_is_none(tmp_path):
             console_obj=_quiet_console(),
         )
 
-    assert api_calls == [str(audio_path)]
-    update_mock.assert_called_once()
-    assert update_mock.call_args.args[2] == [
-        {
+        assert api_calls == [str(audio_path)]
+        update_mock.assert_called_once()
+        updates = update_mock.call_args.args[1]
+        assert [update.uri for update in updates] == [str(audio_path)]
+        assert json.loads(updates[0].caption) == {
             "task_kind": "transcribe",
             "transcript": "single pass transcript",
             "caption_extension": ".txt",
             "provider": "cohere_transcribe_local",
         }
-    ]
     assert extract_calls and extract_calls[0][0][1] == "ignored"
 
 

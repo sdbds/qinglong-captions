@@ -34,7 +34,6 @@ import pytest
 
 # 确保 module 路径可导入
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 # ──────────────────────────────────────────────

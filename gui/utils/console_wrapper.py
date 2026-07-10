@@ -164,11 +164,19 @@ def main():
     proc.wait()
 
     # 写入退出码信号文件，通知 GUI 脚本已完成
+    exit_path = Path(exit_file)
+    pending_exit_path = exit_path.with_name(f".{exit_path.name}.{os.getpid()}.tmp")
     try:
-        with open(exit_file, "w", encoding="utf-8") as f:
+        with open(pending_exit_path, "w", encoding="utf-8") as f:
             f.write(str(proc.returncode))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(pending_exit_path, exit_path)
     except Exception:
-        pass
+        try:
+            pending_exit_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     status = "成功" if proc.returncode == 0 else f"失败 (返回码: {proc.returncode})"
     print(f"\n{'=' * 50}")

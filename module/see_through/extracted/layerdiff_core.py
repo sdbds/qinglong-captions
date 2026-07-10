@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from ..see_through_profile import normalize_quant_mode
-from ..vendor_bootstrap import ensure_vendor_imports
 from utils.transformer_loader import (
     is_quantized_pretrained_component,
     load_pretrained_component,
@@ -65,12 +64,13 @@ def load_layerdiff_pipeline(
     quant_mode: str = "none",
     console: Any | None = None,
 ) -> Any:
-    ensure_vendor_imports()
     quant_mode = normalize_quant_mode(quant_mode)
 
-    from modules.layerdiffuse.diffusers_kdiffusion_sdxl import KDiffusionStableDiffusionXLPipeline
-    from modules.layerdiffuse.layerdiff3d import UNetFrameConditionModel
-    from modules.layerdiffuse.vae import TransparentVAE
+    from module.see_through.vendor.modules.layerdiffuse.diffusers_kdiffusion_sdxl import (
+        KDiffusionStableDiffusionXLPipeline,
+    )
+    from module.see_through.vendor.modules.layerdiffuse.layerdiff3d import UNetFrameConditionModel
+    from module.see_through.vendor.modules.layerdiffuse.vae import TransparentVAE
 
     if console is not None:
         console.print(f"[cyan]Loading LayerDiff pipeline:[/cyan] {repo_id} [dim](quant_mode={quant_mode})[/dim]")
@@ -167,15 +167,13 @@ def run_layerdiff_phase(
     generator_device: str = "cpu",
     seed: int = DEFAULT_SEED,
 ) -> dict[str, Path]:
-    ensure_vendor_imports()
-
     import cv2
     import numpy as np
     import torch
     from PIL import Image
 
-    from utils.cv import center_square_pad_resize, smart_resize
-    from utils.inference_utils import VALID_BODY_PARTS_V2
+    from module.see_through.vendor.utils.cv import center_square_pad_resize, smart_resize
+    from module.see_through.vendor.utils.inference_utils import VALID_BODY_PARTS_V2
 
     output_dir.mkdir(parents=True, exist_ok=True)
     input_img = np.array(Image.open(source_path).convert("RGBA"))

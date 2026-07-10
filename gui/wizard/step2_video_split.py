@@ -30,9 +30,18 @@ class VideoSplitStep:
         "ThresholdDetector": 12.0,
     }
 
+    # Per-detector slider config: (min, max, step, decimals)
+    SLIDER_CONFIG = {
+        "ContentDetector": (0.0, 100.0, 0.5, 1),
+        "AdaptiveDetector": (0.0, 100.0, 0.1, 1),
+        "HashDetector": (0.0, 1.0, 0.001, 3),
+        "HistogramDetector": (0.0, 1.0, 0.001, 3),
+        "ThresholdDetector": (0.0, 255.0, 1.0, 0),
+    }
+
     def __init__(self):
         self.config: Dict[str, Any] = {
-            "threshold": 0.0,
+            "threshold": 3.0,
             "min_scene_len": 16,
             "images_per_scene": 1,
             "luma_only": False,
@@ -40,6 +49,7 @@ class VideoSplitStep:
             "recursive": False,
         }
         self.panel: ExecutionPanel = None
+        self.threshold_slider = None
 
     def render(self):
         """渲染页面"""
@@ -92,7 +102,7 @@ class VideoSplitStep:
 
                         # 阈值 - 使用可编辑滑块
                         with ui.row().classes("w-full items-center gap-2"):
-                            editable_slider(
+                            self.threshold_slider = editable_slider(
                                 label_key="threshold",
                                 value_ref=self.config,
                                 value_key="threshold",
@@ -155,11 +165,18 @@ class VideoSplitStep:
                     self.panel = ExecutionPanel(start_label=t("start_split"))
                     self.panel._on_start = self._start_split
 
-    def _on_detector_change(self, e):
-        """检测器改变时更新默认阈值"""
-        detector = e.value
+    def _on_detector_change(self, detector):
+        """检测器改变时更新默认阈值和滑块配置"""
         default_threshold = self.DEFAULT_THRESHOLDS.get(detector, 0.0)
-        self.config["threshold"] = default_threshold
+
+        if self.threshold_slider is not None:
+            smin, smax, sstep, sdec = self.SLIDER_CONFIG.get(detector, (0.0, 100.0, 0.1, 1))
+            self.threshold_slider.update_config(
+                new_min=smin, new_max=smax, new_step=sstep,
+                new_decimals=sdec, new_value=default_threshold,
+            )
+        else:
+            self.config["threshold"] = default_threshold
 
     async def _start_split(self):
         """开始分割"""

@@ -3,7 +3,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Optional, Tuple
+from typing import TYPE_CHECKING, Iterator, Optional, Tuple
 
 import toml
 from rich.console import Console
@@ -11,6 +11,9 @@ from rich.progress import BarColumn, Progress, TimeRemainingColumn
 
 from utils.console_util import print_exception
 from utils.tag_highlighting import get_tag_classifier
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 console = Console(color_system="truecolor", force_terminal=True)
 

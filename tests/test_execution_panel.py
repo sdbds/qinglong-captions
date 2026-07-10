@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 from gui.components.execution_panel import ExecutionPanel
 from gui.utils.i18n import t

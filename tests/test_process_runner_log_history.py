@@ -2,7 +2,6 @@ import asyncio
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from gui.components.log_viewer import LogViewer
 from gui.utils.log_buffer import log_buffer

@@ -354,5 +354,8 @@ class StepfunProvider(CloudVLMProvider):
             base_wait=cfg.base_wait,
             retry_markers=("RETRY_EMPTY_CONTENT",),
         )
-        cfg.on_exhausted = lambda e: (print_exception(self.ctx.console, e, prefix="StepFun exhausted", summary_style="yellow") or "")
+        cfg.on_exhausted = lambda e: (
+            print_exception(self.ctx.console, e, prefix="StepFun exhausted", summary_style="yellow")
+            or CaptionResult.failed(str(e), metadata={"provider": self.name, "retry_exhausted": True})
+        )
         return cfg

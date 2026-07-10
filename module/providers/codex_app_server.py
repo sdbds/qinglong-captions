@@ -44,7 +44,7 @@ API_KEY_ENV_VARS = ("OPENAI_API_KEY", "CODEX_API_KEY")
 CODEX_APP_SERVER_LOG_LEVEL_ENV = "CODEX_LOG_LEVEL"
 DEFAULT_CODEX_APP_SERVER_LOG_LEVEL = "ERROR"
 RUST_LOG_ENV = "RUST_LOG"
-RETRYABLE_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport", "rate_limited", "closed"})
+RETRYABLE_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport", "rate_limited", "overloaded", "closed"})
 RESET_CLIENT_FAILURE_KINDS = frozenset({"timeout", "transport", "closed"})
 REQUIRED_CODEX_SDK_SYMBOLS = ("Codex", "TextInput", "LocalImageInput", "TurnResult")
 CODEX_SDK_CONFIG_SYMBOLS = ("CodexConfig", "AppServerConfig")
@@ -115,6 +115,8 @@ def classify_codex_app_server_failure(text: str) -> str:
         return "usage_limit"
     if "429" in lower or "too many requests" in lower or "rate limit" in lower or "rate_limited" in lower:
         return "rate_limited"
+    if "overload" in lower or "at capacity" in lower:
+        return "overloaded"
     if "timed out" in lower or "timeout" in lower:
         return "timeout"
     if "connection" in lower or "transport" in lower or "server closed" in lower or "app-server is not running" in lower:

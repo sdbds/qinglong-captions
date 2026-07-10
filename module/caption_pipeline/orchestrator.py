@@ -15,11 +15,11 @@ from rich.progress import (
 )
 
 from config.config import APPLICATION_EXTENSIONS_SET, AUDIO_EXTENSIONS_SET, VIDEO_EXTENSIONS_SET
-from module.caption_pipeline.dataset_sync import update_dataset_captions
+from module.caption_pipeline.dataset_sync import CaptionUpdate, update_dataset_captions
 from module.caption_pipeline.postprocess import postprocess_caption_content
 from module.caption_pipeline.scene_alignment import align_subtitles_with_scenes, create_scene_detector
 from module.providers.catalog import provider_segmentation_policy, route_provider_name
-from module.providers.base import CaptionResult
+from module.providers.base import CaptionResult, CaptionStatus
 from module.providers.subscription_quota import report_startup_subscription_quota
 from utils.output_writer import write_caption_output
 from utils.rich_progress import create_caption_progress
@@ -95,6 +95,27 @@ def _caption_from_payload(payload, metadata: dict | None = None) -> CaptionResul
 
         return CaptionResult(raw=json.dumps(payload, ensure_ascii=False), parsed=payload, metadata=dict(metadata or {}))
     return CaptionResult(raw=_caption_raw(payload), metadata=dict(metadata or {}))
+
+
+def _is_persistable_caption(output: Any) -> bool:
+    if isinstance(output, CaptionResult):
+        return output.is_persistable
+    if isinstance(output, dict):
+        return _caption_from_payload(output).is_persistable
+    return bool(str(output or "").strip())
+
+
+def _build_caption_updates(results: list[CaptionJobResult]) -> list[CaptionUpdate]:
+    updates: list[CaptionUpdate] = []
+    for result in results:
+        output = result.output
+        if not _is_persistable_caption(output):
+            continue
+        if isinstance(output, dict):
+            output = _caption_from_payload(output)
+        caption = output.to_dataset_caption() if isinstance(output, CaptionResult) else _caption_raw(output)
+        updates.append(CaptionUpdate(uri=result.filepath, caption=caption))
+    return updates
 
 
 def _print_deferred_caption_timing(output, console_obj) -> None:
@@ -474,13 +495,19 @@ def _process_single_caption_job(
             )
             aligned_subtitles = _serialize_subtitles(subs)
             if isinstance(output, CaptionResult):
-                output = CaptionResult(raw=aligned_subtitles, parsed=output.parsed, metadata=dict(output.metadata))
+                output = CaptionResult(
+                    raw=aligned_subtitles,
+                    parsed=output.parsed,
+                    metadata=dict(output.metadata),
+                    status=output.status,
+                    error=output.error,
+                )
             else:
                 output = aligned_subtitles
         except Exception as exc:
             console_obj.print(f"[yellow]Subtitle validation failed for {job.filepath}: {exc}[/yellow]")
 
-    if output:
+    if _is_persistable_caption(output):
         text_path, _ = write_caption_output(Path(job.filepath), output, job.mime)
         console_obj.print(f"[green]Saved captions to {text_path}[/green]")
 
@@ -634,13 +661,23 @@ def process_batch(
         progress.update(task, visible=False)
 
     ordered_results = [results_by_index[job.index] for job in jobs]
-    processed_filepaths = [result.filepath for result in ordered_results]
-    results = [result.output for result in ordered_results]
+    caption_updates = _build_caption_updates(ordered_results)
+    skipped_count = sum(
+        isinstance(result.output, CaptionResult) and result.output.status is CaptionStatus.SKIPPED
+        for result in ordered_results
+    )
+    failed_count = sum(
+        isinstance(result.output, CaptionResult) and result.output.status is CaptionStatus.FAILED
+        for result in ordered_results
+    )
+    console_obj.print(
+        f"[cyan]Caption outcomes: {len(caption_updates)} persisted, "
+        f"{skipped_count} skipped, {failed_count} failed[/cyan]"
+    )
 
     dataset = update_dataset_captions(
         dataset,
-        processed_filepaths,
-        results,
+        caption_updates,
         merge_batch_size=getattr(args, "merge_batch_size", 1000),
         console=console_obj,
         dataset_dir=args.dataset_dir,

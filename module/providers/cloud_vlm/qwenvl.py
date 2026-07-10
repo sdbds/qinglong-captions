@@ -271,8 +271,6 @@ class QwenVLProvider(CloudVLMProvider):
 
             pair_dir = getattr(self.ctx.args, "pair_dir", "")
             if pair_dir:
-                from pathlib import Path
-
                 pair_path = (Path(pair_dir) / Path(media.uri).name).resolve()
                 if pair_path.exists():
                     pair_file = f"file://{pair_path.as_posix()}"
@@ -280,7 +278,7 @@ class QwenVLProvider(CloudVLMProvider):
                     content_items.extend([{"image": file}, {"image": pair_file}])
                 else:
                     self.log(f"Pair not found: {pair_path}", "red")
-                    return CaptionResult(raw="")
+                    return CaptionResult.skipped(f"Pair not found: {pair_path}", metadata={"provider": self.name})
             else:
                 content_items.append({"image": file})
 

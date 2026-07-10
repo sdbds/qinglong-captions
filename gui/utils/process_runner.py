@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -216,6 +217,13 @@ class ProcessResult:
     message: str = ""
 
 
+@dataclass(frozen=True)
+class NativeRunFiles:
+    directory: Path
+    exit_file: Path
+    log_file: Path
+
+
 # 脚本路径映射: module_key -> (script_path, default_extra | None)
 # script_path 相对于项目根目录
 SCRIPT_REGISTRY = {
@@ -232,7 +240,7 @@ SCRIPT_REGISTRY = {
     # step 6 - 工具
     "module.waterdetect": ("./module/waterdetect.py", None),
     "module.audio_separator": ("./module/audio_separator.py", "vocal-midi"),
-    "module.see_through.cli": ("./module/see_through/cli.py", "see-through"),
+    "module.see_through.cli": ("-m:module.see_through.cli", "see-through"),
     "module.sheet_music_musvit": ("./module/sheet_music_musvit.py", "musvit-onnx"),
     "utils.preprocess_datasets": ("./utils/preprocess_datasets.py", "image-align"),
     "module.rewardmodel": ("./module/rewardmodel.py", "reward-model"),
@@ -1182,32 +1190,46 @@ class ProcessRunner:
         offset = 0
         self._reset_tail_state()
         self._reset_stream_progress_state()
-        try:
-            while self._running:
-                try:
-                    if os.path.exists(log_file):
-                        with open(log_file, "rb") as f:
-                            f.seek(offset)
-                            new_data = f.read()
-                            if new_data:
-                                offset += len(new_data)
-                                text = new_data.decode("utf-8", errors="replace")
-                                self._publish_stream_text(text)
-                except Exception:
-                    pass
-                await asyncio.sleep(0.5)
 
+        def read_available(*, final_flush: bool = False):
+            nonlocal offset
             if os.path.exists(log_file):
                 with open(log_file, "rb") as f:
                     f.seek(offset)
-                    remaining = f.read()
-                offset += len(remaining)
-                text = remaining.decode("utf-8", errors="replace") if remaining else ""
-                self._publish_stream_text(text, final_flush=True)
-            else:
+                    new_data = f.read()
+                offset += len(new_data)
+                text = new_data.decode("utf-8", errors="replace") if new_data else ""
+                self._publish_stream_text(text, final_flush=final_flush)
+            elif final_flush:
                 self._publish_stream_text("", final_flush=True)
+
+        try:
+            while self._running:
+                try:
+                    read_available()
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5)
         except asyncio.CancelledError:
-            self._publish_stream_text("", final_flush=True)
+            pass
+        finally:
+            try:
+                read_available(final_flush=True)
+            except Exception:
+                self._publish_stream_text("", final_flush=True)
+
+    async def _stop_tail_task(self, tail_task: Optional[asyncio.Task]):
+        if tail_task is None:
+            return
+        if not tail_task.done():
+            tail_task.cancel()
+        try:
+            await tail_task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if self._tail_task is tail_task:
+                self._tail_task = None
 
     # ------------------------------------------------------------------
     #  主要运行方法
@@ -1297,7 +1319,10 @@ class ProcessRunner:
                     self._notify_status(ProcessStatus.ERROR)
                     return patch_result
 
-            cmd = [runtime_python, script_path]
+            if script_path.startswith("-m:"):
+                cmd = [runtime_python, "-m", script_path.removeprefix("-m:")]
+            else:
+                cmd = [runtime_python, script_path]
             cmd.extend(args)
 
             self._notify_log(f"runtime target environment: {env_name}")
@@ -1335,9 +1360,7 @@ class ProcessRunner:
         finally:
             self._task_divider_emitted = False
             self.process = None
-            if self._tail_task and not self._tail_task.done():
-                self._tail_task.cancel()
-                self._tail_task = None
+            await self._stop_tail_task(self._tail_task)
 
     # ------------------------------------------------------------------
     #  原生控制台模式
@@ -1356,74 +1379,62 @@ class ProcessRunner:
           - 输出同时镜像到日志文件，GUI 异步尾随并显示（纯文本）
           - 通过信号文件获取真实退出码
         """
-        # 创建临时文件路径
-        tmp_dir = tempfile.gettempdir()
-        exit_file = os.path.join(tmp_dir, f"qinglong_exit_{os.getpid()}.tmp")
-        log_file = os.path.join(tmp_dir, f"qinglong_log_{os.getpid()}.tmp")
+        prefix = f"qinglong-native-{uuid.uuid4().hex}-"
+        with tempfile.TemporaryDirectory(prefix=prefix) as run_directory:
+            directory = Path(run_directory)
+            files = NativeRunFiles(
+                directory=directory,
+                exit_file=directory / "exit_code",
+                log_file=directory / "output.log",
+            )
+            tail_task = None
 
-        # 清理可能残留的旧文件
-        for f in (exit_file, log_file):
             try:
-                os.unlink(f)
-            except OSError:
-                pass
+                # 包装命令: 通过 PowerShell 启动 console_wrapper.py
+                # 优先使用 pwsh.exe (PowerShell 7)，回退到 powershell.exe (5.1)
+                parts = [
+                    sys.executable,
+                    _WRAPPER_PATH,
+                    str(files.exit_file),
+                    str(files.log_file),
+                    *cmd,
+                ]
+                ps_exe = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
+                ps_cmd = _powershell_call(parts)
+                wrapper_cmd = [ps_exe, "-NoProfile", "-NoLogo", "-Command", ps_cmd]
+                wrapper_env = self._build_native_wrapper_env(env, console_color_system)
 
-        # 包装命令: 通过 PowerShell 启动 console_wrapper.py
-        # 优先使用 pwsh.exe (PowerShell 7)，回退到 powershell.exe (5.1)
-        parts = [sys.executable, _WRAPPER_PATH, exit_file, log_file] + cmd
-        ps_exe = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
-        ps_cmd = _powershell_call(parts)
-        wrapper_cmd = [ps_exe, "-NoProfile", "-NoLogo", "-Command", ps_cmd]
-        wrapper_env = self._build_native_wrapper_env(env, console_color_system)
+                self.process = subprocess.Popen(
+                    wrapper_cmd,
+                    cwd=str(work_dir),
+                    env=wrapper_env,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                )
+                self._notify_log("已在 PowerShell 控制台窗口中启动，输出同步显示在下方")
 
-        self.process = subprocess.Popen(
-            wrapper_cmd,
-            cwd=str(work_dir),
-            env=wrapper_env,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
-        )
-        self._notify_log("已在 PowerShell 控制台窗口中启动，输出同步显示在下方")
+                tail_task = asyncio.create_task(self._tail_log_file(str(files.log_file)))
+                self._tail_task = tail_task
 
-        # 启动日志尾随任务
-        self._tail_task = asyncio.create_task(self._tail_log_file(log_file))
+                while not files.exit_file.exists():
+                    if not self._running:
+                        return -1
+                    if self.process.poll() is not None:
+                        raise RuntimeError("native wrapper exited without an exit signal")
+                    await asyncio.sleep(0.5)
 
-        # 等待脚本完成（轮询信号文件）
-        while not os.path.exists(exit_file):
-            if not self._running:
-                break  # 被用户终止
-            await asyncio.sleep(0.5)
-
-        # 读取退出码
-        if os.path.exists(exit_file):
-            try:
-                with open(exit_file, "r", encoding="utf-8") as f:
-                    return_code = int(f.read().strip())
-            except (ValueError, OSError):
-                return_code = -1
-        else:
-            return_code = -1
-
-        # 停止日志尾随，做最后一次读取
-        if self._tail_task and not self._tail_task.done():
-            self._tail_task.cancel()
-            self._tail_task = None
-        # 最终读取确保所有日志都被捕获
-        await asyncio.sleep(0.2)
-        if os.path.exists(log_file):
-            try:
-                # 一次性读取剩余内容
-                pass  # tail 已经在 cancel 前读完了大部分
-            except Exception:
-                pass
-
-        # 清理临时文件
-        for f in (exit_file, log_file):
-            try:
-                os.unlink(f)
-            except OSError:
-                pass
-
-        return return_code
+                try:
+                    raw_return_code = files.exit_file.read_text(encoding="utf-8").strip()
+                    return int(raw_return_code)
+                except (OSError, ValueError) as exc:
+                    raise RuntimeError(
+                        f"malformed native exit signal: {files.exit_file}",
+                    ) from exc
+            except asyncio.CancelledError:
+                self._terminate_process_tree()
+                self._running = False
+                raise
+            finally:
+                await self._stop_tail_task(tail_task)
 
     # ------------------------------------------------------------------
     #  accelerate 运行 (训练用，保留原有接口)
@@ -1501,23 +1512,28 @@ class ProcessRunner:
         """同步运行脚本（用于简单调用）"""
         return asyncio.run(self.run_python_script(script_key, args, **kwargs))
 
+    def _terminate_process_tree(self):
+        process = self.process
+        if process is None:
+            return
+        try:
+            if sys.platform == "win32":
+                subprocess.call(
+                    ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                process.terminate()
+        except (ProcessLookupError, OSError):
+            pass
+
     def terminate(self):
         """终止当前进程（包括子进程树）"""
         if self.process and self._running:
             self._notify_log("正在终止进程...")
-            try:
-                if sys.platform == "win32":
-                    # 杀掉整个进程树（wrapper + 子脚本）
-                    subprocess.call(
-                        ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                else:
-                    self.process.terminate()
-            except (ProcessLookupError, OSError):
-                pass
+            self._terminate_process_tree()
             self._running = False
             self._notify_status(ProcessStatus.IDLE)
 

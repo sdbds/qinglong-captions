@@ -65,7 +65,7 @@ from diffusers.models.unets.unet_2d_blocks import (
 )
 
 from .transformer3d import Transformer3DModel
-from utils.torch_utils import zero_module
+from ...utils.torch_utils import zero_module
 
 
 

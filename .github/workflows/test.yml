@@ -4,27 +4,29 @@ on:
   push:
     branches: [main]
     paths:
-      - "module/providers/**"
-      - "module/api_handler_v2.py"
-      - "module/captioner.py"
-      - "module/videospilter.py"
-      - "module/lance*.py"
+      - "module/**"
+      - "gui/**"
       - "utils/**"
       - "config/**"
       - "tests/**"
+      - "third_party/**"
+      - "*.ps1"
+      - "*.sh"
+      - ".github/scripts/**"
       - "pyproject.toml"
       - ".github/workflows/test.yml"
   pull_request:
     branches: [main]
     paths:
-      - "module/providers/**"
-      - "module/api_handler_v2.py"
-      - "module/captioner.py"
-      - "module/videospilter.py"
-      - "module/lance*.py"
+      - "module/**"
+      - "gui/**"
       - "utils/**"
       - "config/**"
       - "tests/**"
+      - "third_party/**"
+      - "*.ps1"
+      - "*.sh"
+      - ".github/scripts/**"
       - "pyproject.toml"
       - ".github/workflows/test.yml"
   workflow_dispatch:
@@ -43,13 +45,13 @@ env:
   PYTHONPATH: ${{ github.workspace }}
 
 jobs:
-  fast-unit:
+  full-unit:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11"]
 
     steps:
       - uses: actions/checkout@v4
@@ -93,10 +95,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "uv pip install failed" }
           "VENV_PYTHON=$PythonExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Run fast unit suite
+      - name: Run authoritative offline unit suite
         shell: pwsh
         run: |
-          & $env:VENV_PYTHON -m pytest tests/test_provider_catalog.py tests/test_scene_detection.py tests/test_runtime_backends.py tests/test_tag_highlighting.py tests/test_process_runner_tail_parser.py tests/test_log_viewer_scroll_state.py tests/test_lance_blob.py tests/test_lance_utils.py tests/test_text_translation_pipeline.py tests/test_path_safety.py tests/test_output_writer.py tests/test_caption_pipeline.py tests/test_runtime_config.py tests/test_ocr_output_writer_adoption.py -q
+          & $env:VENV_PYTHON -m pytest tests -q --strict-markers -m "not optional_runtime and not gpu and not network" --durations=25
 
   provider-v2:
     runs-on: ${{ matrix.os }}
@@ -152,9 +154,68 @@ jobs:
       - name: Run strict provider discovery gate
         shell: pwsh
         run: |
-          & $env:VENV_PYTHON -c "from providers.registry import get_registry; reg = get_registry(); reg.discover(strict=True)"
+          & $env:VENV_PYTHON -c "from module.providers.registry import get_registry; reg = get_registry(); reg.discover(strict=True)"
 
       - name: Run Provider V2 suite
         shell: pwsh
         run: |
           & $env:VENV_PYTHON -m pytest tests/test_provider_v2.py tests/test_provider_registry.py tests/test_provider_routes.py tests/test_api_handler_v2.py -q --durations=20
+
+  compatibility:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install declared test environment
+        shell: pwsh
+        run: .github/scripts/setup_ci_test_env.ps1
+
+      - name: Run compatibility smoke suite
+        shell: pwsh
+        run: |
+          & $env:VENV_PYTHON -m pytest tests -q --strict-markers -m compat
+
+  static-correctness:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install declared test environment
+        shell: pwsh
+        run: .github/scripts/setup_ci_test_env.ps1
+
+      - name: Compile Python sources
+        shell: pwsh
+        run: |
+          & $env:VENV_PYTHON -m compileall -q module gui utils config tests
+
+      - name: Reject definite undefined names
+        shell: pwsh
+        run: |
+          & $env:VENV_PYTHON -m ruff check module gui utils config tests --select F821,F823
+
+      - name: Verify CI and isolation contracts
+        shell: pwsh
+        run: |
+          & $env:VENV_PYTHON -m pytest tests/test_test_workflow.py tests/test_test_isolation_contract.py -q --strict-markers

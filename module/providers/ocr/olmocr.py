@@ -4,7 +4,7 @@ from __future__ import annotations
 # All logs and comments are in English.
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import torch
 from rich.console import Console
@@ -20,6 +20,9 @@ from utils.output_writer import write_markdown_output
 from utils.stream_util import iter_pdf_pages_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
+if TYPE_CHECKING:
+    from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
+
 # Global lazy cache for model and processor
 _TRANS_LOADER: Optional[transformerLoader] = None
 
@@ -33,6 +36,7 @@ def _generate_for_image(
     device: str | torch.device,
     temperature: float,
     max_new_tokens: int,
+    supports_flex_attn: bool = False,
 ) -> str:
     messages = [
         {
@@ -51,7 +55,7 @@ def _generate_for_image(
         _TRANS_LOADER = transformerLoader(
             attn_kw="attn_implementation",
             device_map="auto",
-            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
+            supports_flex_attn=supports_flex_attn,
         )
     inputs = _TRANS_LOADER.prepare_image_inputs(
         processor,
@@ -91,6 +95,7 @@ def attempt_olmocr(
     prompt_text: Optional[str] = None,
     pixels: Optional[Pixels] = None,
     output_dir: Optional[str] = None,
+    supports_flex_attn: bool = False,
     base64_image: Optional[str] = None,
     model_id: str = "allenai/olmOCR-2-7B-1025",
     processor_id: str = "Qwen/Qwen2.5-VL-7B-Instruct",
@@ -131,7 +136,7 @@ def attempt_olmocr(
         _TRANS_LOADER = transformerLoader(
             attn_kw="attn_implementation",
             device_map="auto",
-            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
+            supports_flex_attn=supports_flex_attn,
         )
 
     processor = _TRANS_LOADER.get_or_load_processor(processor_id, AutoProcessor, console=console)
@@ -184,6 +189,7 @@ def attempt_olmocr(
                         device=device,
                         temperature=temperature,
                         max_new_tokens=max_new_tokens,
+                        supports_flex_attn=supports_flex_attn,
                     )
                 except Exception as e:
                     print_exception(console, e, prefix=f"OLM OCR page {page_number} failed", summary_style="yellow")
@@ -231,6 +237,7 @@ def attempt_olmocr(
             device=device,
             temperature=temperature,
             max_new_tokens=max_new_tokens,
+            supports_flex_attn=supports_flex_attn,
         )
 
         try:
@@ -281,6 +288,7 @@ class OLMOCRProvider(OCRProvider):
             pixels=media.pixels,
             base64_image=media.blob,
             output_dir=str(output_dir) if output_dir else None,
+            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
             temperature=self._get_model_config("temperature", 0.1),
             max_new_tokens=self._get_model_config("max_new_tokens", 512),
         )

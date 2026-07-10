@@ -4,8 +4,12 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+
+pytestmark = pytest.mark.compat
+
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def test_catalog_normalizes_mistral_aliases():

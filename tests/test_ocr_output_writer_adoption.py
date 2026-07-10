@@ -5,7 +5,6 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 OCR_PROVIDER_FILES = [

@@ -98,10 +98,7 @@ def align_depth_least_square_torch(
 
     gt = gt_arr.squeeze()  # [H, W]
     pred = pred_arr.squeeze()
-
-    # if valid_mask_arr is None:
-    #     valid_mask_arr = torch.ones_like(gt_arr, dtype=torch.long)
-    # valid_mask = valid_mask_arr.squeeze()
+    valid_mask = valid_mask_arr.squeeze() if valid_mask_arr is not None else None
 
     # Downsample
     if max_resolution is not None:
@@ -120,8 +117,7 @@ def align_depth_least_square_torch(
         gt.shape == pred.shape
     ), f"{gt.shape}, {pred.shape}"
 
-    if valid_mask_arr is not None:
-        valid_mask = valid_mask_arr.squeeze()
+    if valid_mask is not None:
         gt_masked = gt[valid_mask].reshape((-1, 1))
         pred_masked = pred[valid_mask].reshape((-1, 1))
     else:

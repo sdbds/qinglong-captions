@@ -48,6 +48,7 @@ from utils.console_util import print_exception
 
 _CODEX_TRANSCODE_IMAGE_MIMES = {"image/avif", "image/heic", "image/heif"}
 _CODEX_TRANSCODE_IMAGE_SUFFIXES = {".avif", ".heic", ".heif"}
+CODEX_OVERLOAD_RETRY_WAIT_SECONDS = 60.0
 
 
 def _codex_needs_jpeg_input(path: Path, mime: str = "") -> bool:
@@ -98,12 +99,23 @@ def _is_rate_limited_error(exc: Exception) -> bool:
     )
 
 
+def _is_overloaded_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return getattr(exc, "kind", "") == "overloaded" or "overload" in text or "at capacity" in text
+
+
+def _codex_retry_wait_time(args: Any, default: float = 10.0, minimum: float = 0.0) -> float:
+    try:
+        return max(minimum, float(getattr(args, "wait_time", default)))
+    except (TypeError, ValueError):
+        return max(minimum, default)
+
+
 def _codex_retry_wait(exc: Exception, args: Any) -> float | None:
     if _is_rate_limited_error(exc):
-        try:
-            return max(0.0, float(getattr(args, "wait_time", 10.0)))
-        except (TypeError, ValueError):
-            return 10.0
+        return _codex_retry_wait_time(args)
+    if _is_overloaded_error(exc):
+        return CODEX_OVERLOAD_RETRY_WAIT_SECONDS
     if bool(getattr(exc, "retryable", False)):
         return 0.0
     return None
@@ -119,8 +131,8 @@ def _codex_retry_exhausted_result(args: Any, exc: Exception) -> CaptionResult:
         raise exc
 
     backend = getattr(args, "codex_backend", "") or DEFAULT_CODEX_BACKEND
-    return CaptionResult(
-        raw="",
+    return CaptionResult.failed(
+        str(exc),
         metadata={
             "provider": CodexSubscriptionProvider.name,
             "backend": backend,
@@ -286,8 +298,8 @@ class CodexSubscriptionProvider(CloudVLMProvider):
                 raise
             elapsed = time.perf_counter() - started_at
             self.log(f"Codex caption timed out: {image_name} after {elapsed:.1f}s; returning empty caption", "yellow")
-            return CaptionResult(
-                raw="",
+            return CaptionResult.failed(
+                str(exc),
                 metadata={
                     "provider": self.name,
                     "backend": backend,
@@ -478,6 +490,7 @@ class CodexSubscriptionProvider(CloudVLMProvider):
             base_wait=0.0,
             classify_error=lambda exc: _codex_retry_wait(exc, args),
             on_exhausted=lambda exc: _codex_retry_exhausted_result(args, exc),
+            jitter_ratio=0.0,
         )
 
     def display_name(self, mime: str) -> str:

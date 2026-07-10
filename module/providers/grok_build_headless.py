@@ -15,10 +15,10 @@ from typing import Mapping
 
 from PIL import Image
 
-from module.providers.codex_schema import CodexCaptionOutputError, parse_codex_caption_output
+from module.providers.codex_schema import CODEX_CAPTION_SCHEMA, CodexCaptionOutputError, parse_codex_caption_output
 
 DEFAULT_GROK_BUILD_COMMAND = "grok"
-DEFAULT_GROK_BUILD_MODEL = "grok-build"
+DEFAULT_GROK_BUILD_MODEL = "grok-4.5"
 DEFAULT_GROK_BUILD_TIMEOUT_SECONDS = 180.0
 DEFAULT_GROK_BUILD_PERMISSION_MODE = "dontAsk"
 DEFAULT_GROK_BUILD_SANDBOX = "read-only"
@@ -35,8 +35,8 @@ _ENCODE_QUALITIES = (85, 75, 65, 55)
 class GrokBuildHeadlessConfig:
     command: str = DEFAULT_GROK_BUILD_COMMAND
     model: str = DEFAULT_GROK_BUILD_MODEL
-    effort: str = ""
     reasoning_effort: str = ""
+    disable_web_search: bool = True
     timeout: float = DEFAULT_GROK_BUILD_TIMEOUT_SECONDS
     isolated_cwd: str = ""
     permission_mode: str = DEFAULT_GROK_BUILD_PERMISSION_MODE
@@ -158,14 +158,16 @@ def build_grok_build_prompt_json(
     )
 
 
-def build_grok_build_command(config: GrokBuildHeadlessConfig, *, prompt_json: str) -> list[str]:
+def build_grok_build_command(
+    config: GrokBuildHeadlessConfig,
+    *,
+    prompt_json: str,
+    json_schema: str | None = None,
+) -> list[str]:
     command = [resolve_grok_build_command(config.command)]
     model = (config.model or "").strip()
     if model:
         command.extend(["--model", model])
-    effort = (config.effort or "").strip()
-    if effort:
-        command.extend(["--effort", effort])
     reasoning_effort = (config.reasoning_effort or "").strip()
     if reasoning_effort:
         command.extend(["--reasoning-effort", reasoning_effort])
@@ -182,14 +184,20 @@ def build_grok_build_command(config: GrokBuildHeadlessConfig, *, prompt_json: st
         [
             "--prompt-json",
             prompt_json,
+        ]
+    )
+    if json_schema:
+        command.extend(["--json-schema", json_schema])
+    command.extend(
+        [
             "--output-format",
             "json",
             "--no-auto-update",
-            "--disable-web-search",
-            "--max-turns",
-            "1",
         ]
     )
+    if config.disable_web_search:
+        command.append("--disable-web-search")
+    command.extend(["--max-turns", "1"])
     return command
 
 
@@ -203,6 +211,9 @@ def parse_grok_build_output(text: str) -> dict:
         return parse_codex_caption_output(raw)
 
     if isinstance(envelope, dict):
+        structured_output = envelope.get("structuredOutput")
+        if isinstance(structured_output, dict):
+            return parse_codex_caption_output(json.dumps(structured_output, ensure_ascii=False))
         text_value = envelope.get("text")
         if text_value not in (None, ""):
             return parse_codex_caption_output(str(text_value))
@@ -254,7 +265,10 @@ def run_grok_build_headless_caption(
         mime=mime,
         max_chars=config.prompt_json_max_chars,
     )
-    command = build_grok_build_command(config, prompt_json=prepared.prompt_json)
+    json_schema = (
+        json.dumps(CODEX_CAPTION_SCHEMA, ensure_ascii=False, separators=(",", ":")) if structured else None
+    )
+    command = build_grok_build_command(config, prompt_json=prepared.prompt_json, json_schema=json_schema)
     run_env = build_grok_build_env(env)
     try:
         completed = _run_grok_build_process(command, timeout=config.timeout, env=run_env)

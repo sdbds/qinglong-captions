@@ -12,9 +12,6 @@ from einops import rearrange
 
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-sys.path.insert(1, str(ROOT / "gui"))
-sys.path.insert(2, str(ROOT / "gui" / "wizard"))
 
 from module.audio_separator import (
     HARMONY_OUTPUT_DIRNAME,
@@ -63,7 +60,7 @@ from utils.onnx_export import (
     rewrite_checkpoint_for_latest_mel_band_roformer,
 )
 
-step6_tools = importlib.import_module("step6_tools")
+step6_tools = importlib.import_module("gui.wizard.step6_tools")
 ToolsStep = step6_tools.ToolsStep
 
 

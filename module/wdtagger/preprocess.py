@@ -77,16 +77,17 @@ def preprocess_image(image, is_cl_tagger=False):
 def load_and_preprocess_batch(uris, is_cl_tagger=False):
     def load_single_image(uri):
         try:
-            return preprocess_image(Image.open(uri).convert("RGB"), is_cl_tagger)
+            image = preprocess_image(Image.open(uri).convert("RGB"), is_cl_tagger)
+            return str(uri), image
         except Exception as e:
             print_exception(constants.console, e, prefix=f"Error processing {uri}")
             return None
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
-        batch_images = list(executor.map(load_single_image, uris))
+        loaded = list(executor.map(load_single_image, uris))
 
-    valid_images = [(i, img) for i, img in enumerate(batch_images) if img is not None]
-    return [img for _, img in valid_images]
+    valid_pairs = [item for item in loaded if item is not None]
+    return [uri for uri, _ in valid_pairs], [image for _, image in valid_pairs]
 
 
 def load_siglip2_rgb_batch(uris):

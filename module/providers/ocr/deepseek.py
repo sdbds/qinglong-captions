@@ -37,6 +37,7 @@ def attempt_deepseek_ocr(
     prompt_text: Optional[str] = None,
     pixels: Optional[Pixels] = None,
     output_dir: Optional[str] = None,
+    supports_flex_attn: bool = False,
     base_size: int = 1024,
     image_size: int = 768,
     crop_mode: bool = True,
@@ -66,7 +67,7 @@ def attempt_deepseek_ocr(
         _TRANS_LOADER = transformerLoader(
             attn_kw="_attn_implementation",
             device_map="auto",
-            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
+            supports_flex_attn=supports_flex_attn,
         )
 
     tokenizer = _TRANS_LOADER.get_or_load_processor(model_id, AutoTokenizer, console=console)
@@ -205,6 +206,7 @@ class DeepSeekOCRProvider(OCRProvider):
             prompt_text=prompts.user,
             pixels=media.pixels,
             output_dir=str(output_dir) if output_dir else None,
+            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
             base_size=getattr(self.ctx.args, "deepseek_base_size", 1024),
             image_size=getattr(self.ctx.args, "deepseek_image_size", 768),
             crop_mode=getattr(self.ctx.args, "deepseek_crop_mode", True),

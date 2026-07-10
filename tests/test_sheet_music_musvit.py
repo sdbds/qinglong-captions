@@ -8,7 +8,6 @@ import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def _write_preprocessor_config(path: Path) -> Path:

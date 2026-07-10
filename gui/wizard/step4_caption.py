@@ -298,16 +298,8 @@ class CaptionStep:
         "existing": "Existing session only",
     }
     GROK_BUILD_MODEL_OPTIONS = {
-        "grok-build": "grok-build (default)",
+        "grok-4.5": "grok-4.5 (default)",
         "grok-composer-2.5-fast": "grok-composer-2.5-fast",
-    }
-    GROK_BUILD_EFFORT_OPTIONS = {
-        "": "Default",
-        "low": "low",
-        "medium": "medium",
-        "high": "high",
-        "xhigh": "xhigh",
-        "max": "max",
     }
     GROK_BUILD_REASONING_EFFORT_OPTIONS = {
         "": "Default",
@@ -469,9 +461,9 @@ class CaptionStep:
             "grok_build_backend": "headless",
             "grok_build_auth_mode": "cached_token",
             "grok_build_command": "grok",
-            "grok_build_model_name": "grok-build",
-            "grok_build_effort": "high",
+            "grok_build_model_name": "grok-4.5",
             "grok_build_reasoning_effort": "medium",
+            "grok_build_disable_web_search": True,
             "grok_build_timeout": 180,
             "grok_build_isolated_cwd": "",
             "grok_build_permission_mode": "dontAsk",
@@ -975,19 +967,20 @@ class CaptionStep:
             grok_build_auth_mode = str(self._grok_build_value("grok_build_auth_mode", "cached_token") or "cached_token")
             args.append(f"--grok_build_auth_mode={grok_build_auth_mode}")
 
-            grok_build_model_name = str(self._grok_build_value("grok_build_model_name", "grok-build") or "grok-build")
+            grok_build_model_name = str(self._grok_build_value("grok_build_model_name", "grok-4.5") or "grok-4.5")
             if grok_build_model_name:
                 args.append(f"--grok_build_model_name={grok_build_model_name}")
-
-            grok_build_effort = str(self._grok_build_value("grok_build_effort", "") or "").strip()
-            if grok_build_effort:
-                args.append(f"--grok_build_effort={grok_build_effort}")
 
             grok_build_reasoning_effort = str(
                 self._grok_build_value("grok_build_reasoning_effort", "") or ""
             ).strip()
             if grok_build_reasoning_effort:
                 args.append(f"--grok_build_reasoning_effort={grok_build_reasoning_effort}")
+
+            if bool(self._grok_build_value("grok_build_disable_web_search", True)):
+                args.append("--grok_build_disable_web_search")
+            else:
+                args.append("--no-grok_build_disable_web_search")
 
             grok_build_timeout = self._grok_build_value("grok_build_timeout", 180)
             if grok_build_timeout:
@@ -1316,7 +1309,7 @@ class CaptionStep:
                         label=t("grok_build_model"),
                         icon="smart_toy",
                         icon_color=COLORS["primary"],
-                        placeholder="grok-build",
+                        placeholder="grok-4.5",
                         new_value_mode="add-unique",
                         flex=1,
                     )
@@ -1330,15 +1323,6 @@ class CaptionStep:
                     )
 
                 with ui.row().classes("w-full gap-4 q-mt-md"):
-                    self.grok_build_effort = styled_select(
-                        options=self.GROK_BUILD_EFFORT_OPTIONS,
-                        value=self.config["grok_build_effort"],
-                        label=t("grok_build_effort"),
-                        icon="speed",
-                        icon_color=COLORS["warning"],
-                        searchable=False,
-                        flex=1,
-                    )
                     self.grok_build_reasoning_effort = styled_select(
                         options=self.GROK_BUILD_REASONING_EFFORT_OPTIONS,
                         value=self.config["grok_build_reasoning_effort"],
@@ -1347,6 +1331,11 @@ class CaptionStep:
                         icon_color=COLORS["secondary"],
                         searchable=False,
                         flex=1,
+                    )
+                    toggle_switch(
+                        "grok_build_disable_web_search",
+                        self.config,
+                        "grok_build_disable_web_search",
                     )
 
                 with ui.row().classes("w-full gap-4 q-mt-md"):

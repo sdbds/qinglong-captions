@@ -12,7 +12,7 @@ from config.config import (
     AUDIO_EXTENSIONS_SET,
     VIDEO_EXTENSIONS_SET,
 )
-from module.providers.base import CaptionResult
+from module.providers.base import CaptionResult, CaptionStatus
 from module.providers.image_template import active_image_template
 from utils.parse_display import extract_code_block_content, process_llm_response
 from utils.path_safety import safe_child_path, safe_leaf_name
@@ -156,6 +156,9 @@ def _caption_result_from_processed(output, metadata: dict | None = None) -> Capt
 
 
 def postprocess_caption_content(output, filepath, args, console):
+    if isinstance(output, CaptionResult) and output.status is not CaptionStatus.SUCCESS:
+        return output
+
     metadata = dict(output.metadata) if isinstance(output, CaptionResult) else {}
     if isinstance(output, CaptionResult):
         output = output.payload

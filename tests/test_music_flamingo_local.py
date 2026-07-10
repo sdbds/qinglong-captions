@@ -14,7 +14,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def test_music_flamingo_defaults_to_fp8_model_id():
@@ -70,6 +69,7 @@ def test_prompt_resolver_allows_empty_music_flamingo_system_prompt():
 
 def test_postprocess_audio_extracts_srt_code_block(tmp_path):
     from module.caption_pipeline.postprocess import postprocess_caption_content
+    from module.providers.base import CaptionResult
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -85,11 +85,13 @@ gentle piano intro
 
     processed = postprocess_caption_content(output, audio_path, args, console)
 
-    assert processed == "1\n00:00:00,000 --> 00:00:01,000\ngentle piano intro"
+    assert isinstance(processed, CaptionResult)
+    assert processed.raw == "1\n00:00:00,000 --> 00:00:01,000\ngentle piano intro"
 
 
 def test_postprocess_audio_recovers_unclosed_srt_code_block(tmp_path):
     from module.caption_pipeline.postprocess import postprocess_caption_content
+    from module.providers.base import CaptionResult
 
     audio_path = tmp_path / "sample.wav"
     audio_path.write_bytes(b"fake")
@@ -103,7 +105,8 @@ gentle piano intro"""
 
     processed = postprocess_caption_content(output, audio_path, args, console)
 
-    assert processed == "1\n00:00:00,000 --> 00:00:01,000\ngentle piano intro"
+    assert isinstance(processed, CaptionResult)
+    assert processed.raw == "1\n00:00:00,000 --> 00:00:01,000\ngentle piano intro"
 
 
 def test_music_flamingo_post_validate_returns_structured_summary_payload(tmp_path):

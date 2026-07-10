@@ -82,7 +82,16 @@ def test_grok_build_command_uses_prompt_json_argument_list(tmp_path):
     assert "--reasoning-effort" not in command
 
 
-def test_grok_build_command_can_set_effort_and_reasoning_effort(tmp_path):
+def test_grok_build_headless_config_defaults_to_grok_45():
+    from module.providers.grok_build_headless import DEFAULT_GROK_BUILD_MODEL, GrokBuildHeadlessConfig
+
+    assert DEFAULT_GROK_BUILD_MODEL == "grok-4.5"
+    assert GrokBuildHeadlessConfig().model == "grok-4.5"
+    assert GrokBuildHeadlessConfig().disable_web_search is True
+    assert "effort" not in GrokBuildHeadlessConfig.__dataclass_fields__
+
+
+def test_grok_build_command_can_set_reasoning_effort(tmp_path):
     from module.providers.grok_build_headless import GrokBuildHeadlessConfig, build_grok_build_command
 
     cwd = tmp_path / "work"
@@ -91,7 +100,6 @@ def test_grok_build_command_can_set_effort_and_reasoning_effort(tmp_path):
         GrokBuildHeadlessConfig(
             command="grok-test-bin",
             model="grok-composer-2.5-fast",
-            effort="low",
             reasoning_effort="none",
             isolated_cwd=str(cwd),
         ),
@@ -99,8 +107,40 @@ def test_grok_build_command_can_set_effort_and_reasoning_effort(tmp_path):
     )
 
     assert command[command.index("--model") + 1] == "grok-composer-2.5-fast"
-    assert command[command.index("--effort") + 1] == "low"
     assert command[command.index("--reasoning-effort") + 1] == "none"
+    assert "--effort" not in command
+
+
+def test_grok_build_command_can_allow_web_search(tmp_path):
+    from module.providers.grok_build_headless import GrokBuildHeadlessConfig, build_grok_build_command
+
+    cwd = tmp_path / "work"
+    cwd.mkdir()
+    command = build_grok_build_command(
+        GrokBuildHeadlessConfig(
+            command="grok-test-bin",
+            isolated_cwd=str(cwd),
+            disable_web_search=False,
+        ),
+        prompt_json="[]",
+    )
+
+    assert "--disable-web-search" not in command
+
+
+def test_grok_build_command_can_attach_json_schema(tmp_path):
+    from module.providers.grok_build_headless import GrokBuildHeadlessConfig, build_grok_build_command
+
+    cwd = tmp_path / "work"
+    cwd.mkdir()
+    schema = json.dumps({"type": "object"})
+    command = build_grok_build_command(
+        GrokBuildHeadlessConfig(command="grok-test-bin", isolated_cwd=str(cwd)),
+        prompt_json="[]",
+        json_schema=schema,
+    )
+
+    assert command[command.index("--json-schema") + 1] == schema
 
 
 def test_build_grok_build_prompt_json_downscales_under_default_limit(tmp_path):
@@ -160,6 +200,7 @@ def test_build_grok_build_prompt_json_rejects_non_image_mime(tmp_path):
 
 
 def test_run_grok_build_headless_caption_success_and_clears_api_keys(monkeypatch, tmp_path):
+    import module.providers.grok_build_headless as grok_build_headless
     from module.providers.grok_build_headless import GrokBuildHeadlessConfig, run_grok_build_headless_caption
 
     fake_grok = _make_fake_grok(
@@ -189,6 +230,7 @@ print(json.dumps({"text": json.dumps(payload)}))
     )
     image = _write_image(tmp_path / "image.png")
     monkeypatch.setenv("XAI_API_KEY", "ambient-api-key")
+    monkeypatch.setattr(grok_build_headless, "CODEX_CAPTION_SCHEMA", {"type": "object"})
 
     result = run_grok_build_headless_caption(
         GrokBuildHeadlessConfig(command=str(fake_grok), timeout=10),
@@ -201,6 +243,51 @@ print(json.dumps({"text": json.dumps(payload)}))
     assert result.parsed["short_description"] == "fake short"
     assert result.parsed["long_description"] == "fake long"
     assert result.returncode == 0
+
+
+def test_run_grok_build_headless_caption_passes_schema_only_for_structured_calls(monkeypatch, tmp_path):
+    import module.providers.grok_build_headless as grok_build_headless
+    from module.providers.grok_build_headless import GrokBuildHeadlessConfig, run_grok_build_headless_caption
+
+    fake_grok = _make_fake_grok(
+        tmp_path,
+        """
+import json
+import sys
+
+has_schema = "--json-schema" in sys.argv
+payload = {
+    "short_description": "fake short",
+    "long_description": "fake long",
+    "tags": ["fake"],
+    "rating": "general",
+    "confidence": 0.8,
+}
+print(json.dumps({"text": json.dumps(payload), "saw_schema": has_schema}))
+""",
+    )
+    image = _write_image(tmp_path / "image.png")
+    monkeypatch.setattr(grok_build_headless, "CODEX_CAPTION_SCHEMA", {"type": "object"})
+
+    structured = run_grok_build_headless_caption(
+        GrokBuildHeadlessConfig(command=str(fake_grok), timeout=10),
+        image_path=image,
+        prompt="caption",
+        mime="image/png",
+        structured=True,
+    )
+    freeform = run_grok_build_headless_caption(
+        GrokBuildHeadlessConfig(command=str(fake_grok), timeout=10),
+        image_path=image,
+        prompt="caption",
+        mime="image/png",
+        structured=False,
+    )
+
+    structured_args = json.loads(structured.stdout)
+    freeform_args = json.loads(freeform.stdout)
+    assert structured_args["saw_schema"] is True
+    assert freeform_args["saw_schema"] is False
 
 
 def test_run_grok_build_headless_caption_classifies_image_input_failure(tmp_path):
@@ -310,6 +397,22 @@ def test_parse_grok_build_output_accepts_json_envelope():
     assert parsed["tags"] == ["tag"]
 
 
+def test_parse_grok_build_output_prefers_structured_output_payload():
+    from module.providers.grok_build_headless import parse_grok_build_output
+
+    parsed = parse_grok_build_output(
+        json.dumps(
+            {
+                "text": "not json",
+                "structuredOutput": _caption_payload("schema short", "schema long"),
+            }
+        )
+    )
+
+    assert parsed["short_description"] == "schema short"
+    assert parsed["long_description"] == "schema long"
+
+
 @pytest.mark.parametrize(
     ("message", "kind"),
     [
@@ -400,13 +503,69 @@ def test_grok_build_subscription_attempt_uses_headless_backend(monkeypatch, tmp_
     assert result.metadata["provider"] == "grok_build_subscription"
     assert result.metadata["backend"] == "headless"
     assert result.metadata["auth_mode"] == "cached_token"
+    assert result.metadata["disable_web_search"] is True
     assert result.metadata["prompt_json_chars"] == 123
-    assert calls["config"].model == "grok-build"
+    assert calls["config"].model == "grok-4.5"
+    assert calls["config"].disable_web_search is True
     assert calls["mime"] == "image/jpeg"
-    assert "Do not read files" in calls["prompt"]
+    assert "Grok Build local runtime constraints" in calls["prompt"]
+    assert "Do not read local files" in calls["prompt"]
+    assert "web search" not in calls["prompt"]
 
 
-def test_grok_build_subscription_passes_effort_settings(monkeypatch, tmp_path):
+def test_grok_build_prompt_builders_append_local_runtime_constraints_without_cli_options():
+    from module.providers.base import PromptContext
+    from module.providers.cloud_vlm.grok_build_subscription import (
+        _build_grok_build_caption_prompt,
+        _build_grok_build_freeform_prompt,
+    )
+
+    prompts = PromptContext(system="system prompt", user="user prompt")
+
+    caption_prompt = _build_grok_build_caption_prompt(prompts)
+    freeform_prompt = _build_grok_build_freeform_prompt(prompts, "text")
+
+    assert "system prompt" in caption_prompt
+    assert "user prompt" in caption_prompt
+    assert "system prompt" in freeform_prompt
+    assert "user prompt" in freeform_prompt
+    for prompt in (caption_prompt, freeform_prompt):
+        assert "Grok Build local runtime constraints" in prompt
+        assert "Do not read local files" in prompt
+        assert "inspect the local workspace" in prompt
+        assert "web search" not in prompt
+        assert "disable-web-search" not in prompt
+
+
+def test_grok_build_subscription_can_allow_web_search(monkeypatch, tmp_path):
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.cloud_vlm import grok_build_subscription
+    from module.providers.cloud_vlm.grok_build_subscription import GrokBuildSubscriptionProvider
+
+    image = _write_image(tmp_path / "image.jpg")
+    calls = {}
+
+    def fake_caption(config, *, image_path, prompt, mime, structured=True):
+        calls["config"] = config
+        return SimpleNamespace(parsed=_caption_payload("fake short", "fake long"), prompt_json_chars=123)
+
+    monkeypatch.setattr(grok_build_subscription, "run_grok_build_headless_caption", fake_caption)
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO(), force_terminal=False),
+        config={},
+        args=make_provider_args(grok_build_subscription=True, grok_build_disable_web_search=False),
+    )
+    provider = GrokBuildSubscriptionProvider(ctx)
+    result = provider.attempt(
+        MediaContext(uri=str(image), mime="image/jpeg", sha256hash="", modality=MediaModality.IMAGE),
+        PromptContext(system="system", user="user"),
+    )
+
+    assert calls["config"].disable_web_search is False
+    assert result.metadata["disable_web_search"] is False
+
+
+def test_grok_build_subscription_passes_reasoning_effort_setting(monkeypatch, tmp_path):
     from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
     from module.providers.cloud_vlm import grok_build_subscription
     from module.providers.cloud_vlm.grok_build_subscription import GrokBuildSubscriptionProvider
@@ -425,7 +584,6 @@ def test_grok_build_subscription_passes_effort_settings(monkeypatch, tmp_path):
         args=make_provider_args(
             grok_build_subscription=True,
             grok_build_model_name="grok-composer-2.5-fast",
-            grok_build_effort="low",
             grok_build_reasoning_effort="none",
         ),
     )
@@ -436,7 +594,7 @@ def test_grok_build_subscription_passes_effort_settings(monkeypatch, tmp_path):
     )
 
     assert calls["config"].model == "grok-composer-2.5-fast"
-    assert calls["config"].effort == "low"
+    assert not hasattr(calls["config"], "effort")
     assert calls["config"].reasoning_effort == "none"
 
 

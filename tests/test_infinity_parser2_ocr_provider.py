@@ -9,7 +9,6 @@ from PIL import Image
 from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 class FakeProcessor:

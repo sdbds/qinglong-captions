@@ -450,15 +450,8 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--grok_build_model_name",
         type=str,
-        default="grok-build",
+        default="grok-4.5",
         help="Grok Build model for --grok_build_subscription.",
-    )
-    parser.add_argument(
-        "--grok_build_effort",
-        type=str,
-        choices=["", "low", "medium", "high", "xhigh", "max"],
-        default="",
-        help="Optional Grok Build CLI --effort level. Empty uses the CLI/model default.",
     )
     parser.add_argument(
         "--grok_build_reasoning_effort",
@@ -466,6 +459,15 @@ def setup_parser() -> argparse.ArgumentParser:
         choices=["", "none", "low", "medium", "high"],
         default="",
         help="Optional Grok Build CLI --reasoning-effort for reasoning models. Empty uses the CLI/model default.",
+    )
+    parser.add_argument(
+        "--grok_build_disable_web_search",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Disable Grok Build web search/web fetch tools for subscription captioning. "
+            "Use --no-grok_build_disable_web_search to allow web search."
+        ),
     )
     parser.add_argument(
         "--grok_build_timeout",

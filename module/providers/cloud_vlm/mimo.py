@@ -175,6 +175,7 @@ class MimoProvider(CloudVLMProvider):
             fast_fail_markers=("mimo video base64 limit exceeded",),
         )
         cfg.on_exhausted = lambda e: (
-            print_exception(self.ctx.console, e, prefix="MiMo API retries exhausted", summary_style="yellow") or ""
+            print_exception(self.ctx.console, e, prefix="MiMo API retries exhausted", summary_style="yellow")
+            or CaptionResult.failed(str(e), metadata={"provider": self.name, "retry_exhausted": True})
         )
         return cfg

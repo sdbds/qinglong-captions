@@ -66,11 +66,16 @@ def editable_slider(
         # 移除颜色props，让CSS控制颜色
         slider.props("dense")
 
+        # Mutable config containers for dynamic reconfiguration
+        _decimals = [decimals]
+        _min_val = [min_val]
+        _max_val = [max_val]
+
         # Sync value display when slider changes
         def sync_display():
             val = slider.value
             value_ref[value_key] = val
-            value_btn.set_text(f"{val:.{decimals}f}")
+            value_btn.set_text(f"{val:.{_decimals[0]}f}")
             if on_change:
                 on_change(val)
 
@@ -83,7 +88,7 @@ def editable_slider(
 
             edit_container = ui.element("span")
             with edit_container:
-                edit_input = ui.input(value=f"{current_val:.{decimals}f}").classes("slider-edit-input").style("width: 60px;")
+                edit_input = ui.input(value=f"{current_val:.{_decimals[0]}f}").classes("slider-edit-input").style("width: 60px;")
 
             finished = [False]
 
@@ -94,15 +99,15 @@ def editable_slider(
 
                 try:
                     new_val = float(edit_input.value)
-                    new_val = max(min_val, min(max_val, new_val))
-                    if decimals == 0:
+                    new_val = max(_min_val[0], min(_max_val[0], new_val))
+                    if _decimals[0] == 0:
                         new_val = int(new_val)
                     else:
-                        new_val = round(new_val, decimals)
+                        new_val = round(new_val, _decimals[0])
 
                     value_ref[value_key] = new_val
                     slider.set_value(new_val)
-                    value_btn.set_text(f"{new_val:.{decimals}f}")
+                    value_btn.set_text(f"{new_val:.{_decimals[0]}f}")
 
                     if on_change:
                         on_change(new_val)
@@ -158,6 +163,30 @@ def editable_slider(
             """)
 
         value_btn.on_click(start_edit)
+
+        # Dynamic reconfiguration for min/max/step/decimals/value
+        def update_config(new_min=None, new_max=None, new_step=None, new_decimals=None, new_value=None):
+            if new_min is not None:
+                _min_val[0] = new_min
+            if new_max is not None:
+                _max_val[0] = new_max
+            if new_decimals is not None:
+                _decimals[0] = new_decimals
+            parts = []
+            if new_min is not None:
+                parts.append(f'min={new_min}')
+            if new_max is not None:
+                parts.append(f'max={new_max}')
+            if new_step is not None:
+                parts.append(f'step={new_step}')
+            if parts:
+                slider.props(' '.join(parts))
+            if new_value is not None:
+                value_ref[value_key] = new_value
+                slider.set_value(new_value)
+                value_btn.set_text(f"{new_value:.{_decimals[0]}f}")
+
+        slider.update_config = update_config
 
     return slider
 

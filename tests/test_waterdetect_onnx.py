@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def test_waterdetect_load_model_uses_single_model_bundle(monkeypatch, tmp_path):

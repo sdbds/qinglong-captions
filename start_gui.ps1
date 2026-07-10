@@ -13,7 +13,8 @@ $Config = @{
 # Run the GUI as a PEP 723 script so uv builds a script-scoped runtime
 # instead of attaching the GUI process to the shared project environment.
 Set-Location $PSScriptRoot
-$env:PYTHONPATH = "$PSScriptRoot;$env:PYTHONPATH"
+$PathSep = [System.IO.Path]::PathSeparator
+$env:PYTHONPATH = "$PSScriptRoot$PathSep$env:PYTHONPATH"
 try {
     $UvCommand = Get-Command uv -ErrorAction Stop
 } catch {
@@ -25,7 +26,11 @@ try {
 $Env:HF_HOME = "huggingface"
 $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
 #$Env:HF_ENDPOINT = "https://hf-mirror.com"
-$Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
+if ($env:LOCALAPPDATA) {
+    $Env:UV_CACHE_DIR = "$($env:LOCALAPPDATA)/uv/cache"
+} elseif ($env:HOME) {
+    $Env:UV_CACHE_DIR = "$($env:HOME)/.cache/uv"
+}
 $Env:UV_NO_CACHE = "0"
 $Env:UV_LINK_MODE = "symlink"
 $Env:UV_INDEX_STRATEGY = "unsafe-best-match"

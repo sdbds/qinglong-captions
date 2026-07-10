@@ -7,7 +7,6 @@ from types import SimpleNamespace
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def test_captioner_parser_leaves_segment_time_unset_by_default():

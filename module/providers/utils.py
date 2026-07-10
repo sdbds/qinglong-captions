@@ -141,6 +141,10 @@ def with_retry_impl(fn: Callable[[], Any], retry_config: Any, console: Optional[
 
     max_retries = retry_config.max_retries
     base_wait = retry_config.base_wait
+    try:
+        jitter_ratio = max(0.0, float(getattr(retry_config, "jitter_ratio", 0.2)))
+    except (TypeError, ValueError):
+        jitter_ratio = 0.2
 
     def _default_classifier(e: Exception) -> Optional[float]:
         s = str(e)
@@ -178,8 +182,11 @@ def with_retry_impl(fn: Callable[[], Any], retry_config: Any, console: Optional[
             if wait is None:
                 raise  # 不重试
 
-            jitter = wait * 0.2
-            sleep_for = max(0.0, wait + random.uniform(-jitter, jitter))
+            jitter = wait * jitter_ratio
+            if jitter > 0:
+                sleep_for = max(0.0, wait + random.uniform(-jitter, jitter))
+            else:
+                sleep_for = max(0.0, wait)
             elapsed = time.time() - start_time
             remaining = max(0.0, sleep_for - elapsed)
 

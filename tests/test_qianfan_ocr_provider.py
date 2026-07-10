@@ -8,7 +8,6 @@ from PIL import Image
 from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 import module.providers.ocr.qianfan as qianfan_module
 from module.providers.base import ProviderContext

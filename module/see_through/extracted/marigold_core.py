@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from ..see_through_profile import DEFAULT_DEPTH_INFERENCE_STEPS, DEFAULT_SEED, normalize_quant_mode
-from ..vendor_bootstrap import ensure_vendor_imports
 from utils.transformer_loader import (
     is_quantized_pretrained_component,
     load_pretrained_component,
@@ -46,11 +45,10 @@ def load_marigold_pipeline(
     quant_mode: str = "none",
     console: Any | None = None,
 ) -> Any:
-    ensure_vendor_imports()
     quant_mode = normalize_quant_mode(quant_mode)
 
-    from modules.layerdiffuse.layerdiff3d import UNetFrameConditionModel
-    from modules.marigold import MarigoldDepthPipeline
+    from module.see_through.vendor.modules.layerdiffuse.layerdiff3d import UNetFrameConditionModel
+    from module.see_through.vendor.modules.marigold import MarigoldDepthPipeline
 
     if console is not None:
         console.print(f"[cyan]Loading Marigold pipeline:[/cyan] {repo_id} [dim](quant_mode={quant_mode})[/dim]")
@@ -130,16 +128,14 @@ def run_marigold_phase(
     inference_steps_depth: int = DEFAULT_DEPTH_INFERENCE_STEPS,
     seed: int = DEFAULT_SEED,
 ) -> dict[str, Path]:
-    ensure_vendor_imports()
-
     import numpy as np
     import torch
     from PIL import Image
 
-    from utils.cv import img_alpha_blending, smart_resize
-    from utils.inference_utils import VALID_BODY_PARTS_V2
-    from utils.io_utils import dict2json, json2dict
-    from utils.torch_utils import seed_everything
+    from module.see_through.vendor.utils.cv import img_alpha_blending, smart_resize
+    from module.see_through.vendor.utils.inference_utils import VALID_BODY_PARTS_V2
+    from module.see_through.vendor.utils.io_utils import dict2json, json2dict
+    from module.see_through.vendor.utils.torch_utils import seed_everything
 
     output_dir.mkdir(parents=True, exist_ok=True)
     src_img_path = output_dir / "src_img.png"

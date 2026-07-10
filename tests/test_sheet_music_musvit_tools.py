@@ -4,9 +4,6 @@ import sys
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-sys.path.insert(1, str(ROOT / "gui"))
-sys.path.insert(2, str(ROOT / "gui" / "wizard"))
 
 from gui.utils.process_runner import SCRIPT_REGISTRY
 from gui.wizard import step6_tools

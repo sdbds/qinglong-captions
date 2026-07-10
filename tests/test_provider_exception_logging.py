@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
 from tests.provider_v2_helpers import make_provider_args

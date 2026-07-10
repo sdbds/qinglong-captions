@@ -54,6 +54,7 @@ def attempt_lighton_ocr(
     prompt_text: Optional[str] = None,
     pixels: Optional[Pixels] = None,
     output_dir: Optional[str] = None,
+    supports_flex_attn: bool = False,
     max_new_tokens: int = 4096,
 ) -> str:
     """Run local LightOnOCR-2 inference on a single image or PDF."""
@@ -77,7 +78,7 @@ def attempt_lighton_ocr(
         _TRANS_LOADER = transformerLoader(
             attn_kw="attn_implementation",
             device_map="auto",
-            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
+            supports_flex_attn=supports_flex_attn,
         )
 
     processor = _TRANS_LOADER.get_or_load_processor(model_id, AutoProcessor, console=console)
@@ -214,6 +215,7 @@ class LightOnOCRProvider(OCRProvider):
             prompt_text=prompts.user,
             pixels=media.pixels,
             output_dir=str(output_dir) if output_dir else None,
+            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
             max_new_tokens=self._get_model_config("max_new_tokens", 4096),
         )
 

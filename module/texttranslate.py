@@ -17,6 +17,7 @@ from module.lanceexport import save_caption
 from module.providers.local_llm.hy_mt import HYMTProvider
 from utils.doc_normalize import NormalizationError, normalize_asset
 from utils.lance_blob import build_lance_value_array, take_blob_files
+from utils.lance_updates import LanceRowUpdate, merge_rows_preserving_schema
 from utils.lance_utils import build_version_tag, get_latest_version_number, sanitize_tag_component, update_or_create_tag
 from utils.text_chunker import compute_chunk_offsets, slice_by_offsets
 
@@ -207,19 +208,7 @@ def merge_translations(
         f"[cyan]Merging translated documents into Lance...[/cyan] candidates={len(merge_candidates)} batch_size={merge_batch_size}"
     )
 
-    def flush_batch(batch_rows: list[tuple[str, str, list[int]]]) -> None:
-        data = {
-            "uris": pa.array([row[0] for row in batch_rows], type=pa.string()),
-            "captions": pa.array([[row[1]] for row in batch_rows], type=pa.list_(pa.string())),
-        }
-        if include_chunk_offsets:
-            data["chunk_offsets"] = pa.array([row[2] for row in batch_rows], type=pa.list_(pa.int32()))
-        table = pa.table(data)
-        target_ds.merge_insert(on="uris").when_matched_update_all().execute(table)
-
-    merged_count = 0
-    batch_rows: list[tuple[str, str, list[int]]] = []
-    batch_index = 0
+    updates: list[LanceRowUpdate] = []
 
     for uri_value in merge_candidates:
         translated_markdown = current_run_translations.get(uri_value, "")
@@ -229,28 +218,17 @@ def merge_translations(
             continue
 
         translated_offsets = compute_chunk_offsets(translated_markdown, max_chars=max_chars) if include_chunk_offsets else []
-        batch_rows.append((uri_value, translated_markdown, translated_offsets))
+        values = {"captions": [translated_markdown]}
+        if include_chunk_offsets:
+            values["chunk_offsets"] = translated_offsets
+        updates.append(LanceRowUpdate(uri=uri_value, values=values))
 
-        if len(batch_rows) < merge_batch_size:
-            continue
-
-        flush_batch(batch_rows)
-        merged_count += len(batch_rows)
-        batch_index += 1
-        if len(merge_candidates) > merge_batch_size:
-            console.print(f"[cyan]Merged batch {batch_index}[/cyan]")
-        batch_rows = []
-
-    if batch_rows:
-        flush_batch(batch_rows)
-        merged_count += len(batch_rows)
-        batch_index += 1
-        if len(merge_candidates) > merge_batch_size:
-            console.print(f"[cyan]Merged batch {batch_index}[/cyan]")
-
-    if merged_count == 0:
+    if not updates:
         console.print("[yellow]No translated documents available for final merge.[/yellow]")
         return 0
+
+    merge_rows_preserving_schema(target_ds, updates, batch_size=merge_batch_size)
+    merged_count = len(updates)
 
     latest_ds = lance.dataset(str(dataset_path))
     update_or_create_tag(latest_ds, translation_tag)

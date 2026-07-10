@@ -9,7 +9,6 @@ from rich.console import Console
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 import module.see_through.runner as runner_module
 from module.see_through.runner import (

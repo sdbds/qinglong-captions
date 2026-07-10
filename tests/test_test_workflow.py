@@ -1,5 +1,10 @@
 from pathlib import Path
 
+import pytest
+
+
+pytestmark = pytest.mark.compat
+
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "test.yml"
@@ -100,3 +105,51 @@ def test_test_workflow_strict_provider_discovery_bootstraps_module_import_root()
 
     assert "from module.providers.registry import get_registry" in content
     assert "sys.path.insert(0, str(ROOT / 'module'))" not in content
+
+
+def test_test_workflow_runs_authoritative_offline_unit_suite_on_python_311():
+    content = WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'python-version: ["3.11"]' in content
+    assert (
+        '& $env:VENV_PYTHON -m pytest tests -q --strict-markers '
+        '-m "not optional_runtime and not gpu and not network" --durations=25'
+    ) in content
+
+
+def test_test_workflow_runs_marker_based_compatibility_matrix():
+    content = WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'python-version: ["3.10", "3.12"]' in content
+    assert '& $env:VENV_PYTHON -m pytest tests -q --strict-markers -m compat' in content
+
+
+def test_test_workflow_has_narrow_static_correctness_gate():
+    content = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "-m compileall -q module gui utils config tests" in content
+    assert "-m ruff check module gui utils config tests --select F821,F823" in content
+    assert (
+        "-m pytest tests/test_test_workflow.py tests/test_test_isolation_contract.py "
+        "-q --strict-markers"
+    ) in content
+
+
+def test_test_workflow_covers_all_runtime_and_ci_trigger_roots():
+    content = WORKFLOW.read_text(encoding="utf-8")
+    trigger_paths = [
+        '"module/**"',
+        '"gui/**"',
+        '"utils/**"',
+        '"config/**"',
+        '"tests/**"',
+        '"third_party/**"',
+        '"*.ps1"',
+        '"*.sh"',
+        '".github/scripts/**"',
+        '".github/workflows/test.yml"',
+        '"pyproject.toml"',
+    ]
+
+    for path in trigger_paths:
+        assert content.count(path) >= 2, f"missing push/pull_request trigger for {path}"

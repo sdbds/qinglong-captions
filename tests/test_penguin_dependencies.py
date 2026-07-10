@@ -12,7 +12,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def _load_caption_step(module_name: str):
@@ -517,13 +516,15 @@ def test_caption_step_builds_grok_build_subscription_args_without_api_key_fallba
     assert "--grok_build_subscription" in args
     assert "--grok_build_backend=headless" in args
     assert "--grok_build_auth_mode=cached_token" in args
-    assert "--grok_build_model_name=grok-build" in args
+    assert "--grok_build_model_name=grok-4.5" in args
     assert "--grok_build_timeout=180" in args
     assert "--grok_build_permission_mode=dontAsk" in args
     assert "--grok_build_sandbox=read-only" in args
     assert "--grok_build_command=grok" in args
-    assert "--grok_build_effort=high" in args
+    assert not any(arg.startswith("--grok_build_effort") for arg in args)
     assert "--grok_build_reasoning_effort=medium" in args
+    assert "--grok_build_disable_web_search" in args
+    assert "--no-grok_build_disable_web_search" not in args
     assert "--grok_build_prompt_json_max_chars=24000" not in args
     assert not any(arg.startswith("--openai_api_key=") for arg in args)
     assert not any(arg.startswith("--gemini_api_key=") for arg in args)
@@ -542,8 +543,8 @@ def test_caption_step_builds_grok_build_overrides():
     step.config["grok_build_model_name"] = "grok-build-custom"
     step.config["grok_build_timeout"] = 9
     step.config["grok_build_isolated_cwd"] = "work"
-    step.config["grok_build_effort"] = "low"
     step.config["grok_build_reasoning_effort"] = "none"
+    step.config["grok_build_disable_web_search"] = False
     step.config["grok_build_permission_mode"] = "default"
     step.config["grok_build_sandbox"] = "workspace-write"
     step.config["grok_build_prompt_json_max_chars"] = 12000
@@ -555,13 +556,26 @@ def test_caption_step_builds_grok_build_overrides():
     assert "--grok_build_auth_mode=existing" in args
     assert "--grok_build_command=grok-test" in args
     assert "--grok_build_model_name=grok-build-custom" in args
-    assert "--grok_build_effort=low" in args
+    assert not any(arg.startswith("--grok_build_effort") for arg in args)
     assert "--grok_build_reasoning_effort=none" in args
+    assert "--no-grok_build_disable_web_search" in args
+    assert "--grok_build_disable_web_search" not in args
     assert "--grok_build_timeout=9" in args
     assert "--grok_build_isolated_cwd=work" in args
     assert "--grok_build_permission_mode=default" in args
     assert "--grok_build_sandbox=workspace-write" in args
     assert "--grok_build_prompt_json_max_chars=12000" in args
+
+
+def test_caption_step_grok_build_model_options_include_grok_45_default():
+    CaptionStep = _load_caption_step("test_step4_caption_grok_build_options")
+
+    assert CaptionStep.GROK_BUILD_MODEL_OPTIONS["grok-4.5"] == "grok-4.5 (default)"
+    assert "grok-build" not in CaptionStep.GROK_BUILD_MODEL_OPTIONS
+    assert "grok-composer-2.5-fast" in CaptionStep.GROK_BUILD_MODEL_OPTIONS
+    assert CaptionStep().config["grok_build_model_name"] == "grok-4.5"
+    assert CaptionStep().config["grok_build_disable_web_search"] is True
+    assert "grok_build_effort" not in CaptionStep().config
 
 
 def test_caption_step_builds_kimi_code_thinking_arg():

@@ -7,10 +7,6 @@ from gui.utils.toml_helpers import ModelListEntry
 
 
 ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-if str(ROOT / "gui") not in sys.path:
-    sys.path.insert(1, str(ROOT / "gui"))
 
 
 def _load_model_config_panel_module(module_name: str):
@@ -79,9 +75,11 @@ class _FakeSelect:
 
 
 class _FakeUI:
-    def __init__(self, fake_selects):
-        self._fake_selects = list(fake_selects)
+    def __init__(self, fake_controls):
+        self._fake_controls = list(fake_controls)
         self.created_selects = []
+        self.created_inputs = []
+        self.created_html = []
 
     def row(self):
         return _FakeContext()
@@ -93,15 +91,25 @@ class _FakeUI:
         return _FakeLabel()
 
     def select(self, *_args, **kwargs):
-        fake_select = self._fake_selects.pop(0)
+        fake_select = self._fake_controls.pop(0)
         fake_select.options = kwargs.get("options")
         fake_select.value = kwargs.get("value")
         fake_select.new_value_mode = kwargs.get("new_value_mode")
         self.created_selects.append(fake_select)
         return fake_select
 
+    def input(self, *_args, **kwargs):
+        fake_input = self._fake_controls.pop(0)
+        fake_input.value = kwargs.get("value")
+        self.created_inputs.append(fake_input)
+        return fake_input
 
-def test_model_config_panel_renders_model_id_as_editable_searchable_combobox(monkeypatch):
+    def html(self, content):
+        self.created_html.append(content)
+        return _FakeContext()
+
+
+def test_model_config_panel_renders_model_id_as_free_text_input_with_datalist(monkeypatch):
     panel_module = _load_model_config_panel_module("test_model_config_panel_combobox")
     fake_model_list_select = _FakeSelect()
     fake_model_id_select = _FakeSelect()
@@ -120,11 +128,8 @@ def test_model_config_panel_renders_model_id_as_editable_searchable_combobox(mon
     panel._render_field("model_id", "Qwen/Qwen3.5-9B", parent_dict)
 
     combined_props = " ".join(fake_model_id_select.props_calls)
-    assert "use-input" in combined_props
-    assert "fill-input" in combined_props
-    assert "clearable" in combined_props
-    assert 'dropdown-icon="search"' in combined_props
-    assert "hide-selected" not in combined_props
+    assert "dense outlined" in combined_props
+    assert "list=" in combined_props
 
     assert fake_model_id_select.on_value_change_handler is not None
     fake_model_id_select.on_value_change_handler(SimpleNamespace(value="Qwen/Qwen2.5-VL-31B-Instruct-AWQ"))
@@ -183,13 +188,11 @@ def test_model_config_panel_model_list_selection_fills_model_id(monkeypatch):
 
     monkeypatch.setattr(panel_module, "ui", fake_ui)
     monkeypatch.setattr(
-        panel_module.ModelConfigPanel,
-        "_load_model_list_entries",
-        staticmethod(
-            lambda route_name: (
-                ModelListEntry(name="Gemma 4 E2B it", model_id="google/gemma-4-E2B-it"),
-                ModelListEntry(name="Gemma 4 E4B it FP8", model_id="protoLabsAI/gemma-4-E4B-it-FP8"),
-            )
+        panel_module,
+        "load_model_list_entries",
+        lambda route_name: (
+            ModelListEntry(name="Gemma 4 E2B it", model_id="google/gemma-4-E2B-it"),
+            ModelListEntry(name="Gemma 4 E4B it FP8", model_id="protoLabsAI/gemma-4-E4B-it-FP8"),
         ),
     )
     monkeypatch.setattr(
@@ -210,7 +213,7 @@ def test_model_config_panel_model_list_selection_fills_model_id(monkeypatch):
     panel._render_field("model_id", "", parent_dict)
 
     assert fake_model_list_select.value is None
-    assert fake_model_id_select.value is None
+    assert fake_model_id_select.value == ""
 
     fake_model_list_select.on_value_change_handler(SimpleNamespace(value="Gemma 4 E4B it FP8"))
 
@@ -226,12 +229,10 @@ def test_model_config_panel_custom_model_id_clears_model_list_selection(monkeypa
 
     monkeypatch.setattr(panel_module, "ui", fake_ui)
     monkeypatch.setattr(
-        panel_module.ModelConfigPanel,
-        "_load_model_list_entries",
-        staticmethod(
-            lambda route_name: (
-                ModelListEntry(name="Gemma 4 E2B it", model_id="google/gemma-4-E2B-it"),
-            )
+        panel_module,
+        "load_model_list_entries",
+        lambda route_name: (
+            ModelListEntry(name="Gemma 4 E2B it", model_id="google/gemma-4-E2B-it"),
         ),
     )
     monkeypatch.setattr(

@@ -9,9 +9,9 @@ from diffusers import StableDiffusionXLPipeline, StableDiffusionPipeline
 from diffusers import DPMSolverMultistepScheduler, DPMSolverSinglestepScheduler, EulerDiscreteScheduler
 from diffusers.utils.outputs import BaseOutput
 
-from modules.layerdiffuse.vae import TransparentVAEDecoder, TransparentVAEEncoder, vae_encode
+from .vae import TransparentVAEDecoder, TransparentVAEEncoder, vae_encode
 from .layerdiff3d import UNetFrameConditionModel
-from utils.torch_utils import seed_everything, img2tensor, tensor2img
+from ...utils.torch_utils import seed_everything, img2tensor, tensor2img
 
 @dataclass
 class LayerdiffPipelineOutput(BaseOutput):

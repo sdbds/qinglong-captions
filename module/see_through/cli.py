@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
 ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+if __name__ == "__main__" and not __package__:
+    child_env = os.environ.copy()
+    existing_pythonpath = child_env.get("PYTHONPATH", "")
+    child_env["PYTHONPATH"] = str(ROOT) + (os.pathsep + existing_pythonpath if existing_pythonpath else "")
+    raise SystemExit(
+        subprocess.call([sys.executable, "-m", "module.see_through.cli", *sys.argv[1:]], env=child_env)
+    )
 
 from config.loader import load_config
 from module.see_through.see_through_profile import (

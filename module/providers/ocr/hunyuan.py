@@ -47,6 +47,7 @@ def attempt_hunyuan_ocr(
     prompt_text: Optional[str] = None,
     pixels: Optional[Pixels] = None,
     output_dir: Optional[str] = None,
+    supports_flex_attn: bool = False,
     max_new_tokens: int = 16384,
 ) -> str:
     """Run local HunyuanOCR on a single image and return markdown text.
@@ -89,7 +90,7 @@ def attempt_hunyuan_ocr(
         _TRANS_LOADER = transformerLoader(
             attn_kw="_attn_implementation",
             device_map="auto",
-            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
+            supports_flex_attn=supports_flex_attn,
         )
 
     # Load processor (HunyuanOCR requires use_fast=False)
@@ -246,6 +247,7 @@ class HunyuanOCRProvider(OCRProvider):
             prompt_text=prompts.user,
             pixels=media.pixels,
             output_dir=str(output_dir) if output_dir else None,
+            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
             max_new_tokens=self._get_model_config("max_new_tokens", 16384),
         )
 

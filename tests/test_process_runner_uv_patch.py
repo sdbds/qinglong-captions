@@ -3,7 +3,6 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from gui.utils import process_runner as process_runner_module
 from gui.utils.process_runner import SCRIPT_REGISTRY, ProcessRunner, ProcessStatus
@@ -781,7 +780,7 @@ def test_see_through_uses_dedicated_uv_extra_by_default(monkeypatch):
 
     assert result.status.value == "成功"
     assert captured == {"extras": ["see-through"], "groups": []}
-    assert commands == [["python", "./module/see_through/cli.py", "--help"]]
+    assert commands == [["python", "-m", "module.see_through.cli", "--help"]]
 
 
 def test_sheet_music_musvit_uses_dedicated_uv_extra_by_default(monkeypatch):

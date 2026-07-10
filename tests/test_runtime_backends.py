@@ -9,7 +9,6 @@ import pytest
 from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 # Import transformer_loader before any sys.modules patching. If torch is first
 # imported inside patch.dict(sys.modules, ...), the context rollback removes the

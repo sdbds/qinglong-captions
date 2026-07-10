@@ -11,7 +11,6 @@ import pyarrow as pa
 from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def _quiet_console():
@@ -217,6 +216,10 @@ def test_captioner_waits_for_scene_detection_before_aligning(monkeypatch, tmp_pa
 
     monkeypatch.setattr(captioner, "transform2lance", lambda **kwargs: fake_dataset)
     monkeypatch.setattr(captioner, "extract_from_lance", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "module.caption_pipeline.orchestrator.update_dataset_captions",
+        lambda dataset, *_args, **_kwargs: dataset,
+    )
     monkeypatch.setattr(
         captioner,
         "api_process_batch",

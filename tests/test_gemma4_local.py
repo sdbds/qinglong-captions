@@ -18,7 +18,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 from module.providers.base import PromptContext, ProviderContext
 from module.providers.local_vlm.gemma4_local import Gemma4LocalProvider
@@ -312,8 +311,8 @@ def test_gemma4_openai_runtime_preserves_structured_json_image_payload(tmp_path,
     assert payload["description"] == "json desc"
     assert payload["scores"] == {
         "Costume & Makeup & Prop Presentation/Accuracy": 9,
-        "Setting & Environment Integration": 5,
-        "Storytelling & Concept": 5,
+        "Setting & Environment Integration": 8,
+        "Storytelling & Concept": 8,
     }
     assert payload["average_score"] == pytest.approx(8.4)
     assert payload["character_name"] == "Yae Miko"
@@ -322,6 +321,13 @@ def test_gemma4_openai_runtime_preserves_structured_json_image_payload(tmp_path,
     assert payload["provider"] == "gemma4_local"
     assert result.parsed == payload
     assert result.metadata["structured"] is True
+
+
+def test_gemma4_image_score_values_clamp_to_canonical_zero_ten_range():
+    provider = _make_provider(args=make_provider_args(vlm_image_model="gemma4_local"))
+
+    assert provider._normalize_image_score_value("Storytelling & Concept", -2) == 0
+    assert provider._normalize_image_score_value("Storytelling & Concept", 12) == 10
 
 
 def test_gemma4_openai_runtime_extracts_scores_from_freeform_image_caption(tmp_path, monkeypatch):
@@ -373,10 +379,10 @@ The image shows a futuristic cosplayer under neon lights.
     assert payload["scores"] == {
         "Costume & Makeup & Prop Presentation/Accuracy": 9,
         "Character Portrayal & Posing": 9,
-        "Setting & Environment Integration": 5,
+        "Setting & Environment Integration": 8,
         "Lighting & Mood": 10,
         "Composition & Framing": 9,
-        "Storytelling & Concept": 5,
+        "Storytelling & Concept": 8,
         "Level of S*e*x*y": 8,
         "Figure": 8,
         "Overall Impact & Uniqueness": 9,
@@ -444,10 +450,10 @@ The image shows a futuristic cosplayer under neon lights.
     assert kwargs["rating"] == {
         "Costume & Makeup & Prop Presentation/Accuracy": 9,
         "Character Portrayal & Posing": 9,
-        "Setting & Environment Integration": 5,
+        "Setting & Environment Integration": 8,
         "Lighting & Mood": 10,
         "Composition & Framing": 9,
-        "Storytelling & Concept": 5,
+        "Storytelling & Concept": 8,
         "Level of S*e*x*y": 8,
         "Figure": 8,
         "Overall Impact & Uniqueness": 9,

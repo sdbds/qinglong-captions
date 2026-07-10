@@ -74,7 +74,7 @@ def build_blob_array(values: Iterable[Optional[bytes]], field: pa.Field) -> pa.A
 
 
 def build_lance_value_array(values: Iterable[Any], field: pa.Field) -> pa.Array:
-    if field.name == "blob":
+    if field.name == "blob" or is_blob_v2_field(field):
         return build_blob_array(values, field)
     return pa.array(list(values), type=field.type)
 

@@ -8,7 +8,6 @@ import pytest
 import pyarrow as pa
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 from utils.lance_blob import take_blob_files

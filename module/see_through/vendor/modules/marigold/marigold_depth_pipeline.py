@@ -47,7 +47,7 @@ from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 from typing import Dict, Optional, Union
 
-from modules.layerdiffuse.layerdiff3d import UNetFrameConditionModel
+from ..layerdiffuse.layerdiff3d import UNetFrameConditionModel
 from .util.batchsize import find_batch_size
 from .util.ensemble import ensemble_depth
 from .util.image_util import (
@@ -56,8 +56,8 @@ from .util.image_util import (
     get_tv_resample_method,
     resize_max_res,
 )
-from utils.torchcv import pad_rgb_torch
-from utils.torch_utils import img2tensor
+from ...utils.torchcv import pad_rgb_torch
+from ...utils.torch_utils import img2tensor
 
 
 def encode_rgb(vae, rgb_in: torch.Tensor, latent_scale_factor = 0.18215) -> torch.Tensor:

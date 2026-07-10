@@ -34,6 +34,7 @@ def attempt_glm_ocr(
     prompt_text: Optional[str] = None,
     pixels: Optional[Pixels] = None,
     output_dir: Optional[str] = None,
+    supports_flex_attn: bool = False,
     max_new_tokens: int = 8192,
 ) -> str:
     """Run local GLM-OCR on a single image and return markdown text.
@@ -61,7 +62,7 @@ def attempt_glm_ocr(
         _TRANS_LOADER = transformerLoader(
             attn_kw="_attn_implementation",
             device_map="auto",
-            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
+            supports_flex_attn=supports_flex_attn,
         )
 
     processor = _TRANS_LOADER.get_or_load_processor(model_id, AutoProcessor, console=console)
@@ -224,6 +225,7 @@ class GLMOCRProvider(OCRProvider):
             prompt_text=prompts.user,
             pixels=media.pixels,
             output_dir=str(output_dir) if output_dir else None,
+            supports_flex_attn=bool(getattr(self, "_supports_flex_attn", False)),
             max_new_tokens=self._get_model_config("max_new_tokens", 8192),
         )
 

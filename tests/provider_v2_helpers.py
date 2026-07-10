@@ -3,7 +3,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 def make_provider_args(**kwargs):
@@ -51,9 +50,9 @@ def make_provider_args(**kwargs):
         "grok_build_backend": "headless",
         "grok_build_auth_mode": "cached_token",
         "grok_build_command": "grok",
-        "grok_build_model_name": "grok-build",
-        "grok_build_effort": "",
+        "grok_build_model_name": "grok-4.5",
         "grok_build_reasoning_effort": "",
+        "grok_build_disable_web_search": True,
         "grok_build_timeout": 180.0,
         "grok_build_isolated_cwd": "",
         "grok_build_permission_mode": "dontAsk",

@@ -8,7 +8,6 @@ import pyarrow as pa
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 from module.lanceImport import load_data, transform2lance
 from module.lanceexport import save_caption
@@ -193,29 +192,26 @@ def test_merge_translations_reads_saved_markdown_and_updates_tag(tmp_path):
         ]
     )
 
-    executed_tables = []
-
-    class MergeBuilder:
-        def when_matched_update_all(self):
-            return self
-
-        def execute(self, table):
-            executed_tables.append(table)
-
     class TargetDataset:
         def __init__(self):
             self.schema = schema
-
-        def merge_insert(self, on):
-            assert on == 'uris'
-            return MergeBuilder()
 
     latest_dataset = SimpleNamespace(
         version=4,
         tags=SimpleNamespace(create=MagicMock(), update=MagicMock()),
     )
 
-    with patch('module.texttranslate.lance.dataset', side_effect=[TargetDataset(), latest_dataset]):
+    captured_updates = []
+
+    def fake_merge(target, updates, **kwargs):
+        assert isinstance(target, TargetDataset)
+        captured_updates.extend(updates)
+        assert kwargs == {'batch_size': 1}
+
+    with (
+        patch('module.texttranslate.lance.dataset', side_effect=[TargetDataset(), latest_dataset]),
+        patch('module.texttranslate.merge_rows_preserving_schema', side_effect=fake_merge),
+    ):
         merged = merge_translations(
             dataset_path=tmp_path / 'sample.lance',
             base_version='norm.test',
@@ -229,11 +225,11 @@ def test_merge_translations_reads_saved_markdown_and_updates_tag(tmp_path):
         )
 
     assert merged == 1
-    assert len(executed_tables) == 1
-    row = executed_tables[0].to_pylist()[0]
-    assert row['uris'] == 'story.txt'
-    assert row['captions'] == ['translated body\n']
-    assert row['chunk_offsets'][-1] == len('translated body\n')
+    assert len(captured_updates) == 1
+    row = captured_updates[0]
+    assert row.uri == 'story.txt'
+    assert row.values['captions'] == ['translated body\n']
+    assert row.values['chunk_offsets'][-1] == len('translated body\n')
     latest_dataset.tags.create.assert_called_once_with('tr.test', 4)
 
 

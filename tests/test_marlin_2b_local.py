@@ -16,7 +16,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext, ProviderContext
 from module.providers.local_vlm.marlin_2b_local import Marlin2BLocalProvider

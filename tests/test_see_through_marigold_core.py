@@ -8,12 +8,11 @@ import pytest
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 import module.see_through.extracted.marigold_core as marigold_core
-from module.see_through.vendor_bootstrap import VENDOR_ROOT
 
 
+VENDOR_PREFIX = "module.see_through.vendor"
 VALID_BODY_PARTS_V2 = ["face", "head"]
 
 
@@ -42,12 +41,12 @@ class _FakePipeline:
 
 
 def _install_fake_vendor_imports(monkeypatch, seeded):
-    fake_cv = types.ModuleType("utils.cv")
-    fake_inference_utils = types.ModuleType("utils.inference_utils")
-    fake_io_utils = types.ModuleType("utils.io_utils")
+    fake_cv = types.ModuleType(f"{VENDOR_PREFIX}.utils.cv")
+    fake_inference_utils = types.ModuleType(f"{VENDOR_PREFIX}.utils.inference_utils")
+    fake_io_utils = types.ModuleType(f"{VENDOR_PREFIX}.utils.io_utils")
     fake_inference_utils.VALID_BODY_PARTS_V2 = VALID_BODY_PARTS_V2
 
-    fake_torch_utils = types.ModuleType("utils.torch_utils")
+    fake_torch_utils = types.ModuleType(f"{VENDOR_PREFIX}.utils.torch_utils")
     fake_torch = types.ModuleType("torch")
     fake_torch.float32 = "float32"
 
@@ -86,22 +85,11 @@ def _install_fake_vendor_imports(monkeypatch, seeded):
     fake_io_utils.json2dict = json2dict
     fake_torch_utils.seed_everything = seed_everything
 
-    def _ensure_vendor_root_for_test():
-        monkeypatch.syspath_prepend(str(VENDOR_ROOT))
-        monkeypatch.delitem(sys.modules, "utils", raising=False)
-        monkeypatch.delitem(sys.modules, "utils.cv", raising=False)
-        monkeypatch.delitem(sys.modules, "utils.io_utils", raising=False)
-        monkeypatch.delitem(sys.modules, "utils.inference_utils", raising=False)
-        monkeypatch.delitem(sys.modules, "utils.torch_utils", raising=False)
-        monkeypatch.delitem(sys.modules, "torch", raising=False)
-        monkeypatch.setitem(sys.modules, "utils.cv", fake_cv)
-        monkeypatch.setitem(sys.modules, "utils.inference_utils", fake_inference_utils)
-        monkeypatch.setitem(sys.modules, "utils.io_utils", fake_io_utils)
-        monkeypatch.setitem(sys.modules, "utils.torch_utils", fake_torch_utils)
-        monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        return VENDOR_ROOT
-
-    monkeypatch.setattr(marigold_core, "ensure_vendor_imports", _ensure_vendor_root_for_test)
+    monkeypatch.setitem(sys.modules, f"{VENDOR_PREFIX}.utils.cv", fake_cv)
+    monkeypatch.setitem(sys.modules, f"{VENDOR_PREFIX}.utils.inference_utils", fake_inference_utils)
+    monkeypatch.setitem(sys.modules, f"{VENDOR_PREFIX}.utils.io_utils", fake_io_utils)
+    monkeypatch.setitem(sys.modules, f"{VENDOR_PREFIX}.utils.torch_utils", fake_torch_utils)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
 
 def test_run_marigold_phase_uses_src_img_canvas_and_default_depth_steps(monkeypatch, tmp_path):
@@ -214,15 +202,14 @@ def test_load_marigold_pipeline_nf4_moves_quantized_unet_without_dtype(monkeypat
             return fake_unet
         return fake_pipeline
 
-    fake_layerdiff_module = types.ModuleType("modules.layerdiffuse.layerdiff3d")
+    fake_layerdiff_module = types.ModuleType(f"{VENDOR_PREFIX}.modules.layerdiffuse.layerdiff3d")
     fake_layerdiff_module.UNetFrameConditionModel = type("UNetFrameConditionModel", (), {})
-    fake_marigold_module = types.ModuleType("modules.marigold")
+    fake_marigold_module = types.ModuleType(f"{VENDOR_PREFIX}.modules.marigold")
     fake_marigold_module.MarigoldDepthPipeline = type("MarigoldDepthPipeline", (), {})
 
-    monkeypatch.setattr(marigold_core, "ensure_vendor_imports", lambda: None)
     monkeypatch.setattr(marigold_core, "load_pretrained_component", fake_load_pretrained_component)
-    monkeypatch.setitem(sys.modules, "modules.layerdiffuse.layerdiff3d", fake_layerdiff_module)
-    monkeypatch.setitem(sys.modules, "modules.marigold", fake_marigold_module)
+    monkeypatch.setitem(sys.modules, f"{VENDOR_PREFIX}.modules.layerdiffuse.layerdiff3d", fake_layerdiff_module)
+    monkeypatch.setitem(sys.modules, f"{VENDOR_PREFIX}.modules.marigold", fake_marigold_module)
 
     runtime_context = types.SimpleNamespace(device="cuda", dtype="bfloat16")
 

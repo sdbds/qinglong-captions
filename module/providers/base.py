@@ -33,6 +33,14 @@ class MediaModality(Enum):
     UNKNOWN = auto()
 
 
+class CaptionStatus(str, Enum):
+    """Persistence-relevant outcome of a caption attempt."""
+
+    SUCCESS = "success"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True)
 class MediaContext:
     """
@@ -104,6 +112,9 @@ class RetryConfig:
     # 重试耗尽回调
     on_exhausted: Optional[Callable[[Exception], str]] = None
 
+    # 等待时间抖动比例，0 表示固定等待
+    jitter_ratio: float = 0.2
+
 
 @dataclass
 class CaptionResult:
@@ -116,6 +127,48 @@ class CaptionResult:
     raw: str
     parsed: Optional[Dict] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    status: CaptionStatus = CaptionStatus.SUCCESS
+    error: Optional[str] = None
+
+    @classmethod
+    def success(
+        cls,
+        raw: str = "",
+        *,
+        parsed: Optional[Dict] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> "CaptionResult":
+        return cls(raw=raw, parsed=parsed, metadata=dict(metadata or {}), status=CaptionStatus.SUCCESS)
+
+    @classmethod
+    def skipped(
+        cls,
+        reason: str,
+        *,
+        raw: str = "",
+        parsed: Optional[Dict] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> "CaptionResult":
+        result_metadata = dict(metadata or {})
+        result_metadata.setdefault("skip_reason", reason)
+        return cls(raw=raw, parsed=parsed, metadata=result_metadata, status=CaptionStatus.SKIPPED)
+
+    @classmethod
+    def failed(
+        cls,
+        error: str,
+        *,
+        raw: str = "",
+        parsed: Optional[Dict] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> "CaptionResult":
+        return cls(
+            raw=raw,
+            parsed=parsed,
+            metadata=dict(metadata or {}),
+            status=CaptionStatus.FAILED,
+            error=error,
+        )
 
     @property
     def payload(self) -> Dict[str, Any] | str:
@@ -169,6 +222,27 @@ class CaptionResult:
         """是否是结构化输出"""
         return self.parsed is not None
 
+    @property
+    def has_content(self) -> bool:
+        """Whether the result carries semantic caption content."""
+        if self.parsed is None:
+            return bool(str(self.raw).strip())
+        content_fields = (
+            "description",
+            "long_description",
+            "short_description",
+            "markdown",
+            "text",
+            "transcript",
+            "translation_srt",
+        )
+        return any(str(self.parsed.get(name) or "").strip() for name in content_fields)
+
+    @property
+    def is_persistable(self) -> bool:
+        """Whether this result may replace durable caption data."""
+        return self.status is CaptionStatus.SUCCESS and self.has_content
+
     def to_dataset_caption(self) -> str:
         """Serialize this result for the Lance captions column."""
         if self.parsed is not None:
@@ -182,9 +256,7 @@ class CaptionResult:
         return default
 
     def __bool__(self) -> bool:
-        if self.parsed is not None:
-            return bool(self.parsed)
-        return bool(str(self.raw).strip())
+        return self.is_persistable
 
 
 @dataclass
@@ -353,7 +425,7 @@ class Provider(ABC):
                 self.log(f"Skipping {Path(media.uri).name}: {skip_reason}", "yellow")
             except Exception:
                 pass
-            return CaptionResult(raw="", parsed=None, metadata=metadata)
+            return CaptionResult.skipped(skip_reason, metadata=metadata)
         return result
 
     def get_retry_config(self) -> RetryConfig:

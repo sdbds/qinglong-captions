@@ -6,12 +6,11 @@ import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 import module.see_through.extracted.layerdiff_core as layerdiff_core
-from module.see_through.vendor_bootstrap import VENDOR_ROOT
 
 
+VENDOR_PREFIX = "module.see_through.vendor"
 VALID_BODY_PARTS_V2 = [
     "hair",
     "headwear",
@@ -85,9 +84,9 @@ def test_run_layerdiff_phase_uses_fullpage_padding_for_head_anchor(monkeypatch, 
 
     fake_pipeline = _FakePipeline(body_images=body_images, head_images=head_images)
 
-    fake_cv = types.ModuleType("utils.cv")
+    fake_cv = types.ModuleType(f"{VENDOR_PREFIX}.utils.cv")
     fake_cv2 = types.ModuleType("cv2")
-    fake_inference_utils = types.ModuleType("utils.inference_utils")
+    fake_inference_utils = types.ModuleType(f"{VENDOR_PREFIX}.utils.inference_utils")
     fake_inference_utils.VALID_BODY_PARTS_V2 = VALID_BODY_PARTS_V2
 
     def smart_resize(array, size):
@@ -135,22 +134,9 @@ def test_run_layerdiff_phase_uses_fullpage_padding_for_head_anchor(monkeypatch, 
     fake_cv2.findNonZero = find_non_zero
     fake_cv2.boundingRect = bounding_rect
 
-    def _ensure_vendor_root_for_test():
-        monkeypatch.syspath_prepend(str(VENDOR_ROOT))
-        monkeypatch.delitem(sys.modules, "utils", raising=False)
-        monkeypatch.delitem(sys.modules, "cv2", raising=False)
-        monkeypatch.delitem(sys.modules, "utils.cv", raising=False)
-        monkeypatch.delitem(sys.modules, "utils.inference_utils", raising=False)
-        monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
-        monkeypatch.setitem(sys.modules, "utils.cv", fake_cv)
-        monkeypatch.setitem(sys.modules, "utils.inference_utils", fake_inference_utils)
-        return VENDOR_ROOT
-
-    monkeypatch.setattr(
-        layerdiff_core,
-        "ensure_vendor_imports",
-        _ensure_vendor_root_for_test,
-    )
+    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
+    monkeypatch.setitem(sys.modules, f"{VENDOR_PREFIX}.utils.cv", fake_cv)
+    monkeypatch.setitem(sys.modules, f"{VENDOR_PREFIX}.utils.inference_utils", fake_inference_utils)
 
     output_dir = tmp_path / "outputs"
 

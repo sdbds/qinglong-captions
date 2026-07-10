@@ -3,7 +3,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 from module.see_through.cli import build_parser, build_run_config
 from module.see_through.see_through_profile import SEE_THROUGH_REPO_MAP

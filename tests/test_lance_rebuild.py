@@ -8,7 +8,6 @@ from rich.console import Console
 
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 class _UriScanner:
@@ -142,14 +141,14 @@ def test_rebuild_lance_from_sidecars_calls_transform_with_loaded_data(tmp_path):
     assert kwargs["load_condition"]() == loaded_data
 
 
-def test_lance_blob_v2_partial_merge_failure_uses_rebuild(tmp_path):
+def test_lance_blob_v2_caption_update_preserves_blob_without_rebuild(tmp_path):
     lance = pytest.importorskip("lance")
     if not hasattr(lance, "blob_field") or not hasattr(lance, "blob_array"):
         pytest.skip("Lance build does not expose Blob v2 APIs")
 
     from config.config import DATASET_SCHEMA
     from module.caption_pipeline.dataset_sync import update_dataset_captions
-    from utils.lance_blob import build_lance_schema, build_lance_value_array
+    from utils.lance_blob import build_lance_schema, build_lance_value_array, take_blob_files
 
     source_path = tmp_path / "a.png"
     source_path.write_bytes(b"image")
@@ -167,7 +166,7 @@ def test_lance_blob_v2_partial_merge_failure_uses_rebuild(tmp_path):
         "duration": 0,
         "num_frames": 1,
         "frame_rate": 0.0,
-        "blob": None,
+        "blob": b"image",
         "captions": [],
         "chunk_offsets": [],
     }
@@ -181,10 +180,11 @@ def test_lance_blob_v2_partial_merge_failure_uses_rebuild(tmp_path):
         data_storage_version="2.2",
     )
 
-    rebuilt_dataset = object()
-
     def fake_transform(*_args, **_kwargs):
-        return rebuilt_dataset
+        pytest.fail("schema-preserving update must not rebuild the dataset")
+
+    version_before = dataset.version
+    blob_before = take_blob_files(dataset, [0], "blob")[0].readall()
 
     result = update_dataset_captions(
         dataset,
@@ -197,4 +197,8 @@ def test_lance_blob_v2_partial_merge_failure_uses_rebuild(tmp_path):
         load_data_fn=lambda _source: [{"file_path": str(source_path), "caption": ["caption"], "chunk_offsets": []}],
     )
 
-    assert result is rebuilt_dataset
+    assert result is dataset
+    dataset.checkout_latest()
+    assert dataset.version == version_before + 1
+    assert dataset.to_table(columns=["captions"]).to_pylist() == [{"captions": ["caption"]}]
+    assert take_blob_files(dataset, [0], "blob")[0].readall() == blob_before

@@ -71,6 +71,68 @@ def test_codex_app_server_429_is_retryable_rate_limit():
     assert exc.retryable is True
 
 
+def test_codex_app_server_model_capacity_is_retryable_overload():
+    from module.providers.codex_app_server import CodexAppServerConfig, _coerce_sdk_exception
+
+    exc = _coerce_sdk_exception(
+        RuntimeError("Selected model is at capacity. Please try a different model."),
+        CodexAppServerConfig(),
+        stage="request",
+    )
+
+    assert exc.kind == "overloaded"
+    assert exc.retryable is True
+
+
+def test_codex_subscription_overload_retry_wait_is_at_least_60_seconds():
+    from module.providers.cloud_vlm.codex_subscription import _codex_retry_wait
+    from module.providers.codex_app_server import CodexAppServerError
+
+    exc = CodexAppServerError(
+        "Codex app-server request failed (overloaded): Selected model is at capacity.",
+        kind="overloaded",
+        retryable=True,
+    )
+
+    assert _codex_retry_wait(exc, make_provider_args(wait_time=7)) == 60.0
+    assert _codex_retry_wait(exc, make_provider_args(wait_time=90)) == 60.0
+
+
+def test_codex_subscription_overload_retry_sleeps_fixed_60_seconds(monkeypatch):
+    from rich.console import Console
+
+    from module.providers.base import ProviderContext
+    from module.providers.cloud_vlm.codex_subscription import CodexSubscriptionProvider
+    from module.providers.codex_app_server import CodexAppServerError
+    from module.providers.utils import with_retry_impl
+
+    args = make_provider_args(codex_subscription=True, max_retries=2, wait_time=7)
+    provider = CodexSubscriptionProvider(ProviderContext(console=Console(), config={"prompts": {}}, args=args))
+    cfg = provider.get_retry_config()
+    calls = 0
+    sleeps = []
+
+    def fail_once():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise CodexAppServerError(
+                "Codex app-server request failed (overloaded): Selected model is at capacity.",
+                kind="overloaded",
+                retryable=True,
+            )
+        return "ok"
+
+    monkeypatch.setattr("module.providers.utils.time.sleep", sleeps.append)
+    monkeypatch.setattr(
+        "module.providers.utils.random.uniform",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("overload retry must not jitter")),
+    )
+
+    assert with_retry_impl(fail_once, cfg) == "ok"
+    assert sleeps == [60.0]
+
+
 def test_codex_app_server_closed_client_and_pool_errors_are_retryable(monkeypatch, tmp_path):
     from module.providers import codex_app_server
     from module.providers.codex_app_server import (

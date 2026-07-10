@@ -5,15 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict
 
-from components.advanced_inputs import editable_slider, styled_input, styled_select, toggle_switch
-from components.path_selector import create_path_selector
+from gui.components.advanced_inputs import editable_slider, styled_input, styled_select, toggle_switch
+from gui.components.path_selector import create_path_selector
 from nicegui import ui
 from gui.theme import COLORS, get_classes
 
 from gui.utils.i18n import t
 
 if TYPE_CHECKING:
-    from components.execution_panel import ExecutionPanel
+    from gui.components.execution_panel import ExecutionPanel
 
 
 DEFAULT_GAME_MODEL_REPO_ID = "bdsqlsz/GAME-1.0-large-ONNX"
@@ -167,7 +167,7 @@ def _format_gpu_device_lines(probe: Any | None) -> tuple[str, ...]:
 
 
 def _load_execution_panel_cls():
-    from components.execution_panel import ExecutionPanel
+    from gui.components.execution_panel import ExecutionPanel
 
     return ExecutionPanel
 

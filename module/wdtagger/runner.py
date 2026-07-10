@@ -114,8 +114,13 @@ def main(args, *, load_model_and_tags_fn=load_model_and_tags) -> None:
                 valid_uris, batch_images = load_siglip2_rgb_batch(uris)
             else:
                 is_cl_tagger = args.repo_id.startswith("cella110n/cl_tagger")
-                batch_images = load_and_preprocess_batch(uris, is_cl_tagger)
-                valid_uris = uris
+                valid_uris, batch_images = load_and_preprocess_batch(uris, is_cl_tagger)
+
+            if len(valid_uris) != len(batch_images):
+                raise ValueError(
+                    "WDTagger preprocessing returned "
+                    f"valid URI count {len(valid_uris)} but image count {len(batch_images)}"
+                )
 
             if not batch_images:
                 progress.update(task, advance=len(uris))
@@ -125,6 +130,11 @@ def main(args, *, load_model_and_tags_fn=load_model_and_tags) -> None:
             general_confidence = args.general_threshold or args.thresh
             character_confidence = args.character_threshold or args.thresh
             if probs is not None:
+                if len(valid_uris) != len(probs):
+                    raise ValueError(
+                        "WDTagger inference returned "
+                        f"valid URI count {len(valid_uris)} but probability row count {len(probs)}"
+                    )
                 for path, prob in zip(valid_uris, probs):
                     tags_result = get_tags_official(
                         prob,
