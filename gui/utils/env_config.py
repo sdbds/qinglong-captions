@@ -1,6 +1,6 @@
 """环境变量配置管理
 
-对应 4、run.ps1 脚本中 "DO NOT MODIFY" 分隔线以下的环境变量，
+对应 4.captioner.ps1 脚本中 "DO NOT MODIFY" 分隔线以下的环境变量，
 在 GUI 中统一管理并注入子进程。
 持久化为 config/env_vars.json。
 """

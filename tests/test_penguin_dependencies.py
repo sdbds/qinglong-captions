@@ -955,84 +955,72 @@ def test_caption_step_formats_full_args_for_log_with_redaction():
     assert "super-secret" not in formatted
 
 
-def test_run_ps1_mentions_lfm_vl_local_extra():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_lfm_vl_local_extra():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert '"lfm_vl_local"' in content
     assert 'Add-UvExtra "lfm-vl-local"' in content
 
 
-def test_run_ps1_mentions_gemma4_local_extra():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_gemma4_local_extra():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert '"gemma4_local"' in content
     assert 'Add-UvExtra "gemma4-local"' in content
 
 
-def test_run_ps1_mentions_quantized_runtime_extra_for_quantized_repo_ids():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_quantized_runtime_extra_for_quantized_repo_ids():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert 'function Test-QuantizedRepoIdRuntimeDeps' in content
     assert 'Add-UvExtra "quantized-runtime"' in content
     assert 'function Get-ModelConfigRouteModelId' in content
 
 
-def test_run_ps1_mentions_lighton_ocr_extra():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_lighton_ocr_extra():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert '"lighton_ocr"' in content
     assert 'Add-UvExtra "lighton-ocr"' in content
 
 
-def test_run_ps1_mentions_logics_ocr_extra():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_logics_ocr_extra():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert '"logics_ocr"' in content
     assert 'Add-UvExtra "logics-ocr"' in content
 
 
-def test_run_ps1_mentions_dots_ocr_extra():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_dots_ocr_extra():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert '"dots_ocr"' in content
     assert 'Add-UvExtra "dots-ocr"' in content
 
 
-def test_run_ps1_mentions_qianfan_ocr_extra():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_qianfan_ocr_extra():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert '"qianfan_ocr"' in content
     assert 'Add-UvExtra "qianfan-ocr"' in content
 
 
-def test_run_ps1_mentions_infinity_parser2_ocr_extra():
-    captioner_content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_infinity_parser2_ocr_extra():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
-    contents = [captioner_content]
-    run_path = ROOT / "4、run.ps1"
-    if run_path.exists():
-        contents.append(run_path.read_text(encoding="utf-8"))
-
-    for content in contents:
-        assert '"infinity_parser2_ocr"' in content
-        assert 'Add-UvExtra "infinity-parser2-ocr"' in content
+    assert '"infinity_parser2_ocr"' in content
+    assert 'Add-UvExtra "infinity-parser2-ocr"' in content
 
 
-def test_run_ps1_mentions_unlimited_ocr_extra():
-    captioner_content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_unlimited_ocr_extra():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
-    contents = [captioner_content]
-    run_path = ROOT / "4、run.ps1"
-    if run_path.exists():
-        contents.append(run_path.read_text(encoding="utf-8"))
-
-    for content in contents:
-        assert '"unlimited_ocr"' in content
-        assert 'Add-UvExtra "unlimited-ocr"' in content
+    assert '"unlimited_ocr"' in content
+    assert 'Add-UvExtra "unlimited-ocr"' in content
 
 
-def test_run_ps1_uses_generic_extra_fallback_for_music_flamingo():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_uses_generic_extra_fallback_for_music_flamingo():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert '"music_flamingo_local"' in content
     assert 'Add-UvExtra "music-flamingo-local"' in content
@@ -1044,43 +1032,43 @@ def test_run_ps1_uses_generic_extra_fallback_for_music_flamingo():
     assert "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf" not in content
 
 
-def test_run_ps1_mentions_eureka_audio_extra():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_eureka_audio_extra():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert '"eureka_audio_local"' in content
     assert 'Add-UvExtra "eureka-audio-local"' in content
 
 
-def test_run_ps1_mentions_acestep_transcriber_extra():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_acestep_transcriber_extra():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert '"acestep_transcriber_local"' in content
     assert 'Add-UvExtra "acestep-transcriber-local"' in content
 
 
-def test_run_ps1_mentions_cohere_transcribe_extra():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_cohere_transcribe_extra():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert '"cohere_transcribe_local"' in content
     assert 'Add-UvExtra "cohere-transcribe-local"' in content
 
 
-def test_run_ps1_mentions_mega_asr_extra():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_mega_asr_extra():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert '"mega_asr_local"' in content
     assert 'Add-UvExtra "mega-asr-local"' in content
 
 
-def test_run_ps1_mentions_alm_language_passthrough():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_mentions_alm_language_passthrough():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert "alm_language" in content
     assert "--alm_language=$alm_language" in content
 
 
-def test_run_ps1_does_not_lock_or_export_at_runtime():
-    content = (ROOT / "4、run.ps1").read_text(encoding="utf-8")
+def test_captioner_ps1_does_not_lock_or_export_at_runtime():
+    content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert "Ensure-UvLockFile" not in content
     assert "uv lock --python 3.11 --index-strategy $IndexStrategy" not in content

@@ -101,6 +101,7 @@ $vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local",
 
 # ALM model configuration for audio tasks
 $alm_model = ""  # Options: "music_flamingo_local", "eureka_audio_local", "acestep_transcriber_local", "cohere_transcribe_local", "mega_asr_local", ""
+$alm_language = ""  # Optional ISO 639-1 language hint for ALM transcription tasks, e.g. "zh", "en", "ja"
 
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
@@ -183,6 +184,63 @@ function Get-UvProfile {
   }
 
   return ($ArgsList | ForEach-Object { $_.ToString().Replace("--extra=", "extra:").Replace("--group=", "group:") }) -join ", "
+}
+
+function Test-QuantizedRepoIdRuntimeDeps {
+  param (
+    [string]$RepoId
+  )
+
+  if ([string]::IsNullOrWhiteSpace($RepoId)) {
+    return $false
+  }
+
+  return [regex]::IsMatch(
+    $RepoId.ToLowerInvariant(),
+    '(?:^|[-_./])(?:nf4|fp8-block|bnb|bitsandbytes|4bit|8bit|int4|int8)(?:$|[-_./])'
+  )
+}
+
+function Get-ModelConfigRouteModelId {
+  param (
+    [string]$RouteName
+  )
+
+  if ([string]::IsNullOrWhiteSpace($RouteName)) {
+    return ""
+  }
+
+  $ModelConfigPath = Join-Path $PSScriptRoot "config/model.toml"
+  if (-not (Test-Path $ModelConfigPath)) {
+    return ""
+  }
+
+  $Content = Get-Content $ModelConfigPath -Raw -Encoding UTF8
+  $SectionPattern = "(?ms)^\[" + [regex]::Escape($RouteName) + "\]\s*(.*?)(?=^\[|\z)"
+  $SectionMatch = [regex]::Match($Content, $SectionPattern)
+  if (-not $SectionMatch.Success) {
+    return ""
+  }
+
+  $ModelIdMatch = [regex]::Match($SectionMatch.Groups[1].Value, '^\s*model_id\s*=\s*"([^"]+)"', [System.Text.RegularExpressions.RegexOptions]::Multiline)
+  if (-not $ModelIdMatch.Success) {
+    return ""
+  }
+
+  return $ModelIdMatch.Groups[1].Value
+}
+
+function Resolve-SelectedRouteModelIds {
+  $Resolved = [System.Collections.ArrayList]::new()
+
+  foreach ($RouteName in @($ocr_model, $vlm_image_model, $alm_model)) {
+    $ResolvedId = Get-ModelConfigRouteModelId -RouteName $RouteName
+    if (-not [string]::IsNullOrWhiteSpace($ResolvedId)) {
+      [void]$Resolved.Add($ResolvedId)
+    }
+  }
+
+  return @($Resolved)
 }
 
 function Get-ProjectPython {
@@ -634,6 +692,9 @@ if ($vlm_image_model) {
 # ALM model selection for audio tasks
 if ($alm_model) {
   [void]$ext_args.Add("--alm_model=$alm_model")
+  if ($alm_language) {
+    [void]$ext_args.Add("--alm_language=$alm_language")
+  }
 
   if ($alm_model -eq "music_flamingo_local") {
     Add-UvExtra "music-flamingo-local"
@@ -649,6 +710,13 @@ if ($alm_model) {
   }
   elseif ($alm_model -eq "mega_asr_local") {
     Add-UvExtra "mega-asr-local"
+  }
+}
+
+foreach ($ResolvedModelId in (Resolve-SelectedRouteModelIds)) {
+  if (Test-QuantizedRepoIdRuntimeDeps -RepoId $ResolvedModelId) {
+    Add-UvExtra "quantized-runtime"
+    break
   }
 }
 

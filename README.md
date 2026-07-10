@@ -358,7 +358,7 @@ python -m gui.launch --native --port 7899
 
 ```powershell
 ./lanceImport.ps1
-./4、run.ps1
+./4.captioner.ps1
 ./lanceExport.ps1
 ./2.2.preprocess_images.ps1
 ./2.5.audio_separator.ps1
@@ -368,7 +368,7 @@ python -m gui.launch --native --port 7899
 
 说明：
 
-- `4、run.ps1` 用于批量字幕生成
+- `4.captioner.ps1` 用于批量字幕生成
 - `2.2.preprocess_images.ps1` 用于图片预处理与可选图像对齐；`--matcher-backend=auto` 会在 CUDA 上优先 `affine_steerers`，否则优先 `xfeat`，失败时回退 ORB
 - `2.5.audio_separator.ps1` 用于 ONNX 音频分轨
 - `2.5.audio_separator.ps1` 默认会安装并复用 `vocal-midi` profile，不需要再手动补 `--extra vocal-midi`
@@ -665,12 +665,12 @@ Note: current `cl_tagger_v2` snapshots use a gated Hugging Face model. Accept th
 We have added support for the `gemini-2.5-pro` model for pair image captions. This allows for more accurate and detailed descriptions of pair of images.
 
 **How to use:**
-1. Open the `4、run.ps1` script.
+1. Open the `4.captioner.ps1` script.
 2. Set your Gemini API key in the `$gemini_api_key` variable.
 3. Set the model path to `gemini-2.5-pro`: `$gemini_model_path = "gemini-2.5-pro"`(pro can do NSFW images,flash only sfw images.)
 4. Place the edited images you want to caption in the folder specified by `$dataset_path`.
 5. Place the original images you want to caption in the folder specified by `$pair_dir`(with same image name).
-6. Run the script: `./4、run.ps1`
+6. Run the script: `./4.captioner.ps1`
 
 
 
@@ -711,7 +711,7 @@ You can also specify different highlight rates to change the default standard.
 
 How to use？ just use 3、tagger.ps1 first for generate tags for your image datasets,
 
-then use 4、run.ps1 with pixtral apikey
+then use 4.captioner.ps1 with pixtral apikey
 
 ### 2.4
 
@@ -979,7 +979,7 @@ If you already know the project and want direct scripting, these entry points ar
 
 ```powershell
 ./lanceImport.ps1
-./4、run.ps1
+./4.captioner.ps1
 ./lanceExport.ps1
 ./2.2.preprocess_images.ps1
 ./2.5.audio_separator.ps1
@@ -989,7 +989,7 @@ If you already know the project and want direct scripting, these entry points ar
 
 Notes:
 
-- `4、run.ps1` runs batch captioning
+- `4.captioner.ps1` runs batch captioning
 - `2.2.preprocess_images.ps1` handles image preprocessing and optional image alignment; `--matcher-backend=auto` prefers `affine_steerers` on CUDA and `xfeat` otherwise, then falls back to ORB
 - `2.5.audio_separator.ps1` runs the ONNX audio separator
 - `2.5.audio_separator.ps1` now installs and reuses the `vocal-midi` profile by default, so no extra manual `--extra vocal-midi` step is needed

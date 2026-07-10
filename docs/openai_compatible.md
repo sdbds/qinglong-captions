@@ -28,7 +28,7 @@ python -m vllm.entrypoints.openai.api_server \
 
 ### 2. 配置 Qinglong Captions
 
-编辑 `4、run.ps1`：
+编辑 `4.captioner.ps1`：
 
 ```powershell
 # 注释掉其他 API 配置，只保留 OpenAI 兼容配置
@@ -47,7 +47,7 @@ $openai_json_mode = $true
 ### 3. 运行标注
 
 ```powershell
-.\4、run.ps1
+.\4.captioner.ps1
 ```
 
 ## Backend 配置示例
