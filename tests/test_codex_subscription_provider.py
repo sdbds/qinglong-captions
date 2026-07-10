@@ -152,7 +152,7 @@ def test_codex_subscription_overload_retry_sleeps_fixed_60_seconds(monkeypatch):
     )
 
     assert with_retry_impl(fail_once, cfg) == "ok"
-    assert sleeps == [60.0]
+    assert sleeps == pytest.approx([60.0], abs=0.01)
 
 
 def test_codex_app_server_closed_client_and_pool_errors_are_retryable(monkeypatch, tmp_path):

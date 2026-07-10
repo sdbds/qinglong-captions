@@ -74,13 +74,14 @@ def test_base_dependency_install_command_uses_uv_pyproject_base_only(monkeypatch
 def test_create_venv_installs_base_dependencies_before_ready(monkeypatch, tmp_path):
     tabs = ExecutionTabs.__new__(ExecutionTabs)
     venv_path = tmp_path / "tab-0002"
+    python_path = execution_tabs_module._python_for_venv(venv_path)
     tab = TaskTab(
         id="tab-0002",
         name="任务 2",
         index=2,
         work_dir=".",
         venv_path=str(venv_path),
-        python_path=str(venv_path / "Scripts" / "python.exe"),
+        python_path=str(python_path),
         created_at=datetime.now(),
         status="missing",
     )
@@ -90,12 +91,11 @@ def test_create_venv_installs_base_dependencies_before_ready(monkeypatch, tmp_pa
     tabs._log = lambda *_args, **_kwargs: None
     commands = []
     create_cmd = ["uv", "venv", "-p", "3.11", "--seed", str(venv_path)]
-    base_cmd = ["uv", "pip", "install", "--no-build-isolation", "--python", str(venv_path / "Scripts" / "python.exe"), "-r", "pyproject.toml"]
+    base_cmd = ["uv", "pip", "install", "--no-build-isolation", "--python", str(python_path), "-r", "pyproject.toml"]
 
     async def fake_run_logged_command(tab_arg, cmd, *, creationflags, failure_label):
         commands.append((cmd, failure_label))
         if failure_label == "venv creation":
-            python_path = venv_path / "Scripts" / "python.exe"
             python_path.parent.mkdir(parents=True, exist_ok=True)
             python_path.write_text("", encoding="utf-8")
 
@@ -118,7 +118,7 @@ def test_create_venv_installs_base_dependencies_before_ready(monkeypatch, tmp_pa
 def test_ready_existing_venv_without_base_marker_installs_base_before_start(monkeypatch, tmp_path):
     tabs = ExecutionTabs.__new__(ExecutionTabs)
     venv_path = tmp_path / "tab-0002"
-    python_path = venv_path / "Scripts" / "python.exe"
+    python_path = execution_tabs_module._python_for_venv(venv_path)
     python_path.parent.mkdir(parents=True, exist_ok=True)
     python_path.write_text("", encoding="utf-8")
     tab = TaskTab(
