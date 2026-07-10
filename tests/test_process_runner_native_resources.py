@@ -1,5 +1,6 @@
 import asyncio
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,12 @@ import pytest
 from gui.utils.log_buffer import LogBuffer
 from gui.utils.process_runner import ProcessRunner
 import gui.utils.process_runner as process_runner_module
+
+
+_WINDOWS_NATIVE_ONLY = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="native console lifecycle requires Windows CREATE_NEW_CONSOLE and taskkill",
+)
 
 
 def test_console_wrapper_publishes_exit_signal_atomically(monkeypatch, tmp_path):
@@ -65,6 +72,7 @@ def _log_lines(buffer: LogBuffer) -> list[str]:
     return [line for _sequence, line in buffer.get_all_lines()]
 
 
+@_WINDOWS_NATIVE_ONLY
 def test_concurrent_native_runs_isolate_directories_exit_codes_and_logs(monkeypatch, tmp_path):
     launches = []
     completions = []
@@ -120,6 +128,7 @@ def test_concurrent_native_runs_isolate_directories_exit_codes_and_logs(monkeypa
     assert not second_files[0].parent.exists()
 
 
+@_WINDOWS_NATIVE_ONLY
 def test_native_run_returns_on_exit_signal_while_wrapper_window_remains_open(monkeypatch, tmp_path):
     launched = []
 
@@ -152,6 +161,7 @@ def test_native_run_returns_on_exit_signal_while_wrapper_window_remains_open(mon
     asyncio.run(scenario())
 
 
+@_WINDOWS_NATIVE_ONLY
 def test_native_run_awaits_tail_final_read_before_cleanup(monkeypatch, tmp_path):
     launched = []
     final_reads = []
@@ -196,6 +206,7 @@ def test_native_run_awaits_tail_final_read_before_cleanup(monkeypatch, tmp_path)
     assert not launched[0][1].parent.exists()
 
 
+@_WINDOWS_NATIVE_ONLY
 def test_terminating_one_native_run_leaves_the_other_resources_and_process_alone(
     monkeypatch,
     tmp_path,
@@ -251,6 +262,7 @@ def test_terminating_one_native_run_leaves_the_other_resources_and_process_alone
     assert not finish_second[1].parent.exists()
 
 
+@_WINDOWS_NATIVE_ONLY
 def test_native_run_cleans_resources_when_wrapper_startup_fails(monkeypatch, tmp_path):
     files = []
 
@@ -271,6 +283,7 @@ def test_native_run_cleans_resources_when_wrapper_startup_fails(monkeypatch, tmp
     assert not files[0].parent.exists()
 
 
+@_WINDOWS_NATIVE_ONLY
 def test_native_run_rejects_malformed_exit_signal_and_cleans_resources(monkeypatch, tmp_path):
     files = []
 
@@ -299,6 +312,7 @@ def test_native_run_rejects_malformed_exit_signal_and_cleans_resources(monkeypat
     assert not files[0].parent.exists()
 
 
+@_WINDOWS_NATIVE_ONLY
 def test_native_run_rejects_wrapper_exit_without_signal_and_cleans_resources(
     monkeypatch,
     tmp_path,
@@ -327,6 +341,7 @@ def test_native_run_rejects_wrapper_exit_without_signal_and_cleans_resources(
     assert not files[0].parent.exists()
 
 
+@_WINDOWS_NATIVE_ONLY
 def test_cancelling_native_coroutine_terminates_only_its_wrapper(monkeypatch, tmp_path):
     launches = []
     killed_pids = []
