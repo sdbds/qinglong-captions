@@ -1272,7 +1272,7 @@ class ToolsStep:
                 ).classes("text-caption").style(f"color: {COLORS['info']};")
                 ui.button(
                     icon="refresh",
-                    on_click=lambda: asyncio.create_task(self._refresh_music_gpu_probe()),
+                    on_click=self._refresh_music_gpu_probe,
                 ).props('flat dense round type="button"').tooltip(t("detected_gpus"))
 
             with ui.row().classes("w-full items-center gap-3 q-mt-md"):
