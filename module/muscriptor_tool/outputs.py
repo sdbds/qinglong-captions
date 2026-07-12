@@ -105,12 +105,15 @@ def transcribe_once(
     require_midi_bytes: bool = False,
     stderr: TextIO | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
+    preview_runtime: Any | None = None,
+    preview_target: Path | None = None,
+    preview_renderer: Callable[..., None] | None = None,
 ) -> TranscriptionResult:
     stderr = stderr or sys.stderr
     stats = EventStats()
     original_events: list[Any] = []
     json_events: list[dict[str, Any]] = []
-    collect_originals = targets.midi is not None or require_midi_bytes
+    collect_originals = targets.midi is not None or require_midi_bytes or preview_runtime is not None
     collect_json = targets.json is not None
 
     with warnings_module.catch_warnings(record=True) as captured_warnings:
@@ -154,6 +157,22 @@ def transcribe_once(
         )
 
     outputs = {key: str(path) for key, path in targets.requested_paths().items() if path.exists()}
+    if preview_runtime is not None:
+        if preview_target is None:
+            raise ValueError("preview_target is required when preview_runtime is enabled")
+        if midi_payload is None:
+            raise RuntimeError("Preview rendering requires MIDI bytes")
+        if preview_renderer is None:
+            from .auralization import render_preview
+
+            preview_renderer = render_preview
+        preview_renderer(
+            preview_runtime,
+            midi_bytes=midi_payload,
+            original_audio_path=Path(source),
+            output_path=Path(preview_target),
+        )
+        outputs["preview"] = str(preview_target)
     return TranscriptionResult(
         note_count=stats.note_count,
         event_count=stats.event_count,

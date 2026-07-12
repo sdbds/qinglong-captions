@@ -146,12 +146,19 @@ def _relative_outputs(result: TranscriptionResult, item_dir: Path) -> dict[str, 
     return outputs
 
 
-def _existing_outputs(targets: OutputTargets, item_dir: Path) -> dict[str, str]:
-    return {
+def _existing_outputs(
+    targets: OutputTargets,
+    item_dir: Path,
+    preview_target: Path | None = None,
+) -> dict[str, str]:
+    outputs = {
         key: path.resolve().relative_to(item_dir.resolve()).as_posix()
         for key, path in targets.requested_paths().items()
         if path.is_file()
     }
+    if preview_target is not None and preview_target.is_file():
+        outputs["preview"] = preview_target.name
+    return outputs
 
 
 def _metadata_payload(
@@ -304,7 +311,11 @@ def run_batch(
             return summary
 
         preview_runtime = None
-        if options.preview is not None and preview_preflight is not None:
+        if options.preview is not None:
+            if preview_preflight is None:
+                from .auralization import preflight_preview
+
+                preview_preflight = preflight_preview
             preview_runtime = preview_preflight(options.preview)
 
         try:
@@ -320,18 +331,30 @@ def run_batch(
             item_dir.mkdir(parents=True, exist_ok=True)
             cleanup_temporary_outputs(item_dir)
             targets = OutputTargets.for_directory(item_dir, options.output_formats)
+            preview_target = (
+                item_dir / f"preview.{options.preview.format.value}"
+                if options.preview is not None
+                else None
+            )
             result: TranscriptionResult | None = None
             error: BaseException | None = None
             status = "ok"
             try:
-                kwargs = {"preview_runtime": preview_runtime} if preview_runtime is not None else {}
+                kwargs = (
+                    {"preview_runtime": preview_runtime, "preview_target": preview_target}
+                    if preview_runtime is not None
+                    else {}
+                )
                 result = transcriber(loaded, item.source_path, options.transcription, targets, **kwargs)
+                missing = [name for name in requested_names if not (item_dir / name).is_file()]
+                if missing:
+                    raise RuntimeError(f"Requested outputs were not created: {', '.join(sorted(missing))}")
                 prune_known_outputs(item_dir, requested_names=requested_names)
                 outputs = _relative_outputs(result, item_dir)
                 summary.processed += 1
             except BaseException as exc:
                 error = exc
-                outputs = _existing_outputs(targets, item_dir)
+                outputs = _existing_outputs(targets, item_dir, preview_target)
                 if outputs:
                     status = "partial"
                     summary.partial += 1

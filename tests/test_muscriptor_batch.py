@@ -270,3 +270,99 @@ def test_run_signature_changes_with_output_selection(tmp_path: Path):
         package_version="0.2.1",
         resolved_device="cpu",
     )
+
+
+def test_preview_preflight_runs_once_and_preview_failure_is_partial(tmp_path: Path):
+    from module.muscriptor_tool.batch import run_batch
+    from module.muscriptor_tool.options import PreviewContent, PreviewFormat, PreviewRequest
+
+    inputs = tmp_path / "inputs"
+    output = tmp_path / "out"
+    write_audio_tree(inputs, ("a.wav", "b.wav"))
+    calls: dict[str, object] = {"loads": 0, "files": [], "preflight": 0}
+    preview = PreviewRequest(PreviewContent.COMPARISON, PreviewFormat.WAV)
+
+    def preflight(request):
+        calls["preflight"] = int(calls["preflight"]) + 1
+        return SimpleNamespace(request=request)
+
+    def transcribe(_loaded, source, _options, targets, *, preview_runtime, preview_target):
+        targets.midi.parent.mkdir(parents=True, exist_ok=True)
+        targets.midi.write_bytes(b"MThd")
+        if Path(source).name == "a.wav":
+            raise RuntimeError("preview failed")
+        preview_target.write_bytes(b"preview")
+        return TranscriptionResult(
+            note_count=1,
+            event_count=2,
+            chunk_count=1,
+            completed_chunks=1,
+            outputs={"midi": str(targets.midi), "preview": str(preview_target)},
+            warnings=(),
+            midi_bytes=b"MThd",
+        )
+
+    summary = run_batch(
+        inputs,
+        output,
+        BatchOptions(preview=preview),
+        model_loader=loader_with_calls(calls),
+        transcriber=transcribe,
+        preview_preflight=preflight,
+        package_version="0.2.1",
+        resolved_device="cpu",
+    )
+
+    assert calls["preflight"] == 1
+    assert summary.partial == 1
+    assert summary.processed == 1
+    assert (output / "a.wav" / "transcription.mid").exists()
+    metadata = json.loads((output / "a.wav" / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["status"] == "partial"
+
+
+def test_completed_preview_batch_skips_without_rechecking_preview_runtime(tmp_path: Path):
+    from module.muscriptor_tool.batch import run_batch
+    from module.muscriptor_tool.options import PreviewContent, PreviewFormat, PreviewRequest
+
+    inputs = tmp_path / "inputs"
+    output = tmp_path / "out"
+    write_audio_tree(inputs, ("song.wav",))
+    preview = PreviewRequest(PreviewContent.MIDI, PreviewFormat.WAV)
+    calls: dict[str, object] = {"loads": 0, "files": []}
+
+    def preflight(request):
+        return SimpleNamespace(request=request)
+
+    def transcribe(_loaded, _source, _options, targets, *, preview_runtime, preview_target):
+        targets.midi.parent.mkdir(parents=True, exist_ok=True)
+        targets.midi.write_bytes(b"MThd")
+        preview_target.write_bytes(b"preview")
+        return TranscriptionResult(1, 2, 1, 1, {"midi": str(targets.midi), "preview": str(preview_target)}, (), b"MThd")
+
+    run_batch(
+        inputs,
+        output,
+        BatchOptions(preview=preview),
+        model_loader=loader_with_calls(calls),
+        transcriber=transcribe,
+        preview_preflight=preflight,
+        package_version="0.2.1",
+        resolved_device="cpu",
+    )
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("completed preview batch performed preflight")
+
+    summary = run_batch(
+        inputs,
+        output,
+        BatchOptions(preview=preview),
+        model_loader=fail_if_called,
+        transcriber=fail_if_called,
+        preview_preflight=fail_if_called,
+        package_version="0.2.1",
+        resolved_device="cpu",
+    )
+
+    assert summary.skipped == 1

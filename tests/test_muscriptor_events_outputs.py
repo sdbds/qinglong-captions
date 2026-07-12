@@ -123,3 +123,38 @@ def test_print_notes_writes_only_to_stderr(tmp_path: Path, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "pitch=60" in captured.err
+
+
+def test_preview_reuses_same_event_stream_and_midi_bytes(tmp_path: Path):
+    from module.muscriptor_tool.auralization import PreviewRuntime
+    from module.muscriptor_tool.options import PreviewContent, PreviewFormat, PreviewRequest
+    from module.muscriptor_tool.outputs import OutputTargets, transcribe_once
+
+    note_start = start()
+    loaded = FakeLoadedModel([note_start, end(note_start)])
+    targets = OutputTargets.for_directory(tmp_path, (OutputFormat.JSONL,))
+    preview_runtime = PreviewRuntime(
+        PreviewRequest(PreviewContent.MIDI, PreviewFormat.WAV),
+        tmp_path / "MuseScore_General.sf2",
+    )
+    preview_target = tmp_path / "preview.wav"
+    render_calls = []
+
+    def render(runtime, *, midi_bytes, original_audio_path, output_path):
+        render_calls.append((runtime, midi_bytes, Path(original_audio_path)))
+        Path(output_path).write_bytes(b"preview")
+
+    result = transcribe_once(
+        loaded,
+        Path("song.wav"),
+        TranscriptionOptions(),
+        targets,
+        preview_runtime=preview_runtime,
+        preview_target=preview_target,
+        preview_renderer=render,
+    )
+
+    assert loaded.transcribe_calls == 1
+    assert loaded.midi_calls == 1
+    assert render_calls[0][1] == b"MThd\x02"
+    assert result.outputs["preview"] == str(preview_target)
