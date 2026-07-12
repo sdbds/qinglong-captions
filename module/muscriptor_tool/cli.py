@@ -32,7 +32,10 @@ from .runtime import list_instruments, load_model, muscriptor_version, resolve_i
 
 
 def _patch_click_82_argument_compatibility() -> None:
-    if len(inspect.signature(TyperArgument.make_metavar).parameters) != 1:
+    if (
+        len(inspect.signature(TyperArgument.make_metavar).parameters) != 1
+        or len(inspect.signature(click.core.Parameter.make_metavar).parameters) != 2
+    ):
         return
 
     parameter_make_metavar = click.core.Parameter.make_metavar
