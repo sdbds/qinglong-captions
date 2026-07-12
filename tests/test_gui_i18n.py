@@ -36,6 +36,9 @@ def test_recent_gui_i18n_keys_are_available_in_all_languages():
         "repo_id_depth",
         "search_or_select",
         "items_count",
+        "music_transcription",
+        "music_transcription_preview",
+        "job_name_music_transcription",
     ]
 
     for lang in TRANSLATIONS:

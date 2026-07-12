@@ -1,16 +1,26 @@
 """步骤 6: 实用工具 - 对应 watermark_detect, preprocess, reward_model 等脚本"""
 
 import asyncio
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict
 
+from nicegui import ui
+
 from gui.components.advanced_inputs import editable_slider, styled_input, styled_select, toggle_switch
 from gui.components.path_selector import create_path_selector
-from nicegui import ui
 from gui.theme import COLORS, get_classes
-
 from gui.utils.i18n import t
+from module.muscriptor_tool.options import (
+    DecodingMode,
+    ModelVariant,
+    OutputFormat,
+    PreviewContent,
+    PreviewFormat,
+    PreviewRequest,
+    TranscriptionOptions,
+)
 
 if TYPE_CHECKING:
     from gui.components.execution_panel import ExecutionPanel
@@ -28,6 +38,31 @@ DEFAULT_SHEET_MUSIC_REPO_ID = "bdsqlsz/musvit-onnx"
 DEFAULT_SHEET_MUSIC_MODEL_DIR = "huggingface"
 DEFAULT_SHEET_MUSIC_OUTPUT_DIR = "workspace/musvit_output"
 DEFAULT_SHEET_MUSIC_PDF_DPI = 144
+DEFAULT_MUSCRIPTOR_OUTPUT_DIR = "workspace/muscriptor_output"
+
+_MUSCRIPTOR_INSTRUMENT_CACHE: dict[str, tuple[str, ...]] = {}
+
+
+def _parse_music_instrument_catalog(lines: list[Any]) -> tuple[str, ...]:
+    for raw_line in reversed(lines):
+        text = raw_line[1] if isinstance(raw_line, tuple) and len(raw_line) == 2 else raw_line
+        for line in reversed(str(text).splitlines()):
+            try:
+                payload = json.loads(line.strip())
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+                continue
+            version = str(payload.get("package_version") or "").strip()
+            raw_names = payload.get("instruments")
+            if not version or not isinstance(raw_names, list):
+                continue
+            names = tuple(dict.fromkeys(str(name).strip() for name in raw_names if str(name).strip()))
+            if not names:
+                continue
+            _MUSCRIPTOR_INSTRUMENT_CACHE[version] = names
+            return names
+    raise ValueError("MuScriptor instrument probe did not return a valid catalog")
 
 GAME_ONNX_MODEL_LABELS: dict[str, str] = {
     "bdsqlsz/GAME-1.0-small-ONNX": "GAME-1.0-small-ONNX",
@@ -180,6 +215,7 @@ class ToolsStep:
         ("preprocess", "preprocess", "image"),
         ("reward", "reward_model", "stars"),
         ("audio_separator", "audio_separator", "graphic_eq"),
+        ("music_transcription", "music_transcription", "piano"),
         ("sheet_music", "sheet_music", "library_music"),
         ("translate", "translate", "translate"),
         ("see_through", "see_through", "layers"),
@@ -220,6 +256,13 @@ class ToolsStep:
     SHEET_MUSIC_PREPROCESS_MODE_LABEL_KEYS = {
         "page_resize": "sheet_music_preprocess_page_resize",
         "pad_square": "sheet_music_preprocess_pad_square",
+    }
+    MUSCRIPTOR_MODEL_OPTIONS = {item.value: item.value.title() for item in ModelVariant}
+    MUSCRIPTOR_DEVICE_OPTIONS = {
+        "auto": "Auto",
+        "cpu": "CPU",
+        "cuda": "CUDA",
+        **{f"cuda:{index}": f"CUDA {index}" for index in range(8)},
     }
 
     # 水印检测模型
@@ -303,6 +346,25 @@ class ToolsStep:
             "audio_separator_vocal_midi_t0": DEFAULT_VOCAL_MIDI_T0,
             "audio_separator_vocal_midi_nsteps": DEFAULT_VOCAL_MIDI_NSTEPS,
             "audio_separator_vocal_midi_est_threshold": DEFAULT_VOCAL_MIDI_EST_THRESHOLD,
+            "music_transcription_input_mode": "directory",
+            "music_transcription_model": "medium",
+            "music_transcription_device": "auto",
+            "music_transcription_batch_size": 0,
+            "music_transcription_instrument_mode": "auto",
+            "music_transcription_instruments": [],
+            "music_transcription_decode_mode": "greedy",
+            "music_transcription_temperature": 1.0,
+            "music_transcription_cfg_coef": 1.0,
+            "music_transcription_strict_eos": False,
+            "music_transcription_beam_size": 1,
+            "music_transcription_output_formats": ["midi"],
+            "music_transcription_preview_mode": "none",
+            "music_transcription_preview_format": "wav",
+            "music_transcription_recursive": True,
+            "music_transcription_skip_completed": True,
+            "music_transcription_overwrite": False,
+            "music_transcription_fail_fast": False,
+            "music_transcription_notes": False,
             "sheet_music_batch_size": 1,
             "sheet_music_pdf_dpi": DEFAULT_SHEET_MUSIC_PDF_DPI,
             "sheet_music_recursive": True,
@@ -347,6 +409,11 @@ class ToolsStep:
         self._see_through_gpu_details_container = None
         self._see_through_gpu_details_open = False
         self._audio_separator_vocal_midi_container = None
+        self._music_transcription_instrument_container = None
+        self._music_transcription_sampling_container = None
+        self._music_transcription_beam_container = None
+        self._music_transcription_preview_container = None
+        self._music_transcription_instrument_loading = False
 
     def _get_tool_renderer(self, tab_key: str):
         renderers = {
@@ -354,6 +421,7 @@ class ToolsStep:
             "preprocess": self._render_preprocess_tool,
             "reward": self._render_reward_tool,
             "audio_separator": self._render_audio_separator_tool,
+            "music_transcription": self._render_music_transcription_tool,
             "sheet_music": self._render_sheet_music_tool,
             "translate": self._render_translate_tool,
             "see_through": self._render_see_through_tool,
@@ -402,6 +470,7 @@ class ToolsStep:
             "preprocess": ("start_preprocess", self._start_preprocess),
             "reward": ("start_scoring", self._start_reward),
             "audio_separator": ("start_audio_separator", self._start_audio_separator),
+            "music_transcription": ("start_music_transcription", self._start_music_transcription),
             "sheet_music": ("start_sheet_music", self._start_sheet_music),
             "translate": ("start_translate", self._start_translate),
             "see_through": ("start_see_through", self._start_see_through),
@@ -462,6 +531,93 @@ class ToolsStep:
             option: t(label_key)
             for option, label_key in self.SHEET_MUSIC_PREPROCESS_MODE_LABEL_KEYS.items()
         }
+
+    @staticmethod
+    def _set_config_value(config: Dict[str, Any], key: str, value: Any) -> None:
+        config[key] = value
+
+    def _on_music_input_mode_change(self, value: str) -> None:
+        mode = str(value or "directory")
+        self.config["music_transcription_input_mode"] = mode
+        selector = getattr(self, "music_transcription_input", None)
+        if selector is not None:
+            selector.selection_type = "file" if mode == "file" else "dir"
+
+    def _on_music_instrument_mode_change(self, value: str) -> None:
+        mode = str(value or "auto")
+        self.config["music_transcription_instrument_mode"] = mode
+        if self._music_transcription_instrument_container is not None:
+            self._music_transcription_instrument_container.set_visibility(mode == "specify")
+        if mode == "specify":
+            asyncio.create_task(self._ensure_music_instruments())
+
+    def _on_music_decode_mode_change(self, value: str) -> None:
+        mode = str(value or "greedy")
+        self.config["music_transcription_decode_mode"] = mode
+        if self._music_transcription_sampling_container is not None:
+            self._music_transcription_sampling_container.set_visibility(mode == "sampling")
+        if self._music_transcription_beam_container is not None:
+            self._music_transcription_beam_container.set_visibility(mode == "beam")
+
+    def _on_music_preview_mode_change(self, value: str) -> None:
+        mode = str(value or "none")
+        self.config["music_transcription_preview_mode"] = mode
+        if self._music_transcription_preview_container is not None:
+            self._music_transcription_preview_container.set_visibility(mode != "none")
+
+    async def _probe_music_instruments(self) -> tuple[str, ...]:
+        if _MUSCRIPTOR_INSTRUMENT_CACHE:
+            return next(reversed(_MUSCRIPTOR_INSTRUMENT_CACHE.values()))
+
+        panel = self._ensure_execution_panel()
+        runner_options: dict[str, Any] = {}
+        execution_tabs = getattr(panel, "execution_tabs", None)
+        if execution_tabs is not None:
+            if not await execution_tabs.ensure_active_tab_runtime_ready():
+                raise RuntimeError(t("task_tab_not_ready"))
+            tab_options = execution_tabs.runner_kwargs()
+            if tab_options is None:
+                raise RuntimeError(t("task_tab_not_ready"))
+            for key in ("python_path", "venv_path"):
+                if tab_options.get(key):
+                    runner_options[key] = tab_options[key]
+
+        from gui.utils.log_buffer import LogBuffer
+        from gui.utils.process_runner import ProcessRunner
+
+        probe_log = LogBuffer(maxlen=500)
+        runner = ProcessRunner(log_buffer=probe_log)
+        result = await runner.run_python_script(
+            "module.muscriptor_tool.cli",
+            ["list-instruments", "--format", "json"],
+            native_console=False,
+            **runner_options,
+        )
+        if result.return_code != 0:
+            raise RuntimeError(result.message)
+        return _parse_music_instrument_catalog(probe_log.get_all_lines())
+
+    def _set_music_instrument_options(self, names: tuple[str, ...]) -> None:
+        selector = getattr(self, "music_transcription_instruments", None)
+        if selector is None:
+            return
+        selector.options = {name: name for name in names}
+        selector.update()
+
+    async def _ensure_music_instruments(self) -> None:
+        if self._music_transcription_instrument_loading:
+            return
+        self._music_transcription_instrument_loading = True
+        try:
+            names = await self._probe_music_instruments()
+            self._set_music_instrument_options(names)
+        except Exception as exc:
+            ui.notify(
+                f"{t('music_transcription_instruments_failed')}: {exc}",
+                type="warning",
+            )
+        finally:
+            self._music_transcription_instrument_loading = False
 
     def _refresh_see_through_summary(self) -> None:
         if self._see_through_summary_label is not None:
@@ -976,6 +1132,259 @@ class ToolsStep:
                             decimals=2,
                         )
 
+    def _render_music_transcription_tool(self):
+        """Render the official MuScriptor batch transcription tool."""
+        with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
+            with ui.row().classes("w-full items-center gap-2 q-mb-sm"):
+                ui.icon("piano", size="22px").style(f"color: {COLORS['secondary']};")
+                ui.label(t("music_transcription")).classes("text-h6 text-weight-bold").style(
+                    "color: var(--color-text);"
+                )
+
+            ui.label(t("music_transcription_desc")).classes("text-body2 q-mb-md").style(
+                "color: var(--color-text-secondary);"
+            )
+
+            with ui.row().classes("w-full items-center gap-3 q-mb-sm"):
+                ui.label(t("music_transcription_input_mode")).classes("text-caption text-weight-medium")
+                self.music_transcription_input_mode = ui.toggle(
+                    {
+                        "directory": t("music_transcription_input_directory"),
+                        "file": t("music_transcription_input_file"),
+                    },
+                    value=self.config["music_transcription_input_mode"],
+                    on_change=lambda event: self._on_music_input_mode_change(event.value),
+                ).props("dense no-caps")
+
+            self.music_transcription_input = create_path_selector(
+                label=t("input_path"),
+                selection_type="dir",
+                file_filter=".wav .flac .mp3 .m4a .ogg .aac",
+                placeholder=t("input_path_placeholder"),
+            )
+            self.music_transcription_output = create_path_selector(
+                label=t("output_dir"),
+                default_path=DEFAULT_MUSCRIPTOR_OUTPUT_DIR,
+                selection_type="dir",
+                placeholder=t("path_placeholder"),
+            )
+
+            ui.separator().classes("q-my-md")
+
+            with ui.row().classes("w-full gap-4"):
+                self.music_transcription_model = styled_select(
+                    options=self.MUSCRIPTOR_MODEL_OPTIONS,
+                    value=self.config["music_transcription_model"],
+                    label=t("music_transcription_model"),
+                    icon="model_training",
+                    icon_color=COLORS["primary"],
+                    searchable=False,
+                    on_change=lambda value: self._set_config_value(
+                        self.config,
+                        "music_transcription_model",
+                        value,
+                    ),
+                    flex=1,
+                )
+                self.music_transcription_device = styled_select(
+                    options=self.MUSCRIPTOR_DEVICE_OPTIONS,
+                    value=self.config["music_transcription_device"],
+                    label=t("device"),
+                    icon="memory",
+                    icon_color=COLORS["info"],
+                    new_value_mode="add-unique",
+                    on_change=lambda value: self._set_config_value(
+                        self.config,
+                        "music_transcription_device",
+                        value,
+                    ),
+                    flex=1,
+                )
+                editable_slider(
+                    label_key="batch_size",
+                    value_ref=self.config,
+                    value_key="music_transcription_batch_size",
+                    min_val=0,
+                    max_val=16,
+                    step=1,
+                    decimals=0,
+                    flex=1,
+                )
+
+            with ui.row().classes("w-full items-center gap-3 q-mt-md"):
+                ui.label(t("music_transcription_instrument_mode")).classes("text-caption text-weight-medium")
+                self.music_transcription_instrument_mode = ui.toggle(
+                    {
+                        "auto": t("music_transcription_instrument_auto"),
+                        "specify": t("music_transcription_instrument_specify"),
+                    },
+                    value=self.config["music_transcription_instrument_mode"],
+                    on_change=lambda event: self._on_music_instrument_mode_change(event.value),
+                ).props("dense no-caps")
+
+            cached_names = next(reversed(_MUSCRIPTOR_INSTRUMENT_CACHE.values()), ())
+            self._music_transcription_instrument_container = ui.column().classes("w-full q-mt-sm")
+            self._music_transcription_instrument_container.set_visibility(
+                self.config["music_transcription_instrument_mode"] == "specify"
+            )
+            with self._music_transcription_instrument_container:
+                self.music_transcription_instruments = ui.select(
+                    options={name: name for name in cached_names},
+                    value=self.config["music_transcription_instruments"],
+                    multiple=True,
+                    label=t("music_transcription_instruments"),
+                    on_change=lambda event: self._set_config_value(
+                        self.config,
+                        "music_transcription_instruments",
+                        list(event.value or []),
+                    ),
+                ).classes("w-full modern-select force-light-bg")
+                self.music_transcription_instruments.props(
+                    'dense use-input use-chips input-debounce="0" dropdown-icon="search"'
+                )
+
+            ui.separator().classes("q-my-md")
+
+            with ui.row().classes("w-full gap-4"):
+                self.music_transcription_decode_mode = styled_select(
+                    options={
+                        DecodingMode.GREEDY.value: t("music_transcription_decode_greedy"),
+                        DecodingMode.SAMPLING.value: t("music_transcription_decode_sampling"),
+                        DecodingMode.BEAM.value: t("music_transcription_decode_beam"),
+                    },
+                    value=self.config["music_transcription_decode_mode"],
+                    label=t("music_transcription_decode_mode"),
+                    icon="account_tree",
+                    icon_color=COLORS["secondary"],
+                    searchable=False,
+                    on_change=self._on_music_decode_mode_change,
+                    flex=1,
+                )
+                editable_slider(
+                    label_key="music_transcription_cfg_coef",
+                    value_ref=self.config,
+                    value_key="music_transcription_cfg_coef",
+                    min_val=0.0,
+                    max_val=5.0,
+                    step=0.1,
+                    decimals=1,
+                    flex=1,
+                )
+
+            self._music_transcription_sampling_container = ui.column().classes("w-full q-mt-sm")
+            self._music_transcription_sampling_container.set_visibility(
+                self.config["music_transcription_decode_mode"] == "sampling"
+            )
+            with self._music_transcription_sampling_container:
+                editable_slider(
+                    label_key="music_transcription_temperature",
+                    value_ref=self.config,
+                    value_key="music_transcription_temperature",
+                    min_val=0.1,
+                    max_val=2.0,
+                    step=0.1,
+                    decimals=1,
+                )
+
+            self._music_transcription_beam_container = ui.column().classes("w-full q-mt-sm")
+            self._music_transcription_beam_container.set_visibility(
+                self.config["music_transcription_decode_mode"] == "beam"
+            )
+            with self._music_transcription_beam_container:
+                editable_slider(
+                    label_key="music_transcription_beam_size",
+                    value_ref=self.config,
+                    value_key="music_transcription_beam_size",
+                    min_val=1,
+                    max_val=16,
+                    step=1,
+                    decimals=0,
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                toggle_switch(
+                    "music_transcription_strict_eos",
+                    self.config,
+                    "music_transcription_strict_eos",
+                )
+                toggle_switch(
+                    "music_transcription_notes",
+                    self.config,
+                    "music_transcription_notes",
+                )
+
+            ui.separator().classes("q-my-md")
+
+            self.music_transcription_output_formats = ui.select(
+                options={
+                    OutputFormat.MIDI.value: "MIDI",
+                    OutputFormat.JSON.value: "JSON",
+                    OutputFormat.JSONL.value: "JSONL",
+                },
+                value=self.config["music_transcription_output_formats"],
+                multiple=True,
+                label=t("music_transcription_symbolic_outputs"),
+                on_change=lambda event: self._set_config_value(
+                    self.config,
+                    "music_transcription_output_formats",
+                    list(event.value or []),
+                ),
+            ).classes("w-full modern-select force-light-bg")
+            self.music_transcription_output_formats.props("dense use-chips")
+
+            with ui.row().classes("w-full items-center gap-3 q-mt-md"):
+                ui.label(t("music_transcription_preview")).classes("text-caption text-weight-medium")
+                self.music_transcription_preview_mode = ui.toggle(
+                    {
+                        "none": t("music_transcription_preview_off"),
+                        PreviewContent.MIDI.value: t("music_transcription_preview_midi"),
+                        PreviewContent.COMPARISON.value: t("music_transcription_preview_comparison"),
+                    },
+                    value=self.config["music_transcription_preview_mode"],
+                    on_change=lambda event: self._on_music_preview_mode_change(event.value),
+                ).props("dense no-caps")
+
+            self._music_transcription_preview_container = ui.column().classes("w-full q-mt-sm")
+            self._music_transcription_preview_container.set_visibility(
+                self.config["music_transcription_preview_mode"] != "none"
+            )
+            with self._music_transcription_preview_container:
+                self.music_transcription_preview_format = styled_select(
+                    options={PreviewFormat.WAV.value: "WAV", PreviewFormat.MP3.value: "MP3"},
+                    value=self.config["music_transcription_preview_format"],
+                    label=t("music_transcription_preview_format"),
+                    icon="headphones",
+                    icon_color=COLORS["info"],
+                    searchable=False,
+                    on_change=lambda value: self._set_config_value(
+                        self.config,
+                        "music_transcription_preview_format",
+                        value,
+                    ),
+                )
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                toggle_switch(
+                    "recursive",
+                    self.config,
+                    "music_transcription_recursive",
+                )
+                toggle_switch(
+                    "skip_completed",
+                    self.config,
+                    "music_transcription_skip_completed",
+                )
+                toggle_switch(
+                    "overwrite",
+                    self.config,
+                    "music_transcription_overwrite",
+                )
+                toggle_switch(
+                    "music_transcription_fail_fast",
+                    self.config,
+                    "music_transcription_fail_fast",
+                )
+
     def _render_sheet_music_tool(self):
         """渲染乐谱扫描 embedding 工具"""
         with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
@@ -1332,6 +1741,129 @@ class ToolsStep:
     def _on_audio_separator_vocal_midi_toggle(self, enabled: bool) -> None:
         if hasattr(self, "_audio_separator_vocal_midi_container"):
             self._audio_separator_vocal_midi_container.set_visibility(enabled)
+
+    def _build_music_transcription_args(self) -> list[str]:
+        input_path = str(getattr(getattr(self, "music_transcription_input", None), "value", "") or "").strip()
+        source = Path(input_path).expanduser() if input_path else None
+        if source is None or not source.exists():
+            raise ValueError(t("select_valid_input"))
+        input_mode = str(self.config["music_transcription_input_mode"])
+        if (input_mode == "file" and not source.is_file()) or (input_mode == "directory" and not source.is_dir()):
+            raise ValueError(t("music_transcription_input_mode_mismatch"))
+
+        output_dir = str(getattr(getattr(self, "music_transcription_output", None), "value", "") or "").strip()
+        if not output_dir:
+            raise ValueError(t("music_transcription_output_required"))
+
+        formats = tuple(OutputFormat(value) for value in self.config["music_transcription_output_formats"])
+        if not formats:
+            raise ValueError(t("music_transcription_output_required"))
+
+        instrument_mode = str(self.config["music_transcription_instrument_mode"])
+        instruments = tuple(
+            str(value).strip()
+            for value in self.config["music_transcription_instruments"]
+            if str(value).strip()
+        )
+        if instrument_mode == "auto":
+            instruments = ()
+        elif instrument_mode == "specify" and not instruments:
+            raise ValueError(t("music_transcription_instruments_required"))
+
+        decode_mode = DecodingMode(self.config["music_transcription_decode_mode"])
+        temperature = (
+            float(self.config["music_transcription_temperature"])
+            if decode_mode is DecodingMode.SAMPLING
+            else 1.0
+        )
+        beam_size = int(self.config["music_transcription_beam_size"]) if decode_mode is DecodingMode.BEAM else None
+        raw_batch_size = int(self.config["music_transcription_batch_size"])
+        if raw_batch_size < 0:
+            raise ValueError(t("music_transcription_invalid_config"))
+
+        transcription = TranscriptionOptions.from_batch_cli(
+            model=ModelVariant(self.config["music_transcription_model"]),
+            device=str(self.config["music_transcription_device"]),
+            batch_size=raw_batch_size or None,
+            decode_mode=decode_mode,
+            temperature=temperature,
+            cfg_coef=float(self.config["music_transcription_cfg_coef"]),
+            strict_eos=bool(self.config["music_transcription_strict_eos"]),
+            beam_size=beam_size,
+            instruments=instruments,
+            print_notes=bool(self.config["music_transcription_notes"]),
+        )
+
+        preview_mode = str(self.config["music_transcription_preview_mode"])
+        preview = None
+        if preview_mode != "none":
+            preview = PreviewRequest(
+                content=PreviewContent(preview_mode),
+                format=PreviewFormat(self.config["music_transcription_preview_format"]),
+            )
+
+        args = [
+            "batch",
+            str(source),
+            f"--output-dir={output_dir}",
+            f"--model={transcription.model.value}",
+            f"--device={transcription.device}",
+        ]
+        if transcription.batch_size is not None:
+            args.append(f"--batch-size={transcription.batch_size}")
+        if transcription.instruments:
+            args.append(f"--instruments={','.join(transcription.instruments)}")
+        args.append(f"--decode-mode={transcription.decode_mode.value}")
+        if transcription.decode_mode is DecodingMode.SAMPLING:
+            args.append(f"--temperature={transcription.temperature}")
+        if transcription.decode_mode is DecodingMode.BEAM:
+            args.append(f"--beam-size={transcription.beam_size}")
+        args.append(f"--cfg-coef={transcription.cfg_coef}")
+        if transcription.strict_eos:
+            args.append("--strict-eos")
+        if transcription.print_notes:
+            args.append("--notes")
+        args.extend(f"--format={output_format.value}" for output_format in formats)
+        if preview is not None:
+            args.extend(
+                (
+                    f"--preview-mode={preview.content.value}",
+                    f"--preview-format={preview.format.value}",
+                )
+            )
+        args.append("--recursive" if self.config["music_transcription_recursive"] else "--no-recursive")
+        args.append(
+            "--skip-completed"
+            if self.config["music_transcription_skip_completed"]
+            else "--no-skip-completed"
+        )
+        if self.config["music_transcription_overwrite"]:
+            args.append("--overwrite")
+        if self.config["music_transcription_fail_fast"]:
+            args.append("--fail-fast")
+        return args
+
+    async def _start_music_transcription(self):
+        try:
+            args = self._build_music_transcription_args()
+        except (TypeError, ValueError) as exc:
+            ui.notify(str(exc) or t("music_transcription_invalid_config"), type="warning")
+            return
+
+        def pre_log(lv):
+            lv.info(t("log_start_music_transcription"))
+            lv.info(f"{t('log_input_path')}: {args[1]}")
+            lv.info(f"{t('log_params')}: {args}")
+
+        panel = self._ensure_execution_panel()
+        await panel.run_job(
+            "module.muscriptor_tool.cli",
+            args,
+            name=t("job_name_music_transcription"),
+            pre_log=pre_log,
+            on_success=lambda result: ui.notify(t("music_transcription_success"), type="positive"),
+            on_failure=lambda result: ui.notify(t("music_transcription_failed"), type="negative"),
+        )
 
     async def _start_sheet_music(self):
         """开始乐谱扫描 embedding 提取"""
