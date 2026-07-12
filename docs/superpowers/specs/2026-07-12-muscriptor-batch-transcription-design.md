@@ -769,10 +769,12 @@ FluidSynth 是可选系统依赖：
 必须验证：
 
 ```text
-uv lock --check
-uv sync --extra muscriptor-local
+uv pip install --dry-run --python <task-python> -r pyproject.toml --extra muscriptor-local
+<task-python> -c "import importlib.metadata as m; assert m.version('muscriptor') == '0.2.1'"
 python -m module.muscriptor_tool.cli --help
 ```
+
+本仓库有意不提交全局 `uv.lock`，运行时沿用现有 ProcessRunner / PowerShell 的 `uv pip install -r pyproject.toml --extra ...` 增量 profile 机制；本功能不能为了单个可选模型改变该仓库级策略。
 
 ## PowerShell 与文档入口
 
@@ -920,7 +922,7 @@ python -m module.muscriptor_tool.cli --help
 - extra 依赖 `torch-base`。
 - extra 显式声明批处理直接使用的 `filelock`，不依赖偶然的传递依赖。
 - registry、PowerShell 和 GUI 使用同一 extra 名。
-- uv lock 无冲突。
+- `uv pip install --dry-run` 对 `muscriptor-local` 解析无冲突。
 - preview mode 为 `none` 时，不检查 FluidSynth。
 - 所有项目合法跳过时，不探测 FluidSynth、不解析或下载默认 SoundFont。
 

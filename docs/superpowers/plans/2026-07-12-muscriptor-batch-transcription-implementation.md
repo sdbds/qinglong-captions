@@ -49,7 +49,6 @@
 **Modify**
 
 - `pyproject.toml`: add `muscriptor-local` extra and required uv conflicts.
-- `uv.lock`: lock MuScriptor and its transitive dependencies.
 - `config/model.toml`: add `[muscriptor]` defaults without a SoundFont field.
 - `gui/utils/process_runner.py`: register module-mode CLI with `muscriptor-local`.
 - `gui/wizard/step6_tools.py`: add the dedicated batch tool and command construction.
@@ -116,7 +115,7 @@ def test_batch_requires_a_symbolic_output():
 
 - [ ] **Step 2: Run the tests and verify the missing-module failure**
 
-Run: `uv run --group test pytest tests/test_muscriptor_options.py -q`
+Run: `python -m pytest tests/test_muscriptor_options.py -q`
 
 Expected: collection fails with `ModuleNotFoundError: No module named 'module.muscriptor_tool'`.
 
@@ -211,7 +210,7 @@ Implement attribute-based conversion without importing MuScriptor. Reject unknow
 
 - [ ] **Step 5: Run focused tests**
 
-Run: `uv run --group test pytest tests/test_muscriptor_options.py -q`
+Run: `python -m pytest tests/test_muscriptor_options.py -q`
 
 Expected: all tests pass.
 
@@ -258,7 +257,7 @@ Use injected fake upstream objects in tests; do not install or load real weights
 
 - [ ] **Step 2: Run and verify RED**
 
-Run: `uv run --group test pytest tests/test_muscriptor_runtime.py -q`
+Run: `python -m pytest tests/test_muscriptor_runtime.py -q`
 
 Expected: failures report missing `load_model` and `LoadedModel`.
 
@@ -321,7 +320,7 @@ def test_transcribe_once_fans_one_event_stream_to_all_formats(tmp_path):
 
 - [ ] **Step 5: Run and verify RED**
 
-Run: `uv run --group test pytest tests/test_muscriptor_events_outputs.py::test_transcribe_once_fans_one_event_stream_to_all_formats -q`
+Run: `python -m pytest tests/test_muscriptor_events_outputs.py::test_transcribe_once_fans_one_event_stream_to_all_formats -q`
 
 Expected: failure reports missing `OutputTargets` or `transcribe_once`.
 
@@ -352,7 +351,7 @@ After iteration, serialize requested JSON, call `loaded.midi_bytes(events)` once
 
 - [ ] **Step 7: Run runtime and output tests**
 
-Run: `uv run --group test pytest tests/test_muscriptor_runtime.py tests/test_muscriptor_events_outputs.py -q`
+Run: `python -m pytest tests/test_muscriptor_runtime.py tests/test_muscriptor_events_outputs.py -q`
 
 Expected: all tests pass.
 
@@ -398,7 +397,7 @@ def test_same_input_and_output_directory_is_rejected(tmp_path):
 
 - [ ] **Step 2: Run and verify RED**
 
-Run: `uv run --group test pytest tests/test_muscriptor_batch.py -q`
+Run: `python -m pytest tests/test_muscriptor_batch.py -q`
 
 Expected: collection fails because `module.muscriptor_tool.batch` does not exist.
 
@@ -456,7 +455,7 @@ def test_preview_failure_keeps_symbolic_outputs_and_marks_partial(tmp_path):
 
 - [ ] **Step 7: Run batch tests**
 
-Run: `uv run --group test pytest tests/test_muscriptor_batch.py -q`
+Run: `python -m pytest tests/test_muscriptor_batch.py -q`
 
 Expected: all tests pass.
 
@@ -505,7 +504,7 @@ def test_mp3_probe_writes_and_reads_requested_channel_shape(tmp_path):
 
 - [ ] **Step 2: Run and verify RED**
 
-Run: `uv run --group test pytest tests/test_muscriptor_preview.py -q`
+Run: `python -m pytest tests/test_muscriptor_preview.py -q`
 
 Expected: missing module/function failures.
 
@@ -545,7 +544,7 @@ Only collect events for preview when MIDI/JSON did not already require collectio
 
 - [ ] **Step 6: Run preview plus output tests**
 
-Run: `uv run --group test pytest tests/test_muscriptor_preview.py tests/test_muscriptor_events_outputs.py tests/test_muscriptor_batch.py -q`
+Run: `python -m pytest tests/test_muscriptor_preview.py tests/test_muscriptor_events_outputs.py tests/test_muscriptor_batch.py -q`
 
 Expected: all tests pass.
 
@@ -593,7 +592,7 @@ def test_batch_help_has_complete_batch_surface():
 
 - [ ] **Step 2: Run and verify RED**
 
-Run: `uv run --group test pytest tests/test_muscriptor_cli.py -q`
+Run: `python -m pytest tests/test_muscriptor_cli.py -q`
 
 Expected: import fails because `cli.py` does not exist.
 
@@ -635,7 +634,7 @@ def test_list_instruments_json_matches_text_order(monkeypatch):
 
 - [ ] **Step 6: Run CLI tests**
 
-Run: `uv run --group test pytest tests/test_muscriptor_cli.py -q`
+Run: `python -m pytest tests/test_muscriptor_cli.py -q`
 
 Expected: all tests pass.
 
@@ -654,7 +653,6 @@ git commit -m "feat: expose MuScriptor CLI commands"
 - Create: `tests/test_muscriptor_dependencies.py`
 - Create: `2.7.music_transcription.ps1`
 - Modify: `pyproject.toml`
-- Modify: `uv.lock`
 - Modify: `config/model.toml`
 - Modify: `gui/utils/process_runner.py`
 
@@ -686,7 +684,7 @@ def test_config_has_no_model_source_or_soundfont():
 
 - [ ] **Step 2: Run and verify RED**
 
-Run: `uv run --group test pytest tests/test_muscriptor_dependencies.py -q`
+Run: `python -m pytest tests/test_muscriptor_dependencies.py -q`
 
 Expected: failures report missing extra, registry entry, config section, and wrapper.
 
@@ -722,7 +720,7 @@ fail_fast = false
 print_notes = false
 ```
 
-Add required uv conflict entries following existing torch-extra patterns, then run `uv lock` rather than hand-editing `uv.lock`.
+Add required uv conflict entries following existing torch-extra patterns. Do not add `uv.lock`: this repository intentionally uses incremental task profiles without a checked global lock.
 
 - [ ] **Step 4: Register ProcessRunner and add PowerShell wrapper**
 
@@ -732,35 +730,32 @@ Registry entry:
 "module.muscriptor_tool.cli": ("-m:module.muscriptor_tool.cli", "muscriptor-local"),
 ```
 
-The wrapper accepts remaining arguments, locates `uv`, and executes:
+The wrapper accepts remaining arguments, locates `uv` and the selected project Python, incrementally installs the profile, and executes:
 
 ```powershell
-& $uv run --extra muscriptor-local python -m module.muscriptor_tool.cli batch @args
+& $uv pip install --python $PythonExe -r pyproject.toml --extra muscriptor-local
+& $PythonExe -m module.muscriptor_tool.cli batch @Arguments
 exit $LASTEXITCODE
 ```
 
 It must not recreate Python validation or silently change stdout/stderr.
 
-- [ ] **Step 5: Lock and verify dependencies**
+- [ ] **Step 5: Resolve and verify dependencies without creating a lock**
 
-Run: `uv lock`
+Run: `uv pip install --dry-run --python <task-python> -r pyproject.toml --extra muscriptor-local`
 
-Expected: exit 0 and `uv.lock` contains `muscriptor` version `0.2.1`.
-
-Run: `uv lock --check`
-
-Expected: exit 0.
+Expected: exit 0 and the plan includes `muscriptor==0.2.1` without creating `uv.lock`.
 
 - [ ] **Step 6: Run dependency tests**
 
-Run: `uv run --group test pytest tests/test_muscriptor_dependencies.py tests/test_pyproject_uv_conflicts.py tests/test_pyproject_uv_build_deps.py -q`
+Run: `python -m pytest tests/test_muscriptor_dependencies.py tests/test_pyproject_uv_conflicts.py tests/test_pyproject_uv_build_deps.py -q`
 
 Expected: all tests pass.
 
 - [ ] **Step 7: Commit**
 
 ```powershell
-git add pyproject.toml uv.lock config/model.toml gui/utils/process_runner.py 2.7.music_transcription.ps1 tests/test_muscriptor_dependencies.py
+git add pyproject.toml config/model.toml gui/utils/process_runner.py 2.7.music_transcription.ps1 tests/test_muscriptor_dependencies.py
 git commit -m "build: add MuScriptor runtime profile"
 ```
 
@@ -796,7 +791,7 @@ def test_music_transcription_defaults_have_no_custom_sources():
 
 - [ ] **Step 2: Run and verify RED**
 
-Run: `uv run --group test pytest tests/test_muscriptor_gui.py -q`
+Run: `python -m pytest tests/test_muscriptor_gui.py -q`
 
 Expected: assertions fail because the tab and defaults are absent.
 
@@ -853,7 +848,7 @@ Add translations for the tab, description, input mode, model/device, instrument 
 
 - [ ] **Step 8: Run GUI tests**
 
-Run: `uv run --group test pytest tests/test_muscriptor_gui.py tests/test_gui_i18n.py tests/test_sheet_music_musvit_tools.py tests/test_execution_panel.py -q`
+Run: `python -m pytest tests/test_muscriptor_gui.py tests/test_gui_i18n.py tests/test_sheet_music_musvit_tools.py tests/test_execution_panel.py -q`
 
 Expected: all tests pass and importing `step6_tools` does not add torch or MuScriptor to `sys.modules`.
 
@@ -895,7 +890,7 @@ The prose must say that the official default SoundFont is automatic and not conf
 
 - [ ] **Step 2: Document installation, authentication, CLI, GUI, outputs, and licenses**
 
-Include `uv sync --extra muscriptor-local`, Hugging Face gate acceptance plus `hf auth login`, the three official repos, single and batch examples, output tree, official preview modes, FluidSynth installation/detection, runtime-dependent MP3, WAV fallback, CC BY-NC 4.0 weight restrictions, and the explicit absence of system/custom SoundFonts and WebUI features.
+Include the repository's `uv pip install --python <task-python> -r pyproject.toml --extra muscriptor-local` workflow, Hugging Face gate acceptance plus `hf auth login`, the three official repos, single and batch examples, output tree, official preview modes, FluidSynth installation/detection, runtime-dependent MP3, WAV fallback, CC BY-NC 4.0 weight restrictions, and the explicit absence of system/custom SoundFonts and WebUI features.
 
 - [ ] **Step 3: Add environment-gated real smoke tests**
 
@@ -917,7 +912,7 @@ Add gated batch CUDA and preview smoke cases only when the environment exposes C
 Run:
 
 ```powershell
-uv run --group test pytest tests/test_muscriptor_options.py tests/test_muscriptor_runtime.py tests/test_muscriptor_events_outputs.py tests/test_muscriptor_preview.py tests/test_muscriptor_batch.py tests/test_muscriptor_cli.py tests/test_muscriptor_dependencies.py tests/test_muscriptor_gui.py -q
+python -m pytest tests/test_muscriptor_options.py tests/test_muscriptor_runtime.py tests/test_muscriptor_events_outputs.py tests/test_muscriptor_preview.py tests/test_muscriptor_batch.py tests/test_muscriptor_cli.py tests/test_muscriptor_dependencies.py tests/test_muscriptor_gui.py -q
 ```
 
 Expected: all tests pass, with real smoke tests skipped unless `MUSCRIPTOR_SMOKE=1`.
@@ -927,7 +922,7 @@ Expected: all tests pass, with real smoke tests skipped unless `MUSCRIPTOR_SMOKE
 Run:
 
 ```powershell
-uv run --group test ruff check module/muscriptor_tool gui/wizard/step6_tools.py gui/utils/process_runner.py gui/utils/i18n.py tests/test_muscriptor_*.py
+python -m ruff check module/muscriptor_tool gui/wizard/step6_tools.py gui/utils/process_runner.py gui/utils/i18n.py tests/test_muscriptor_*.py
 ```
 
 Expected: exit 0 with no lint errors.
@@ -937,15 +932,15 @@ Expected: exit 0 with no lint errors.
 Run:
 
 ```powershell
-uv lock --check
-uv run --group test pytest tests/test_audio_separator_dependency_profiles.py tests/test_audio_separator_onnx.py tests/test_sheet_music_musvit.py tests/test_sheet_music_musvit_tools.py tests/test_process_runner_native_resources.py tests/test_job_manager_task_tabs.py tests/test_gui_main_lazy_import.py -q
+uv pip install --dry-run --python <task-python> -r pyproject.toml --extra muscriptor-local
+python -m pytest tests/test_audio_separator_dependency_profiles.py tests/test_audio_separator_onnx.py tests/test_sheet_music_musvit.py tests/test_sheet_music_musvit_tools.py tests/test_process_runner_native_resources.py tests/test_job_manager_task_tabs.py tests/test_gui_main_lazy_import.py -q
 ```
 
 Expected: exit 0 and all selected regressions pass.
 
 - [ ] **Step 7: Run the complete test suite**
 
-Run: `uv run --group test pytest -q`
+Run: `python -m pytest -q`
 
 Expected: exit 0 with no failures. Record pre-existing skips separately from failures.
 
@@ -954,9 +949,9 @@ Expected: exit 0 with no failures. Record pre-existing skips separately from fai
 Run:
 
 ```powershell
-uv run --extra muscriptor-local python -m module.muscriptor_tool.cli --help
-uv run --extra muscriptor-local python -m module.muscriptor_tool.cli transcribe --help
-uv run --extra muscriptor-local python -m module.muscriptor_tool.cli batch --help
+python -m module.muscriptor_tool.cli --help
+python -m module.muscriptor_tool.cli transcribe --help
+python -m module.muscriptor_tool.cli batch --help
 ```
 
 Expected: all exit 0, expose no `--soundfont` or custom model source, and do not download weights.
