@@ -23,11 +23,18 @@ from .outputs import OutputTargets, TranscriptionResult, transcribe_once
 from .runtime import load_model, resolve_device
 
 SUPPORTED_AUDIO_EXTENSIONS = frozenset({".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac"})
-DEFAULT_OUTPUT_DIR = Path("workspace/muscriptor_output")
+DEFAULT_OUTPUT_DIRNAME = "muscriptor_output"
 
 
 class OutputDirectoryBusyError(RuntimeError):
     """Raised when another batch owns the output directory lock."""
+
+
+def default_output_dir(input_path: Path) -> Path:
+    """Place batch artifacts beside a file or inside an input directory."""
+    source = Path(input_path).expanduser().resolve()
+    parent = source if source.is_dir() else source.parent
+    return parent / DEFAULT_OUTPUT_DIRNAME
 
 
 @dataclass(frozen=True)
@@ -282,7 +289,7 @@ def _manifest_payload(
 
 def run_batch(
     input_path: Path,
-    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    output_dir: Path | None = None,
     options: BatchOptions | None = None,
     *,
     model_loader: Callable[[Any], Any] | None = None,
@@ -296,7 +303,11 @@ def run_batch(
     model_loader = model_loader or load_model
     transcriber = transcriber or transcribe_once
     input_path = Path(input_path).expanduser()
-    output_dir = Path(output_dir).expanduser().resolve()
+    output_dir = (
+        default_output_dir(input_path)
+        if output_dir is None
+        else Path(output_dir).expanduser().resolve()
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     lock = FileLock(str(output_dir / ".muscriptor.lock"), timeout=0)
     started_at = datetime.now(timezone.utc)
@@ -331,7 +342,6 @@ def run_batch(
             )
             if (
                 options.skip_completed
-                and not options.overwrite
                 and is_item_complete(
                     item_dir / "metadata.json",
                     signature=signature,

@@ -2,7 +2,6 @@ import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
-
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -54,6 +53,7 @@ class _FakeSelect:
 class _FakeUI:
     def __init__(self, select):
         self._select = select
+        self.select_kwargs = []
 
     def column(self):
         return _FakeContext()
@@ -62,6 +62,7 @@ class _FakeUI:
         return _FakeContext()
 
     def select(self, *_args, **_kwargs):
+        self.select_kwargs.append(_kwargs)
         return self._select
 
 
@@ -107,3 +108,21 @@ def test_styled_select_can_disable_search_input_mode():
     assert "fill-input" not in combined_props
     assert "hide-selected" not in combined_props
     assert 'dropdown-icon="arrow_drop_down"' in combined_props
+
+
+def test_styled_select_supports_project_styled_multiple_values():
+    advanced_inputs = _load_advanced_inputs("test_advanced_inputs_multiple_select")
+    fake_select = _FakeSelect()
+    fake_ui = _FakeUI(fake_select)
+    advanced_inputs.ui = fake_ui
+
+    advanced_inputs.styled_select(
+        options={"midi": "MIDI", "json": "JSON"},
+        value=["midi"],
+        label="",
+        searchable=False,
+        multiple=True,
+    )
+
+    assert fake_ui.select_kwargs[-1]["multiple"] is True
+    assert any("use-chips" in props for props in fake_select.props_calls)

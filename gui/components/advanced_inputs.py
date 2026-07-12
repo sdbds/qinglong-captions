@@ -373,7 +373,7 @@ def model_selector(
 
 def styled_select(
     options: Dict[str, str],
-    value: str = None,
+    value: Any = None,
     label: str = "",
     icon: str = "arrow_drop_down",
     icon_color: str = None,
@@ -382,6 +382,7 @@ def styled_select(
     flex: int = None,
     new_value_mode: str = None,
     searchable: bool = True,
+    multiple: bool = False,
 ):
     """
     创建带图标前缀和小标题的现代化下拉框
@@ -397,6 +398,7 @@ def styled_select(
         flex: flex 布局权重
         new_value_mode: 新模式 (add/add-unique/toggle)
         searchable: 是否启用搜索输入模式
+        multiple: 是否允许多选
     """
     from gui.theme import COLORS
 
@@ -411,7 +413,9 @@ def styled_select(
                 ui.label(label).classes("text-caption text-weight-medium").style("color: var(--color-text-secondary);")
 
         # 下拉框 - 使用标准样式（非outlined）避免深色块问题
-        select = ui.select(options=options, value=value, label="").classes("w-full modern-select force-light-bg")
+        select = ui.select(options=options, value=value, label="", multiple=multiple).classes(
+            "w-full modern-select force-light-bg"
+        )
 
         # 不使用 outlined，避免 Quasar 默认深色背景
         dropdown_icon = "search" if searchable else "arrow_drop_down"
@@ -419,6 +423,8 @@ def styled_select(
         props = f'dense stack-label dropdown-icon="{dropdown_icon}" placeholder="{placeholder_text}"'
         if searchable:
             props += ' use-input fill-input hide-selected input-debounce="0"'
+        if multiple:
+            props += " use-chips"
         if new_value_mode:
             props += f' new-value-mode="{new_value_mode}"'
         select.props(props)

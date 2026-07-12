@@ -508,7 +508,7 @@ detection_timeout = 30.0
 
 # MuScriptor official audio-to-MIDI batch transcription
 [muscriptor]
-model = "medium"
+model = "large"
 device = "auto"
 batch_size = 0
 instruments = []
@@ -517,12 +517,11 @@ temperature = 1.0
 cfg_coef = 1.0
 strict_eos = false
 beam_size = 1
-output_dir = "workspace/muscriptor_output"
+output_dir = ""
 output_formats = ["midi"]
 preview_mode = "none"
 preview_format = "wav"
 recursive = true
 skip_completed = true
-overwrite = false
 fail_fast = false
 print_notes = false

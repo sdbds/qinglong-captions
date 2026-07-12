@@ -39,7 +39,7 @@ class PreviewFormat(str, Enum):
     MP3 = "mp3"
 
 
-DEFAULT_MODEL = ModelVariant.MEDIUM
+DEFAULT_MODEL = ModelVariant.LARGE
 DEFAULT_DEVICE = "auto"
 DEFAULT_TEMPERATURE = 1.0
 DEFAULT_CFG_COEF = 1.0
@@ -236,7 +236,6 @@ class BatchOptions:
     preview: PreviewRequest | None = None
     recursive: bool = True
     skip_completed: bool = True
-    overwrite: bool = False
     fail_fast: bool = False
 
     def __post_init__(self) -> None:
@@ -258,6 +257,5 @@ class BatchOptions:
             "preview": self.preview.as_dict() if self.preview else None,
             "recursive": self.recursive,
             "skip_completed": self.skip_completed,
-            "overwrite": self.overwrite,
             "fail_fast": self.fail_fast,
         }

@@ -12,7 +12,7 @@ import typer
 from typer.core import TyperArgument, TyperOption
 
 from .auralization import preflight_preview
-from .batch import DEFAULT_OUTPUT_DIR, run_batch
+from .batch import default_output_dir, run_batch
 from .options import (
     DEFAULT_CFG_COEF,
     DEFAULT_DEVICE,
@@ -191,7 +191,12 @@ def transcribe(
     cfg_coef: float = typer.Option(DEFAULT_CFG_COEF, "--cfg-coef"),
     model: ModelVariant = typer.Option(DEFAULT_MODEL.value, "--model", "-m"),
     device: str = typer.Option(DEFAULT_DEVICE, "--device", "-d"),
-    batch_size: int = typer.Option(0, "--batch-size", "-b", help="0 selects the runtime default."),
+    batch_size: int = typer.Option(
+        0,
+        "--batch-size",
+        "-b",
+        help="5-second audio chunks per inference batch; 0 selects the runtime default.",
+    ),
     strict_eos: bool = typer.Option(False, "--strict-eos"),
     beam_size: int = typer.Option(1, "--beam-size"),
     preview: Optional[Path] = typer.Option(None, "--preview", "--auralize", metavar="PATH"),
@@ -261,11 +266,20 @@ def transcribe(
 @app.command("batch")
 def batch_command(
     input_path: Path = typer.Argument(..., metavar="INPUT_PATH"),
-    output_dir: Path = typer.Option(DEFAULT_OUTPUT_DIR, "--output-dir"),
+    output_dir: Optional[Path] = typer.Option(
+        None,
+        "--output-dir",
+        help="Defaults to an input-local muscriptor_output directory.",
+    ),
     output_formats: List[OutputFormat] = typer.Option(None, "--format", "-f"),
     model: ModelVariant = typer.Option(DEFAULT_MODEL.value, "--model", "-m"),
     device: str = typer.Option(DEFAULT_DEVICE, "--device", "-d"),
-    batch_size: int = typer.Option(0, "--batch-size", "-b", help="0 selects the runtime default."),
+    batch_size: int = typer.Option(
+        0,
+        "--batch-size",
+        "-b",
+        help="5-second audio chunks per inference batch; 0 selects the runtime default.",
+    ),
     instruments: str = typer.Option("", "--instruments", metavar="NAME[,NAME...]"),
     preview_mode: BatchPreviewMode = typer.Option(BatchPreviewMode.NONE.value, "--preview-mode"),
     preview_format: Optional[PreviewFormat] = typer.Option(None, "--preview-format"),
@@ -277,7 +291,6 @@ def batch_command(
     notes: bool = typer.Option(False, "--notes"),
     recursive: bool = typer.Option(True, "--recursive/--no-recursive"),
     skip_completed: bool = typer.Option(True, "--skip-completed/--no-skip-completed"),
-    overwrite: bool = typer.Option(False, "--overwrite"),
     fail_fast: bool = typer.Option(False, "--fail-fast"),
 ) -> None:
     try:
@@ -309,7 +322,6 @@ def batch_command(
             preview=preview_request,
             recursive=recursive,
             skip_completed=skip_completed,
-            overwrite=overwrite,
             fail_fast=fail_fast,
         )
     except (TypeError, ValueError) as exc:
@@ -318,7 +330,7 @@ def batch_command(
     try:
         summary = run_batch(
             input_path,
-            output_dir,
+            default_output_dir(input_path) if output_dir is None else output_dir,
             options,
             log_callback=lambda message: typer.echo(message, err=True),
         )

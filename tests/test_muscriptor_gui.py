@@ -23,11 +23,15 @@ def test_tools_step_exposes_music_transcription_between_audio_and_sheet_music():
 def test_music_transcription_defaults_have_no_custom_sources():
     step = step6_tools.ToolsStep()
 
-    assert step.config["music_transcription_model"] == "medium"
+    assert step.config["music_transcription_model"] == "large"
     assert step.config["music_transcription_device"] == "auto"
     assert step.config["music_transcription_batch_size"] == 0
     assert step.config["music_transcription_output_formats"] == ["midi"]
     assert step.config["music_transcription_preview_mode"] == "none"
+    assert "music_transcription_input_mode" not in step.config
+    assert "music_transcription_recursive" not in step.config
+    assert "music_transcription_overwrite" not in step.config
+    assert "music_transcription_fail_fast" not in step.config
     assert not any("soundfont" in key or "model_source" in key for key in step.config)
 
 
@@ -46,9 +50,15 @@ def test_music_transcription_tool_renders_complete_controls():
 
     step._render_music_transcription_tool()
 
-    assert step.music_transcription_input.selection_type == "dir"
-    assert step.music_transcription_model.value == "medium"
+    assert step.music_transcription_input.selection_type == "file_or_dir"
+    assert step.music_transcription_model.value == "large"
+    assert step.music_transcription_model.options == {
+        "small": "MuScriptor/muscriptor-small",
+        "medium": "MuScriptor/muscriptor-medium",
+        "large": "MuScriptor/muscriptor-large",
+    }
     assert step.music_transcription_output_formats.value == ["midi"]
+    assert not hasattr(step, "music_transcription_output")
 
 
 def _configured_step(tmp_path: Path, *, preview_mode: str = "comparison"):
@@ -56,7 +66,6 @@ def _configured_step(tmp_path: Path, *, preview_mode: str = "comparison"):
     input_dir = tmp_path / "audio"
     input_dir.mkdir()
     step.music_transcription_input = SimpleNamespace(value=str(input_dir))
-    step.music_transcription_output = SimpleNamespace(value=str(tmp_path / "out"))
     step.config.update(
         {
             "music_transcription_model": "large",
@@ -72,10 +81,7 @@ def _configured_step(tmp_path: Path, *, preview_mode: str = "comparison"):
             "music_transcription_output_formats": ["midi", "jsonl"],
             "music_transcription_preview_mode": preview_mode,
             "music_transcription_preview_format": "mp3",
-            "music_transcription_recursive": False,
             "music_transcription_skip_completed": False,
-            "music_transcription_overwrite": True,
-            "music_transcription_fail_fast": True,
             "music_transcription_notes": True,
         }
     )
@@ -113,14 +119,15 @@ def test_music_transcription_maps_complete_batch_args(monkeypatch, tmp_path: Pat
         "--format=jsonl",
         "--preview-mode=comparison",
         "--preview-format=mp3",
-        "--no-recursive",
         "--no-skip-completed",
-        "--overwrite",
-        "--fail-fast",
         "--notes",
     ):
         assert argument in captured["args"]
     assert not any("soundfont" in argument for argument in captured["args"])
+    assert not any(argument.startswith("--output-dir") for argument in captured["args"])
+    assert not any("recursive" in argument for argument in captured["args"])
+    assert "--overwrite" not in captured["args"]
+    assert "--fail-fast" not in captured["args"]
     assert not any(argument.startswith("--beam-size") for argument in captured["args"])
 
 
@@ -173,6 +180,23 @@ def test_instrument_catalog_parser_caches_by_package_version():
 
     assert names == ("piano", "drums")
     assert step6_tools._MUSCRIPTOR_INSTRUMENT_CACHE["0.2.1"] == names
+
+
+def test_instrument_options_use_nicegui_set_options():
+    step = step6_tools.ToolsStep()
+    calls = []
+
+    class FakeSelector:
+        def set_options(self, options, *, value):
+            calls.append((options, value))
+
+    step.music_transcription_instruments = FakeSelector()
+    step.config["music_transcription_instruments"] = ["piano", "missing"]
+
+    step._set_music_instrument_options(("piano", "drums"))
+
+    assert calls == [({"piano": "Piano", "drums": "Drums"}, ["piano"])]
+    assert step.config["music_transcription_instruments"] == ["piano"]
 
 
 def test_lazy_instrument_probe_uses_current_task_runtime(monkeypatch, tmp_path: Path):

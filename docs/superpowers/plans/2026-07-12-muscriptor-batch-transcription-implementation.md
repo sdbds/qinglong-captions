@@ -34,7 +34,7 @@
 - `module/muscriptor_tool/outputs.py`: atomic files and one-pass MIDI/JSON/JSONL fan-out.
 - `module/muscriptor_tool/auralization.py`: official default SF2 preflight and WAV/MP3 preview rendering.
 - `module/muscriptor_tool/manifest.py`: run signatures, metadata, manifest, and completion checks.
-- `module/muscriptor_tool/batch.py`: discovery, output layout, locking, skip/overwrite, and file-level isolation.
+- `module/muscriptor_tool/batch.py`: discovery, input-local output layout, locking, skip/re-run, and file-level isolation.
 - `module/muscriptor_tool/cli.py`: Typer `transcribe`, `batch`, and `list-instruments` commands.
 - `tests/test_muscriptor_options.py`: closed option and decoding validation.
 - `tests/test_muscriptor_events_outputs.py`: stable event schema and single-pass output fan-out.
@@ -188,7 +188,6 @@ class BatchOptions:
     preview: PreviewRequest | None = None
     recursive: bool = True
     skip_completed: bool = True
-    overwrite: bool = False
     fail_fast: bool = False
 ```
 
@@ -586,8 +585,9 @@ def test_transcribe_help_exposes_model_capabilities_without_custom_sources():
 def test_batch_help_has_complete_batch_surface():
     result = runner.invoke(app, ["batch", "--help"])
     for option in ("--output-dir", "--format", "--preview-mode", "--preview-format", "--decode-mode",
-                   "--recursive", "--skip-completed", "--overwrite", "--fail-fast", "--notes"):
+                   "--recursive", "--skip-completed", "--fail-fast", "--notes"):
         assert option in result.stdout
+    assert "--overwrite" not in result.stdout
 ```
 
 - [ ] **Step 2: Run and verify RED**
@@ -676,7 +676,8 @@ def test_registry_runs_cli_in_module_mode():
 
 def test_config_has_no_model_source_or_soundfont():
     cfg = tomllib.loads((ROOT / "config/model.toml").read_text(encoding="utf-8"))["muscriptor"]
-    assert cfg["model"] == "medium"
+    assert cfg["model"] == "large"
+    assert cfg["output_dir"] == ""
     assert cfg["preview_mode"] == "none"
     assert "model_source" not in cfg
     assert "soundfont_path" not in cfg
@@ -700,7 +701,7 @@ muscriptor-local = [
 
 ```toml
 [muscriptor]
-model = "medium"
+model = "large"
 device = "auto"
 batch_size = 0
 instruments = []
@@ -709,13 +710,12 @@ temperature = 1.0
 cfg_coef = 1.0
 strict_eos = false
 beam_size = 1
-output_dir = "workspace/muscriptor_output"
+output_dir = ""
 output_formats = ["midi"]
 preview_mode = "none"
 preview_format = "wav"
 recursive = true
 skip_completed = true
-overwrite = false
 fail_fast = false
 print_notes = false
 ```
@@ -784,7 +784,7 @@ def test_tools_step_exposes_music_transcription_between_audio_and_sheet_music():
 
 def test_music_transcription_defaults_have_no_custom_sources():
     step = ToolsStep()
-    assert step.config["music_transcription_model"] == "medium"
+    assert step.config["music_transcription_model"] == "large"
     assert step.config["music_transcription_preview_mode"] == "none"
     assert not any("soundfont" in key or "model_source" in key for key in step.config)
 ```
@@ -797,9 +797,9 @@ Expected: assertions fail because the tab and defaults are absent.
 
 - [ ] **Step 3: Add tab, renderer, state containers, and mode callbacks**
 
-Add the tab between audio separator and sheet music, map it in `_get_tool_renderer()` and `_tool_action_for_tab()`, and initialize exact keys for model, device, 5-second chunk batch size, instrument mode/list, decode mode, temperature, CFG, strict EOS, output formats, preview mode/format, recursive, skip, overwrite, fail-fast, and notes.
+Add the tab between audio separator and sheet music, map it in `_get_tool_renderer()` and `_tool_action_for_tab()`, and initialize exact keys for model, device, inference batch size, instrument mode/list, decode mode, temperature, CFG, strict EOS, output formats, preview mode/format, skip, and notes. Input type comes from the selected path; output location, recursive discovery, and continue-on-error use backend defaults.
 
-Render compact full-width groups using existing `styled_select`, `styled_input`, `editable_slider`, `toggle_switch`, `create_path_selector`, `ui.toggle`, and `ui.select(multiple=True)`. Do not nest a new card inside the tool card. Preview controls expose only Off, Pure MIDI, Comparison, WAV, and MP3; no SoundFont field exists.
+Render compact full-width groups using existing `styled_select`, `editable_slider`, `toggle_switch`, `create_path_selector`, and `ui.toggle`. Use `styled_select(multiple=True)` for instruments and output formats so labels do not overlap the dropdown. Do not nest a new card inside the tool card. Preview controls expose only Off, Pure MIDI, Comparison, WAV, and MP3; no SoundFont field exists.
 
 - [ ] **Step 4: Implement lazy instrument-list subprocess**
 
@@ -823,11 +823,12 @@ def test_music_transcription_maps_complete_batch_args(monkeypatch, tmp_path):
     for arg in (
         "--model=large", "--device=cuda:0", "--batch-size=3", "--decode-mode=sampling",
         "--temperature=0.8", "--cfg-coef=1.5", "--format=midi", "--format=jsonl",
-        "--preview-mode=comparison", "--preview-format=mp3", "--no-recursive",
-        "--no-skip-completed", "--overwrite", "--fail-fast", "--notes",
+        "--preview-mode=comparison", "--preview-format=mp3",
+        "--no-skip-completed", "--notes",
     ):
         assert arg in captured["args"]
     assert not any("soundfont" in arg for arg in captured["args"])
+    assert not any(arg.startswith("--output-dir") or "recursive" in arg for arg in captured["args"])
 
 
 def test_preview_off_omits_preview_format(tmp_path):
@@ -840,11 +841,11 @@ def test_preview_off_omits_preview_format(tmp_path):
 
 - [ ] **Step 6: Implement command construction and validation**
 
-Validate input existence, output directory text, non-empty symbolic output selection, beam width, and active-mode parameters before submitting. Build arguments from current controls in one function; hidden sampling, beam, preview, and instrument controls never leak stale values. Submit through the existing ExecutionPanel with script key `module.muscriptor_tool.cli`, first positional argument `batch`, translated job name, and existing Start/Stop/log behavior.
+Validate that the input path exists and is a file or directory, plus non-empty output format selection, beam width, and active-mode parameters before submitting. Build arguments from current controls in one function; hidden sampling, beam, preview, and instrument controls never leak stale values. Submit through the existing ExecutionPanel with script key `module.muscriptor_tool.cli`, first positional argument `batch`, translated job name, and existing Start/Stop/log behavior.
 
 - [ ] **Step 7: Add four-language keys and parity assertions**
 
-Add translations for the tab, description, input mode, model/device, instrument mode, decoding modes, CFG, strict EOS, symbolic outputs, preview modes/formats, batch flags, start/success/failure/log/job labels. Extend `test_gui_i18n.py`'s recent-key list with `music_transcription`, `music_transcription_preview`, and `job_name_music_transcription`.
+Add translations for the tab, description, MuScriptor model/device, instrument mode, decoding modes, CFG, strict EOS, output formats, preview modes/formats, skip option, start/success/failure/log/job labels. Extend `test_gui_i18n.py`'s recent-key list with `music_transcription`, `music_transcription_preview`, and `job_name_music_transcription`.
 
 - [ ] **Step 8: Run GUI tests**
 

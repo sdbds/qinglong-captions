@@ -45,7 +45,6 @@ DEFAULT_SHEET_MUSIC_REPO_ID = "bdsqlsz/musvit-onnx"
 DEFAULT_SHEET_MUSIC_MODEL_DIR = "huggingface"
 DEFAULT_SHEET_MUSIC_OUTPUT_DIR = "workspace/musvit_output"
 DEFAULT_SHEET_MUSIC_PDF_DPI = 144
-DEFAULT_MUSCRIPTOR_OUTPUT_DIR = "workspace/muscriptor_output"
 
 _MUSCRIPTOR_INSTRUMENT_CACHE: dict[str, tuple[str, ...]] = {}
 
@@ -264,7 +263,7 @@ class ToolsStep:
         "page_resize": "sheet_music_preprocess_page_resize",
         "pad_square": "sheet_music_preprocess_pad_square",
     }
-    MUSCRIPTOR_MODEL_OPTIONS = {item.value: item.value.title() for item in ModelVariant}
+    MUSCRIPTOR_MODEL_OPTIONS = {item.value: item.repo_id for item in ModelVariant}
     MUSCRIPTOR_BASE_DEVICE_OPTIONS = {
         "auto": "Auto",
         "cpu": "CPU",
@@ -352,7 +351,6 @@ class ToolsStep:
             "audio_separator_vocal_midi_t0": DEFAULT_VOCAL_MIDI_T0,
             "audio_separator_vocal_midi_nsteps": DEFAULT_VOCAL_MIDI_NSTEPS,
             "audio_separator_vocal_midi_est_threshold": DEFAULT_VOCAL_MIDI_EST_THRESHOLD,
-            "music_transcription_input_mode": "directory",
             "music_transcription_model": DEFAULT_MODEL.value,
             "music_transcription_device": DEFAULT_DEVICE,
             "music_transcription_batch_size": 0,
@@ -366,10 +364,7 @@ class ToolsStep:
             "music_transcription_output_formats": [item.value for item in DEFAULT_OUTPUT_FORMATS],
             "music_transcription_preview_mode": "none",
             "music_transcription_preview_format": DEFAULT_PREVIEW_FORMAT.value,
-            "music_transcription_recursive": True,
             "music_transcription_skip_completed": True,
-            "music_transcription_overwrite": False,
-            "music_transcription_fail_fast": False,
             "music_transcription_notes": False,
             "sheet_music_batch_size": 1,
             "sheet_music_pdf_dpi": DEFAULT_SHEET_MUSIC_PDF_DPI,
@@ -553,8 +548,10 @@ class ToolsStep:
         selector = getattr(self, "music_transcription_device", None)
         if selector is None:
             return
-        selector.options = self._music_transcription_device_options()
-        selector.update()
+        selector.set_options(
+            self._music_transcription_device_options(),
+            value=self.config["music_transcription_device"],
+        )
 
     async def _refresh_music_gpu_probe(self) -> None:
         try:
@@ -568,13 +565,6 @@ class ToolsStep:
     @staticmethod
     def _set_config_value(config: Dict[str, Any], key: str, value: Any) -> None:
         config[key] = value
-
-    def _on_music_input_mode_change(self, value: str) -> None:
-        mode = str(value or "directory")
-        self.config["music_transcription_input_mode"] = mode
-        selector = getattr(self, "music_transcription_input", None)
-        if selector is not None:
-            selector.selection_type = "file" if mode == "file" else "dir"
 
     def _on_music_instrument_mode_change(self, value: str) -> None:
         mode = str(value or "auto")
@@ -602,12 +592,6 @@ class ToolsStep:
         self.config["music_transcription_preview_mode"] = mode
         if self._music_transcription_preview_container is not None:
             self._music_transcription_preview_container.set_visibility(mode != "none")
-
-    def _on_music_overwrite_change(self, enabled: bool) -> None:
-        self.config["music_transcription_overwrite"] = bool(enabled)
-        skip_toggle = getattr(self, "music_transcription_skip_completed_toggle", None)
-        if skip_toggle is not None:
-            skip_toggle.set_enabled(not enabled)
 
     async def _probe_music_instruments(self) -> tuple[str, ...]:
         if _MUSCRIPTOR_INSTRUMENT_CACHE:
@@ -648,8 +632,10 @@ class ToolsStep:
         selector = getattr(self, "music_transcription_instruments", None)
         if selector is None:
             return
-        selector.options = {name: name.replace("_", " ").title() for name in names}
-        selector.update()
+        options = {name: name.replace("_", " ").title() for name in names}
+        selected = [name for name in self.config["music_transcription_instruments"] if name in options]
+        self.config["music_transcription_instruments"] = selected
+        selector.set_options(options, value=selected)
 
     async def _ensure_music_instruments(self) -> None:
         if self._music_transcription_instrument_loading:
@@ -1198,28 +1184,11 @@ class ToolsStep:
                 "color: var(--color-text-secondary);"
             )
 
-            with ui.row().classes("w-full items-center gap-3 q-mb-sm"):
-                ui.label(t("music_transcription_input_mode")).classes("text-caption text-weight-medium")
-                self.music_transcription_input_mode = ui.toggle(
-                    {
-                        "directory": t("music_transcription_input_directory"),
-                        "file": t("music_transcription_input_file"),
-                    },
-                    value=self.config["music_transcription_input_mode"],
-                    on_change=lambda event: self._on_music_input_mode_change(event.value),
-                ).props("dense no-caps")
-
             self.music_transcription_input = create_path_selector(
                 label=t("input_path"),
-                selection_type="dir",
+                selection_type="file_or_dir",
                 file_filter=".wav .flac .mp3 .m4a .ogg .aac",
                 placeholder=t("input_path_placeholder"),
-            )
-            self.music_transcription_output = create_path_selector(
-                label=t("output_dir"),
-                default_path=DEFAULT_MUSCRIPTOR_OUTPUT_DIR,
-                selection_type="dir",
-                placeholder=t("path_placeholder"),
             )
 
             ui.separator().classes("q-my-md")
@@ -1267,7 +1236,7 @@ class ToolsStep:
             with ui.row().classes("w-full items-center justify-between q-mt-xs"):
                 ui.link(
                     t("music_transcription_license"),
-                    target="https://huggingface.co/MuScriptor/muscriptor-medium",
+                    target="https://huggingface.co/MuScriptor/muscriptor-large",
                     new_tab=True,
                 ).classes("text-caption").style(f"color: {COLORS['info']};")
                 ui.button(
@@ -1292,19 +1261,18 @@ class ToolsStep:
                 self.config["music_transcription_instrument_mode"] == "specify"
             )
             with self._music_transcription_instrument_container:
-                self.music_transcription_instruments = ui.select(
+                self.music_transcription_instruments = styled_select(
                     options={name: name.replace("_", " ").title() for name in cached_names},
                     value=self.config["music_transcription_instruments"],
-                    multiple=True,
                     label=t("music_transcription_instruments"),
-                    on_change=lambda event: self._set_config_value(
+                    icon="piano",
+                    icon_color=COLORS["secondary"],
+                    on_change=lambda value: self._set_config_value(
                         self.config,
                         "music_transcription_instruments",
-                        list(event.value or []),
+                        list(value or []),
                     ),
-                ).classes("w-full modern-select force-light-bg")
-                self.music_transcription_instruments.props(
-                    'dense use-input use-chips input-debounce="0" dropdown-icon="search"'
+                    multiple=True,
                 )
 
             ui.separator().classes("q-my-md")
@@ -1379,22 +1347,24 @@ class ToolsStep:
 
             ui.separator().classes("q-my-md")
 
-            self.music_transcription_output_formats = ui.select(
+            self.music_transcription_output_formats = styled_select(
                 options={
                     OutputFormat.MIDI.value: "MIDI",
                     OutputFormat.JSON.value: "JSON",
                     OutputFormat.JSONL.value: "JSONL",
                 },
                 value=self.config["music_transcription_output_formats"],
-                multiple=True,
                 label=t("music_transcription_symbolic_outputs"),
-                on_change=lambda event: self._set_config_value(
+                icon="output",
+                icon_color=COLORS["primary"],
+                searchable=False,
+                on_change=lambda value: self._set_config_value(
                     self.config,
                     "music_transcription_output_formats",
-                    list(event.value or []),
+                    list(value or []),
                 ),
-            ).classes("w-full modern-select force-light-bg")
-            self.music_transcription_output_formats.props("dense use-chips")
+                multiple=True,
+            )
 
             with ui.row().classes("w-full items-center gap-3 q-mt-md"):
                 ui.label(t("music_transcription_preview")).classes("text-caption text-weight-medium")
@@ -1429,29 +1399,10 @@ class ToolsStep:
 
             with ui.row().classes("w-full gap-4 q-mt-md"):
                 toggle_switch(
-                    "recursive",
-                    self.config,
-                    "music_transcription_recursive",
-                )
-                self.music_transcription_skip_completed_toggle = toggle_switch(
                     "skip_completed",
                     self.config,
                     "music_transcription_skip_completed",
                 )
-                self.music_transcription_overwrite_toggle = toggle_switch(
-                    "overwrite",
-                    self.config,
-                    "music_transcription_overwrite",
-                    on_change=self._on_music_overwrite_change,
-                )
-                toggle_switch(
-                    "music_transcription_fail_fast",
-                    self.config,
-                    "music_transcription_fail_fast",
-                )
-            self.music_transcription_skip_completed_toggle.set_enabled(
-                not self.config["music_transcription_overwrite"]
-            )
 
     def _render_sheet_music_tool(self):
         """渲染乐谱扫描 embedding 工具"""
@@ -1815,20 +1766,8 @@ class ToolsStep:
         source = Path(input_path).expanduser() if input_path else None
         if source is None or not source.exists():
             raise ValueError(t("select_valid_input"))
-        input_mode = str(self.config["music_transcription_input_mode"])
-        if (input_mode == "file" and not source.is_file()) or (input_mode == "directory" and not source.is_dir()):
-            raise ValueError(t("music_transcription_input_mode_mismatch"))
-
-        output_dir = str(getattr(getattr(self, "music_transcription_output", None), "value", "") or "").strip()
-        if not output_dir:
-            raise ValueError(t("music_transcription_output_required"))
-        output_path = Path(output_dir).expanduser()
-        try:
-            output_path.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise ValueError(f"{t('music_transcription_output_required')}: {exc}") from exc
-        if not output_path.is_dir():
-            raise ValueError(t("music_transcription_output_required"))
+        if not source.is_file() and not source.is_dir():
+            raise ValueError(t("select_valid_input"))
 
         formats = tuple(OutputFormat(value) for value in self.config["music_transcription_output_formats"])
         if not formats:
@@ -1880,7 +1819,6 @@ class ToolsStep:
         args = [
             "batch",
             str(source),
-            f"--output-dir={output_dir}",
             f"--model={transcription.model.value}",
             f"--device={transcription.device}",
         ]
@@ -1906,16 +1844,11 @@ class ToolsStep:
                     f"--preview-format={preview.format.value}",
                 )
             )
-        args.append("--recursive" if self.config["music_transcription_recursive"] else "--no-recursive")
         args.append(
             "--skip-completed"
             if self.config["music_transcription_skip_completed"]
             else "--no-skip-completed"
         )
-        if self.config["music_transcription_overwrite"]:
-            args.append("--overwrite")
-        if self.config["music_transcription_fail_fast"]:
-            args.append("--fail-fast")
         return args
 
     async def _start_music_transcription(self):

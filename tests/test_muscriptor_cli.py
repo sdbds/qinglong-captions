@@ -54,12 +54,14 @@ def test_batch_help_has_complete_batch_surface():
         "--decode-mode",
         "--recursive",
         "--skip-completed",
-        "--overwrite",
         "--fail-fast",
         "--notes",
     ):
         assert option in result.stdout
     assert "--soundfont" not in result.stdout
+    assert "--overwrite" not in result.stdout
+    assert "5-second audio" in result.stdout
+    assert "chunks per" in result.stdout
 
 
 def _install_single_backend(monkeypatch, calls: list[str]) -> None:
@@ -257,7 +259,10 @@ def test_batch_accepts_explicit_preview_none_without_preflight(monkeypatch, tmp_
     captured = {}
     monkeypatch.setattr(cli, "resolve_instruments", lambda values: tuple(values))
 
-    def fake_run(_input_path, _output_dir, options, **_kwargs):
+    def fake_run(input_path, output_dir, options, **_kwargs):
+        captured["input_path"] = input_path
+        captured["output_dir"] = output_dir
+        captured["model"] = options.transcription.model.value
         captured["preview"] = options.preview
         return SimpleNamespace(
             discovered=1,
@@ -274,6 +279,8 @@ def test_batch_accepts_explicit_preview_none_without_preflight(monkeypatch, tmp_
 
     assert result.exit_code == 0, result.stdout
     assert captured["preview"] is None
+    assert captured["model"] == "large"
+    assert captured["output_dir"] == tmp_path / "muscriptor_output"
 
 
 def test_list_instruments_json_matches_text_order(monkeypatch):

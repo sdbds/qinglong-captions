@@ -40,9 +40,18 @@ class PathSelector:
                     self.input.on("change", lambda e: on_change(e.value))
 
                 # 浏览按钮
-                browse_btn = ui.button(icon="folder_open", on_click=self._pick_path)
-                browse_btn.classes("modern-btn-secondary")
-                browse_btn.props("dense").tooltip(t("browse"))
+                if self.selection_type == "file_or_dir":
+                    file_btn = ui.button(icon="description", on_click=lambda: self._pick_path("file"))
+                    file_btn.classes("modern-btn-secondary")
+                    file_btn.props("dense").tooltip(t("select_file"))
+
+                    directory_btn = ui.button(icon="folder_open", on_click=lambda: self._pick_path("dir"))
+                    directory_btn.classes("modern-btn-secondary")
+                    directory_btn.props("dense").tooltip(t("select_directory"))
+                else:
+                    browse_btn = ui.button(icon="folder_open", on_click=self._pick_path)
+                    browse_btn.classes("modern-btn-secondary")
+                    browse_btn.props("dense").tooltip(t("browse"))
 
                 # 更多操作菜单
                 menu_btn = ui.button(icon="more_vert")
@@ -56,7 +65,7 @@ class PathSelector:
                         ui.separator()
                         ui.menu_item("🗑️ " + t("clear"), self._clear)
 
-    async def _pick_path(self):
+    async def _pick_path(self, selection_type: Optional[str] = None):
         """打开文件选择对话框（在独立线程中运行，避免阻塞事件循环）"""
         import asyncio
         from concurrent.futures import ThreadPoolExecutor
@@ -69,16 +78,17 @@ class PathSelector:
             root.attributes("-topmost", True)
 
             try:
-                if self.selection_type == "file":
+                current_selection_type = selection_type or self.selection_type
+                if current_selection_type == "file":
                     if self.file_filter:
                         patterns = self.file_filter.replace("*", "").replace(" ", ";").split(";")
                         filetypes = [(f"{p} files", f"*{p}") for p in patterns if p] + [("All files", "*.*")]
                     else:
                         filetypes = [("All files", "*.*")]
                     return filedialog.askopenfilename(filetypes=filetypes)
-                elif self.selection_type == "dir":
+                elif current_selection_type == "dir":
                     return filedialog.askdirectory()
-                elif self.selection_type == "save":
+                elif current_selection_type == "save":
                     return filedialog.asksaveasfilename()
                 else:
                     return ""

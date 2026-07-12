@@ -7,6 +7,7 @@ import pytest
 
 from module.muscriptor_tool.events import EventStats, event_to_dict
 from module.muscriptor_tool.options import (
+    DEFAULT_MODEL,
     BatchOptions,
     DecodingMode,
     ModelVariant,
@@ -34,6 +35,7 @@ def test_model_variant_rejects_non_official_sources(value: str):
 
 def test_model_variant_contains_only_official_sizes():
     assert tuple(item.value for item in ModelVariant) == ("small", "medium", "large")
+    assert DEFAULT_MODEL is ModelVariant.LARGE
 
 
 def test_preview_is_none_or_one_immutable_request():

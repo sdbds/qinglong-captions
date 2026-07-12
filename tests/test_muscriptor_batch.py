@@ -72,6 +72,18 @@ def test_discovery_rejects_same_input_and_output_directory(tmp_path: Path):
         discover_inputs(tmp_path, output_dir=tmp_path, recursive=True)
 
 
+def test_default_output_directory_is_input_local(tmp_path: Path):
+    from module.muscriptor_tool.batch import default_output_dir
+
+    source_dir = tmp_path / "album"
+    source_dir.mkdir()
+    source_file = tmp_path / "song.wav"
+    source_file.write_bytes(b"audio")
+
+    assert default_output_dir(source_dir) == source_dir / "muscriptor_output"
+    assert default_output_dir(source_file) == tmp_path / "muscriptor_output"
+
+
 def test_non_recursive_discovery_ignores_nested_files(tmp_path: Path):
     from module.muscriptor_tool.batch import discover_inputs
 
@@ -104,9 +116,31 @@ def test_batch_loads_once_and_transcribes_each_pending_file_once(tmp_path: Path)
     assert summary.failed == 0
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["muscriptor_version"] == "0.2.1"
-    assert manifest["model_variant"] == "medium"
+    assert manifest["model_variant"] == "large"
     assert manifest["requested_device"] == "auto"
     assert manifest["resolved_device"] == "cpu"
+
+
+def test_run_batch_uses_input_local_output_when_omitted(tmp_path: Path):
+    from module.muscriptor_tool.batch import run_batch
+
+    inputs = tmp_path / "inputs"
+    write_audio_tree(inputs, ("song.wav",))
+    calls: dict[str, object] = {"loads": 0, "files": []}
+
+    summary = run_batch(
+        inputs,
+        options=BatchOptions(),
+        model_loader=loader_with_calls(calls),
+        transcriber=successful_transcriber(calls),
+        package_version="0.2.1",
+        resolved_device="cpu",
+    )
+
+    output = inputs / "muscriptor_output"
+    assert summary.processed == 1
+    assert (output / "song.wav" / "transcription.mid").is_file()
+    assert (output / "manifest.json").is_file()
 
 
 def test_all_complete_items_skip_without_model_or_preview_preflight(tmp_path: Path):
@@ -446,7 +480,7 @@ def test_failed_rerun_does_not_report_stale_outputs_as_partial(tmp_path: Path):
     summary = run_batch(
         inputs,
         output,
-        BatchOptions(overwrite=True),
+        BatchOptions(skip_completed=False),
         model_loader=loader_with_calls(calls),
         transcriber=fail,
         package_version="0.2.1",

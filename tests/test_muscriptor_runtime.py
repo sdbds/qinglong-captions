@@ -149,5 +149,5 @@ def test_gated_download_error_becomes_actionable_model_access_error():
         version=bindings.version,
     )
 
-    with pytest.raises(ModelAccessError, match=r"MuScriptor/muscriptor-medium.*hf auth login"):
+    with pytest.raises(ModelAccessError, match=r"MuScriptor/muscriptor-large.*hf auth login"):
         load_model(TranscriptionOptions(), upstream=bindings)
