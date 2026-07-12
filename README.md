@@ -138,6 +138,10 @@ Lance versions and media/caption export are documented in the [Import / Export g
 | Sheet-music embeddings | [MuSViT](docs/tools/sheet_music.en.md) | GUI Tools |
 | Text and document translation | [Translation](docs/tools/text_translation.en.md) | `5.translate.ps1` |
 
+MuScriptor installs through the `muscriptor-local` profile and supports the official `small`, `medium`, and `large` models. Runs that request only MIDI, JSON, or JSONL do not need an audio synthesizer. If preview is enabled, its runtime preflight runs before model inference and stops the batch when FluidSynth is unavailable; disable preview to export symbolic outputs without it.
+
+Optional MIDI-only or left-original/right-synthesized preview audio, in either MP3 or WAV format, requires the native [FluidSynth](https://github.com/FluidSynth/fluidsynth/releases) executable on `PATH`. Switching to WAV does not remove this requirement; MP3 additionally requires working `soundfile/libsndfile` MP3 encoding. On Windows, use an x64 build, add its extracted `bin` directory to `PATH`, restart the shell and GUI, and verify it with `fluidsynth --version`. The official `MuseScore_General.sf2` SoundFont is resolved automatically; no system or custom SoundFont is required.
+
 See the [tool documentation index](docs/tools/README.en.md) for every entrypoint.
 
 ## Choose a Caption Model

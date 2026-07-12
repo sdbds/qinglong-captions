@@ -4,11 +4,14 @@ Includes: Editable Slider, Toggle Switch, Searchable Dropdown
 From sd-scripts/gui with enhancements
 """
 
-from nicegui import ui, core
-from typing import Optional, Callable, Dict, Any, List
-from gui.utils.i18n import t, get_i18n
-from gui.theme import COLORS
+import json
 import uuid
+from typing import Any, Callable, Dict, List, Optional
+
+from nicegui import core, ui
+
+from gui.theme import COLORS
+from gui.utils.i18n import get_i18n, t
 
 
 def editable_slider(
@@ -383,6 +386,7 @@ def styled_select(
     new_value_mode: str = None,
     searchable: bool = True,
     multiple: bool = False,
+    option_icons: Optional[Dict[Any, str]] = None,
 ):
     """
     创建带图标前缀和小标题的现代化下拉框
@@ -399,6 +403,7 @@ def styled_select(
         new_value_mode: 新模式 (add/add-unique/toggle)
         searchable: 是否启用搜索输入模式
         multiple: 是否允许多选
+        option_icons: 选项值到 Material 图标名称的映射
     """
     from gui.theme import COLORS
 
@@ -428,6 +433,24 @@ def styled_select(
         if new_value_mode:
             props += f' new-value-mode="{new_value_mode}"'
         select.props(props)
+
+        if option_icons:
+            option_values = list(options) if isinstance(options, dict) else options
+            icon_names = [option_icons.get(value, "music_note") for value in option_values]
+            icon_names_json = json.dumps(icon_names)
+            select.add_slot(
+                "option",
+                f"""
+                <q-item v-bind="props.itemProps">
+                    <q-item-section avatar>
+                        <q-icon :name='{icon_names_json}[props.opt.value] || "music_note"' size="20px" />
+                    </q-item-section>
+                    <q-item-section>
+                        <q-item-label>{{{{ props.opt.label }}}}</q-item-label>
+                    </q-item-section>
+                </q-item>
+                """,
+            )
 
         if on_change:
             select.on_value_change(lambda e: on_change(e.value))

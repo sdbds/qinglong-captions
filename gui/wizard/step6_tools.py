@@ -52,6 +52,44 @@ GAME_ONNX_MODEL_LABELS: dict[str, str] = {
     "bdsqlsz/GAME-1.0-large-ONNX": "GAME-1.0-large-ONNX",
 }
 
+MUSCRIPTOR_INSTRUMENT_ICONS: dict[str, str] = {
+    "acoustic_piano": "piano",
+    "electric_piano": "piano",
+    "chromatic_percussion": "music_note",
+    "organ": "piano",
+    "acoustic_guitar": "music_note",
+    "clean_electric_guitar": "electric_bolt",
+    "distorted_electric_guitar": "graphic_eq",
+    "acoustic_bass": "graphic_eq",
+    "electric_bass": "graphic_eq",
+    "violin": "music_note",
+    "viola": "music_note",
+    "cello": "music_note",
+    "contrabass": "music_note",
+    "orchestral_harp": "queue_music",
+    "timpani": "album",
+    "string_ensemble": "queue_music",
+    "synth_strings": "queue_music",
+    "voice": "mic",
+    "orchestra_hit": "queue_music",
+    "trumpet": "campaign",
+    "trombone": "campaign",
+    "tuba": "campaign",
+    "french_horn": "campaign",
+    "brass_section": "campaign",
+    "soprano_and_alto_sax": "air",
+    "tenor_sax": "air",
+    "baritone_sax": "air",
+    "oboe": "air",
+    "english_horn": "air",
+    "bassoon": "air",
+    "clarinet": "air",
+    "flutes": "air",
+    "synth_lead": "keyboard",
+    "synth_pad": "keyboard",
+    "drums": "album",
+}
+
 DEFAULT_DEPTH_INFERENCE_STEPS = -1
 DEFAULT_SEED = 1026
 DEFAULT_DEPTH_RESOLUTION = 720
@@ -240,9 +278,6 @@ class ToolsStep:
         "pad_square": "sheet_music_preprocess_pad_square",
     }
     MUSCRIPTOR_MODEL_OPTIONS = {item.value: item.repo_id for item in ModelVariant}
-    MUSCRIPTOR_INSTRUMENT_OPTIONS = {
-        name: name.replace("_", " ").title() for name in OFFICIAL_INSTRUMENT_NAMES
-    }
     MUSCRIPTOR_BASE_DEVICE_OPTIONS = {
         "auto": "Auto",
         "cpu": "CPU",
@@ -521,6 +556,16 @@ class ToolsStep:
         selected = str(self.config.get("music_transcription_device") or DEFAULT_DEVICE)
         options.setdefault(selected, selected.upper())
         return options
+
+    @staticmethod
+    def _music_transcription_instrument_options() -> dict[str, str]:
+        return {
+            name: t(
+                f"music_transcription_instrument_names.{name}",
+                name.replace("_", " ").title(),
+            )
+            for name in OFFICIAL_INSTRUMENT_NAMES
+        }
 
     def _refresh_music_transcription_devices(self) -> None:
         selector = getattr(self, "music_transcription_device", None)
@@ -1100,7 +1145,7 @@ class ToolsStep:
                 label=t("input_path"),
                 selection_type="file_or_dir",
                 file_filter=".wav .flac .mp3 .m4a .ogg .aac",
-                placeholder=t("input_path_placeholder"),
+                placeholder=t("music_transcription_input_placeholder"),
             )
 
             ui.separator().classes("q-my-md")
@@ -1168,7 +1213,7 @@ class ToolsStep:
             )
             with self._music_transcription_instrument_container:
                 self.music_transcription_instruments = styled_select(
-                    options=self.MUSCRIPTOR_INSTRUMENT_OPTIONS,
+                    options=self._music_transcription_instrument_options(),
                     value=self.config["music_transcription_instruments"],
                     label=t("music_transcription_instruments"),
                     icon="piano",
@@ -1179,6 +1224,7 @@ class ToolsStep:
                         list(value or []),
                     ),
                     multiple=True,
+                    option_icons=MUSCRIPTOR_INSTRUMENT_ICONS,
                 )
 
             ui.separator().classes("q-my-md")

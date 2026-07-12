@@ -121,6 +121,40 @@ def test_batch_loads_once_and_transcribes_each_pending_file_once(tmp_path: Path)
     assert manifest["resolved_device"] == "cpu"
 
 
+def test_batch_routes_chunk_updates_to_structured_progress_callback(tmp_path: Path):
+    from module.muscriptor_tool.batch import run_batch
+
+    inputs = tmp_path / "inputs"
+    write_audio_tree(inputs, ("song.wav",))
+    calls: dict[str, object] = {"loads": 0, "files": []}
+    progress_events: list[tuple[str, int, int]] = []
+    log_messages: list[str] = []
+
+    def transcribe(loaded, source, options, targets, *, progress_callback):
+        progress_callback(0, 2)
+        result = successful_transcriber(calls)(loaded, source, options, targets)
+        progress_callback(2, 2)
+        return result
+
+    summary = run_batch(
+        inputs,
+        tmp_path / "out",
+        BatchOptions(),
+        model_loader=loader_with_calls(calls),
+        transcriber=transcribe,
+        package_version="0.2.1",
+        resolved_device="cpu",
+        log_callback=log_messages.append,
+        chunk_progress_callback=lambda source, completed, total: progress_events.append(
+            (source, completed, total)
+        ),
+    )
+
+    assert summary.processed == 1
+    assert progress_events == [("song.wav", 0, 2), ("song.wav", 2, 2)]
+    assert not any(" chunk " in message for message in log_messages)
+
+
 def test_run_batch_uses_input_local_output_when_omitted(tmp_path: Path):
     from module.muscriptor_tool.batch import run_batch
 

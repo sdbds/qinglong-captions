@@ -12,12 +12,45 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 from module.muscriptor_tool import cli
 
 runner = CliRunner()
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_chunk_progress_reuses_one_task_for_sequential_batch_files(monkeypatch):
+    calls = {"start": 0, "stop": 0, "add": [], "update": []}
+
+    class FakeProgress:
+        def start(self):
+            calls["start"] += 1
+
+        def stop(self):
+            calls["stop"] += 1
+
+        def add_task(self, description, **kwargs):
+            calls["add"].append((description, kwargs))
+            return 7
+
+        def update(self, task_id, **kwargs):
+            calls["update"].append((task_id, kwargs))
+
+    monkeypatch.setattr(cli, "create_caption_progress", lambda *_args, **_kwargs: FakeProgress())
+
+    with cli._ChunkProgressReporter(SimpleNamespace()) as reporter:
+        reporter.update("disc1/song.wav", 0, 4)
+        reporter.update("disc1/song.wav", 4, 4)
+        reporter.update("disc2/song.wav", 0, 8)
+
+    assert calls["start"] == 1
+    assert calls["stop"] == 1
+    assert len(calls["add"]) == 1
+    assert len(calls["update"]) == 2
+    assert calls["update"][-1][0] == 7
+    assert "disc2/song.wav" in calls["update"][-1][1]["description"]
 
 
 def test_transcribe_help_exposes_model_capabilities_without_custom_sources():
@@ -73,8 +106,9 @@ def _install_single_backend(monkeypatch, calls: list[str]) -> None:
         calls.append("preflight")
         return SimpleNamespace(request=request)
 
-    def load(options):
+    def load(options, *, console=None):
         calls.append("load")
+        assert isinstance(console, cli.Console)
         return SimpleNamespace(
             package_version="0.2.1",
             requested_device=options.device,
@@ -126,7 +160,9 @@ def test_jsonl_stdout_stays_machine_readable_with_preview(monkeypatch, tmp_path:
     assert result.exit_code == 0, result.stdout
     assert [json.loads(line) for line in result.stdout.splitlines()] == [{"type": "start"}]
     assert "Loading model" not in result.stdout
-    assert "chunk 1/2" in result.stderr
+    stderr = unstyle(result.stderr)
+    assert "Transcribing song.wav" in stderr
+    assert "1/2" in stderr
     assert preview.read_bytes() == b"preview"
     assert calls == ["resolve", "preflight", "load", "transcribe"]
 
@@ -216,9 +252,17 @@ def test_batch_normalizes_repeatable_formats_and_omits_auto_batch_size(monkeypat
 
     monkeypatch.setattr(cli, "resolve_instruments", lambda values: tuple(values))
 
+    def fake_load(_options, *, console=None):
+        captured["model_console"] = console
+        return SimpleNamespace(resolved_device="cpu")
+
+    monkeypatch.setattr(cli, "load_model", fake_load)
+
     def fake_run(input_path, output_dir, options, **kwargs):
         captured.update(input_path=input_path, output_dir=output_dir, options=options, kwargs=kwargs)
-        kwargs["log_callback"]("Processing song.wav chunk 1/1")
+        kwargs["model_loader"](options.transcription)
+        kwargs["log_callback"]("Processing input: song.wav")
+        kwargs["chunk_progress_callback"]("song.wav", 1, 1)
         return SimpleNamespace(
             discovered=1,
             processed=1,
@@ -249,8 +293,11 @@ def test_batch_normalizes_repeatable_formats_and_omits_auto_batch_size(monkeypat
     assert result.exit_code == 0, result.stdout
     assert captured["options"].transcription.batch_size is None
     assert [item.value for item in captured["options"].output_formats] == ["json", "jsonl"]
-    assert "processed=1" in result.stderr
-    assert "Processing song.wav chunk 1/1" in result.stderr
+    assert isinstance(captured["model_console"], cli.Console)
+    stderr = unstyle(result.stderr)
+    assert "processed=1" in stderr
+    assert "Transcribing song.wav" in stderr
+    assert "1/1" in stderr
 
 
 def test_batch_accepts_explicit_preview_none_without_preflight(monkeypatch, tmp_path: Path):
@@ -328,10 +375,18 @@ def test_runtime_failure_exits_one_and_interrupt_exits_130(monkeypatch, tmp_path
     source = tmp_path / "song.wav"
     source.write_bytes(b"audio")
     monkeypatch.setattr(cli, "resolve_instruments", lambda _values: ())
-    monkeypatch.setattr(cli, "load_model", lambda _options: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(
+        cli,
+        "load_model",
+        lambda _options, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
 
     failed = runner.invoke(cli.app, ["transcribe", str(source)])
-    monkeypatch.setattr(cli, "load_model", lambda _options: (_ for _ in ()).throw(KeyboardInterrupt()))
+    monkeypatch.setattr(
+        cli,
+        "load_model",
+        lambda _options, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
     interrupted = runner.invoke(cli.app, ["transcribe", str(source)])
 
     assert failed.exit_code == 1

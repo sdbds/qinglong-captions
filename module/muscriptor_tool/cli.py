@@ -9,7 +9,11 @@ from typing import List, Optional
 
 import click
 import typer
+from rich.console import Console
+from rich.markup import escape
 from typer.core import TyperArgument, TyperOption
+
+from utils.rich_progress import create_caption_progress
 
 from .auralization import preflight_preview
 from .batch import default_output_dir, run_batch
@@ -176,8 +180,58 @@ def _parameter_error(exc: BaseException) -> None:
     raise typer.BadParameter(str(exc)) from exc
 
 
-def _runtime_failure(exc: BaseException) -> None:
-    typer.echo(f"Error: {exc}", err=True)
+def _stderr_console() -> Console:
+    return Console(
+        file=click.get_text_stream("stderr"),
+        color_system="truecolor",
+        force_terminal=True,
+    )
+
+
+class _ChunkProgressReporter:
+    def __init__(self, console: Console):
+        self._progress = create_caption_progress(console, transient=False, expand=True)
+        self._task_id: int | None = None
+        self._label: str | None = None
+        self._started = False
+
+    def __enter__(self) -> "_ChunkProgressReporter":
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback) -> bool:
+        if self._started:
+            self._progress.stop()
+        return False
+
+    def update(self, label: str, completed: int, total: int) -> None:
+        if not self._started:
+            self._progress.start()
+            self._started = True
+        description = f"[bold cyan]Transcribing[/bold cyan] {escape(label)}"
+        if self._task_id is None:
+            self._task_id = self._progress.add_task(
+                description,
+                total=total,
+                completed=completed,
+            )
+            self._label = label
+            return
+        self._progress.update(
+            self._task_id,
+            description=description if label != self._label else None,
+            completed=completed,
+            total=total,
+        )
+        self._label = label
+
+
+def _runtime_failure(exc: BaseException, *, console: Console | None = None) -> None:
+    (console or _stderr_console()).print(
+        f"Error: {exc}",
+        style="red",
+        markup=False,
+        highlight=False,
+    )
     raise typer.Exit(code=1) from exc
 
 
@@ -235,33 +289,49 @@ def transcribe(
     except (TypeError, ValueError) as exc:
         _parameter_error(exc)
 
+    console = _stderr_console()
     try:
-        preview_runtime = preflight_preview(request) if request is not None else None
-        typer.echo(
-            f"Loading official MuScriptor {options.model.value} model on {options.device}",
-            err=True,
+        chunk_progress = _ChunkProgressReporter(console)
+        with chunk_progress:
+            preview_runtime = preflight_preview(request) if request is not None else None
+            console.print(
+                f"Loading official MuScriptor {options.model.value} model on {options.device}",
+                style="cyan",
+                markup=False,
+                highlight=False,
+            )
+            loaded = load_model(options, console=console)
+            result = transcribe_once(
+                loaded,
+                source,
+                options,
+                _single_targets(output_format, output_path),
+                stderr=click.get_text_stream("stderr"),
+                progress_callback=lambda completed, total: chunk_progress.update(
+                    source.name,
+                    completed,
+                    total,
+                ),
+                preview_runtime=preview_runtime,
+                preview_target=preview_path,
+            )
+        console.print(
+            f"Resolved device: {loaded.resolved_device}",
+            style="cyan",
+            markup=False,
+            highlight=False,
         )
-        loaded = load_model(options)
-        result = transcribe_once(
-            loaded,
-            source,
-            options,
-            _single_targets(output_format, output_path),
-            stderr=click.get_text_stream("stderr"),
-            progress_callback=lambda completed, total: typer.echo(
-                f"chunk {completed}/{total}",
-                err=True,
-            ),
-            preview_runtime=preview_runtime,
-            preview_target=preview_path,
-        )
-        typer.echo(f"Resolved device: {loaded.resolved_device}", err=True)
         for warning in result.warnings:
-            typer.echo(f"Warning: {warning}", err=True)
+            console.print(
+                f"Warning: {warning}",
+                style="yellow",
+                markup=False,
+                highlight=False,
+            )
     except KeyboardInterrupt:
         raise typer.Exit(code=130) from None
     except Exception as exc:
-        _runtime_failure(exc)
+        _runtime_failure(exc, console=console)
 
 
 @app.command("batch")
@@ -328,14 +398,18 @@ def batch_command(
     except (TypeError, ValueError) as exc:
         _parameter_error(exc)
 
+    console = _stderr_console()
     try:
-        summary = run_batch(
-            input_path,
-            default_output_dir(input_path) if output_dir is None else output_dir,
-            options,
-            log_callback=lambda message: typer.echo(message, err=True),
-        )
-        typer.echo(
+        with _ChunkProgressReporter(console) as chunk_progress:
+            summary = run_batch(
+                input_path,
+                default_output_dir(input_path) if output_dir is None else output_dir,
+                options,
+                model_loader=lambda model_options: load_model(model_options, console=console),
+                log_callback=lambda message: console.print(message, markup=False, highlight=False),
+                chunk_progress_callback=chunk_progress.update,
+            )
+        console.print(
             " ".join(
                 (
                     f"discovered={summary.discovered}",
@@ -346,7 +420,9 @@ def batch_command(
                     f"elapsed={summary.elapsed_seconds:.3f}s",
                 )
             ),
-            err=True,
+            style="bold",
+            markup=False,
+            highlight=False,
         )
         if summary.exit_code:
             raise typer.Exit(code=summary.exit_code)
@@ -355,7 +431,7 @@ def batch_command(
     except typer.Exit:
         raise
     except Exception as exc:
-        _runtime_failure(exc)
+        _runtime_failure(exc, console=console)
 
 
 @app.command("list-instruments")

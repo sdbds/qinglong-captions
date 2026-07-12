@@ -32,6 +32,7 @@ class _FakeSelect:
     def __init__(self):
         self.props_calls = []
         self.on_calls = []
+        self.slot_calls = []
         self.on_value_change_handler = None
 
     def classes(self, *_args, **_kwargs):
@@ -47,6 +48,10 @@ class _FakeSelect:
 
     def on_value_change(self, handler):
         self.on_value_change_handler = handler
+        return self
+
+    def add_slot(self, name, template):
+        self.slot_calls.append((name, template))
         return self
 
 
@@ -126,3 +131,23 @@ def test_styled_select_supports_project_styled_multiple_values():
 
     assert fake_ui.select_kwargs[-1]["multiple"] is True
     assert any("use-chips" in props for props in fake_select.props_calls)
+
+
+def test_styled_select_can_render_per_option_icons():
+    advanced_inputs = _load_advanced_inputs("test_advanced_inputs_option_icons")
+    fake_select = _FakeSelect()
+    advanced_inputs.ui = _FakeUI(fake_select)
+
+    advanced_inputs.styled_select(
+        options={"acoustic_piano": "Acoustic Piano", "voice": "Voice"},
+        value=[],
+        label="",
+        multiple=True,
+        option_icons={"acoustic_piano": "piano", "voice": "mic"},
+    )
+
+    assert len(fake_select.slot_calls) == 1
+    slot_name, template = fake_select.slot_calls[0]
+    assert slot_name == "option"
+    assert '["piano", "mic"][props.opt.value]' in template
+    assert "props.opt.label" in template

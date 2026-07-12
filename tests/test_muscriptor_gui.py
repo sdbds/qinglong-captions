@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from gui.utils.i18n import I18n, get_i18n, set_language
 from gui.wizard import step6_tools
 from module.muscriptor_tool.catalog import (
     MUSCRIPTOR_INSTRUMENT_CATALOG_VERSION,
@@ -56,6 +57,9 @@ def test_music_transcription_tool_renders_complete_controls():
     step._render_music_transcription_tool()
 
     assert step.music_transcription_input.selection_type == "file_or_dir"
+    assert step.music_transcription_input.placeholder == step6_tools.t(
+        "music_transcription_input_placeholder"
+    )
     assert step.music_transcription_model.value == "large"
     assert step.music_transcription_model.options == {
         "small": "MuScriptor/muscriptor-small",
@@ -65,6 +69,8 @@ def test_music_transcription_tool_renders_complete_controls():
     assert step.music_transcription_output_formats.value == ["midi"]
     assert step.music_transcription_preview_format.value == "mp3"
     assert tuple(step.music_transcription_instruments.options) == OFFICIAL_INSTRUMENT_NAMES
+    assert "option" in step.music_transcription_instruments.slots
+    assert "props.opt.value" in step.music_transcription_instruments.slots["option"].template
     assert not hasattr(step, "music_transcription_output")
 
 
@@ -189,11 +195,37 @@ def test_pinned_instrument_catalog_is_immediately_available_without_runtime_prob
     assert MUSCRIPTOR_INSTRUMENT_CATALOG_VERSION == "0.2.1"
     assert len(OFFICIAL_INSTRUMENT_NAMES) == 35
     assert len(set(OFFICIAL_INSTRUMENT_NAMES)) == 35
-    assert tuple(step.MUSCRIPTOR_INSTRUMENT_OPTIONS) == OFFICIAL_INSTRUMENT_NAMES
+    assert tuple(step._music_transcription_instrument_options()) == OFFICIAL_INSTRUMENT_NAMES
+    assert tuple(step6_tools.MUSCRIPTOR_INSTRUMENT_ICONS) == OFFICIAL_INSTRUMENT_NAMES
     assert step.config["music_transcription_instrument_mode"] == "specify"
     assert container.visible is True
     assert not hasattr(step, "_music_transcription_instrument_loading")
     assert not hasattr(step, "_ensure_music_instruments")
+
+
+def test_music_transcription_instruments_are_localized_in_all_gui_languages():
+    acoustic_piano_labels = {
+        "en": "Acoustic Piano",
+        "zh": "原声钢琴",
+        "ja": "アコースティックピアノ",
+        "ko": "어쿠스틱 피아노",
+    }
+    audio_terms = {"en": "audio", "zh": "音频", "ja": "音声", "ko": "오디오"}
+
+    original_language = get_i18n().lang
+    try:
+        for lang in ("en", "zh", "ja", "ko"):
+            i18n = I18n(lang)
+            names = i18n.t("music_transcription_instrument_names")
+            set_language(lang)
+
+            assert step6_tools.ToolsStep._music_transcription_instrument_options() == names
+            assert tuple(names) == OFFICIAL_INSTRUMENT_NAMES
+            assert all(names[name] != name for name in OFFICIAL_INSTRUMENT_NAMES)
+            assert names["acoustic_piano"] == acoustic_piano_labels[lang]
+            assert audio_terms[lang] in i18n.t("music_transcription_input_placeholder").lower()
+    finally:
+        set_language(original_language)
 
 
 def test_importing_tools_step_does_not_import_torch_or_muscriptor():

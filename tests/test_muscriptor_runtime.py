@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -75,6 +76,38 @@ def test_load_model_passes_only_official_variant():
     assert loaded.package_version == "0.2.1"
 
 
+def test_load_model_uses_project_rich_hugging_face_reporting(monkeypatch):
+    from module.muscriptor_tool import runtime
+
+    messages: list[str] = []
+    reporting = []
+
+    class FakeConsole:
+        def print(self, message):
+            messages.append(str(message))
+
+    @contextmanager
+    def fake_download_progress(console):
+        reporting.append(("enter", console))
+        yield
+        reporting.append(("exit", console))
+
+    console = FakeConsole()
+    monkeypatch.setattr(runtime, "_hf_download_progress", fake_download_progress)
+
+    runtime.load_model(
+        TranscriptionOptions(model=ModelVariant.MEDIUM, device="cpu"),
+        upstream=fake_bindings(),
+        console=console,
+    )
+
+    assert reporting == [("enter", console), ("exit", console)]
+    assert messages == [
+        "[cyan]Resolving Hugging Face model:[/cyan] MuScriptor/muscriptor-medium",
+        "[green]Hugging Face model ready:[/green] MuScriptor/muscriptor-medium",
+    ]
+
+
 def test_auto_device_resolves_cuda_zero_when_available():
     from module.muscriptor_tool.runtime import resolve_device
 
@@ -126,6 +159,59 @@ def test_loaded_model_forwards_normalized_transcription_options():
     assert calls[0]["instruments"] == ["piano"]
     assert calls[0]["cfg_coef"] == 1.25
     assert loaded.midi_bytes(()) == b"MThd\x00"
+
+
+def test_loaded_model_filters_native_timing_noise_but_preserves_other_stderr(capsys):
+    from module.muscriptor_tool.runtime import LoadedModel
+
+    class Model:
+        def transcribe(self, **_kwargs):
+            print("[muscriptor] load audio: 1.09s", file=sys.stderr)
+            print("upstream diagnostic", file=sys.stderr)
+            yield SimpleNamespace(value="event")
+
+    loaded = LoadedModel(
+        model=Model(),
+        package_version="0.2.1",
+        requested_device="cpu",
+        resolved_device="cpu",
+        progress_event_type=type("ProgressEvent", (), {}),
+    )
+
+    assert len(list(loaded.transcribe(SimpleNamespace(), TranscriptionOptions()))) == 1
+    captured = capsys.readouterr()
+    assert "[muscriptor]" not in captured.err
+    assert "upstream diagnostic" in captured.err
+
+
+def test_loaded_model_closes_upstream_generator_when_consumer_stops_early(capsys):
+    from module.muscriptor_tool.runtime import LoadedModel
+
+    state = {"closed": False}
+
+    class Model:
+        def transcribe(self, **_kwargs):
+            try:
+                yield SimpleNamespace(value="first")
+                yield SimpleNamespace(value="second")
+            finally:
+                state["closed"] = True
+                print("[muscriptor] close timing", file=sys.stderr)
+
+    loaded = LoadedModel(
+        model=Model(),
+        package_version="0.2.1",
+        requested_device="cpu",
+        resolved_device="cpu",
+        progress_event_type=type("ProgressEvent", (), {}),
+    )
+    events = loaded.transcribe(SimpleNamespace(), TranscriptionOptions())
+
+    assert next(events).value == "first"
+    events.close()
+
+    assert state["closed"] is True
+    assert "[muscriptor]" not in capsys.readouterr().err
 
 
 def test_gated_download_error_becomes_actionable_model_access_error():

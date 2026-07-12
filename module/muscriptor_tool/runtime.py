@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import importlib.metadata
+import io
+import sys
+from contextlib import nullcontext, redirect_stderr
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -35,10 +38,45 @@ class LoadedModel:
     progress_event_type: type
 
     def transcribe(self, source: Path, options: TranscriptionOptions):
-        return self.model.transcribe(audio=source, **options.upstream_kwargs())
+        events = iter(self.model.transcribe(audio=source, **options.upstream_kwargs()))
+        try:
+            while True:
+                captured = io.StringIO()
+                try:
+                    with redirect_stderr(captured):
+                        event = next(events)
+                except StopIteration:
+                    _relay_upstream_diagnostics(captured.getvalue(), sys.stderr)
+                    return
+                except BaseException:
+                    _relay_upstream_diagnostics(captured.getvalue(), sys.stderr)
+                    raise
+                _relay_upstream_diagnostics(captured.getvalue(), sys.stderr)
+                yield event
+        finally:
+            close = getattr(events, "close", None)
+            if callable(close):
+                captured = io.StringIO()
+                try:
+                    with redirect_stderr(captured):
+                        close()
+                finally:
+                    _relay_upstream_diagnostics(captured.getvalue(), sys.stderr)
 
     def midi_bytes(self, events: Iterable[Any]) -> bytes:
         return self.model.events_to_midi_bytes(iter(events))
+
+
+def _relay_upstream_diagnostics(output: str, target: Any) -> None:
+    retained = [
+        line
+        for line in output.splitlines(keepends=True)
+        if not line.lstrip().startswith("[muscriptor]")
+    ]
+    if not retained:
+        return
+    target.write("".join(retained))
+    target.flush()
 
 
 def _import_upstream() -> UpstreamBindings:
@@ -101,25 +139,43 @@ def _is_model_access_error(exc: BaseException) -> bool:
     )
 
 
+def _hf_download_progress(console: Any | None):
+    if console is None:
+        return nullcontext()
+
+    from utils.transformer_loader import hf_download_reporting
+
+    return hf_download_reporting(console)
+
+
 def load_model(
     options: TranscriptionOptions,
     *,
     upstream: UpstreamBindings | None = None,
+    console: Any | None = None,
 ) -> LoadedModel:
     bindings = upstream or _import_upstream()
     resolved_device = resolve_device(options.device, bindings.torch)
+    repo_id = options.model.repo_id
+    if console is not None:
+        console.print(f"[cyan]Resolving Hugging Face model:[/cyan] {repo_id}")
     try:
-        model = bindings.model_cls.load_model(
-            weights_path=options.model.value,
-            device=resolved_device,
-        )
+        with _hf_download_progress(console):
+            model = bindings.model_cls.load_model(
+                weights_path=options.model.value,
+                device=resolved_device,
+            )
     except Exception as exc:
+        if console is not None:
+            console.print(f"[red]Failed to load Hugging Face model:[/red] {repo_id}")
         if not _is_model_access_error(exc):
             raise
         raise ModelAccessError(
-            f"Cannot access official model https://huggingface.co/{options.model.repo_id}. "
+            f"Cannot access official model https://huggingface.co/{repo_id}. "
             "Accept its Hugging Face terms, then run `hf auth login`."
         ) from exc
+    if console is not None:
+        console.print(f"[green]Hugging Face model ready:[/green] {repo_id}")
 
     actual_device = str(getattr(model, "_device", resolved_device))
     return LoadedModel(

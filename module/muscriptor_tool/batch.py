@@ -298,6 +298,7 @@ def run_batch(
     package_version: str | None = None,
     resolved_device: str | None = None,
     log_callback: Callable[[str], None] | None = None,
+    chunk_progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> BatchSummary:
     options = options or BatchOptions()
     model_loader = model_loader or load_model
@@ -417,9 +418,18 @@ def run_batch(
                     if preview_runtime is not None
                     else {}
                 )
-                if log_callback is not None:
+                relative_path = item.relative_path.as_posix()
+                if chunk_progress_callback is not None:
                     kwargs["progress_callback"] = (
-                        lambda completed, total, relative=item.relative_path.as_posix(): log_callback(
+                        lambda completed, total, relative=relative_path: chunk_progress_callback(
+                            relative,
+                            completed,
+                            total,
+                        )
+                    )
+                elif log_callback is not None:
+                    kwargs["progress_callback"] = (
+                        lambda completed, total, relative=relative_path: log_callback(
                             f"Processing {relative} chunk {completed}/{total}"
                         )
                     )

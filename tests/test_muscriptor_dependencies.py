@@ -67,3 +67,23 @@ def test_powershell_wrapper_uses_incremental_extra_install_and_forwards_argument
     assert "@Arguments" in wrapper
     assert "uv run" not in wrapper
     assert "Read-Host" not in wrapper
+
+
+def test_readmes_document_official_models_and_preview_boundary():
+    readme_guides = {
+        "README.md": "docs/tools/muscriptor.en.md",
+        "README.zh-CN.md": "docs/tools/muscriptor.md",
+    }
+
+    for readme_path, guide_path in readme_guides.items():
+        readme = (ROOT / readme_path).read_text(encoding="utf-8")
+        guide = (ROOT / guide_path).read_text(encoding="utf-8")
+        combined = f"{readme}\n{guide}"
+
+        assert "MuScriptor" in readme, readme_path
+        assert "FluidSynth" in readme, readme_path
+        assert "fluidsynth --version" in readme, readme_path
+        assert all(model in combined for model in ("small", "medium", "large")), guide_path
+        assert "MIDI" in combined and "JSONL" in combined, guide_path
+        assert "SoundFont" in combined, guide_path
+        assert "muscriptor-local" in combined, guide_path
