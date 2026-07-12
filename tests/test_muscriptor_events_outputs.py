@@ -186,3 +186,36 @@ def test_stdout_stream_targets_do_not_require_temporary_files(tmp_path: Path):
     assert len(jsonl_stream.getvalue().splitlines()) == 2
     assert result.outputs == {"midi": "-", "json": "-", "jsonl": "-"}
     assert list(tmp_path.iterdir()) == []
+
+
+def test_preview_failure_exposes_completed_symbolic_result(tmp_path: Path):
+    from module.muscriptor_tool.auralization import PreviewRuntime
+    from module.muscriptor_tool.options import PreviewContent, PreviewFormat, PreviewRequest
+    from module.muscriptor_tool.outputs import OutputTargets, RequestedOutputError, transcribe_once
+
+    note_start = start()
+    loaded = FakeLoadedModel([note_start, end(note_start)])
+    targets = OutputTargets.for_directory(tmp_path, (OutputFormat.MIDI,))
+    preview_runtime = PreviewRuntime(
+        PreviewRequest(PreviewContent.MIDI, PreviewFormat.WAV),
+        tmp_path / "MuseScore_General.sf2",
+    )
+
+    def fail_preview(*_args, **_kwargs):
+        raise RuntimeError("FluidSynth failed")
+
+    with pytest.raises(RequestedOutputError, match="preview") as raised:
+        transcribe_once(
+            loaded,
+            Path("song.wav"),
+            TranscriptionOptions(),
+            targets,
+            preview_runtime=preview_runtime,
+            preview_target=tmp_path / "preview.wav",
+            preview_renderer=fail_preview,
+        )
+
+    assert raised.value.result.note_count == 1
+    assert raised.value.result.event_count == 2
+    assert raised.value.result.outputs == {"midi": str(tmp_path / "transcription.mid")}
+    assert (tmp_path / "transcription.mid").is_file()

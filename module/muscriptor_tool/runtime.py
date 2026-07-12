@@ -117,7 +117,7 @@ def load_model(
         if not _is_model_access_error(exc):
             raise
         raise ModelAccessError(
-            f"Cannot access official model {options.model.repo_id}. "
+            f"Cannot access official model https://huggingface.co/{options.model.repo_id}. "
             "Accept its Hugging Face terms, then run `hf auth login`."
         ) from exc
 

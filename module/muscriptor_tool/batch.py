@@ -22,7 +22,6 @@ from .options import BatchOptions, OutputFormat
 from .outputs import OutputTargets, TranscriptionResult, transcribe_once
 from .runtime import load_model, resolve_device
 
-
 SUPPORTED_AUDIO_EXTENSIONS = frozenset({".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac"})
 DEFAULT_OUTPUT_DIR = Path("workspace/muscriptor_output")
 
@@ -174,8 +173,29 @@ def _metadata_payload(
     result: TranscriptionResult | None,
     outputs: dict[str, str],
     error: BaseException | None,
+    preview_runtime: Any | None,
 ) -> dict[str, Any]:
     stat = item.source_path.stat()
+    preview_payload = options.preview.as_dict() if options.preview else None
+    if preview_payload is not None:
+        soundfont_path = getattr(preview_runtime, "soundfont_path", None)
+        soundfont = {
+            "source": "default",
+            "signature_id": str(
+                getattr(preview_runtime, "renderer_id", "muscriptor-0.2.1:SF2_URL")
+            ),
+        }
+        if soundfont_path is not None:
+            resolved_soundfont = Path(soundfont_path).expanduser().resolve()
+            soundfont_stat = resolved_soundfont.stat()
+            soundfont.update(
+                {
+                    "resolved_path": str(resolved_soundfont),
+                    "size": soundfont_stat.st_size,
+                    "mtime_ns": soundfont_stat.st_mtime_ns,
+                }
+            )
+        preview_payload["soundfont"] = soundfont
     return {
         "schema_version": SCHEMA_VERSION,
         "source_path": item.relative_path.as_posix(),
@@ -191,7 +211,13 @@ def _metadata_payload(
         "options": {
             **options.transcription.as_dict(),
             "output_formats": [item.value for item in options.output_formats],
-            "preview": options.preview.as_dict() if options.preview else None,
+            "preview": preview_payload,
+        },
+        "representation": {
+            "fields": ["onset", "offset", "pitch", "instrument"],
+            "velocity": "not_transcribed",
+            "same_pitch_overlap": "not_representable",
+            "drums": "onset_only_with_minimum_duration",
         },
         "note_count": result.note_count if result else 0,
         "event_count": result.event_count if result else 0,
@@ -200,7 +226,11 @@ def _metadata_payload(
         "warnings": list(result.warnings) if result else [],
         "elapsed_seconds": round(elapsed_seconds, 6),
         "error": (
-            {"type": type(error).__name__, "message": str(error)}
+            {
+                "type": type(error).__name__,
+                "stage": "transcription_or_output",
+                "message": str(error),
+            }
             if error is not None
             else None
         ),
@@ -214,6 +244,8 @@ def _manifest_payload(
     options: BatchOptions,
     summary: BatchSummary,
     started_at: datetime,
+    package_version: str | None,
+    resolved_device: str | None,
     run_error: BaseException | None = None,
 ) -> dict[str, Any]:
     return {
@@ -222,6 +254,10 @@ def _manifest_payload(
         "finished_at": datetime.now(timezone.utc).isoformat(),
         "input_path": str(Path(input_path)),
         "output_dir": str(Path(output_dir)),
+        "muscriptor_version": package_version,
+        "model_variant": options.transcription.model.value,
+        "requested_device": options.transcription.device,
+        "resolved_device": resolved_device,
         "options": options.as_dict(),
         "counts": {
             "discovered": summary.discovered,
@@ -233,7 +269,11 @@ def _manifest_payload(
         "items": [item.__dict__ for item in summary.items],
         "elapsed_seconds": round(summary.elapsed_seconds, 6),
         "error": (
-            {"type": type(run_error).__name__, "message": str(run_error)}
+            {
+                "type": type(run_error).__name__,
+                "stage": "batch_setup_or_model",
+                "message": str(run_error),
+            }
             if run_error is not None
             else None
         ),
@@ -250,6 +290,7 @@ def run_batch(
     preview_preflight: Callable[..., Any] | None = None,
     package_version: str | None = None,
     resolved_device: str | None = None,
+    log_callback: Callable[[str], None] | None = None,
 ) -> BatchSummary:
     options = options or BatchOptions()
     model_loader = model_loader or load_model
@@ -273,6 +314,8 @@ def run_batch(
         if not items:
             raise ValueError(f"No supported audio files found: {input_path}")
         summary.discovered = len(items)
+        if log_callback is not None:
+            log_callback(f"Discovered {summary.discovered} supported audio file(s)")
         package_version = package_version or _default_package_version()
         resolved_device = resolved_device or _default_resolved_device(options.transcription.device)
         requested_names = _requested_names(options)
@@ -296,6 +339,8 @@ def run_batch(
                 )
             ):
                 summary.skipped += 1
+                if log_callback is not None:
+                    log_callback(f"Skipping completed input: {item.relative_path.as_posix()}")
                 summary.items.append(
                     BatchItemResult(
                         source=item.relative_path.as_posix(),
@@ -307,6 +352,8 @@ def run_batch(
             pending.append((item, signature))
 
         if not pending:
+            if log_callback is not None:
+                log_callback("All discovered inputs are already complete")
             summary.elapsed_seconds = time.perf_counter() - start_clock
             return summary
 
@@ -316,20 +363,33 @@ def run_batch(
                 from .auralization import preflight_preview
 
                 preview_preflight = preflight_preview
+            if log_callback is not None:
+                log_callback(
+                    f"Checking {options.preview.content.value} {options.preview.format.value} preview runtime"
+                )
             preview_runtime = preview_preflight(options.preview)
 
         try:
+            if log_callback is not None:
+                log_callback(
+                    f"Loading official MuScriptor {options.transcription.model.value} model on {resolved_device}"
+                )
             loaded = model_loader(options.transcription)
-        except BaseException as exc:
+        except Exception as exc:
             run_error = exc
             summary.failed = len(pending)
+            if log_callback is not None:
+                log_callback(f"Model load failed: {type(exc).__name__}: {exc}")
             raise
+        if log_callback is not None:
+            log_callback(f"Resolved device: {getattr(loaded, 'resolved_device', resolved_device)}")
 
         for item, signature in pending:
             item_started = time.perf_counter()
             item_dir = item_output_dir(output_dir, item)
             item_dir.mkdir(parents=True, exist_ok=True)
             cleanup_temporary_outputs(item_dir)
+            prune_known_outputs(item_dir, requested_names=set())
             targets = OutputTargets.for_directory(item_dir, options.output_formats)
             preview_target = (
                 item_dir / f"preview.{options.preview.format.value}"
@@ -339,12 +399,20 @@ def run_batch(
             result: TranscriptionResult | None = None
             error: BaseException | None = None
             status = "ok"
+            if log_callback is not None:
+                log_callback(f"Processing input: {item.relative_path.as_posix()}")
             try:
                 kwargs = (
                     {"preview_runtime": preview_runtime, "preview_target": preview_target}
                     if preview_runtime is not None
                     else {}
                 )
+                if log_callback is not None:
+                    kwargs["progress_callback"] = (
+                        lambda completed, total, relative=item.relative_path.as_posix(): log_callback(
+                            f"Processing {relative} chunk {completed}/{total}"
+                        )
+                    )
                 result = transcriber(loaded, item.source_path, options.transcription, targets, **kwargs)
                 missing = [name for name in requested_names if not (item_dir / name).is_file()]
                 if missing:
@@ -352,8 +420,15 @@ def run_batch(
                 prune_known_outputs(item_dir, requested_names=requested_names)
                 outputs = _relative_outputs(result, item_dir)
                 summary.processed += 1
-            except BaseException as exc:
+                if log_callback is not None:
+                    log_callback(
+                        f"Completed {item.relative_path.as_posix()}: {', '.join(sorted(outputs.values()))}"
+                    )
+            except Exception as exc:
                 error = exc
+                partial_result = getattr(exc, "result", None)
+                if isinstance(partial_result, TranscriptionResult):
+                    result = partial_result
                 outputs = _existing_outputs(targets, item_dir, preview_target)
                 if outputs:
                     status = "partial"
@@ -361,6 +436,11 @@ def run_batch(
                 else:
                     status = "failed"
                     summary.failed += 1
+                if log_callback is not None:
+                    log_callback(
+                        f"Failed {item.relative_path.as_posix()} during transcription_or_output: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
 
             metadata_path = item_dir / "metadata.json"
             atomic_write_json(
@@ -377,6 +457,7 @@ def run_batch(
                     result=result,
                     outputs=outputs,
                     error=error,
+                    preview_runtime=preview_runtime,
                 ),
             )
             summary.items.append(
@@ -407,6 +488,8 @@ def run_batch(
                     options=options,
                     summary=summary,
                     started_at=started_at,
+                    package_version=package_version,
+                    resolved_device=resolved_device,
                     run_error=run_error,
                 ),
             )

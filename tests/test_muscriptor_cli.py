@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 import json
+import math
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from typer.testing import CliRunner
 
 from module.muscriptor_tool import cli
 
 runner = CliRunner()
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_transcribe_help_exposes_model_capabilities_without_custom_sources():
@@ -72,6 +81,9 @@ def _install_single_backend(monkeypatch, calls: list[str]) -> None:
 
     def transcribe(_loaded, _source, _options, targets, **kwargs):
         calls.append("transcribe")
+        progress_callback = kwargs.get("progress_callback")
+        if progress_callback is not None:
+            progress_callback(1, 2)
         for name, target in targets.requested_paths().items():
             target.parent.mkdir(parents=True, exist_ok=True)
             if name == "midi":
@@ -83,6 +95,9 @@ def _install_single_backend(monkeypatch, calls: list[str]) -> None:
         if targets.jsonl_stream is not None:
             targets.jsonl_stream.write('{"type":"start"}\n')
             targets.jsonl_stream.flush()
+        if targets.midi_stream is not None:
+            targets.midi_stream.write(b"MThd")
+            targets.midi_stream.flush()
         preview_target = kwargs.get("preview_target")
         if preview_target is not None:
             preview_target.write_bytes(b"preview")
@@ -109,6 +124,7 @@ def test_jsonl_stdout_stays_machine_readable_with_preview(monkeypatch, tmp_path:
     assert result.exit_code == 0, result.stdout
     assert [json.loads(line) for line in result.stdout.splitlines()] == [{"type": "start"}]
     assert "Loading model" not in result.stdout
+    assert "chunk 1/2" in result.stderr
     assert preview.read_bytes() == b"preview"
     assert calls == ["resolve", "preflight", "load", "transcribe"]
 
@@ -127,6 +143,43 @@ def test_input_main_output_and_preview_must_be_distinct(tmp_path: Path):
     assert same_preview.exit_code == 2
 
 
+def test_default_output_is_written_next_to_input_with_selected_extension(monkeypatch, tmp_path: Path):
+    calls: list[str] = []
+    _install_single_backend(monkeypatch, calls)
+    source = tmp_path / "song.wav"
+    source.write_bytes(b"audio")
+
+    result = runner.invoke(cli.app, ["transcribe", str(source), "--format", "json"])
+
+    assert result.exit_code == 0, result.stderr
+    assert json.loads((tmp_path / "song.json").read_text(encoding="utf-8")) == [{"type": "start"}]
+
+
+def test_midi_stdout_is_binary_and_contains_no_logs(monkeypatch, tmp_path: Path):
+    calls: list[str] = []
+    _install_single_backend(monkeypatch, calls)
+    source = tmp_path / "song.wav"
+    source.write_bytes(b"audio")
+
+    result = runner.invoke(cli.app, ["transcribe", str(source), "--output", "-"])
+
+    assert result.exit_code == 0
+    assert result.stdout_bytes == b"MThd"
+    assert b"Loading" not in result.stdout_bytes
+    assert "Loading official MuScriptor" in result.stderr
+
+
+def test_preview_mode_without_preview_and_preview_format_while_off_are_parameter_errors(tmp_path: Path):
+    source = tmp_path / "song.wav"
+    source.write_bytes(b"audio")
+
+    single = runner.invoke(cli.app, ["transcribe", str(source), "--preview-mode", "midi"])
+    batch = runner.invoke(cli.app, ["batch", str(source), "--preview-format", "wav"])
+
+    assert single.exit_code == 2
+    assert batch.exit_code == 2
+
+
 def test_single_rejects_non_official_model_and_invalid_preview_extension(tmp_path: Path):
     source = tmp_path / "song.wav"
     source.write_bytes(b"audio")
@@ -141,6 +194,18 @@ def test_single_rejects_non_official_model_and_invalid_preview_extension(tmp_pat
     assert bad_preview.exit_code == 2
 
 
+def test_invalid_instrument_is_a_parameter_error_before_model_loading(monkeypatch, tmp_path: Path):
+    source = tmp_path / "song.wav"
+    source.write_bytes(b"audio")
+    monkeypatch.setattr(cli, "resolve_instruments", lambda _values: (_ for _ in ()).throw(ValueError("unknown instrument")))
+    monkeypatch.setattr(cli, "load_model", lambda _options: (_ for _ in ()).throw(AssertionError("model loaded")))
+
+    result = runner.invoke(cli.app, ["transcribe", str(source), "--instruments", "unknown"])
+
+    assert result.exit_code == 2
+    assert "unknown instrument" in result.stderr
+
+
 def test_batch_normalizes_repeatable_formats_and_omits_auto_batch_size(monkeypatch, tmp_path: Path):
     captured = {}
     source = tmp_path / "inputs"
@@ -149,8 +214,9 @@ def test_batch_normalizes_repeatable_formats_and_omits_auto_batch_size(monkeypat
 
     monkeypatch.setattr(cli, "resolve_instruments", lambda values: tuple(values))
 
-    def fake_run(input_path, output_dir, options):
-        captured.update(input_path=input_path, output_dir=output_dir, options=options)
+    def fake_run(input_path, output_dir, options, **kwargs):
+        captured.update(input_path=input_path, output_dir=output_dir, options=options, kwargs=kwargs)
+        kwargs["log_callback"]("Processing song.wav chunk 1/1")
         return SimpleNamespace(
             discovered=1,
             processed=1,
@@ -182,6 +248,7 @@ def test_batch_normalizes_repeatable_formats_and_omits_auto_batch_size(monkeypat
     assert captured["options"].transcription.batch_size is None
     assert [item.value for item in captured["options"].output_formats] == ["json", "jsonl"]
     assert "processed=1" in result.stderr
+    assert "Processing song.wav chunk 1/1" in result.stderr
 
 
 def test_batch_accepts_explicit_preview_none_without_preflight(monkeypatch, tmp_path: Path):
@@ -190,7 +257,7 @@ def test_batch_accepts_explicit_preview_none_without_preflight(monkeypatch, tmp_
     captured = {}
     monkeypatch.setattr(cli, "resolve_instruments", lambda values: tuple(values))
 
-    def fake_run(_input_path, _output_dir, options):
+    def fake_run(_input_path, _output_dir, options, **_kwargs):
         captured["preview"] = options.preview
         return SimpleNamespace(
             discovered=1,
@@ -237,3 +304,185 @@ def test_runtime_failure_exits_one_and_interrupt_exits_130(monkeypatch, tmp_path
     assert failed.exit_code == 1
     assert "boom" in failed.stderr
     assert interrupted.exit_code == 130
+
+
+def _real_smoke_python() -> str:
+    python_path = os.getenv("MUSCRIPTOR_SMOKE_PYTHON", sys.executable)
+    probe = subprocess.run(
+        [
+            python_path,
+            "-c",
+            "import importlib.metadata as m; print(m.version('muscriptor'))",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if probe.returncode != 0 or probe.stdout.strip() != "0.2.1":
+        pytest.fail(
+            "MUSCRIPTOR_SMOKE requires a muscriptor-local Python. Set "
+            "MUSCRIPTOR_SMOKE_PYTHON after installing the profile."
+        )
+    return python_path
+
+
+@pytest.fixture
+def muscriptor_sample_audio(tmp_path: Path) -> Path:
+    sample_rate = 16_000
+    source = tmp_path / "sample.wav"
+    frames = bytearray()
+    for index in range(sample_rate * 2):
+        sample = int(0.15 * 32767 * math.sin(2 * math.pi * 440 * index / sample_rate))
+        frames.extend(struct.pack("<h", sample))
+    with wave.open(str(source), "wb") as stream:
+        stream.setnchannels(1)
+        stream.setsampwidth(2)
+        stream.setframerate(sample_rate)
+        stream.writeframes(frames)
+    return source
+
+
+@pytest.mark.optional_runtime
+@pytest.mark.network
+@pytest.mark.skipif(os.getenv("MUSCRIPTOR_SMOKE") != "1", reason="requires gated official weights")
+def test_real_small_cpu_midi_smoke(muscriptor_sample_audio: Path, tmp_path: Path):
+    output = tmp_path / "transcription.mid"
+    result = subprocess.run(
+        [
+            _real_smoke_python(),
+            "-m",
+            "module.muscriptor_tool.cli",
+            "transcribe",
+            str(muscriptor_sample_audio),
+            "--model",
+            "small",
+            "--device",
+            "cpu",
+            "--format",
+            "midi",
+            "--output",
+            str(output),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert output.read_bytes().startswith(b"MThd")
+
+
+@pytest.mark.optional_runtime
+@pytest.mark.network
+@pytest.mark.gpu
+@pytest.mark.skipif(os.getenv("MUSCRIPTOR_SMOKE_CUDA") != "1", reason="requires CUDA and gated weights")
+def test_real_cuda_batch_smoke(muscriptor_sample_audio: Path, tmp_path: Path):
+    output_dir = tmp_path / "batch"
+    result = subprocess.run(
+        [
+            _real_smoke_python(),
+            "-m",
+            "module.muscriptor_tool.cli",
+            "batch",
+            str(muscriptor_sample_audio),
+            "--output-dir",
+            str(output_dir),
+            "--model",
+            "small",
+            "--device",
+            "cuda",
+            "--format",
+            "midi",
+            "--format",
+            "jsonl",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (output_dir / "sample.wav" / "transcription.mid").is_file()
+    assert (output_dir / "sample.wav" / "events.jsonl").is_file()
+
+
+@pytest.mark.optional_runtime
+@pytest.mark.network
+@pytest.mark.skipif(
+    os.getenv("MUSCRIPTOR_SMOKE_PREVIEW") != "1" or shutil.which("fluidsynth") is None,
+    reason="requires FluidSynth, gated weights, and the official SoundFont",
+)
+@pytest.mark.parametrize("preview_mode", ("midi", "comparison"))
+def test_real_wav_preview_smoke(muscriptor_sample_audio: Path, tmp_path: Path, preview_mode: str):
+    midi_output = tmp_path / "transcription.mid"
+    preview_output = tmp_path / f"preview-{preview_mode}.wav"
+    result = subprocess.run(
+        [
+            _real_smoke_python(),
+            "-m",
+            "module.muscriptor_tool.cli",
+            "transcribe",
+            str(muscriptor_sample_audio),
+            "--model",
+            "small",
+            "--device",
+            "cpu",
+            "--output",
+            str(midi_output),
+            "--preview",
+            str(preview_output),
+            "--preview-mode",
+            preview_mode,
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert preview_output.read_bytes().startswith(b"RIFF")
+
+
+@pytest.mark.optional_runtime
+@pytest.mark.network
+@pytest.mark.skipif(
+    os.getenv("MUSCRIPTOR_SMOKE_MP3") != "1" or shutil.which("fluidsynth") is None,
+    reason="requires a writable MP3 codec, FluidSynth, gated weights, and the official SoundFont",
+)
+def test_real_midi_mp3_preview_smoke(muscriptor_sample_audio: Path, tmp_path: Path):
+    preview_output = tmp_path / "preview.mp3"
+    result = subprocess.run(
+        [
+            _real_smoke_python(),
+            "-m",
+            "module.muscriptor_tool.cli",
+            "transcribe",
+            str(muscriptor_sample_audio),
+            "--model",
+            "small",
+            "--device",
+            "cpu",
+            "--output",
+            str(tmp_path / "transcription.mid"),
+            "--preview",
+            str(preview_output),
+            "--preview-mode",
+            "midi",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert preview_output.stat().st_size > 0

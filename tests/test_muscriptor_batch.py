@@ -102,7 +102,11 @@ def test_batch_loads_once_and_transcribes_each_pending_file_once(tmp_path: Path)
     assert calls == {"loads": 1, "files": ["a.wav", "b.flac"]}
     assert summary.processed == 2
     assert summary.failed == 0
-    assert (tmp_path / "out" / "manifest.json").exists()
+    manifest = json.loads((tmp_path / "out" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["muscriptor_version"] == "0.2.1"
+    assert manifest["model_variant"] == "medium"
+    assert manifest["requested_device"] == "auto"
+    assert manifest["resolved_device"] == "cpu"
 
 
 def test_all_complete_items_skip_without_model_or_preview_preflight(tmp_path: Path):
@@ -272,6 +276,23 @@ def test_run_signature_changes_with_output_selection(tmp_path: Path):
     )
 
 
+def test_run_signature_treats_symbolic_outputs_as_a_set(tmp_path: Path):
+    from module.muscriptor_tool.batch import discover_inputs
+    from module.muscriptor_tool.manifest import run_signature
+
+    write_audio_tree(tmp_path / "inputs", ("song.wav",))
+    item = discover_inputs(tmp_path / "inputs", output_dir=tmp_path / "out", recursive=True)[0]
+    first = BatchOptions(output_formats=(OutputFormat.MIDI, OutputFormat.JSONL))
+    second = BatchOptions(output_formats=(OutputFormat.JSONL, OutputFormat.MIDI))
+
+    assert run_signature(item, first, package_version="0.2.1", resolved_device="cpu") == run_signature(
+        item,
+        second,
+        package_version="0.2.1",
+        resolved_device="cpu",
+    )
+
+
 def test_preview_preflight_runs_once_and_preview_failure_is_partial(tmp_path: Path):
     from module.muscriptor_tool.batch import run_batch
     from module.muscriptor_tool.options import PreviewContent, PreviewFormat, PreviewRequest
@@ -281,10 +302,16 @@ def test_preview_preflight_runs_once_and_preview_failure_is_partial(tmp_path: Pa
     write_audio_tree(inputs, ("a.wav", "b.wav"))
     calls: dict[str, object] = {"loads": 0, "files": [], "preflight": 0}
     preview = PreviewRequest(PreviewContent.COMPARISON, PreviewFormat.WAV)
+    soundfont = tmp_path / "MuseScore_General.sf2"
+    soundfont.write_bytes(b"sf2")
 
     def preflight(request):
         calls["preflight"] = int(calls["preflight"]) + 1
-        return SimpleNamespace(request=request)
+        return SimpleNamespace(
+            request=request,
+            soundfont_path=soundfont,
+            renderer_id="muscriptor-0.2.1:SF2_URL",
+        )
 
     def transcribe(_loaded, source, _options, targets, *, preview_runtime, preview_target):
         targets.midi.parent.mkdir(parents=True, exist_ok=True)
@@ -319,6 +346,14 @@ def test_preview_preflight_runs_once_and_preview_failure_is_partial(tmp_path: Pa
     assert (output / "a.wav" / "transcription.mid").exists()
     metadata = json.loads((output / "a.wav" / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["status"] == "partial"
+    assert metadata["options"]["preview"]["soundfont"] == {
+        "source": "default",
+        "signature_id": "muscriptor-0.2.1:SF2_URL",
+        "resolved_path": str(soundfont.resolve()),
+        "size": soundfont.stat().st_size,
+        "mtime_ns": soundfont.stat().st_mtime_ns,
+    }
+    assert metadata["representation"]["velocity"] == "not_transcribed"
 
 
 def test_completed_preview_batch_skips_without_rechecking_preview_runtime(tmp_path: Path):
@@ -366,3 +401,74 @@ def test_completed_preview_batch_skips_without_rechecking_preview_runtime(tmp_pa
     )
 
     assert summary.skipped == 1
+
+
+def test_keyboard_interrupt_is_not_downgraded_to_a_file_failure(tmp_path: Path):
+    from module.muscriptor_tool.batch import run_batch
+
+    inputs = tmp_path / "inputs"
+    output = tmp_path / "out"
+    write_audio_tree(inputs, ("a.wav", "b.wav"))
+    calls: dict[str, object] = {"loads": 0, "files": []}
+
+    def interrupt(*_args, **_kwargs):
+        raise KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt):
+        run_batch(
+            inputs,
+            output,
+            BatchOptions(),
+            model_loader=loader_with_calls(calls),
+            transcriber=interrupt,
+            package_version="0.2.1",
+            resolved_device="cpu",
+        )
+
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["error"]["type"] == "KeyboardInterrupt"
+
+
+def test_failed_rerun_does_not_report_stale_outputs_as_partial(tmp_path: Path):
+    from module.muscriptor_tool.batch import run_batch
+
+    inputs = tmp_path / "inputs"
+    output = tmp_path / "out"
+    write_audio_tree(inputs, ("song.wav",))
+    item_dir = output / "song.wav"
+    item_dir.mkdir(parents=True)
+    (item_dir / "transcription.mid").write_bytes(b"old")
+    calls: dict[str, object] = {"loads": 0, "files": []}
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("decode failed")
+
+    summary = run_batch(
+        inputs,
+        output,
+        BatchOptions(overwrite=True),
+        model_loader=loader_with_calls(calls),
+        transcriber=fail,
+        package_version="0.2.1",
+        resolved_device="cpu",
+    )
+
+    assert summary.failed == 1
+    assert summary.partial == 0
+    assert not (item_dir / "transcription.mid").exists()
+
+
+def test_temporary_cleanup_matches_only_tool_nonce_pattern(tmp_path: Path):
+    from module.muscriptor_tool.manifest import cleanup_temporary_outputs
+
+    item_dir = tmp_path / "song.wav"
+    item_dir.mkdir()
+    tool_temp = item_dir / f"transcription.123.{'a' * 32}.part.mid"
+    user_file = item_dir / "transcription.notes.part.user"
+    tool_temp.write_bytes(b"temp")
+    user_file.write_bytes(b"user")
+
+    cleanup_temporary_outputs(item_dir)
+
+    assert not tool_temp.exists()
+    assert user_file.read_bytes() == b"user"

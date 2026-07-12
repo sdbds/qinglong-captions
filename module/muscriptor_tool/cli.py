@@ -217,12 +217,16 @@ def transcribe(
     except (TypeError, ValueError) as exc:
         _parameter_error(exc)
 
+    if not source.is_file():
+        _runtime_failure(FileNotFoundError(f"Input audio file does not exist: {source}"))
     try:
-        if not source.is_file():
-            raise FileNotFoundError(f"Input audio file does not exist: {source}")
         canonical_instruments = resolve_instruments(options.instruments)
         if canonical_instruments != options.instruments:
             options = replace(options, instruments=canonical_instruments)
+    except (TypeError, ValueError) as exc:
+        _parameter_error(exc)
+
+    try:
         preview_runtime = preflight_preview(request) if request is not None else None
         typer.echo(
             f"Loading official MuScriptor {options.model.value} model on {options.device}",
@@ -235,9 +239,14 @@ def transcribe(
             options,
             _single_targets(output_format, output_path),
             stderr=click.get_text_stream("stderr"),
+            progress_callback=lambda completed, total: typer.echo(
+                f"chunk {completed}/{total}",
+                err=True,
+            ),
             preview_runtime=preview_runtime,
             preview_target=preview_path,
         )
+        typer.echo(f"Resolved device: {loaded.resolved_device}", err=True)
         for warning in result.warnings:
             typer.echo(f"Warning: {warning}", err=True)
     except KeyboardInterrupt:
@@ -304,7 +313,12 @@ def batch_command(
         _parameter_error(exc)
 
     try:
-        summary = run_batch(input_path, output_dir, options)
+        summary = run_batch(
+            input_path,
+            output_dir,
+            options,
+            log_callback=lambda message: typer.echo(message, err=True),
+        )
         typer.echo(
             " ".join(
                 (

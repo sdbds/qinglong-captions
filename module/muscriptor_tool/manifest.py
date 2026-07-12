@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .options import BatchOptions
 from .outputs import atomic_output_path
-
 
 SCHEMA_VERSION = 1
 KNOWN_OUTPUT_NAMES = frozenset(
@@ -63,7 +63,7 @@ def run_signature(
         "batch_size": options.transcription.batch_size,
         "strict_eos": options.transcription.strict_eos,
         "beam_size": options.transcription.beam_size,
-        "output_formats": [item.value for item in options.output_formats],
+        "output_formats": sorted(item.value for item in options.output_formats),
         "preview": options.preview.as_dict() if options.preview else None,
         "renderer_id": renderer_id if options.preview else None,
     }
@@ -98,8 +98,9 @@ def cleanup_temporary_outputs(item_dir: Path) -> None:
     if not item_dir.is_dir():
         return
     known_stems = {Path(name).stem for name in KNOWN_OUTPUT_NAMES} | {"metadata", "manifest"}
+    temporary_name = re.compile(
+        rf"^(?:{'|'.join(re.escape(stem) for stem in sorted(known_stems))})\.\d+\.[0-9a-fA-F]{{32}}\.part(?:\.[^.]+)?$"
+    )
     for path in item_dir.iterdir():
-        if not path.is_file() or ".part" not in path.name:
-            continue
-        if any(path.name.startswith(f"{stem}.") for stem in known_stems):
+        if path.is_file() and temporary_name.fullmatch(path.name):
             path.unlink(missing_ok=True)

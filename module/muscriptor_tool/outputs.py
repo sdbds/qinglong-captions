@@ -112,6 +112,14 @@ class TranscriptionResult:
     midi_bytes: bytes | None = None
 
 
+class RequestedOutputError(RuntimeError):
+    """A requested output failed after transcription produced usable results."""
+
+    def __init__(self, message: str, *, result: TranscriptionResult):
+        super().__init__(message)
+        self.result = result
+
+
 def _warning_messages(captured: Iterable[warnings_module.WarningMessage]) -> list[str]:
     return [f"{item.category.__name__}: {item.message}" for item in captured]
 
@@ -199,12 +207,27 @@ def transcribe_once(
             from .auralization import render_preview
 
             preview_renderer = render_preview
-        preview_renderer(
-            preview_runtime,
-            midi_bytes=midi_payload,
-            original_audio_path=Path(source),
-            output_path=Path(preview_target),
-        )
+        try:
+            preview_renderer(
+                preview_runtime,
+                midi_bytes=midi_payload,
+                original_audio_path=Path(source),
+                output_path=Path(preview_target),
+            )
+        except Exception as exc:
+            partial_result = TranscriptionResult(
+                note_count=stats.note_count,
+                event_count=stats.event_count,
+                chunk_count=stats.chunk_count,
+                completed_chunks=stats.completed_chunks,
+                outputs=dict(outputs),
+                warnings=tuple(warning_messages),
+                midi_bytes=midi_payload,
+            )
+            raise RequestedOutputError(
+                f"Requested preview output failed: {type(exc).__name__}: {exc}",
+                result=partial_result,
+            ) from exc
         outputs["preview"] = str(preview_target)
     return TranscriptionResult(
         note_count=stats.note_count,

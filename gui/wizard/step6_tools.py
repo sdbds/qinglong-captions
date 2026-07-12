@@ -13,6 +13,13 @@ from gui.components.path_selector import create_path_selector
 from gui.theme import COLORS, get_classes
 from gui.utils.i18n import t
 from module.muscriptor_tool.options import (
+    DEFAULT_BEAM_SIZE,
+    DEFAULT_CFG_COEF,
+    DEFAULT_DEVICE,
+    DEFAULT_MODEL,
+    DEFAULT_OUTPUT_FORMATS,
+    DEFAULT_PREVIEW_FORMAT,
+    DEFAULT_TEMPERATURE,
     DecodingMode,
     ModelVariant,
     OutputFormat,
@@ -258,11 +265,10 @@ class ToolsStep:
         "pad_square": "sheet_music_preprocess_pad_square",
     }
     MUSCRIPTOR_MODEL_OPTIONS = {item.value: item.value.title() for item in ModelVariant}
-    MUSCRIPTOR_DEVICE_OPTIONS = {
+    MUSCRIPTOR_BASE_DEVICE_OPTIONS = {
         "auto": "Auto",
         "cpu": "CPU",
         "cuda": "CUDA",
-        **{f"cuda:{index}": f"CUDA {index}" for index in range(8)},
     }
 
     # 水印检测模型
@@ -347,19 +353,19 @@ class ToolsStep:
             "audio_separator_vocal_midi_nsteps": DEFAULT_VOCAL_MIDI_NSTEPS,
             "audio_separator_vocal_midi_est_threshold": DEFAULT_VOCAL_MIDI_EST_THRESHOLD,
             "music_transcription_input_mode": "directory",
-            "music_transcription_model": "medium",
-            "music_transcription_device": "auto",
+            "music_transcription_model": DEFAULT_MODEL.value,
+            "music_transcription_device": DEFAULT_DEVICE,
             "music_transcription_batch_size": 0,
             "music_transcription_instrument_mode": "auto",
             "music_transcription_instruments": [],
             "music_transcription_decode_mode": "greedy",
-            "music_transcription_temperature": 1.0,
-            "music_transcription_cfg_coef": 1.0,
+            "music_transcription_temperature": DEFAULT_TEMPERATURE,
+            "music_transcription_cfg_coef": DEFAULT_CFG_COEF,
             "music_transcription_strict_eos": False,
-            "music_transcription_beam_size": 1,
-            "music_transcription_output_formats": ["midi"],
+            "music_transcription_beam_size": DEFAULT_BEAM_SIZE,
+            "music_transcription_output_formats": [item.value for item in DEFAULT_OUTPUT_FORMATS],
             "music_transcription_preview_mode": "none",
-            "music_transcription_preview_format": "wav",
+            "music_transcription_preview_format": DEFAULT_PREVIEW_FORMAT.value,
             "music_transcription_recursive": True,
             "music_transcription_skip_completed": True,
             "music_transcription_overwrite": False,
@@ -444,6 +450,8 @@ class ToolsStep:
             self._get_tool_renderer(tab_key)()
         self._rendered_tool_tabs.add(tab_key)
         if tab_key == "see_through":
+            self._schedule_see_through_recommendation_refresh()
+        if tab_key == "music_transcription":
             self._schedule_see_through_recommendation_refresh()
 
     def _ensure_execution_panel(self):
@@ -532,6 +540,31 @@ class ToolsStep:
             for option, label_key in self.SHEET_MUSIC_PREPROCESS_MODE_LABEL_KEYS.items()
         }
 
+    def _music_transcription_device_options(self) -> dict[str, str]:
+        options = dict(self.MUSCRIPTOR_BASE_DEVICE_OPTIONS)
+        if self.gpu_probe is not None:
+            for device in self.gpu_probe.devices:
+                options[f"cuda:{device.index}"] = f"CUDA {device.index} - {device.name}"
+        selected = str(self.config.get("music_transcription_device") or DEFAULT_DEVICE)
+        options.setdefault(selected, selected.upper())
+        return options
+
+    def _refresh_music_transcription_devices(self) -> None:
+        selector = getattr(self, "music_transcription_device", None)
+        if selector is None:
+            return
+        selector.options = self._music_transcription_device_options()
+        selector.update()
+
+    async def _refresh_music_gpu_probe(self) -> None:
+        try:
+            from module.gpu_profile import get_cached_gpu_probe
+
+            self.gpu_probe = await asyncio.to_thread(get_cached_gpu_probe, refresh=True)
+            self._refresh_music_transcription_devices()
+        except Exception as exc:
+            ui.notify(f"{t('detecting_gpu')}: {exc}", type="warning")
+
     @staticmethod
     def _set_config_value(config: Dict[str, Any], key: str, value: Any) -> None:
         config[key] = value
@@ -554,6 +587,11 @@ class ToolsStep:
     def _on_music_decode_mode_change(self, value: str) -> None:
         mode = str(value or "greedy")
         self.config["music_transcription_decode_mode"] = mode
+        if mode == "beam" and int(self.config["music_transcription_beam_size"]) < 2:
+            self.config["music_transcription_beam_size"] = 2
+            beam_slider = getattr(self, "music_transcription_beam_size", None)
+            if beam_slider is not None and hasattr(beam_slider, "update_config"):
+                beam_slider.update_config(new_value=2)
         if self._music_transcription_sampling_container is not None:
             self._music_transcription_sampling_container.set_visibility(mode == "sampling")
         if self._music_transcription_beam_container is not None:
@@ -565,6 +603,12 @@ class ToolsStep:
         if self._music_transcription_preview_container is not None:
             self._music_transcription_preview_container.set_visibility(mode != "none")
 
+    def _on_music_overwrite_change(self, enabled: bool) -> None:
+        self.config["music_transcription_overwrite"] = bool(enabled)
+        skip_toggle = getattr(self, "music_transcription_skip_completed_toggle", None)
+        if skip_toggle is not None:
+            skip_toggle.set_enabled(not enabled)
+
     async def _probe_music_instruments(self) -> tuple[str, ...]:
         if _MUSCRIPTOR_INSTRUMENT_CACHE:
             return next(reversed(_MUSCRIPTOR_INSTRUMENT_CACHE.values()))
@@ -573,6 +617,9 @@ class ToolsStep:
         runner_options: dict[str, Any] = {}
         execution_tabs = getattr(panel, "execution_tabs", None)
         if execution_tabs is not None:
+            can_start = getattr(execution_tabs, "active_tab_can_start", None)
+            if callable(can_start) and not can_start():
+                raise RuntimeError(t("task_already_running"))
             if not await execution_tabs.ensure_active_tab_runtime_ready():
                 raise RuntimeError(t("task_tab_not_ready"))
             tab_options = execution_tabs.runner_kwargs()
@@ -601,13 +648,16 @@ class ToolsStep:
         selector = getattr(self, "music_transcription_instruments", None)
         if selector is None:
             return
-        selector.options = {name: name for name in names}
+        selector.options = {name: name.replace("_", " ").title() for name in names}
         selector.update()
 
     async def _ensure_music_instruments(self) -> None:
         if self._music_transcription_instrument_loading:
             return
         self._music_transcription_instrument_loading = True
+        selector = getattr(self, "music_transcription_instruments", None)
+        if selector is not None:
+            selector.set_enabled(False)
         try:
             names = await self._probe_music_instruments()
             self._set_music_instrument_options(names)
@@ -617,6 +667,8 @@ class ToolsStep:
                 type="warning",
             )
         finally:
+            if selector is not None:
+                selector.set_enabled(True)
             self._music_transcription_instrument_loading = False
 
     def _refresh_see_through_summary(self) -> None:
@@ -714,6 +766,7 @@ class ToolsStep:
             return
 
         self.gpu_probe = probe
+        self._refresh_music_transcription_devices()
         if not self._see_through_user_edited:
             self._apply_see_through_recommendation(recommendation)
         else:
@@ -1187,7 +1240,7 @@ class ToolsStep:
                     flex=1,
                 )
                 self.music_transcription_device = styled_select(
-                    options=self.MUSCRIPTOR_DEVICE_OPTIONS,
+                    options=self._music_transcription_device_options(),
                     value=self.config["music_transcription_device"],
                     label=t("device"),
                     icon="memory",
@@ -1201,7 +1254,7 @@ class ToolsStep:
                     flex=1,
                 )
                 editable_slider(
-                    label_key="batch_size",
+                    label_key="music_transcription_chunk_batch_size",
                     value_ref=self.config,
                     value_key="music_transcription_batch_size",
                     min_val=0,
@@ -1210,6 +1263,17 @@ class ToolsStep:
                     decimals=0,
                     flex=1,
                 )
+
+            with ui.row().classes("w-full items-center justify-between q-mt-xs"):
+                ui.link(
+                    t("music_transcription_license"),
+                    target="https://huggingface.co/MuScriptor/muscriptor-medium",
+                    new_tab=True,
+                ).classes("text-caption").style(f"color: {COLORS['info']};")
+                ui.button(
+                    icon="refresh",
+                    on_click=lambda: asyncio.create_task(self._refresh_music_gpu_probe()),
+                ).props('flat dense round type="button"').tooltip(t("detected_gpus"))
 
             with ui.row().classes("w-full items-center gap-3 q-mt-md"):
                 ui.label(t("music_transcription_instrument_mode")).classes("text-caption text-weight-medium")
@@ -1229,7 +1293,7 @@ class ToolsStep:
             )
             with self._music_transcription_instrument_container:
                 self.music_transcription_instruments = ui.select(
-                    options={name: name for name in cached_names},
+                    options={name: name.replace("_", " ").title() for name in cached_names},
                     value=self.config["music_transcription_instruments"],
                     multiple=True,
                     label=t("music_transcription_instruments"),
@@ -1291,11 +1355,11 @@ class ToolsStep:
                 self.config["music_transcription_decode_mode"] == "beam"
             )
             with self._music_transcription_beam_container:
-                editable_slider(
+                self.music_transcription_beam_size = editable_slider(
                     label_key="music_transcription_beam_size",
                     value_ref=self.config,
                     value_key="music_transcription_beam_size",
-                    min_val=1,
+                    min_val=2,
                     max_val=16,
                     step=1,
                     decimals=0,
@@ -1369,21 +1433,25 @@ class ToolsStep:
                     self.config,
                     "music_transcription_recursive",
                 )
-                toggle_switch(
+                self.music_transcription_skip_completed_toggle = toggle_switch(
                     "skip_completed",
                     self.config,
                     "music_transcription_skip_completed",
                 )
-                toggle_switch(
+                self.music_transcription_overwrite_toggle = toggle_switch(
                     "overwrite",
                     self.config,
                     "music_transcription_overwrite",
+                    on_change=self._on_music_overwrite_change,
                 )
                 toggle_switch(
                     "music_transcription_fail_fast",
                     self.config,
                     "music_transcription_fail_fast",
                 )
+            self.music_transcription_skip_completed_toggle.set_enabled(
+                not self.config["music_transcription_overwrite"]
+            )
 
     def _render_sheet_music_tool(self):
         """渲染乐谱扫描 embedding 工具"""
@@ -1754,6 +1822,13 @@ class ToolsStep:
         output_dir = str(getattr(getattr(self, "music_transcription_output", None), "value", "") or "").strip()
         if not output_dir:
             raise ValueError(t("music_transcription_output_required"))
+        output_path = Path(output_dir).expanduser()
+        try:
+            output_path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise ValueError(f"{t('music_transcription_output_required')}: {exc}") from exc
+        if not output_path.is_dir():
+            raise ValueError(t("music_transcription_output_required"))
 
         formats = tuple(OutputFormat(value) for value in self.config["music_transcription_output_formats"])
         if not formats:
@@ -1849,6 +1924,12 @@ class ToolsStep:
         except (TypeError, ValueError) as exc:
             ui.notify(str(exc) or t("music_transcription_invalid_config"), type="warning")
             return
+
+        if (
+            self.config["music_transcription_model"] == ModelVariant.LARGE.value
+            and self.config["music_transcription_device"] == "cpu"
+        ):
+            ui.notify(t("music_transcription_large_cpu_warning"), type="warning")
 
         def pre_log(lv):
             lv.info(t("log_start_music_transcription"))

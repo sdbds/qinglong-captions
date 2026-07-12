@@ -11,7 +11,6 @@ from typing import Any, Callable
 from .options import PreviewContent, PreviewFormat, PreviewRequest
 from .outputs import atomic_output_path
 
-
 SAMPLE_RATE = 44100
 RENDERER_ID = "muscriptor-0.2.1:SF2_URL"
 
