@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import warnings
+from io import BytesIO, StringIO
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -158,3 +159,30 @@ def test_preview_reuses_same_event_stream_and_midi_bytes(tmp_path: Path):
     assert loaded.midi_calls == 1
     assert render_calls[0][1] == b"MThd\x02"
     assert result.outputs["preview"] == str(preview_target)
+
+
+def test_stdout_stream_targets_do_not_require_temporary_files(tmp_path: Path):
+    from module.muscriptor_tool.outputs import OutputTargets, transcribe_once
+
+    note_start = start()
+    loaded = FakeLoadedModel([note_start, end(note_start)])
+    midi_stream = BytesIO()
+    json_stream = StringIO()
+    jsonl_stream = StringIO()
+
+    result = transcribe_once(
+        loaded,
+        Path("song.wav"),
+        TranscriptionOptions(),
+        OutputTargets(
+            midi_stream=midi_stream,
+            json_stream=json_stream,
+            jsonl_stream=jsonl_stream,
+        ),
+    )
+
+    assert midi_stream.getvalue() == b"MThd\x02"
+    assert json.loads(json_stream.getvalue())[-1]["type"] == "end"
+    assert len(jsonl_stream.getvalue().splitlines()) == 2
+    assert result.outputs == {"midi": "-", "json": "-", "jsonl": "-"}
+    assert list(tmp_path.iterdir()) == []

@@ -136,6 +136,11 @@ def list_instruments(*, upstream: UpstreamBindings | None = None) -> tuple[str, 
     return tuple(bindings.instrument_names)
 
 
+def muscriptor_version(*, upstream: UpstreamBindings | None = None) -> str:
+    bindings = upstream or _import_upstream()
+    return str(bindings.version)
+
+
 def resolve_instruments(
     values: Iterable[str],
     *,

@@ -8,7 +8,7 @@ import warnings as warnings_module
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, TextIO
+from typing import Any, BinaryIO, Callable, Iterable, Iterator, TextIO
 
 from .events import EventStats, event_to_dict, is_progress_event
 from .options import OutputFormat, TranscriptionOptions
@@ -30,7 +30,13 @@ def atomic_output_path(target: Path) -> Iterator[Path]:
 
 
 @contextmanager
-def _optional_jsonl_writer(target: Path | None) -> Iterator[TextIO | None]:
+def _optional_jsonl_writer(
+    target: Path | None,
+    direct_stream: TextIO | None = None,
+) -> Iterator[TextIO | None]:
+    if direct_stream is not None:
+        yield direct_stream
+        return
     if target is None:
         yield None
         return
@@ -54,6 +60,9 @@ class OutputTargets:
     midi: Path | None = None
     json: Path | None = None
     jsonl: Path | None = None
+    midi_stream: BinaryIO | None = None
+    json_stream: TextIO | None = None
+    jsonl_stream: TextIO | None = None
 
     @classmethod
     def for_directory(
@@ -71,12 +80,23 @@ class OutputTargets:
 
     @property
     def needs_event_collection(self) -> bool:
-        return self.midi is not None or self.json is not None
+        return any((self.midi is not None, self.json is not None, self.midi_stream, self.json_stream))
 
     def requested_paths(self) -> dict[str, Path]:
         return {
             key: value
             for key, value in (("midi", self.midi), ("json", self.json), ("jsonl", self.jsonl))
+            if value is not None
+        }
+
+    def stream_outputs(self) -> dict[str, str]:
+        return {
+            key: "-"
+            for key, value in (
+                ("midi", self.midi_stream),
+                ("json", self.json_stream),
+                ("jsonl", self.jsonl_stream),
+            )
             if value is not None
         }
 
@@ -113,12 +133,17 @@ def transcribe_once(
     stats = EventStats()
     original_events: list[Any] = []
     json_events: list[dict[str, Any]] = []
-    collect_originals = targets.midi is not None or require_midi_bytes or preview_runtime is not None
-    collect_json = targets.json is not None
+    collect_originals = (
+        targets.midi is not None
+        or targets.midi_stream is not None
+        or require_midi_bytes
+        or preview_runtime is not None
+    )
+    collect_json = targets.json is not None or targets.json_stream is not None
 
     with warnings_module.catch_warnings(record=True) as captured_warnings:
         warnings_module.simplefilter("always")
-        with _optional_jsonl_writer(targets.jsonl) as jsonl_stream:
+        with _optional_jsonl_writer(targets.jsonl, targets.jsonl_stream) as jsonl_stream:
             for event in loaded.transcribe(Path(source), options):
                 if is_progress_event(event, loaded.progress_event_type):
                     completed = int(event.completed)
@@ -149,14 +174,22 @@ def transcribe_once(
         midi_payload = loaded.midi_bytes(original_events)
         if targets.midi is not None:
             _atomic_write_bytes(targets.midi, midi_payload)
+        if targets.midi_stream is not None:
+            targets.midi_stream.write(midi_payload)
+            targets.midi_stream.flush()
 
-    if targets.json is not None:
-        _atomic_write_text(
-            targets.json,
-            json.dumps(json_events, ensure_ascii=False, indent=2) + "\n",
-        )
+    if targets.json is not None or targets.json_stream is not None:
+        json_payload = json.dumps(json_events, ensure_ascii=False, indent=2) + "\n"
+        if targets.json is not None:
+            _atomic_write_text(targets.json, json_payload)
+        if targets.json_stream is not None:
+            targets.json_stream.write(json_payload)
+            targets.json_stream.flush()
 
-    outputs = {key: str(path) for key, path in targets.requested_paths().items() if path.exists()}
+    outputs = {
+        **{key: str(path) for key, path in targets.requested_paths().items() if path.exists()},
+        **targets.stream_outputs(),
+    }
     if preview_runtime is not None:
         if preview_target is None:
             raise ValueError("preview_target is required when preview_runtime is enabled")
