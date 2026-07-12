@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from module.muscriptor_tool.catalog import MUSCRIPTOR_INSTRUMENT_CATALOG_VERSION
 from module.muscriptor_tool.events import EventStats, event_to_dict
 from module.muscriptor_tool.options import (
     DEFAULT_MODEL,
@@ -38,6 +40,11 @@ def test_model_variant_contains_only_official_sizes():
     assert DEFAULT_MODEL is ModelVariant.LARGE
 
 
+def test_instrument_catalog_version_matches_dependency_pin():
+    project_text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    assert f'"muscriptor=={MUSCRIPTOR_INSTRUMENT_CATALOG_VERSION}"' in project_text
+
+
 def test_preview_is_none_or_one_immutable_request():
     preview = PreviewRequest(content=PreviewContent.COMPARISON, format=PreviewFormat.WAV)
     options = BatchOptions(output_formats=(OutputFormat.MIDI,), preview=preview)
@@ -45,6 +52,10 @@ def test_preview_is_none_or_one_immutable_request():
     assert options.preview == preview
     with pytest.raises(FrozenInstanceError):
         preview.format = PreviewFormat.MP3  # type: ignore[misc]
+
+
+def test_preview_defaults_to_mp3():
+    assert PreviewRequest(content=PreviewContent.MIDI).format is PreviewFormat.MP3
 
 
 def test_batch_requires_symbolic_output():

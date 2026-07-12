@@ -17,6 +17,7 @@ from .options import (
     DEFAULT_CFG_COEF,
     DEFAULT_DEVICE,
     DEFAULT_MODEL,
+    DEFAULT_PREVIEW_FORMAT,
     DEFAULT_TEMPERATURE,
     BatchOptions,
     DecodingMode,
@@ -301,7 +302,7 @@ def batch_command(
         else:
             preview_request = PreviewRequest(
                 content=PreviewContent(preview_mode.value),
-                format=preview_format or PreviewFormat.WAV,
+                format=preview_format or DEFAULT_PREVIEW_FORMAT,
             )
         canonical_instruments = resolve_instruments(_instrument_values(instruments))
         transcription = TranscriptionOptions.from_batch_cli(

@@ -16,7 +16,7 @@
 - MIDI, JSON, and JSONL must work without FluidSynth or the default SoundFont.
 - Each batch loads the model at most once and calls `transcribe()` exactly once per processed input.
 - A preview is additional to at least one symbolic output and is either `midi` or `comparison`, never both.
-- MP3 is enabled only after a real runtime write/read probe; WAV is the default.
+- MP3 is the default preview format and is enabled only after a real runtime write/read probe; WAV remains the explicit fallback.
 - GUI import and render must not import torch or MuScriptor and must not load or download model weights.
 - Preserve all existing GAME vocal MIDI, audio separator, MuSViT, Provider V2, task-tab, and ProcessRunner behavior.
 - Do not implement the upstream WebUI, piano roll, live playback, or the later single-file demo page.
@@ -28,6 +28,7 @@
 **Create**
 
 - `module/muscriptor_tool/__init__.py`: dependency-free public constants and package marker.
+- `module/muscriptor_tool/catalog.py`: pinned dependency-free instrument names for immediate GUI rendering.
 - `module/muscriptor_tool/options.py`: enums, immutable option records, defaults, and validation.
 - `module/muscriptor_tool/events.py`: stable JSON event conversion and counters.
 - `module/muscriptor_tool/runtime.py`: lazy torch/MuScriptor import, device validation, official model loading, and instrument resolution.
@@ -713,7 +714,7 @@ beam_size = 1
 output_dir = ""
 output_formats = ["midi"]
 preview_mode = "none"
-preview_format = "wav"
+preview_format = "mp3"
 recursive = true
 skip_completed = true
 fail_fast = false
@@ -801,15 +802,9 @@ Add the tab between audio separator and sheet music, map it in `_get_tool_render
 
 Render compact full-width groups using existing `styled_select`, `editable_slider`, `toggle_switch`, `create_path_selector`, and `ui.toggle`. Use `styled_select(multiple=True)` for instruments and output formats so labels do not overlap the dropdown. Do not nest a new card inside the tool card. Preview controls expose only Off, Pure MIDI, Comparison, WAV, and MP3; no SoundFont field exists.
 
-- [ ] **Step 4: Implement lazy instrument-list subprocess**
+- [ ] **Step 4: Add the pinned lightweight instrument catalog**
 
-When Specify is first selected, invoke the current task-tab Python in a child process with:
-
-```text
-python -m module.muscriptor_tool.cli list-instruments --format json
-```
-
-Run it outside the GUI process, parse the structured object, cache by MuScriptor version for the GUI session, and keep Auto Detect available on failure. Never import MuScriptor or torch in `step6_tools.py`.
+Add a dependency-free snapshot of the official `MT3_FULL_PLUS_GROUP_NAMES` for the pinned `muscriptor==0.2.1` release. Render it immediately in the GUI without a child process or runtime installation. Keep the CLI `list-instruments` command dynamic, and require a catalog/test update whenever the package pin changes. Never import MuScriptor or torch in `step6_tools.py`.
 
 - [ ] **Step 5: Write failing GUI-to-CLI mapping tests**
 

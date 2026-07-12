@@ -6,7 +6,7 @@ Default: English
 """
 
 import locale
-from typing import Dict, Any, Callable, List
+from typing import Any, Callable, Dict, List
 
 # Translation dictionary
 TRANSLATIONS: Dict[str, Dict[str, Any]] = {
@@ -285,14 +285,12 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "music_transcription": "Music Transcription",
         "music_transcription_desc": "Batch transcribe audio with official MuScriptor models",
         "music_transcription_model": "MuScriptor Model",
-        "music_transcription_license": "Official weights: CC BY-NC 4.0 terms",
         "music_transcription_chunk_batch_size": "Inference Batch Size (5s chunks, 0 = Auto)",
         "music_transcription_large_cpu_warning": "The Large model can be very slow on CPU",
         "music_transcription_instrument_mode": "Instrument Detection",
         "music_transcription_instrument_auto": "Auto Detect",
         "music_transcription_instrument_specify": "Specify",
         "music_transcription_instruments": "Instruments",
-        "music_transcription_instruments_failed": "Instrument list unavailable; Auto Detect remains available",
         "music_transcription_decode_mode": "Decoding Mode",
         "music_transcription_decode_greedy": "Greedy",
         "music_transcription_decode_sampling": "Sampling",
@@ -917,14 +915,12 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "music_transcription": "音乐转录",
         "music_transcription_desc": "使用 MuScriptor 官方模型批量将音频转录为 MIDI 和事件数据",
         "music_transcription_model": "MuScriptor 模型",
-        "music_transcription_license": "官方权重：CC BY-NC 4.0 条款",
         "music_transcription_chunk_batch_size": "推理批大小（每块 5 秒，0 = 自动）",
         "music_transcription_large_cpu_warning": "Large 模型在 CPU 上可能非常慢",
         "music_transcription_instrument_mode": "音色识别",
         "music_transcription_instrument_auto": "自动识别",
         "music_transcription_instrument_specify": "手动指定",
         "music_transcription_instruments": "音色",
-        "music_transcription_instruments_failed": "无法读取音色列表，仍可使用自动识别",
         "music_transcription_decode_mode": "解码模式",
         "music_transcription_decode_greedy": "贪心解码",
         "music_transcription_decode_sampling": "采样解码",
@@ -1550,14 +1546,12 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "music_transcription": "音楽トランスクリプション",
         "music_transcription_desc": "MuScriptor 公式モデルで音声を MIDI とイベントデータへ一括変換",
         "music_transcription_model": "MuScriptor モデル",
-        "music_transcription_license": "公式ウェイト: CC BY-NC 4.0 条件",
         "music_transcription_chunk_batch_size": "推論バッチサイズ（5 秒チャンク、0 = 自動）",
         "music_transcription_large_cpu_warning": "Large モデルは CPU では非常に低速です",
         "music_transcription_instrument_mode": "楽器検出",
         "music_transcription_instrument_auto": "自動検出",
         "music_transcription_instrument_specify": "手動指定",
         "music_transcription_instruments": "楽器",
-        "music_transcription_instruments_failed": "楽器一覧を取得できません。自動検出は利用できます",
         "music_transcription_decode_mode": "デコードモード",
         "music_transcription_decode_greedy": "Greedy",
         "music_transcription_decode_sampling": "Sampling",
@@ -2182,14 +2176,12 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "music_transcription": "음악 트랜스크립션",
         "music_transcription_desc": "MuScriptor 공식 모델로 오디오를 MIDI 및 이벤트 데이터로 일괄 변환",
         "music_transcription_model": "MuScriptor 모델",
-        "music_transcription_license": "공식 가중치: CC BY-NC 4.0 약관",
         "music_transcription_chunk_batch_size": "추론 배치 크기(5초 청크, 0 = 자동)",
         "music_transcription_large_cpu_warning": "Large 모델은 CPU에서 매우 느릴 수 있습니다",
         "music_transcription_instrument_mode": "악기 감지",
         "music_transcription_instrument_auto": "자동 감지",
         "music_transcription_instrument_specify": "직접 지정",
         "music_transcription_instruments": "악기",
-        "music_transcription_instruments_failed": "악기 목록을 불러오지 못했습니다. 자동 감지는 사용할 수 있습니다",
         "music_transcription_decode_mode": "디코딩 모드",
         "music_transcription_decode_greedy": "Greedy",
         "music_transcription_decode_sampling": "Sampling",

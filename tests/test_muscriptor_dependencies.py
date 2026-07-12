@@ -4,8 +4,7 @@ from pathlib import Path
 
 import toml
 
-from gui.utils.process_runner import SCRIPT_REGISTRY, _UV_TORCH_EXTRAS
-
+from gui.utils.process_runner import _UV_TORCH_EXTRAS, SCRIPT_REGISTRY
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -43,12 +42,14 @@ def test_registry_runs_cli_in_module_mode_with_torch_patch_profile():
 def test_config_has_closed_official_model_and_no_soundfont_source():
     config = toml.loads((ROOT / "config/model.toml").read_text(encoding="utf-8"))["muscriptor"]
 
-    assert config["model"] == "medium"
+    assert config["model"] == "large"
     assert config["device"] == "auto"
     assert config["batch_size"] == 0
     assert config["output_formats"] == ["midi"]
     assert config["preview_mode"] == "none"
-    assert config["preview_format"] == "wav"
+    assert config["preview_format"] == "mp3"
+    assert config["output_dir"] == ""
+    assert "overwrite" not in config
     assert "model_source" not in config
     assert "weights_path" not in config
     assert "soundfont_path" not in config

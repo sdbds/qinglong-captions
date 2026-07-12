@@ -8,6 +8,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from gui.wizard import step6_tools
+from module.muscriptor_tool.catalog import (
+    MUSCRIPTOR_INSTRUMENT_CATALOG_VERSION,
+    OFFICIAL_INSTRUMENT_NAMES,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -28,6 +32,7 @@ def test_music_transcription_defaults_have_no_custom_sources():
     assert step.config["music_transcription_batch_size"] == 0
     assert step.config["music_transcription_output_formats"] == ["midi"]
     assert step.config["music_transcription_preview_mode"] == "none"
+    assert step.config["music_transcription_preview_format"] == "mp3"
     assert "music_transcription_input_mode" not in step.config
     assert "music_transcription_recursive" not in step.config
     assert "music_transcription_overwrite" not in step.config
@@ -58,6 +63,8 @@ def test_music_transcription_tool_renders_complete_controls():
         "large": "MuScriptor/muscriptor-large",
     }
     assert step.music_transcription_output_formats.value == ["midi"]
+    assert step.music_transcription_preview_format.value == "mp3"
+    assert tuple(step.music_transcription_instruments.options) == OFFICIAL_INSTRUMENT_NAMES
     assert not hasattr(step, "music_transcription_output")
 
 
@@ -72,7 +79,7 @@ def _configured_step(tmp_path: Path, *, preview_mode: str = "comparison"):
             "music_transcription_device": "cuda:0",
             "music_transcription_batch_size": 3,
             "music_transcription_instrument_mode": "specify",
-            "music_transcription_instruments": ["piano", "drums"],
+            "music_transcription_instruments": ["acoustic_piano", "drums"],
             "music_transcription_decode_mode": "sampling",
             "music_transcription_temperature": 0.8,
             "music_transcription_cfg_coef": 1.5,
@@ -110,7 +117,7 @@ def test_music_transcription_maps_complete_batch_args(monkeypatch, tmp_path: Pat
         "--model=large",
         "--device=cuda:0",
         "--batch-size=3",
-        "--instruments=piano,drums",
+        "--instruments=acoustic_piano,drums",
         "--decode-mode=sampling",
         "--temperature=0.8",
         "--cfg-coef=1.5",
@@ -166,82 +173,27 @@ def test_beam_mode_rejects_width_one_before_job_submission(monkeypatch, tmp_path
     assert notifications[-1][1]["type"] == "warning"
 
 
-def test_instrument_catalog_parser_caches_by_package_version():
-    step6_tools._MUSCRIPTOR_INSTRUMENT_CACHE.clear()
-    payload = json.dumps(
-        {
-            "schema_version": 1,
-            "package_version": "0.2.1",
-            "instruments": ["piano", "drums"],
-        }
-    )
-
-    names = step6_tools._parse_music_instrument_catalog(["install log", payload])
-
-    assert names == ("piano", "drums")
-    assert step6_tools._MUSCRIPTOR_INSTRUMENT_CACHE["0.2.1"] == names
-
-
-def test_instrument_options_use_nicegui_set_options():
+def test_pinned_instrument_catalog_is_immediately_available_without_runtime_probe():
     step = step6_tools.ToolsStep()
-    calls = []
 
-    class FakeSelector:
-        def set_options(self, options, *, value):
-            calls.append((options, value))
+    class FakeContainer:
+        visible = None
 
-    step.music_transcription_instruments = FakeSelector()
-    step.config["music_transcription_instruments"] = ["piano", "missing"]
+        def set_visibility(self, visible):
+            self.visible = visible
 
-    step._set_music_instrument_options(("piano", "drums"))
+    container = FakeContainer()
+    step._music_transcription_instrument_container = container
+    step._on_music_instrument_mode_change("specify")
 
-    assert calls == [({"piano": "Piano", "drums": "Drums"}, ["piano"])]
-    assert step.config["music_transcription_instruments"] == ["piano"]
-
-
-def test_lazy_instrument_probe_uses_current_task_runtime(monkeypatch, tmp_path: Path):
-    from gui.utils.process_runner import ProcessResult, ProcessRunner, ProcessStatus
-
-    step6_tools._MUSCRIPTOR_INSTRUMENT_CACHE.clear()
-    captured = {}
-
-    class FakeTabs:
-        async def ensure_active_tab_runtime_ready(self):
-            return True
-
-        def runner_kwargs(self):
-            return {
-                "tab_id": "tab-2",
-                "tab_name": "Task 2",
-                "python_path": str(tmp_path / "python"),
-                "venv_path": str(tmp_path / "venv"),
-            }
-
-    async def fake_run(self, script_key, args, **kwargs):
-        captured.update(script_key=script_key, args=list(args), kwargs=kwargs)
-        self._log_buffer.push(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "package_version": "0.2.1",
-                    "instruments": ["piano", "drums"],
-                }
-            )
-        )
-        return ProcessResult(ProcessStatus.SUCCESS, 0, "ok")
-
-    monkeypatch.setattr(ProcessRunner, "run_python_script", fake_run)
-    step = step6_tools.ToolsStep()
-    step.panel = SimpleNamespace(execution_tabs=FakeTabs())
-
-    names = asyncio.run(step._probe_music_instruments())
-
-    assert names == ("piano", "drums")
-    assert captured["script_key"] == "module.muscriptor_tool.cli"
-    assert captured["args"] == ["list-instruments", "--format", "json"]
-    assert captured["kwargs"]["python_path"] == str(tmp_path / "python")
-    assert captured["kwargs"]["venv_path"] == str(tmp_path / "venv")
-    assert captured["kwargs"]["native_console"] is False
+    assert MUSCRIPTOR_INSTRUMENT_CATALOG_VERSION == "0.2.1"
+    assert len(OFFICIAL_INSTRUMENT_NAMES) == 35
+    assert len(set(OFFICIAL_INSTRUMENT_NAMES)) == 35
+    assert tuple(step.MUSCRIPTOR_INSTRUMENT_OPTIONS) == OFFICIAL_INSTRUMENT_NAMES
+    assert step.config["music_transcription_instrument_mode"] == "specify"
+    assert container.visible is True
+    assert not hasattr(step, "_music_transcription_instrument_loading")
+    assert not hasattr(step, "_ensure_music_instruments")
 
 
 def test_importing_tools_step_does_not_import_torch_or_muscriptor():

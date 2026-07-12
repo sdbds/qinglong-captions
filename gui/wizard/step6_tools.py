@@ -1,7 +1,6 @@
 """步骤 6: 实用工具 - 对应 watermark_detect, preprocess, reward_model 等脚本"""
 
 import asyncio
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict
@@ -12,6 +11,7 @@ from gui.components.advanced_inputs import editable_slider, styled_input, styled
 from gui.components.path_selector import create_path_selector
 from gui.theme import COLORS, get_classes
 from gui.utils.i18n import t
+from module.muscriptor_tool.catalog import OFFICIAL_INSTRUMENT_NAMES
 from module.muscriptor_tool.options import (
     DEFAULT_BEAM_SIZE,
     DEFAULT_CFG_COEF,
@@ -45,30 +45,6 @@ DEFAULT_SHEET_MUSIC_REPO_ID = "bdsqlsz/musvit-onnx"
 DEFAULT_SHEET_MUSIC_MODEL_DIR = "huggingface"
 DEFAULT_SHEET_MUSIC_OUTPUT_DIR = "workspace/musvit_output"
 DEFAULT_SHEET_MUSIC_PDF_DPI = 144
-
-_MUSCRIPTOR_INSTRUMENT_CACHE: dict[str, tuple[str, ...]] = {}
-
-
-def _parse_music_instrument_catalog(lines: list[Any]) -> tuple[str, ...]:
-    for raw_line in reversed(lines):
-        text = raw_line[1] if isinstance(raw_line, tuple) and len(raw_line) == 2 else raw_line
-        for line in reversed(str(text).splitlines()):
-            try:
-                payload = json.loads(line.strip())
-            except (json.JSONDecodeError, TypeError):
-                continue
-            if not isinstance(payload, dict) or payload.get("schema_version") != 1:
-                continue
-            version = str(payload.get("package_version") or "").strip()
-            raw_names = payload.get("instruments")
-            if not version or not isinstance(raw_names, list):
-                continue
-            names = tuple(dict.fromkeys(str(name).strip() for name in raw_names if str(name).strip()))
-            if not names:
-                continue
-            _MUSCRIPTOR_INSTRUMENT_CACHE[version] = names
-            return names
-    raise ValueError("MuScriptor instrument probe did not return a valid catalog")
 
 GAME_ONNX_MODEL_LABELS: dict[str, str] = {
     "bdsqlsz/GAME-1.0-small-ONNX": "GAME-1.0-small-ONNX",
@@ -264,6 +240,9 @@ class ToolsStep:
         "pad_square": "sheet_music_preprocess_pad_square",
     }
     MUSCRIPTOR_MODEL_OPTIONS = {item.value: item.repo_id for item in ModelVariant}
+    MUSCRIPTOR_INSTRUMENT_OPTIONS = {
+        name: name.replace("_", " ").title() for name in OFFICIAL_INSTRUMENT_NAMES
+    }
     MUSCRIPTOR_BASE_DEVICE_OPTIONS = {
         "auto": "Auto",
         "cpu": "CPU",
@@ -414,7 +393,6 @@ class ToolsStep:
         self._music_transcription_sampling_container = None
         self._music_transcription_beam_container = None
         self._music_transcription_preview_container = None
-        self._music_transcription_instrument_loading = False
 
     def _get_tool_renderer(self, tab_key: str):
         renderers = {
@@ -571,8 +549,6 @@ class ToolsStep:
         self.config["music_transcription_instrument_mode"] = mode
         if self._music_transcription_instrument_container is not None:
             self._music_transcription_instrument_container.set_visibility(mode == "specify")
-        if mode == "specify":
-            asyncio.create_task(self._ensure_music_instruments())
 
     def _on_music_decode_mode_change(self, value: str) -> None:
         mode = str(value or "greedy")
@@ -592,70 +568,6 @@ class ToolsStep:
         self.config["music_transcription_preview_mode"] = mode
         if self._music_transcription_preview_container is not None:
             self._music_transcription_preview_container.set_visibility(mode != "none")
-
-    async def _probe_music_instruments(self) -> tuple[str, ...]:
-        if _MUSCRIPTOR_INSTRUMENT_CACHE:
-            return next(reversed(_MUSCRIPTOR_INSTRUMENT_CACHE.values()))
-
-        panel = self._ensure_execution_panel()
-        runner_options: dict[str, Any] = {}
-        execution_tabs = getattr(panel, "execution_tabs", None)
-        if execution_tabs is not None:
-            can_start = getattr(execution_tabs, "active_tab_can_start", None)
-            if callable(can_start) and not can_start():
-                raise RuntimeError(t("task_already_running"))
-            if not await execution_tabs.ensure_active_tab_runtime_ready():
-                raise RuntimeError(t("task_tab_not_ready"))
-            tab_options = execution_tabs.runner_kwargs()
-            if tab_options is None:
-                raise RuntimeError(t("task_tab_not_ready"))
-            for key in ("python_path", "venv_path"):
-                if tab_options.get(key):
-                    runner_options[key] = tab_options[key]
-
-        from gui.utils.log_buffer import LogBuffer
-        from gui.utils.process_runner import ProcessRunner
-
-        probe_log = LogBuffer(maxlen=500)
-        runner = ProcessRunner(log_buffer=probe_log)
-        result = await runner.run_python_script(
-            "module.muscriptor_tool.cli",
-            ["list-instruments", "--format", "json"],
-            native_console=False,
-            **runner_options,
-        )
-        if result.return_code != 0:
-            raise RuntimeError(result.message)
-        return _parse_music_instrument_catalog(probe_log.get_all_lines())
-
-    def _set_music_instrument_options(self, names: tuple[str, ...]) -> None:
-        selector = getattr(self, "music_transcription_instruments", None)
-        if selector is None:
-            return
-        options = {name: name.replace("_", " ").title() for name in names}
-        selected = [name for name in self.config["music_transcription_instruments"] if name in options]
-        self.config["music_transcription_instruments"] = selected
-        selector.set_options(options, value=selected)
-
-    async def _ensure_music_instruments(self) -> None:
-        if self._music_transcription_instrument_loading:
-            return
-        self._music_transcription_instrument_loading = True
-        selector = getattr(self, "music_transcription_instruments", None)
-        if selector is not None:
-            selector.set_enabled(False)
-        try:
-            names = await self._probe_music_instruments()
-            self._set_music_instrument_options(names)
-        except Exception as exc:
-            ui.notify(
-                f"{t('music_transcription_instruments_failed')}: {exc}",
-                type="warning",
-            )
-        finally:
-            if selector is not None:
-                selector.set_enabled(True)
-            self._music_transcription_instrument_loading = False
 
     def _refresh_see_through_summary(self) -> None:
         if self._see_through_summary_label is not None:
@@ -1233,12 +1145,7 @@ class ToolsStep:
                     flex=1,
                 )
 
-            with ui.row().classes("w-full items-center justify-between q-mt-xs"):
-                ui.link(
-                    t("music_transcription_license"),
-                    target="https://huggingface.co/MuScriptor/muscriptor-large",
-                    new_tab=True,
-                ).classes("text-caption").style(f"color: {COLORS['info']};")
+            with ui.row().classes("w-full items-center justify-end q-mt-xs"):
                 ui.button(
                     icon="refresh",
                     on_click=self._refresh_music_gpu_probe,
@@ -1255,14 +1162,13 @@ class ToolsStep:
                     on_change=lambda event: self._on_music_instrument_mode_change(event.value),
                 ).props("dense no-caps")
 
-            cached_names = next(reversed(_MUSCRIPTOR_INSTRUMENT_CACHE.values()), ())
             self._music_transcription_instrument_container = ui.column().classes("w-full q-mt-sm")
             self._music_transcription_instrument_container.set_visibility(
                 self.config["music_transcription_instrument_mode"] == "specify"
             )
             with self._music_transcription_instrument_container:
                 self.music_transcription_instruments = styled_select(
-                    options={name: name.replace("_", " ").title() for name in cached_names},
+                    options=self.MUSCRIPTOR_INSTRUMENT_OPTIONS,
                     value=self.config["music_transcription_instruments"],
                     label=t("music_transcription_instruments"),
                     icon="piano",

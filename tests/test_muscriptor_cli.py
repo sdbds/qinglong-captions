@@ -283,6 +283,32 @@ def test_batch_accepts_explicit_preview_none_without_preflight(monkeypatch, tmp_
     assert captured["output_dir"] == tmp_path / "muscriptor_output"
 
 
+def test_batch_preview_defaults_to_mp3(monkeypatch, tmp_path: Path):
+    source = tmp_path / "song.wav"
+    source.write_bytes(b"audio")
+    captured = {}
+    monkeypatch.setattr(cli, "resolve_instruments", lambda values: tuple(values))
+
+    def fake_run(_input_path, _output_dir, options, **_kwargs):
+        captured["preview"] = options.preview
+        return SimpleNamespace(
+            discovered=1,
+            processed=1,
+            skipped=0,
+            partial=0,
+            failed=0,
+            elapsed_seconds=0.0,
+            exit_code=0,
+        )
+
+    monkeypatch.setattr(cli, "run_batch", fake_run)
+
+    result = runner.invoke(cli.app, ["batch", str(source), "--preview-mode", "midi"])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["preview"].format.value == "mp3"
+
+
 def test_list_instruments_json_matches_text_order(monkeypatch):
     monkeypatch.setattr(cli, "list_instruments", lambda: ("piano", "drums"))
     monkeypatch.setattr(cli, "muscriptor_version", lambda: "0.2.1")

@@ -1,0 +1,42 @@
+"""Dependency-free MuScriptor catalogs used by the GUI."""
+
+MUSCRIPTOR_INSTRUMENT_CATALOG_VERSION = "0.2.1"
+
+# Snapshot of MT3_FULL_PLUS_GROUP_NAMES from the pinned official release.
+OFFICIAL_INSTRUMENT_NAMES = (
+    "acoustic_piano",
+    "electric_piano",
+    "chromatic_percussion",
+    "organ",
+    "acoustic_guitar",
+    "clean_electric_guitar",
+    "distorted_electric_guitar",
+    "acoustic_bass",
+    "electric_bass",
+    "violin",
+    "viola",
+    "cello",
+    "contrabass",
+    "orchestral_harp",
+    "timpani",
+    "string_ensemble",
+    "synth_strings",
+    "voice",
+    "orchestra_hit",
+    "trumpet",
+    "trombone",
+    "tuba",
+    "french_horn",
+    "brass_section",
+    "soprano_and_alto_sax",
+    "tenor_sax",
+    "baritone_sax",
+    "oboe",
+    "english_horn",
+    "bassoon",
+    "clarinet",
+    "flutes",
+    "synth_lead",
+    "synth_pad",
+    "drums",
+)
