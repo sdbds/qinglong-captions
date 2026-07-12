@@ -27,5 +27,5 @@
 
 - [GUI 使用手册](README.md)
 - [GUI 参数映射](PARAMETERS.md)
-- [根目录使用说明](../README.md)
+- [中文使用说明](../README.zh-CN.md)
 - [配置指南](../docs/configuration.md)

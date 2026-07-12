@@ -122,14 +122,14 @@ GUI 运行时：
 
 | 工具 | 入口 | 依赖 profile |
 | --- | --- | --- |
-| 水印检测 | `module/waterdetect.py` | PEP 723 inline dependencies；使用 `uv run module/waterdetect.py` |
-| 图片预处理 | `utils/preprocess_datasets.py` | `image-align` |
-| 图像评分 | `module/rewardmodel.py` | `reward-model` |
-| 音频分轨 | `module/audio_separator.py` | `vocal-midi` |
-| 音乐转录 | `module/muscriptor_tool/cli.py` | `muscriptor-local` |
-| 乐谱扫描 | `module/sheet_music_musvit.py` | `musvit-onnx` |
-| 文档翻译 | `module/texttranslate.py` | `translate` |
-| Image2PSD | `module/see_through/cli.py` | `see-through` |
+| [水印检测](../docs/tools/watermark_detection.md) | `module/waterdetect.py` | PEP 723 inline dependencies；使用 `uv run module/waterdetect.py` |
+| [图片预处理](../docs/tools/image_preprocessing.md) | `utils/preprocess_datasets.py` | `image-align` |
+| [图像评分](../docs/tools/image_scoring.md) | `module/rewardmodel.py` | `reward-model` |
+| [音频分轨](../docs/tools/audio_separation.md) | `module/audio_separator.py` | `vocal-midi` |
+| [音乐转录](../docs/tools/muscriptor.md) | `module/muscriptor_tool/cli.py` | `muscriptor-local` |
+| [乐谱扫描](../docs/tools/sheet_music.md) | `module/sheet_music_musvit.py` | `musvit-onnx` |
+| [文档翻译](../docs/tools/text_translation.md) | `module/texttranslate.py` | `translate` |
+| [Image2PSD](../docs/tools/image2psd.md) | `module/see_through/cli.py` | `see-through` |
 
 Python 入口提供 argparse 帮助，但可选工具必须先安装对应 profile；基础安装不保证所有入口都能在导入阶段成功：
 
@@ -137,7 +137,7 @@ Python 入口提供 argparse 帮助，但可选工具必须先安装对应 profi
 python -m <module> --help
 ```
 
-WaterDetect 使用脚本内的 PEP 723 依赖声明，应运行 `uv run module/waterdetect.py --help`。`2.4.psdexport.ps1` 是脚本专用入口，当前不属于 GUI Tools 页面。
+WaterDetect 使用脚本内的 PEP 723 依赖声明，应运行 `uv run module/waterdetect.py --help`。[PSD Export](../docs/tools/psd_export.md) 是脚本专用入口，当前不属于 GUI Tools 页面。
 
 ### MuScriptor 音乐转录
 
