@@ -403,6 +403,11 @@ vocal-midi = [
     "mido>=1.3.0",
     "numpy>=1.26.0",
 ]
+muscriptor-local = [
+    "qinglong-captions[torch-base]",
+    "muscriptor==0.2.1",
+    "filelock>=3.16",
+]
 codex-subscription = [
     "openai-codex",
 ]
@@ -423,6 +428,10 @@ allow-direct-references = true
 [tool.uv]
 package = false
 conflicts = [
+    [
+        { extra = "paddleocr-native" },
+        { extra = "muscriptor-local" },
+    ],
     [
         { extra = "paddleocr-native" },
         { extra = "musvit-onnx" },

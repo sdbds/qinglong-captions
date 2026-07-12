@@ -505,3 +505,24 @@ threshold = 0.0
 min_scene_len = 15
 luma_only = false
 detection_timeout = 30.0
+
+# MuScriptor official audio-to-MIDI batch transcription
+[muscriptor]
+model = "medium"
+device = "auto"
+batch_size = 0
+instruments = []
+decode_mode = "greedy"
+temperature = 1.0
+cfg_coef = 1.0
+strict_eos = false
+beam_size = 1
+output_dir = "workspace/muscriptor_output"
+output_formats = ["midi"]
+preview_mode = "none"
+preview_format = "wav"
+recursive = true
+skip_completed = true
+overwrite = false
+fail_fast = false
+print_notes = false
