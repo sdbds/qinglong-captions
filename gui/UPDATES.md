@@ -1,58 +1,31 @@
-# 更新说明
+# GUI 更新说明
 
-## 本次更新内容
+本文件记录当前 GUI 的稳定能力；版本级变更请看根目录 [CHANGELOG.md](../CHANGELOG.md)。
 
-### 1. 修复输入框/下拉框样式
-- 增强了 `.q-field__control` 样式覆盖
-- 添加了路径选择器和文件选择器的特殊样式
-- 修复了输入框文本颜色和 placeholder 颜色
-- 添加了 focus 状态的边框和阴影效果
+## 当前能力
 
-### 2. 添加国际化 (i18n) 支持
-- 支持 4 种语言：中文、英语、日语、韩语
-- 在页面右上角添加语言切换下拉框
-- 切换语言后自动刷新页面应用新语言
+- NiceGUI 浏览器模式和可选原生窗口模式
+- 中文、英文、日文、韩文切换
+- 深色 / 浅色主题偏好
+- Setup、Import、Split、Tagger、Caption、Export、Tools 页面
+- 任务标签页、并发任务、独立日志缓冲区和取消操作
+- Provider 路由对应的依赖 profile 自动补齐
+- ONNX 音频分轨、文本翻译和 Image2PSD 工具箱入口
 
-### 3. 添加深色/浅色主题切换
-- 在页面右上角添加主题切换按钮（太阳/月亮图标）
-- 使用 `localStorage` 保存主题偏好
-- 主题偏好会在下次访问时自动加载
+## 启动行为
 
-## 文件修改
+日常入口为仓库根目录的 `start_gui.ps1`，它运行 `uv run gui/launch.py`。`gui/launch.py` 使用 PEP 723 依赖声明和 GUI 隔离运行时，默认端口为 `8080`；脚本包装后默认端口为 `7899`。
 
-### theme.py
-- 添加 `get_theme_toggle_styles()` 函数 - 主题切换按钮样式
-- 添加 `toggle_dark_mode()` 函数 - 切换深色模式
-- 添加 `load_theme_preference()` 函数 - 加载保存的主题偏好
-- 更新 `apply_theme()` 函数 - 应用主题切换样式
-- 增强输入框/下拉框样式覆盖
+## 维护约定
 
-### main.py
-- 导入 i18n 相关函数和主题切换函数
-- 更新 `create_header()` - 添加语言切换器和主题切换按钮
-- 添加 API 端点 `/api/dark_mode` - 保存主题偏好
-- 每个页面函数现在调用 `apply_theme()` 和 `load_theme_preference()`
+- 新页面文案统一放入 `gui/utils/i18n.py`，并同步四种语言。
+- 新任务应通过 `gui/utils/job_manager.py` 和 `gui/utils/process_runner.py` 管理，不要在页面中直接阻塞事件循环。
+- 依赖 profile 由 `pyproject.toml` 维护，页面只选择路由，不复制完整安装命令。
+- 不要把 `config/env_vars.json`、模型缓存、数据集或任务日志加入 Git。
 
-### launch.py
-- 移除全局 `apply_theme()` 调用（现在在页面函数中调用）
+## 相关文档
 
-### utils/i18n.py
-- 复用自 sd-scripts/gui/i18n.py
-- 支持 4 种语言
-
-## 使用方法
-
-### 切换语言
-1. 点击页面右上角的语言图标旁边的下拉框
-2. 选择需要的语言（中文/英语/日语/韩语）
-3. 页面会自动刷新并应用新语言
-
-### 切换主题
-1. 点击页面右上角的太阳/月亮图标
-2. 主题会在深色和浅色之间切换
-3. 偏好会自动保存，下次访问时自动应用
-
-## 注意事项
-- 语言切换会刷新页面，未保存的数据可能会丢失
-- 主题偏好保存在浏览器的 localStorage 中，清除浏览器数据会重置偏好
-- 服务器端也会保存一份主题偏好副本用于初始化
+- [GUI 使用手册](README.md)
+- [GUI 参数映射](PARAMETERS.md)
+- [根目录使用说明](../README.md)
+- [配置指南](../docs/configuration.md)

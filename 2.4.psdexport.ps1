@@ -25,7 +25,13 @@ $Env:HF_HOME = "huggingface"
 $Env:HF_ENDPOINT = "https://hf-mirror.com"
 $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
 $Env:UV_INDEX_URL="https://mirrors.aliyun.com/pypi/simple/"
-$Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
+if ($env:LOCALAPPDATA) {
+    $Env:UV_CACHE_DIR = "$($env:LOCALAPPDATA)/uv/cache"
+} elseif ($env:HOME) {
+    $Env:UV_CACHE_DIR = "$($env:HOME)/.cache/uv"
+} else {
+    $Env:UV_CACHE_DIR = "$PSScriptRoot/.cache/uv"
+}
 $Env:UV_NO_BUILD_ISOLATION = "1"
 $Env:UV_NO_CACHE = "0"
 $Env:UV_LINK_MODE = "symlink"
@@ -147,7 +153,7 @@ Install-UvExtraPatch @("psdexport")
 Write-Output "runtime target environment: $(Get-UvEnvName)"
 Write-Output "runtime dependency profile: extra:psdexport"
 
-python "./utils/psd_dataset_pipeline.py" `
+python -m utils.psd_dataset_pipeline `
     $Config.psd_dir `
     $ExtArgs
 

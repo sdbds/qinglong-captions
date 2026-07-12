@@ -6,7 +6,13 @@ $Env:PIP_DISABLE_PIP_VERSION_CHECK = 1
 $Env:PIP_NO_CACHE_DIR = 1
 #$Env:PIP_INDEX_URL="https://mirrors.aliyun.com/pypi/simple/"
 #$Env:UV_INDEX_URL="https://mirrors.aliyun.com/pypi/simple/"
-$Env:UV_CACHE_DIR = "${env:LOCALAPPDATA}/uv/cache"
+if ($env:LOCALAPPDATA) {
+    $Env:UV_CACHE_DIR = "$($env:LOCALAPPDATA)/uv/cache"
+} elseif ($env:HOME) {
+    $Env:UV_CACHE_DIR = "$($env:HOME)/.cache/uv"
+} else {
+    $Env:UV_CACHE_DIR = "$PSScriptRoot/.cache/uv"
+}
 $Env:UV_NO_BUILD_ISOLATION = "1"
 $Env:UV_NO_CACHE = "0"
 $Env:UV_LINK_MODE = "symlink"

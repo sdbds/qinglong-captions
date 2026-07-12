@@ -8,7 +8,7 @@ from typing import Optional, Tuple
 
 from PIL import Image
 
-from module import lanceImport, lanceexport
+from module import lanceexport, lanceImport
 from utils.psd_layer_export import export_psd_layers
 
 

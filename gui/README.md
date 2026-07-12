@@ -1,176 +1,168 @@
-# 青龙字幕工具 GUI (Qinglong Captions GUI)
+# 青龙字幕工具 GUI
 
-基于 NiceGUI 的现代化图形化界面，为青龙字幕工具提供直观易用的操作体验。
+GUI 基于 NiceGUI，负责把导入、场景分割、打标、字幕、导出和工具箱统一到任务标签页中。日常启动入口是仓库根目录的 `start_gui.ps1`。
 
-## 功能特点
+## 快速启动
 
-- 🎨 **现代化界面** - 使用 NiceGUI 构建，支持深色/浅色主题
-- 🌐 **多语言支持** - 支持中文、英文、日文、韩文
-- 📊 **实时日志** - 查看命令输出和进度
-- 🖱️ **点击操作** - 无需记忆复杂的命令行参数
-- 📁 **路径选择** - 可视化的文件/文件夹选择器
-- 🎵 **音频分轨** - 在 GUI 工具箱中直接运行 ONNX 音频分离
-- 🌍 **文本翻译** - 在 GUI 工具箱中执行文档规范化与翻译
-- 🧩 **依赖自动补齐** - 选择本地 OCR / VLM / ALM 路由后，GUI 会自动补对应 `uv extra`
-
-## 使用方法
-
-### 方法 1: 使用 PowerShell 脚本 (推荐)
+先完成根目录 [README.md](../README.md) 的安装步骤，然后从仓库根目录运行：
 
 ```powershell
-./start_gui.ps1
+.\start_gui.ps1
 ```
 
-- 推荐日常使用这个入口
-- 会自动切到项目根目录、复用 `.venv` / `venv`、补齐 `PYTHONPATH`
-- 当前默认地址来自 `start_gui.ps1` 的 `$Config`：`http://127.0.0.1:7899`
-- 默认自动打开浏览器；如果端口占用，会自动顺延到下一个可用端口并打印实际 URL
+默认地址：`http://127.0.0.1:7899`。
 
-### 方法 2: 使用 Python 直接运行
+`start_gui.ps1` 会执行：
 
-```bash
-# 确保在虚拟环境中
+```text
+uv run gui/launch.py
+```
+
+`gui/launch.py` 带有 PEP 723 依赖声明，因此该入口使用 GUI 自己的隔离运行时。它不承诺复用仓库的 `.venv` / `venv`。需要显式指定 Python 环境时，安装脚本子进程不会改变当前终端，请先激活项目环境并确认 NiceGUI 已安装：
+
+```powershell
+. .\.venv\Scripts\Activate.ps1
 python -m gui.launch --port 7899
-
-# 或使用参数
-python -m gui.launch --cloud --port 7899 --no-browser
 ```
 
-- `gui.launch` 自身默认端口是 `8080`
-- 如果你想与 `start_gui.ps1` 保持一致，显式传 `--port 7899`
+Linux Bash 使用 `source .venv/bin/activate`，然后执行同一条 `python` 命令。
 
-### 方法 3: 直接运行 `main.py`（仅开发调试）
-
-```bash
-cd gui
-python main.py
-```
-
-- 这个入口适合本地调试页面，不是推荐的日常启动方式
+以上命令假定环境目录是 `.venv`；如果安装脚本复用了 `venv`，请将路径中的 `.venv` 替换为 `venv`。
 
 ## 启动参数
 
+```powershell
+uv run gui/launch.py --help
+uv run gui/launch.py --host 127.0.0.1 --port 7899 --no-browser
+uv run gui/launch.py --native --port 7899
+```
+
 | 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--host` | 绑定地址 | 127.0.0.1 |
-| `--port` | 端口 | `gui.launch` 默认 8080；`start_gui.ps1` 包装后默认 7899 |
-| `--cloud` | 云模式 (绑定 0.0.0.0) | False |
-| `--native` | 原生窗口模式 | False |
-| `--no-browser` | 不自动打开浏览器 | False |
+| --- | --- | --- |
+| `--host` | 绑定地址 | `127.0.0.1` |
+| `--port` | 监听端口 | `8080`；`start_gui.ps1` 包装后为 `7899` |
+| `--cloud` | 绑定 `0.0.0.0` | 关闭 |
+| `--native` | 使用原生窗口，需要 `pywebview` | 关闭 |
+| `--no-browser` | 不自动打开浏览器 | 关闭 |
 
-## 页面说明
+### 远程访问安全
 
-### 1. 首页 (Home)
-- 快速开始向导
-- 支持的模型展示
-- 功能特点介绍
+`--cloud` 只改变监听地址，不会增加登录鉴权。不要把它直接暴露到公网；如必须远程访问，请放在已配置认证、TLS 和访问控制的反向代理后面。默认使用 `127.0.0.1`。
 
-### 2. 数据导入 (Import)
-- 将视频/图像导入 Lance 数据库
-- 支持多种导入模式
+## 页面与任务
 
-### 3. 视频分割 (Split)
-- 场景检测和分割
-- 支持多种检测算法
-- 生成场景预览图
+### Setup
 
-### 4. 标签生成 (Tagger)
-- WD14 Tagger 打标
-- 支持多种模型
-- 可配置阈值和选项
+检查 Python、PyTorch、CUDA、GPU、模型缓存和环境变量。这里可以管理 `HF_HOME`、`HF_TOKEN`、代理和 uv 索引等运行时变量。
 
-### 5. 字幕生成 (Caption)
-- 支持多种 API (Gemini, Pixtral, Qwen, Step, Kimi, GLM)
-- 支持 OCR / 本地 VLM / 本地 ALM 路由
-- 会按所选本地路由自动补依赖
-- 场景检测参数配置
+### Import
 
-### 6. 数据导出 (Export)
-- 从 Lance 数据库导出字幕
-- 支持多种格式
+把输入目录导入 Lance 数据集，配置 caption sidecar、tag、导入模式和是否保存二进制。导入完成后，后续页面以 Lance 数据集为主要中间格式。
 
-### 7. 工具箱 (Tools)
+### Split
+
+对视频目录执行场景检测、切分和场景图像生成。支持 `ContentDetector`、`AdaptiveDetector`、`HashDetector`、`HistogramDetector` 和 `ThresholdDetector`。
+
+### Tagger
+
+运行 WDTagger / CL Tagger，配置模型、批大小和标签阈值。Gated Hugging Face 模型需要先接受访问条款并设置 `HF_TOKEN`。
+
+### Caption
+
+选择云端 API、OpenAI-compatible、本地 OCR、本地 VLM 或本地 ALM。路由选中后，GUI 会按 `pyproject.toml` 和 `config/model.toml` 补齐依赖 profile。任务页显示显存建议、进度、日志和失败原因。
+
+### Export
+
+从 Lance 数据集导出媒体和字幕，可指定 version tag、caption suffix 和 caption extension。导出前确认当前数据集没有被其他任务写入。
+
+### Tools
+
+工具箱提供：
+
 - 水印检测
-- 图像预处理
-- 图像评分
-- 音频分轨
-- 文本翻译
+- 图片缩放、裁剪和可选对齐
+- 图像质量评分
+- ONNX 音频分轨与可选 harmony 二次分离
+- MuScriptor 官方模型音频转 MIDI 批处理
+- MuSViT ONNX 乐谱扫描 embedding
+- 文本 / 文档规范化与翻译
+- Image2PSD / See-through 分层
 
-## 项目结构
+## GUI 到脚本的对应关系
 
+| GUI 页面 / 工具 | PowerShell 入口 | Python 入口 | 依赖 profile |
+| --- | --- | --- | --- |
+| Import | `lanceImport.ps1` | `python -m module.lanceImport` | 基础依赖 |
+| Split | `2.0.video_spliter.ps1` | `python -m module.videospilter` | `video-split` |
+| Tagger | `3.tagger.ps1` | `python utils/wdtagger.py --help` | `wdtagger` 或 `wdtagger-cl-tagger-v2` |
+| Caption | `4.captioner.ps1` | `python -m module.captioner` | 基础依赖；本地路由按配置安装 |
+| Export | `lanceExport.ps1` | `python -m module.lanceexport` | 基础依赖 |
+| WaterDetect | `2.1.image_watermark_detect.ps1` | `uv run module/waterdetect.py --help` | PEP 723 inline dependencies |
+| Preprocess | `2.2.preprocess_images.ps1` | `python -m utils.preprocess_datasets` | `image-align` |
+| Reward model | `2.3.image_reward_model.ps1` | `python -m module.rewardmodel` | `reward-model` |
+| Audio separation | `2.5.audio_separator.ps1` | `python -m module.audio_separator` | `vocal-midi` |
+| Music transcription | `2.7.music_transcription.ps1` | `python -m module.muscriptor_tool.cli batch` | `muscriptor-local` |
+| Sheet music | GUI Tools（无独立 PowerShell wrapper） | `python -m module.sheet_music_musvit --help` | `musvit-onnx` |
+| Image2PSD | `2.6.image2psd.ps1` | `python -m module.see_through.cli` | `see-through` |
+| Translation | `5.translate.ps1` | `python -m module.texttranslate` | `translate` |
+
+Python 入口提供 `--help`，但可选工具会在 argparse 之前导入模型依赖；基础安装不保证所有入口都能直接启动。先运行对应 PowerShell 入口或安装目标 profile，再执行 Python 命令；WaterDetect 例外，直接使用其 PEP 723 `uv run` 入口。
+
+`2.4.psdexport.ps1` 是脚本专用的 PSD 图层导出流程，当前没有接入 GUI Tools 页面。
+
+## MuScriptor 批处理工具
+
+Tools 页的“音乐转录”位于“音频分轨”和“乐谱扫描”之间。同一路径控件接受文件或目录并自动判断，目录固定递归；输出自动写入输入位置下的 `muscriptor_output`。模型下拉显示 `MuScriptor/muscriptor-small`、`MuScriptor/muscriptor-medium`、`MuScriptor/muscriptor-large` 三个完整官方仓库名，并默认 large。页面还支持 CPU/CUDA、自动或手动音色、greedy/sampling/beam 解码，以及 MIDI、JSON、JSONL 组合输出。固定版本的官方音色目录随 GUI 轻量加载，不会为了打开下拉框安装 MuScriptor 或 torch；实际任务仍由上游 resolver 校验音色。
+
+首次运行前在 Hugging Face 官方模型页接受 CC BY-NC 4.0 权重条款，并执行 `hf auth login`。GUI 会通过 `muscriptor-local` profile 增量安装 `muscriptor==0.2.1`；不提供本地权重、URL 或自定义仓库字段。
+
+可选试听支持纯 MIDI 合成音频，或“左声道原音、右声道合成 MIDI”的对照音频。MP3 为默认，其可用性由运行时真实编解码探测决定；WAV 是显式回退。试听要求 PATH 中存在 FluidSynth，并自动下载和使用官方 `MuseScore_General.sf2` SoundFont。页面没有系统音源、自定义 SoundFont 或单独的权重条款控件，也不包含上游 WebUI、钢琴卷帘和单文件 Demo。
+
+## 运行时与日志
+
+- 每个任务拥有独立的状态、进度和日志缓冲区。
+- 任务标签页支持并发运行；停止一个任务不会主动终止其他标签页。
+- 日志可能包含输入路径、模型名、代理地址和子进程错误。
+- 当前部分 Caption 路径会把 API Key 作为命令行参数传给子进程。不要分享完整命令行、进程列表截图或未经脱敏的日志。
+- GUI 环境变量保存到 `config/env_vars.json`，该文件是明文，不能提交到 Git。
+
+## 开发调试
+
+直接运行 `gui/main.py` 仅适合页面开发，不是日常入口：
+
+```powershell
+Set-Location gui
+python main.py
 ```
-gui/
-├── main.py                    # 页面与路由定义
-├── launch.py                  # 推荐启动入口
-├── theme.py                   # 主题样式
-├── path_setup.py              # GUI 启动路径修正
-├── README.md                  # 本文件
-├── components/                # 可复用组件
-│   ├── advanced_inputs.py     # 高级输入控件
-│   ├── execution_panel.py     # 执行面板
-│   ├── job_list.py            # 任务列表抽屉
-│   ├── log_viewer.py          # 日志查看器
-│   └── path_selector.py       # 路径选择器
-├── wizard/                    # 向导页面
-│   ├── step0_setup.py         # 环境检查
-│   ├── step1_import.py        # 数据导入
-│   ├── step2_video_split.py   # 视频分割
-│   ├── step3_tagger.py        # 标签生成
-│   ├── step4_caption.py       # 字幕生成
-│   ├── step5_export.py        # 数据导出
-│   ├── step6_tools.py         # 工具箱
-│   ├── step7_settings.py      # 设置页
-│   └── console_page.py        # 全屏终端页
-└── utils/                     # 工具函数
-    ├── env_config.py          # 环境变量配置
-    ├── i18n.py                # 国际化
-    ├── job_manager.py         # 任务管理
-    └── process_runner.py      # 进程运行器
+
+开发 GUI 组件时，优先在仓库根目录运行测试；不要为了绕过导入问题修改 `PYTHONPATH` 或从 `gui/` 目录提交运行时生成文件。
+
+## 常见问题
+
+### 页面打不开
+
+```powershell
+uv run gui/launch.py --help
+uv run gui/launch.py --port 7900 --no-browser
 ```
 
-## 与 PowerShell 脚本的对应关系
+先确认 `uv`、NiceGUI 依赖和端口；使用终端打印的实际 URL。
 
-| GUI 页面 | PowerShell 脚本 |
-|----------|----------------|
-| 数据导入 | `lanceImport.ps1` |
-| 视频分割 | `2.0.video_spliter.ps1` |
-| 标签生成 | `3.tagger.ps1` |
-| 字幕生成 | `4.captioner.ps1` |
-| 数据导出 | `lanceExport.ps1` |
-| 水印检测 | `2.1.image_watermark_detect.ps1` |
-| 图像预处理 | `2.2.preprocess_images.ps1` |
-| 图像评分 | `2.3.image_reward_model.ps1` |
-| 音频分轨 | `2.5.audio_separator.ps1` |
-| 文本翻译 | `5.translate.ps1` |
+### 本地 Provider 缺依赖
 
-## 注意事项
+回到 `Caption` / `Tools` 页面重新选择路由，让 GUI 增量安装对应 profile。不要在同一环境中一次性安装所有互相冲突的 OCR、CUDA 或 Transformers extra。
 
-1. 使用 GUI 前请确保已运行 `1.install-uv-qinglong.ps1` 安装依赖
-2. 某些功能需要配置 API 密钥
-3. 建议在虚拟环境中运行
-4. 首次使用某些本地 OCR / VLM / ALM 路由时，GUI 会自动补依赖并可能下载模型文件
+### 任务失败但页面仍在
 
-## 故障排除
+打开任务标签页日志，确认输入路径、模型缓存、Hugging Face 权限和 GPU 显存。停止任务应使用任务自己的 Stop 控件。
 
-### GUI 无法启动
-- 检查虚拟环境是否激活
-- 优先使用 `./start_gui.ps1`，不要先手动 `cd gui` 再猜入口
-- 确认已经执行过 `./1.install-uv-qinglong.ps1`
-- 查看端口是否被占用
+### 主题或语言切换
 
-### 命令执行失败
-- 检查工作目录是否正确
-- 确认输入路径有效
-- 查看日志输出获取详细错误信息
+主题偏好保存在浏览器本地；语言切换会刷新页面。未保存的表单值可能丢失。当前支持中文、英文、日文和韩文。
 
-### 主题切换无效
-- 刷新页面后重试
-- 检查浏览器控制台是否有错误
+## 相关文档
 
-## 贡献
-
-欢迎提交 Issue 和 Pull Request 来改进 GUI！
-
-## 许可证
-
-与主项目相同的许可证。
+- [根目录使用说明](../README.md)
+- [配置指南](../docs/configuration.md)
+- [故障排查](../docs/troubleshooting.md)
+- [OpenAI-compatible Provider](../docs/openai_compatible.md)

@@ -1,1030 +1,301 @@
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
+# 青龙字幕工具
 
-<details>
-<summary>中文说明（点击展开）</summary>
+AI 多模态媒体处理与文档翻译工具，围绕 Lance 数据集提供视频、图像、音频描述、OCR、标签生成、翻译、音频分轨和 Image2PSD 工作流。
 
-# 青龙字幕工具 (4.5.0)
+当前版本：`4.5.0` · [English README](README.en.md) · [更新日志](CHANGELOG.md)
 
-## 更新日志
+## 先看这里
 
-### 4.5 - 新增 OCR Provider、Grok Build 订阅与 GUI 任务标签页
+| 你的目标 | 推荐入口 | 结果 |
+| --- | --- | --- |
+| 视频 / 图像批量字幕 | GUI：`Import -> Split -> Tagger -> Caption -> Export` | Lance 数据集与字幕文件 |
+| OCR 或本地 VLM / ALM | GUI 的 `Caption` 页面 | OCR、图像描述或音频转写 |
+| 文本 / 文档翻译 | GUI 的 `Tools` 页面或 `5.translate.ps1` | `*_zh_cn.md` 等语言后缀文件 |
+| 音频分轨 | GUI 的 `Tools` 页面或 `2.5.audio_separator.ps1` | 6 stems，可选 harmony 二次分离 |
+| 乐谱扫描 embedding | GUI 的 `Tools` 页面或 `module.sheet_music_musvit` | MuSViT ONNX embedding 与 manifest |
+| 单图转分层 PSD | GUI 的 `Tools` 页面或 `2.6.image2psd.ps1` | 分层 PSD 与中间结果 |
+| 批处理 / 自动化 | 对应 `.ps1` 或 Python CLI | 可脚本化的离线流程 |
 
-1. 新增 Provider：
-   - 新增 `unlimited_ocr`，基于 `baidu/Unlimited-OCR` 3B 模型，支持图片与 PDF OCR，提供 `gundam` / `base` 两种图像模式
-   - 新增 `infinity_parser2` OCR Provider
-   - 新增 `grok_build_subscription` 订阅 Provider，通过无头浏览器自动化使用 Grok Build 进行字幕生成
-2. PaddleOCR 迁移到 PP-OCRv6 ONNX 后端，统一走 ONNX Runtime 配置
-3. GUI 新增任务标签页（Task Tabs），支持隔离运行时并发执行多个任务
-4. `gemma4_local` 新增 12B 本地模型支持
-5. Kimi Code 新增 thinking mode 选项
-6. 云端 Provider 新增 image-only 并发模式，图片输入可并行调用 API
-7. 图片预处理新增 resize 限制 GUI 暴露，OpenCV GPU 初始化逻辑优化
-8. Lance 数据集导入改为流式处理，降低内存占用
-9. Codex 订阅 Provider 稳定性修复：超时清理、客户端重试、MCP 启动隔离、传输与评分默认值
-10. Grok Build 支持 image MIME 转码，适配不同图片格式输入
-11. 新增全局目录名上下文，可在 caption prompt 中引用输入目录名称
-12. 依赖安装默认使用阿里云 PyPI 镜像，加速国内安装
-13. Provider 声明重构，统一 `CaptionResult` 返回类型
-14. 修复 Unlimited-OCR 输出 Markdown 缺少硬换行（双空格结尾）导致预览不换行的问题
+详细页面说明见 [GUI 使用手册](gui/README.md)，配置见 [配置指南](docs/configuration.md)，故障排查见 [故障排查](docs/troubleshooting.md)。
 
-### 4.4 - 本地模型、GUI 与 WDTagger 更新
+## 功能范围
 
-1. 新增和扩展本地 Provider：
-   - 新增 `marlin_2b_local`，支持本地视频 VLM，并补齐图片输入与 GUI 进度日志
-   - 新增 `mega_asr_local`，用于 Mega-ASR 音频转写
-   - 新增 `codex_subscription`，支持使用已登录 Codex / ChatGPT 订阅会话进行图像字幕生成，并提供 `sdk_app_server` 与 `exec` 两种后端路径
-   - `gemma4_local` 的图片与配对图片编码现在会遵守全局 `image_quality` 配置
-2. 本地运行时和依赖矩阵更新：
-   - PyTorch / ONNX 安装源改为显式 CUDA 13 索引，`onnx-base` 增加 TensorRT CUDA 13 依赖
-   - `translate` 依赖升级到 Transformers 5.6+ 并补齐 `compressed-tensors`
-   - `translate` 默认模型更新为 `tencent/Hy-MT2-7B`，并保留轻量 FP8 变体
-   - 基础依赖更新到 `pylance>=6.0.1`、`imageio>=2.37.3`、`imageio-ffmpeg>=0.6.0`、`mistralai>=2.4.7`、`google-genai>=2.6.0`、`scenedetect>=0.7`
-3. WDTagger / CL Tagger 路径更新：
-   - `cl_tagger_v2` 默认更新到 `v2_01a`
-   - `cl_tagger_v2` 模型需要先在 Hugging Face 接受访问条款，并在环境变量中设置 `HF_TOKEN`
-   - 支持动态 tag category，并过滤未知分类的 wdtagger caption
-   - WDTagger 主实现拆分为 `module/wdtagger/` 包，保留 `utils/wdtagger.py` 兼容入口
-   - 修复 Lance caption 扫描和 merge update 路径，避免 wdtagger 写入时触发不必要的 Lance 合并更新
-4. Lance 与数据导入行为更新：
-   - Lance 依赖升级到 `pylance>=6.0.1`
-   - Blob v2 读写逻辑重做，导出与翻译流程可正确读取 Lance BlobFile
-   - Lance 导入默认不再保存原始二进制 blob，降低默认数据集体积
-5. GUI 和脚本工作流更新：
-   - GUI 改为从 `pyproject.toml` 读取版本号
-   - Caption 页面新增本地模型显存适配提示、多 GPU 摘要和延迟 GPU 探测
-   - Tools 页面新增 see-through 显存推荐与多 GPU 明细
-   - 模型配置面板、共享标签本地化、日志视图、任务列表、启动脚本默认值与独立 GUI venv 逻辑同步更新
-   - 各 `.ps1` 入口移除过时 `uv.lock` 依赖，按当前 profile 增量安装
-6. 质量评分、媒体处理和 Provider 稳定性更新：
-   - Reward model 独立为 `reward-model` extra，修复 HPSv3 输入规范化、Transformers 版本 pin 和 GPU 选择
-   - 新增全局 `image_quality` 配置，Provider 编码图片时可统一控制 JPEG 质量
-   - 修复 Qwen 本地模型不支持图片输入时的路由行为
-   - 更新 Kimi Code 模型配置路径
-   - 新增 Xiaomi MiMo OpenAI 兼容 Provider，支持 `--mimo_api_key`、`--mimo_model_path`、`--mimo_base_url`
-   - `Marlin-2B` 视频超长时按模型上限自动分段，图片输入绕开视频分段逻辑
-   - `see-through` 默认 seed 调整为 `1026`，LayerDiff / Marigold / postprocess 抽取层补齐更多单元测试和异常边界
-7. 测试覆盖扩展：
-   - 新增 Codex subscription、Marlin-2B、Mega-ASR、WDTagger ONNX / SigLIP2、GPU profile、模型配置面板、运行时依赖冲突、Caption pipeline 等测试
-   - Provider V2、运行时后端、Lance blob、输出写入、文本翻译和 GUI i18n 测试同步更新
+- GUI 优先的导入、场景分割、WDTagger、字幕、导出与工具箱工作流
+- Provider V2：云端 VLM、OpenAI-compatible、本地 VLM、OCR 与本地 ALM
+- Lance 数据集导入、版本标签、Blob v2 读写与字幕导出
+- 文本和文档规范化、分块翻译与语言后缀 Markdown 导出
+- ONNX 音频分轨、WDTagger、WaterDetect、MusViT 等工具
+- Image2PSD / See-through：LayerDiff 透明分层、Marigold 深度估计和 PSD 导出
 
-### 4.3 - Image2PSD / See-through
+## 环境要求
 
-1. 新增 `see-through` / `image2psd` 工具链：
-   - 新增目录批处理 CLI `module/see_through/cli.py`
-   - 新增 PowerShell 入口 `2.6.image2psd.ps1`
-   - 主流程为 `LayerDiff 透明分层 -> Marigold 深度估计 -> PSD 导出`
-2. `see-through` 工具链补齐关键推理参数透传：
-   - `inference_steps_depth`
-   - `seed`
-   - GUI 工具箱和 CLI 现在都可直接配置
-3. README 补充上游仓库与引用说明：
-   - 新增 `see-through` 上游仓库说明与 `See-through` / `Marigold` cite
-   - 新增 `GAME` 仓库引用说明，用于 `vocal-midi` 路径的模型来源标注
+- Windows 或 Linux（仓库内的 Linux PowerShell 安装脚本目前只提供 x86_64 下载；ARM64 或其他架构请手动安装 `pwsh` 7+）
+- Python `>=3.10,<3.13`；安装脚本默认创建 Python 3.11 环境
+- `uv`：安装脚本会尝试自动安装；若终端找不到，请重新打开终端后再运行
+- Windows 使用 PowerShell 5.1+；Linux 需要 `pwsh`
+- GPU 不是所有功能的必需条件，但本地 VLM、OCR、翻译和 Image2PSD 通常需要显存与较大的磁盘空间
+- 第一次使用某个本地路由时会下载依赖和模型，模型默认放在 `huggingface/`
 
-### 4.2 - ONNX Runtime 统一与音频工具
+## 安装
 
-1. 新增独立音频分轨工具链 `audio_separator.py` / `2.5.audio_separator.ps1`：
-   - 支持单文件、目录和 `.lance` 数据集输入
-   - 默认使用 BS-RoFormer ONNX 模型输出 6 stems
-   - 可选二次 harmony 分离，并已接入 GUI 工具箱
-2. 统一仓库内 ONNX Runtime 配置：
-   - 新增 `config/onnx.toml`
-   - `wdtagger`、`waterdetect` 与 `lfm_vl_local` 共享 runtime / session / cache 逻辑
-   - 补齐 artifact 下载日志与 legacy 配置兼容
-3. 新增本地 OCR `logics_ocr`：
-   - 默认模型：`Logics-MLLM/Logics-Parsing-v2`
-   - 支持图片与 PDF OCR
-   - 自动把结构化 HTML 输出规整为 Markdown
-4. GUI 工具箱补齐音频分轨与文本翻译入口，文档同步到当前脚本命名（`1.install-uv-qinglong.ps1`、`2.0.video_spliter.ps1`、`5.translate.ps1`）。
-5. 依赖 profile 做了一轮收敛：
-   - `onnx-base` 现在直接包含 `torch-base`，避免 ONNX GPU 路径单独漏装 `torch`
-   - `wdtagger` extra 去掉了未使用的 `transformers`，Windows 上的 OpenCV 轮子改为运行时判定
-   - `lfm-vl-local` 继续保留 `transformers`（当前 `AutoProcessor` 仍需要），但移除了额外的 Windows `flash-attn` 依赖
-   - `2.5.audio_separator.ps1` 与 GUI 工具箱现在统一走 `vocal-midi` dependency profile
+### Windows
 
-### 4.1 - 文档 / 纯文本翻译工具
+在仓库根目录执行：
 
-1. 新增独立的 `texttranslate.py` 工具链，支持使用本地 Hugging Face 翻译模型处理文本和文档。
-2. Lance 数据集新增 `chunk_offsets` 列，用于记录规范化 Markdown 的分块边界，便于复现与重跑。
-3. 文本导入新增 standalone 文本资产判定：
-   - `.txt/.md` 可作为主资产导入
-   - `.txt/.md/.srt` 仍可作为同 stem 媒体 / 文档的 sidecar
-4. 新增文档规范化与翻译导出流程：
-   - 原始版本 tag：`raw.import.*`
-   - 规范化版本 tag：`norm.docling.*`
-   - 翻译版本 tag：`tr.<model>.<lang>.*`
-5. 新增 `5.translate.ps1`，翻译结果导出为语言后缀 Markdown，例如 `foo_zh_cn.md`，不会覆盖原文件。
-6. 新增本地 VLM `reka_edge_local`：
-   - 默认模型：`RekaAI/reka-edge-2603`
-   - 支持图像和视频输入
-   - 支持直接 Transformers 推理，或复用 OpenAI-compatible 本地服务路径
-7. 新增本地 OCR `lighton_ocr`：
-   - 默认模型：`lightonai/LightOnOCR-2-1B`
-   - 支持图片与 PDF OCR
-   - 依赖 `transformers>=5`
-8. 运行时脚本现在直接从 `pyproject.toml` 解析当前所选 `extra` / `group` 并增量安装，不再强依赖全局 `uv.lock`。
-9. 新增可选本地 ALM `eureka_audio_local`：
-   - 默认模型：`cslys1999/Eureka-Audio-Instruct`
-   - 支持 `audio/*` 输入
-   - 基于官方 `AutoModelForCausalLM + AutoProcessor` 推理路径
-   - 当前 extra 固定依赖 `transformers==5.2.0`
-10. 新增可选本地 ALM `acestep_transcriber_local`：
-   - 默认模型：`ACE-Step/acestep-transcriber`
-   - 支持 `audio/*` 输入
-   - 默认输出结构化 `.txt` 转写文本
-11. 新增可选本地 ALM `cohere_transcribe_local`：
-   - 默认模型：`CohereLabs/cohere-transcribe-03-2026`
-   - 支持 `audio/*` 输入
-   - 走官方 `AutoModelForSpeechSeq2Seq + model.transcribe()` 推理路径
-   - 需要先在 Hugging Face 接受 gated 模型条款，并在 `config/model.toml` 指定 `language`
-12. 新增转写专用本地 ALM `mega_asr_local`：
-   - 默认权重：`zhifeixie/Mega-ASR`
-   - 支持 `audio/*` 输入并输出结构化 `.txt` 转写文本
-   - 本项目直接加载 Qwen3-ASR backbone、Mega-ASR LoRA 权重和可选 router，权重下载到 `huggingface/Mega-ASR`
-
-### 4.0 - Provider V2 架构重构
-
-1. **全新 Provider V2 架构** - 完全重构的模块化 Provider 系统
-   - 统一抽象的 `Provider` 基类，支持 Cloud VLM、Local VLM、OCR、Vision API 四大类别
-   - 自动发现机制，通过装饰器自动注册 Provider
-   - 统一的 `CaptionResult` 返回类型，解决返回值多态问题
-   - 基于优先级的 Provider 路由，自动选择最佳 Provider
-
-2. **新增 OpenAI Compatible Provider** - 通用 OpenAI API 兼容接口
-   - 支持对接任何 OpenAI 兼容服务：vLLM、SGLang、Ollama、LM Studio
-   - 统一配置参数：`openai_base_url`、`openai_model_name` 等
-   - 自动降级：JSON 模式不支持时自动切换到文本模式
-   - 支持本地 GPU 部署（Qwen2-VL、LLaVA、MiniCPM-V 等）
-   - 查看 [docs/openai_compatible.md](docs/openai_compatible.md) 获取详细使用指南
-
-<details>
-<summary>更早更新日志（&lt; 4.0）</summary>
-
-### 3.9
-
-1. **新增 MiniMax API 支持** - 集成 MiniMax 开放平台多模态能力
-   - 支持模型：MiniMax-M2.5、MiniMax-M2.5-highspeed、MiniMax-M2.1、MiniMax-M2.1-highspeed、MiniMax-M2
-   - 支持图像和视频理解
-   - 支持 Tags 自动加载和高亮显示（与 Kimi VL 相同的体验）
-   - 配置参数：`--minimax_api_key`、`--minimax_model_path`、`--minimax_api_base_url`
-
-2. **新增 MiniMax Code 支持** - 针对代码和结构化输出优化的 Provider
-   - 默认使用 MiniMax-M2 模型，专为代码理解和 Agent 工作流优化
-   - 支持 reasoning_split 分离推理过程
-   - 更强的 JSON 结构化输出能力
-   - 支持 Tags 自动加载和高亮显示
-   - 配置参数：`--minimax_code_api_key`、`--minimax_code_model_path`、`--minimax_code_base_url`
-
-### 3.8
-
-1. 新增 FireRed-OCR (FireRedTeam/FireRed-OCR) 支持，基于 Qwen3-VL 的高性能文档解析 OCR 模型。
-
-### 3.7
-
-1. 新增 GLM-OCR (zai-org/GLM-OCR) 支持，用于从图像和文档中识别文本。
-2. 新增 Nanonets-OCR2-3B 支持，用于文档转换为 Markdown。
-
-### 3.6
-
-1. 支持 Kimi 2.5 作为图像描述模型。
-2. 更新脚本参数示例，补充多模型与 OCR/VLM 选项。
-
-### 3.5
-
-1. 支持 Step3-VL 10B。
-2. 更新 short/long 模板。
-
-### 3.4
-
-1. 支持 PSD exporter。
-2. 更新 short/long 模板。
-
-### 3.3
-
-1. 支持 HunyuanOCR。
-2. 更新 processor 配置（use fast false）。
-
-### 3.2
-
-1. 支持 DeepSeek OCR 和 PaddleOCR。
-2. 补齐缺失依赖。
-
-### 3.1
-
-1. 增加 third_party SongPrep，用于音乐字幕/描述。
-2. 更新 submodule。
-
-### 3.0
-
-1. 支持 tagger JSON 格式输出，并生成分类后的 tags.json。
-2. 新增 image_reward_model（imscore）脚本。
-3. 支持 nano banana 图片编辑/处理任务（多输入多输出）。
-
-</details>
-
-基于 Lance 数据库的多模态数据处理与字幕工具，支持 GUI 驱动的视频 / 图像 / 音频描述、OCR、翻译、音频分轨，以及云端 / 本地 Provider 路由。
-
-## 功能特点
-- **Provider V2 架构** - 模块化、可扩展的 Provider 系统，支持自动发现和统一接口
-- **OpenAI 兼容 API** - 通用接口支持 vLLM、SGLang、Ollama、LM Studio 本地 GPU 推理
-- **GUI 优先工作流** - NiceGUI 图形界面统一承载导入、分镜、打标、字幕、导出和工具箱
-- 支持使用云端或本地 Provider 进行视频 / 图像 / 音频理解
-- 导出 SRT 格式字幕文件
-- 支持多种视频格式
-- 批量处理并显示进度
-- 保持原始目录结构
-- 通过 TOML 文件配置
-- 集成 Lance 数据库实现高效数据管理
-- 新增 ONNX 音频分轨工具，支持 6 stems 分离与 harmony 二次分离
-- 统一 ONNX runtime 配置，支持共享缓存和 provider 选项
-- 新增独立文本 / 文档翻译链路，支持 txt、md、json、pdf、doc/docx、xls/xlsx、ppt/pptx、rtf、epub
-## 模块说明
-
-### 数据集导入 (`lanceImport.py`)
-- 将视频导入 Lance 数据库格式
-- 保持原始目录结构
-- 支持单目录和配对目录结构
-
-### 数据集导出 (`lanceexport.py`)
-- 从 Lance 数据集中提取视频和字幕
-- 保持原有文件结构
-- 在源视频所在目录导出 SRT 格式字幕
-
-### 自动字幕生成 (`captioner.py` & `api_handler_v2.py`)
-- **Provider V2 架构**，支持 20+ 种 Provider（Cloud VLM、Local VLM、OCR、Vision API）
-- **OpenAI 兼容 Provider**，支持本地推理（vLLM、SGLang、Ollama、LM Studio）
-- 支持远程 API、本地 OCR / VLM / ALM 与 OpenAI-compatible 路由
-- 支持批量处理
-- 生成带时间戳的 SRT 格式字幕
-- 健壮的错误处理和重试机制
-- 批处理进度跟踪
-
-### 文本 / 文档翻译 (`texttranslate.py`)
-- 使用 Lance 版本控制保存原始导入、规范化 Markdown、翻译结果
-- standalone `.txt/.md` 可直接导入为主资产
-- 文档先规范化为 Markdown，再按 `chunk_offsets` 分块喂给本地翻译模型
-- 默认本地模型：`tencent/Hy-MT2-7B`；轻量 FP8 变体：`tencent/Hy-MT2-1.8B-FP8`
-- 导出结果统一为 `*_lang.md`，避免覆盖原文件
-
-### 音频分轨 (`audio_separator.py`)
-- 支持音频文件、目录与 `.lance` 数据集输入
-- 默认输出 6 stems，可选追加 harmony 二次分离
-- 支持 `wav` / `flac` / `mp3` 导出，适合伴奏、人声和和声拆分
-
-### Image2PSD / See-through (`module/see_through/cli.py`)
-- 将上游 `see-through` 推理链路抽取并适配为本仓库的目录批处理 CLI，脚本入口为 `./2.6.image2psd.ps1`
-- 主流程为 `LayerDiff 透明分层 -> Marigold 深度估计 -> PSD 导出`
-- 适合把单图或整目录角色立绘转换成可继续编辑的分层 PSD 结果
-
-### 配置模块 (`config.py`、`config.toml` & `config/onnx.toml`)
-- API 配置管理
-- 可自定义批处理参数
-- 支持 ONNX runtime 默认值与按工具覆写
-- 默认结构包含文件路径和元数据
-
-## 安装方法
-
-### Windows 系统
-运行以下 PowerShell 脚本：
 ```powershell
-./1.install-uv-qinglong.ps1
+.\1.install-uv-qinglong.ps1
 ```
-### Linux 系统
-1. 首先安装 PowerShell：
+
+基础安装只安装 `pyproject.toml` 的默认依赖。GUI 或工具第一次选中某个本地 Provider 时，会按路由增量安装对应的 `extra`。
+
+### Linux
+
+仓库文件名包含空格，命令必须保留引号：
+
 ```bash
-sudo sh ./0、install pwsh.sh
-```
-2. 然后使用 PowerShell 运行安装脚本：
-```powershell
+chmod +x "./0.install pwsh.sh"
+sudo bash "./0.install pwsh.sh"
 pwsh ./1.install-uv-qinglong.ps1
 ```
 
+安装脚本会创建或复用仓库内的 `.venv` 或 `venv`。脚本会从 `pyproject.toml` 解析依赖，不依赖仓库内的 `uv.lock`。仓库内的辅助脚本固定下载 Linux x86_64 版 PowerShell；ARM64/其他架构请跳过该脚本，按发行版文档安装 `pwsh` 7+。下文命令以 `.venv` 为例；如果实际使用的是 `venv`，请将路径中的 `.venv` 替换为 `venv`。
+
+### 安装后自检
+
+```powershell
+uv --version
+uv run gui/launch.py --help
+```
+
+如果 `uv` 刚刚安装但当前 shell 找不到它，请重启 PowerShell / 终端后重试。
+
 ## 使用方法
 
-### 推荐流程：先用 GUI
-
-1. 运行安装脚本：
-   ```powershell
-   ./1.install-uv-qinglong.ps1
-   ```
-2. 启动 GUI：
-   ```powershell
-   ./start_gui.ps1
-   ```
-3. 默认会在浏览器打开 `http://127.0.0.1:7899`。
-4. 进入 GUI 后，建议先打开 `Setup` 页面检查 Python / PyTorch / CUDA，然后按 `Import -> Split -> Tagger -> Caption -> Export / Tools` 的顺序使用。
-
-### GUI 启动方式
-
-#### 方式 1：推荐，使用项目脚本
+### 1. GUI 快速开始（推荐）
 
 ```powershell
-./start_gui.ps1
+.\start_gui.ps1
 ```
 
-- 这个脚本会自动切到项目根目录，补齐 `PYTHONPATH`，优先复用 `.venv` / `venv`
-- 默认参数来自 `start_gui.ps1` 内的 `$Config`，当前默认地址是 `127.0.0.1:7899`
-- 默认以浏览器模式启动；如果端口占用，GUI 会自动尝试后续端口并打印实际 URL
+默认浏览器地址为 `http://127.0.0.1:7899`。端口被占用时，GUI 会自动尝试后续端口并在终端打印实际地址。
 
-#### 方式 2：直接调用 Python 入口
+`start_gui.ps1` 实际执行 `uv run gui/launch.py`。`gui/launch.py` 带有 PEP 723 依赖声明，会使用 GUI 自己的隔离运行时；不要把它理解为自动复用项目 `.venv` 的入口。
+
+如果要直接运行 Python 入口，请先在当前终端激活已经安装好 NiceGUI 的项目环境（安装脚本子进程不会改变当前终端）：
 
 ```powershell
+. .\.venv\Scripts\Activate.ps1
 python -m gui.launch --port 7899
 ```
+
+Linux Bash 使用 `source .venv/bin/activate` 后执行同一条 `python` 命令。
 
 常用参数：
 
 ```powershell
-python -m gui.launch --cloud --port 7899 --no-browser
-python -m gui.launch --native --port 7899
+uv run gui/launch.py --port 7899 --no-browser
+uv run gui/launch.py --native --port 7899
 ```
 
-- `--cloud` 会绑定到 `0.0.0.0`
-- `--native` 会使用原生窗口模式（需要 `pywebview`）
-- `--no-browser` 不自动打开浏览器
+- `--no-browser`：不自动打开浏览器
+- `--native`：使用原生窗口模式，需要 `pywebview`
+- `--cloud`：绑定 `0.0.0.0`，仅适合受信任的内网或已由外部网关保护的环境
 
-更多 GUI 页面说明可见 [gui/README.md](gui/README.md)。
+GUI 本身没有登录鉴权。不要把 `--cloud` 直接暴露到公网，也不要在不可信网络中使用它。
 
-### GUI 下的模型 / Provider 使用说明
+### 2. 推荐工作流
 
-- 远程 API、OCR、本地 VLM、本地 ALM 现在都统一从 GUI 配置
-- 在 `Caption` 页面选择本地 OCR / VLM / ALM 后，GUI 会根据所选路由自动补对应的 `uv extra`
-- 不再推荐手动执行一长串 `uv sync --extra xxx` 来安装不同本地 VLM / ALM
-- 如果你确实走脚本模式，再去修改对应 `.ps1` 或 `config/*.toml`
+1. **Setup**：检查 Python、PyTorch、CUDA、模型缓存和环境变量。
+2. **Import**：选择输入目录，导入 Lance 数据集；需要时配置 caption sidecar、tag 和导入模式。
+3. **Split**：对视频目录执行场景检测并生成场景图像；不处理视频时可跳过。
+4. **Tagger**：使用 WDTagger / CL Tagger 生成标签；首次使用 gated 模型前，先在 Hugging Face 接受条款并设置 `HF_TOKEN`。
+5. **Caption**：选择云端 API、OpenAI-compatible、本地 OCR、VLM 或 ALM 路由，确认输入类型和模型配置后执行。
+6. **Export**：从 Lance 数据集导出图片、媒体和字幕，必要时指定版本 tag 或语言后缀。
+7. **Tools**：按需运行预处理、评分、WaterDetect、音频分轨、文本翻译或 Image2PSD。
 
-### 脚本模式（高级 / 批处理）
+任务会显示在 GUI 的任务标签页中。切换页面不会停止后台任务；停止任务请使用对应任务的 Stop 控件。
 
-如果你已经熟悉当前工程，仍然可以直接运行脚本：
+### 3. 配置 Provider 与模型
+
+GUI 配置入口优先于手工修改脚本。配置原则：
+
+- 云端 Provider：在 `Caption` 页面填写对应 API Key、模型和 Base URL。
+- OpenAI-compatible：填写 `openai_base_url`、`openai_model_name`；本地服务可使用占位 API Key。
+- 本地 OCR / VLM / ALM：选择路由后，GUI 会为该路由补齐所需 `uv extra`，并显示显存适配提示。
+- Hugging Face gated / 私有模型：在环境变量中配置 `HF_TOKEN`，不要把令牌写入提交的 `.ps1` 或 Markdown。
+- 详细 OpenAI-compatible 示例见 [docs/openai_compatible.md](docs/openai_compatible.md)。
+
+GUI 环境变量设置保存在 `config/env_vars.json`。该文件是明文本地状态，可能包含令牌或代理信息，**不要提交、分享或上传**；提交前请确认它不在 Git 暂存区。
+
+### 4. 脚本模式（批处理）
+
+PowerShell 入口把配置集中放在文件顶部。先编辑脚本顶部的 `Configuration` 区域，再从仓库根目录运行：
+
+| 脚本 | 用途 | 典型输入 / 输出 |
+| --- | --- | --- |
+| `lanceImport.ps1` | 导入 Lance | 图片、视频或数据目录 -> `.lance` |
+| `2.0.video_spliter.ps1` | 场景检测和视频切分 | 视频目录 -> 场景图像 / 报告 |
+| `3.tagger.ps1` | WDTagger / CL Tagger | 图片目录 -> tags sidecar / Lance 更新 |
+| `4.captioner.ps1` | 批量字幕生成 | Lance 或媒体目录 -> caption / SRT |
+| `lanceExport.ps1` | 导出 Lance | `.lance` -> 媒体与字幕文件 |
+| `2.1.image_watermark_detect.ps1` | 水印检测 | 图片目录 -> 检测结果 |
+| `2.2.preprocess_images.ps1` | 缩放、裁剪和可选对齐 | 图片目录 -> 预处理图片 |
+| `2.3.image_reward_model.ps1` | 图像质量评分 | 图片目录 -> 评分结果 |
+| `2.4.psdexport.ps1` | PSD 图层导出 | PSD 目录 -> 图层图片 / 可选 Lance |
+| `2.5.audio_separator.ps1` | ONNX 音频分轨 | 音频 / 目录 / `.lance` -> wav/flac/mp3 stems |
+| `2.6.image2psd.ps1` | See-through 分层 | 图片目录 -> 分层 PSD |
+| `5.translate.ps1` | 文本规范化和翻译 | 文档目录 / `.lance` -> `*_lang.md` |
+
+例如：
 
 ```powershell
-./lanceImport.ps1
-./4.captioner.ps1
-./lanceExport.ps1
-./2.2.preprocess_images.ps1
-./2.5.audio_separator.ps1
-./2.6.image2psd.ps1
-./5.translate.ps1
+.\lanceImport.ps1
+.\4.captioner.ps1
+.\lanceExport.ps1
+.\5.translate.ps1
 ```
 
-说明：
+脚本会在需要时按 profile 增量安装依赖。不要手工拼接一长串 `uv sync --extra`；如果需要精确控制 profile，参见 [配置指南](docs/configuration.md)。
 
-- `4.captioner.ps1` 用于批量字幕生成
-- `2.2.preprocess_images.ps1` 用于图片预处理与可选图像对齐；`--matcher-backend=auto` 会在 CUDA 上优先 `affine_steerers`，否则优先 `xfeat`，失败时回退 ORB
-- `2.5.audio_separator.ps1` 用于 ONNX 音频分轨
-- `2.5.audio_separator.ps1` 默认会安装并复用 `vocal-midi` profile，不需要再手动补 `--extra vocal-midi`
-- `2.6.image2psd.ps1` 用于调用 see-through 批处理 CLI，把图片目录转换为分层 PSD；默认会安装并复用 `see-through` profile
-- `5.translate.ps1` 用于文档规范化和翻译，输出如 `*_zh_cn.md`
-- 日常运行会按当前所选 profile 增量安装依赖；`uv.lock` 主要留给 CI / 发版流程维护
+### 5. Python CLI（高级）
 
-### 上游仓库 / 模型引用
-- `Image2PSD / see-through` 对接上游仓库：[`shitagaki-lab/see-through`](https://github.com/shitagaki-lab/see-through)
-- 当前仓库中的 [`module/see_through/`](module/see_through/) 是针对青龙工具链做的抽取与批处理适配，不是对上游仓库的逐文件镜像
-- `vocal-midi` 路径使用的音高与分段模型参考项目：[`openvpi/GAME`](https://github.com/openvpi/GAME)
-- `GAME` 仓库当前未在 README 中提供官方 BibTeX，下面给出的是仓库级引用；如果上游后续发布正式论文或 citation，请优先以上游为准
-
-```bibtex
-@article{lin2026seethrough,
-  title={See-through: Single-image Layer Decomposition for Anime Characters},
-  author={Lin, Jian and Li, Chengze and Qin, Haoyun and Chan, Kwun Wang and Jin, Yanghua and Liu, Hanyuan and Choy, Stephen Chun Wang and Liu, Xueting},
-  journal={arXiv preprint arXiv:2602.03749},
-  year={2026}
-}
-```
-
-```bibtex
-@InProceedings{ke2023repurposing,
-  title={Repurposing Diffusion-Based Image Generators for Monocular Depth Estimation},
-  author={Bingxin Ke and Anton Obukhov and Shengyu Huang and Nando Metzger and Rodrigo Caye Daudt and Konrad Schindler},
-  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
-  year={2024}
-}
-```
-
-```bibtex
-@software{openvpi_game,
-  title={GAME: Generative Adaptive MIDI Extractor},
-  author={{OpenVPI}},
-  url={https://github.com/openvpi/GAME}
-}
-```
-
-</details>
-
-# qinglong-captioner (4.5.0)
-
-A multimodal toolkit built on Lance for GUI-driven captioning, OCR, translation, audio separation, and cloud / local provider routing.
-
-## Changelog
-
-### 4.5 - New OCR Providers, Grok Build Subscription, And GUI Task Tabs
-
-1. New Providers:
-   - Added `unlimited_ocr` based on `baidu/Unlimited-OCR` 3B, supporting image and PDF OCR with `gundam` / `base` image modes
-   - Added `infinity_parser2` OCR provider
-   - Added `grok_build_subscription` subscription provider using headless browser automation for Grok Build captioning
-2. Migrated PaddleOCR to the PP-OCRv6 ONNX backend, now unified under ONNX Runtime configuration
-3. Added GUI Task Tabs with isolated runtimes for concurrent job execution
-4. Added Gemma 4 12B local model support to `gemma4_local`
-5. Added Kimi Code thinking mode option
-6. Implemented image-only cloud concurrency for parallel API captioning
-7. Exposed preprocess resize limits in GUI and optimized OpenCV GPU initialization
-8. Streamed Lance dataset import for lower memory usage
-9. Fixed Codex subscription stability: timeout cleanup, client retry, MCP startup isolation, transport, and scoring defaults
-10. Added Grok Build image MIME transcoding for different image format inputs
-11. Added global directory name context for caption prompts
-12. Switched default dependency installs to the Aliyun PyPI mirror for faster downloads in China
-13. Refactored provider declarations with a unified `CaptionResult` return type
-14. Fixed Unlimited-OCR Markdown output missing hard line breaks (double-space suffix) causing preview to not render line breaks
-
-### 4.4 - Local Models, GUI, And WDTagger Updates
-
-1. Added and expanded local Providers:
-   - Added `marlin_2b_local` for local video VLM use, with image input support and GUI progress logging
-   - Added `mega_asr_local` for Mega-ASR audio transcription
-   - Added `codex_subscription` for image captioning through a logged-in Codex / ChatGPT subscription session, with both `sdk_app_server` and `exec` backend paths
-   - `gemma4_local` image and pair-image encoding now respects the global `image_quality` setting
-2. Updated local runtime and dependency profiles:
-   - Moved PyTorch / ONNX installation metadata to explicit CUDA 13 indexes and added TensorRT CUDA 13 support to `onnx-base`
-   - Upgraded `translate` to Transformers 5.6+ and added `compressed-tensors`
-   - Updated the default translation model to `tencent/Hy-MT2-7B`, while keeping the lightweight FP8 variant
-   - Updated base dependencies to `pylance>=6.0.1`, `imageio>=2.37.3`, `imageio-ffmpeg>=0.6.0`, `mistralai>=2.4.7`, `google-genai>=2.6.0`, and `scenedetect>=0.7`
-3. Updated WDTagger / CL Tagger handling:
-   - Updated the default `cl_tagger_v2` snapshot to `v2_01a`
-   - `cl_tagger_v2` requires accepting the Hugging Face model access terms and setting the `HF_TOKEN` environment variable
-   - Added dynamic tag category handling and filtered unknown wdtagger caption categories
-   - Split the WDTagger implementation into the `module/wdtagger/` package while keeping `utils/wdtagger.py` as a compatibility entrypoint
-   - Fixed Lance caption scanning and avoided unnecessary Lance merge updates during wdtagger writes
-4. Updated Lance and import behavior:
-   - Upgraded Lance support to `pylance>=6.0.1`
-   - Reworked Blob v2 read / write handling so export and translation flows can read Lance BlobFile values correctly
-   - Made Lance imports skip raw binary blob storage by default to reduce default dataset size
-5. Updated GUI and script workflows:
-   - GUI now reads the displayed app version from `pyproject.toml`
-   - Caption page now exposes local model fit hints, multi-GPU summaries, and lazy GPU probing
-   - Tools page now exposes see-through VRAM recommendations and multi-GPU details
-   - Refreshed the model config panel, shared label localization, log viewer, job list, launcher defaults, and isolated GUI venv behavior
-   - Updated `.ps1` entrypoints to avoid stale `uv.lock` assumptions and install the active profile incrementally
-6. Improved quality scoring, media handling, and Provider stability:
-   - Split reward scoring into the `reward-model` extra and fixed HPSv3 input normalization, Transformers pinning, and GPU selection
-   - Added global `image_quality` configuration for consistent Provider image encoding quality
-   - Fixed Qwen local routing when image inputs are not supported
-   - Updated the Kimi Code model configuration path
-   - Added a Xiaomi MiMo OpenAI-compatible Provider with `--mimo_api_key`, `--mimo_model_path`, and `--mimo_base_url`
-   - Made `Marlin-2B` segment long videos according to model limits while bypassing video segmentation for image inputs
-   - Changed the default `see-through` seed to `1026` and added more tests and boundary handling around the extracted LayerDiff / Marigold / postprocess layers
-7. Expanded test coverage:
-   - Added tests for Codex subscription, Marlin-2B, Mega-ASR, WDTagger ONNX / SigLIP2, GPU profile, model config panel, runtime dependency conflicts, and the caption pipeline
-   - Updated Provider V2, runtime backend, Lance blob, output writer, text translation, and GUI i18n tests
-
-### 4.3 - Image2PSD / See-through
-
-1. Added the `see-through` / `image2psd` toolchain:
-   - added the batch CLI `module/see_through/cli.py`
-   - added the PowerShell entrypoint `2.6.image2psd.ps1`
-   - the main flow is `LayerDiff transparent layers -> Marigold depth estimation -> PSD export`
-2. Exposed key `see-through` inference controls end-to-end:
-   - `inference_steps_depth`
-   - `seed`
-   - both the GUI toolbox and the CLI now expose them directly
-3. Expanded the README upstream / citation notes:
-   - added upstream repository notes and cite blocks for `See-through` and `Marigold`
-   - added a repository-level reference entry for `GAME`, which backs the `vocal-midi` path
-
-### 4.2 - Unified ONNX Runtime And Audio Tools
-
-1. Added a dedicated audio separation pipeline: `audio_separator.py` / `2.5.audio_separator.ps1`.
-   - Accepts a single file, a directory, or a `.lance` dataset
-   - Uses the BS-RoFormer ONNX export for 6-stem separation by default
-   - Can optionally run a second harmony split and is now exposed in the GUI toolbox
-2. Unified ONNX Runtime configuration across the repository.
-   - Added `config/onnx.toml`
-   - `wdtagger`, `waterdetect`, and `lfm_vl_local` now share runtime / session / cache logic
-   - Added artifact download logging and legacy config fallback
-3. Added local OCR `logics_ocr`.
-   - Default model: `Logics-MLLM/Logics-Parsing-v2`
-   - Supports image and PDF OCR
-   - Converts the model's structured HTML output into project-friendly Markdown
-4. The GUI toolbox now includes audio separation and text translation, and the docs were updated to match the current script names (`1.install-uv-qinglong.ps1`, `2.0.video_spliter.ps1`, `5.translate.ps1`).
-5. Dependency profiles were tightened up:
-   - `onnx-base` now includes `torch-base`, so the ONNX GPU path no longer misses `torch`
-   - the `wdtagger` extra no longer pulls an unused `transformers` dependency, and Windows OpenCV selection is now resolved at runtime
-   - `lfm-vl-local` still keeps `transformers` because the current implementation uses `AutoProcessor`, but the extra Windows `flash-attn` wheel was removed
-   - `2.5.audio_separator.ps1` and the GUI toolbox now use the `vocal-midi` dependency profile by default
-
-### 4.1 - Text / Document Translation Tool
-
-1. Added a standalone `texttranslate.py` pipeline for text and document translation with local Hugging Face models.
-2. Lance datasets now carry a `chunk_offsets` column for reproducible markdown chunk boundaries.
-3. Standalone `.txt/.md` assets can be imported as primary assets, while `.txt/.md/.srt` still work as same-stem sidecars.
-4. Added `5.translate.ps1` and suffix-based markdown export such as `foo_zh_cn.md`.
-5. Added local VLM `reka_edge_local`:
-   - Default model: `RekaAI/reka-edge-2603`
-   - Accepts both image and video inputs
-   - Works with direct Transformers inference or an OpenAI-compatible local server
-6. Added local OCR `lighton_ocr`:
-   - Default model: `lightonai/LightOnOCR-2-1B`
-   - Supports image and PDF OCR
-   - Requires `transformers>=5`
-7. Runtime scripts now install only the selected `extra` / `group` directly from `pyproject.toml`, while `uv.lock` is reserved for CI or release workflows.
-8. Added optional local ALM `eureka_audio_local`:
-   - Default model: `cslys1999/Eureka-Audio-Instruct`
-   - Supports `audio/*` inputs
-   - Uses the official `AutoModelForCausalLM + AutoProcessor` inference path
-   - The current extra pins `transformers==5.2.0`
-9. Added optional local ALM `acestep_transcriber_local`:
-   - Default model: `ACE-Step/acestep-transcriber`
-   - Supports `audio/*` inputs
-   - Defaults to structured `.txt` transcript output
-10. Added optional local ALM `cohere_transcribe_local`:
-   - Default model: `CohereLabs/cohere-transcribe-03-2026`
-   - Supports `audio/*` inputs
-   - Uses the official `AutoModelForSpeechSeq2Seq + model.transcribe()` inference path
-   - Requires accepting the gated Hugging Face model terms and setting `language` in `config/model.toml`
-11. Added transcription-only local ALM `mega_asr_local`:
-   - Default weights: `zhifeixie/Mega-ASR`
-   - Supports `audio/*` inputs and emits structured `.txt` transcript output
-   - Loads the Qwen3-ASR backbone, Mega-ASR LoRA weights, and optional router directly in this project; weights are downloaded to `huggingface/Mega-ASR`
-
-### 4.0 - Provider V2 Architecture Refactoring
-
-1. **Brand New Provider V2 Architecture** - Fully refactored modular Provider system
-   - Unified abstract `Provider` base class supporting Cloud VLM, Local VLM, OCR, and Vision API
-   - Auto-discovery mechanism with decorator-based Provider registration
-   - Unified `CaptionResult` return type resolving polymorphic return value issues
-   - Priority-based Provider routing with automatic best Provider selection
-
-2. **New OpenAI Compatible Provider** - Universal OpenAI API compatible interface
-   - Support any OpenAI-compatible service: vLLM, SGLang, Ollama, LM Studio
-   - Unified configuration: `openai_base_url`, `openai_model_name`, etc.
-   - Auto-fallback: Automatically switches to text mode when JSON mode is unsupported
-   - Support local GPU deployment (Qwen2-VL, LLaVA, MiniCPM-V, etc.)
-   - See [docs/openai_compatible.md](docs/openai_compatible.md) for detailed usage guide
-
-<details>
-<summary>Older changelog (&lt; 4.0)</summary>
-
-### 3.9
-
-1. **Added MiniMax API Support** - Integrated MiniMax platform multimodal capabilities
-   - Supported models: MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1, MiniMax-M2.1-highspeed, MiniMax-M2
-   - Support for image and video understanding
-   - Tags auto-loading and highlight display (same experience as Kimi VL)
-   - Configuration: `--minimax_api_key`, `--minimax_model_path`, `--minimax_api_base_url`
-
-2. **Added MiniMax Code Support** - Provider optimized for coding and structured output
-   - Default MiniMax-M2 model optimized for code understanding and Agent workflows
-   - Support reasoning_split to separate reasoning process
-   - Enhanced JSON structured output capability
-   - Tags auto-loading and highlight display
-   - Configuration: `--minimax_code_api_key`, `--minimax_code_model_path`, `--minimax_code_base_url`
-
-### 3.8
-
-1. Added support for FireRed-OCR (FireRedTeam/FireRed-OCR), a high-performance document parsing OCR model based on Qwen3-VL.
-
-### 3.7
-
-1. Added support for GLM-OCR (zai-org/GLM-OCR) for text recognition from images and documents.
-2. Added support for Nanonets-OCR2-3B for document-to-markdown conversion.
-
-### 3.6
-
-1. Support Kimi 2.5 for image captioning.
-
-### 3.5
-
-1. Support Step3-VL 10B.
-2. Update for short and long template.
-
-### 3.4
-
-1. Support PSD exporter.
-2. Update for short and long template.
-
-### 3.3
-
-1. Day 0 support HunyuanOCR.
-2. Update for processor use fast false.
-
-### 3.2
-
-1. Support DeepSeek OCR and PaddleOCR.
-2. Update missing deps.
-
-### 3.1
-
-1. Add third_party SongPrep for music captions.
-2. Commit submodule changes.
-
-### 3.0
-
-1. We support tagger JSON format files, and now a tags.json file will be generated in the root directory of the data after marking, which will be classified according to tag categories
- 
-<img width="681" height="694" alt="image" src="https://github.com/user-attachments/assets/beb6a383-5144-49d4-b128-ba516525b55c" />
-
-2. We have added image_deward_madel.ps1! Using [imscore](https://github.com/RE-N-Y/imscore) as an interface to call many aesthetic and performance models!
-
-<img width="1006" height="882" alt="image" src="https://github.com/user-attachments/assets/7e8d0aba-d677-482a-91fe-1f89d3603210" />
-
-
-3. We have supported nano banana as a new image editing and processing task, and it supports multiple inputs and outputs.
-
-<img width="714" height="231" alt="image" src="https://github.com/user-attachments/assets/c4b64472-d364-469b-bc25-258bc68ea073" />
-
-If the prompt indicates outputting multiple images, they will also be saved separately and the corresponding text content will be saved.
-If you add pair-dir, you can input more images for multimodal context interleaving!
-
-### 2.9
-
-We now support and use CL_tagger as the default best tagger model.
-
-What is cl_tagger?
-
-CL EVA02 Tagger model (ONNX), fine-tuned from SmilingWolf/wd-eva02-large-tagger-v3 by cella.
-
-Compared to wd-eva02-large-tagger-v3, cl tagger expands the total number of tags from 20,000 to over 40,000.
-
-Added quality tags, meta tags, model tags and support for photos (cosplay) recognition.
-
-<img width="901" height="839" alt="image" src="https://github.com/user-attachments/assets/f29312b6-ade0-499e-a2e5-5ecdb4b1022a" />
-
-<img width="800" height="1200" alt="image" src="https://github.com/user-attachments/assets/f5b5dfc9-28f9-4168-8786-66383c4b607e" />
-
-
-offical code:
-https://github.com/celll1/tagutl
-
-HF Space demo:
-https://huggingface.co/spaces/cella110n/cl_tagger
-
-Note: current `cl_tagger_v2` snapshots use a gated Hugging Face model. Accept the model access terms first, then set the `HF_TOKEN` environment variable before running the tagger.
-
-### 2.8
-<img width="1078" height="708" alt="image" src="https://github.com/user-attachments/assets/8374d156-1221-41e4-8d72-925a54782dfc" />
-
-We have added support for the `gemini-2.5-pro` model for pair image captions. This allows for more accurate and detailed descriptions of pair of images.
-
-**How to use:**
-1. Open the `4.captioner.ps1` script.
-2. Set your Gemini API key in the `$gemini_api_key` variable.
-3. Set the model path to `gemini-2.5-pro`: `$gemini_model_path = "gemini-2.5-pro"`(pro can do NSFW images,flash only sfw images.)
-4. Place the edited images you want to caption in the folder specified by `$dataset_path`.
-5. Place the original images you want to caption in the folder specified by `$pair_dir`(with same image name).
-6. Run the script: `./4.captioner.ps1`
-
-
-
-### 2.7
-
-We've added a script for batch image datasets! It includes pre-scaling resolution and alignment functionality for image pairs!
-If only one path is entered, it will only process the size of the images, and you can set the maximum values for the longest and shortest edges to scale!
-
-If two paths are entered, it will process image pairs, used for training matching of some editing models.
-
-### 2.6
-![image](https://github.com/user-attachments/assets/34f8150b-3414-4e0c-9ade-b9406cd1602b)
-
-A new watermark detection script has been added, initially supporting two watermark detection models, which can quickly classify images in the dataset into watermarked/unwatermarked categories.
-It will generate two folders, and data separation is done through symbolic links. If needed, you can copy the corresponding folder to transfer data without deleting it, and it does not occupy additional space.
-(As symbolic links require permissions, you must run PowerShell as admin.)
-
-Finally, it will generate a JSON file report listing the watermark detection results for all images in the original path, including detection values and results.
-The watermark threshold can be modified in the script to correspondingly change the detection results.
-
-
-### 2.5
-![image](https://github.com/user-attachments/assets/bffd2120-6868-4a6e-894b-05c4ff5fd98f)
-
-We officially support the tags highlight captions feature! Currently unlocked in the pixtral model, and we are considering adding it to other models such as gemini in the future.
-
-What are tags highlight?
-
-As is well known, non-state-of-the-art VLMs have some inaccuracies, so first use wdtagger for tags annotation, and then input the tags annotation to the VLM for assistance, which can improve accuracy.
-
-Currently, the tags have been categorized, and it is also possible to quickly check the annotation quality (e.g., purple is for character names and copyright, red is for clothing, brown is for body features, light yellow is for actions, etc.)
-
-The annotation quality obtained in the end is comparable to some closed-source models!
-
-Additionally, we have added check parameters, which can specify the parent folder as the character name to designate the character's name, as well as specify the check for the tags highlight rate. Generally, good captions should have a highlight rate of over 35%.
-
-You can also specify different highlight rates to change the default standard.
-
-How to use？ just use 3、tagger.ps1 first for generate tags for your image datasets,
-
-then use 4.captioner.ps1 with pixtral apikey
-
-### 2.4
-
-We support Gemini image caption and rating.
-It also supports gemini2.5-flash-preview-04-17.
-
-However, after testing, the flash version has poor effects and image review, it is recommended to use the pro version
-
-![image](https://github.com/user-attachments/assets/6ae9ed38-e67a-41d2-aa1d-4caf0e0db394)
-flash↑
-
-![image](https://github.com/user-attachments/assets/c83682aa-3a37-4198-b117-ffe7f74ff812)
-pro ↑
-
-### 2.3
-
-Well, we forgot to release version 2.2, so we directly released version 2.3!
-
-Version 2.3 updated the GLM4V model for video captions
-
-### 2.2
-
-Version 2.2 added TensorRT acceleration for local ONNX models such as WDtagger.
-
-After testing, it takes 30 minutes to mark 10,000 samples with the standard CUDA tag,
-
-while using TensorRT, it can be completed in just 15 to 20 minutes.
-
-However, the first time using it will take a longer time to compile.
-
-If TensorRT fails, it will automatically revert to CUDA without worry.
-
-Current ONNX dependency profiles install `tensorrt-cu13==10.16.1.11` by default.
-
-If Windows still reports missing TensorRT libraries, install TensorRT 10.16.1.11 for CUDA 13.2 manually from [NVIDIA's Windows zip](https://developer.download.nvidia.com/compute/machine-learning/tensorrt/10.16.1/zip/TensorRT-10.16.1.11.Windows.amd64.cuda-13.2.zip?t=eyJscyI6IndlYnNpdGUiLCJsc2QiOiJkZXZlbG9wZXIubnZpZGlhLmNvbS9kb3dubG9hZHMvY29tcHV0ZS9tYWNoaW5lLWxlYXJuaW5nL3RlbnNvcnJ0LyJ9).
-
-### 2.1
-
-Added support for Gemini 2.5 Pro Exp. Now uses 600 seconds cut video by default.
-
-### 2.0 Big Update！
-
-Now we support video segmentation! A new video segmentation module has been added, which detects key timestamps based on scene changes and then outputs the corresponding images and video clips!
-Export an HTML for reference, the effect is very significant!
-![image](https://github.com/user-attachments/assets/94407fec-92af-4a34-a15e-bc02bf45d2cd)
-
-We have also added subtitle alignment algorithms, which automatically align Gemini's timestamp subtitles to the millisecond level after detecting scene change frames (there are still some errors, but the effect is much better).
-
-Finally, we added the image output feature of the latest gemini-2.0-flash-exp model!
-
-You can customize the task, add the task name in the [`config.toml`](https://github.com/sdbds/qinglong-captions/blob/main/config/config.toml), which will automatically handle the corresponding images (and then label them)
-
-Currently, some simple task descriptions are as follows: Welcome the community to continuously optimize these task prompts and provide contributions!
-https://github.com/sdbds/qinglong-captions/blob/12b7750ee0bca7e41168e98775cd95c7b9c57173/config/config.toml#L239-L249
-
-![image](https://github.com/user-attachments/assets/7e5ae1a9-b635-4705-b664-1c20934d12bc)
-
-![image](https://github.com/user-attachments/assets/58527298-34f8-496d-8c4e-1a1c1c965b73)
-
-
-### 1.9
-
-Now with Mistral OCR functionality!
-Utilizing Mistral's advanced OCR capabilities to extract text information from videos and images.
-
-This feature is particularly useful when processing media files containing subtitles, signs, or other text elements, enhancing the accuracy and completeness of captions.
-
-The OCR functionality is integrated into the existing workflow and can be used without additional configuration.
-
-### 1.8
-
-Now added WDtagger！
-Even if you cannot use the GPU, you can also use the CPU for labeling.
-
-It has multi-threading and various optimizations, processing large-scale data quickly.
-
-Using ONNX processing, model acceleration.
-
-Code reference@kohya-ss 
-https://github.com/sdbds/sd-scripts/blob/main/finetune/tag_images_by_wd14_tagger.py
-
-Version 2.0 will add dual caption functionality, input wdtagger's taggers, then output natural language
-![image](https://github.com/user-attachments/assets/f14d4a69-9c79-4ffb-aff7-84d103dfeff4)
-
-
-### 1.7
-
-Now we support the qwen-VL series video caption model!
-
-- qwen-vl-max-latest
-- qwen2.5-vl-72b-instruct 
-- qwen2.5-vl-7b-instruct
-- qwen2.5-vl-3b-instruct
-
-qwen2.5-vl has 2 seconds ~ 10 mins, qwen-vl-max-latest has 1 min limit.
-These models are not good at capturing timestamps; it is recommended to use segmented video clips for captions and to modify the prompts.
-
-Video upload feature requires an application to be submitted to the official, please submit the application [here](https://smartservice.console.aliyun.com/service/create-ticket?spm=a2c4g.11186623.0.0.3489b0a8Ql486b).
-
-We consider adding local model inference in the future, such as qwen2.5-vl-7b-instruct, etc.
-
-Additionally, now using streaming inference to output logs, you can see the model's real-time output before the complete output is displayed.
-
-### 1.6
-
-Now the Google gemini SDK has been updated, and the new version of the SDK is suitable for the new model of gemini 2.0!
-
-The new SDK is more powerful and mainly supports the function of verifying uploaded videos.
-
-If you want to repeatedly tag the same video and no longer need to upload it repeatedly, the video name and file size/hash will be automatically verified.
-
-At the same time, the millisecond-level alignment function has been updated. After the subtitles of long video segmentation are merged, the timeline is automatically aligned to milliseconds, which is very neat!
-
-</details>
-
-## Features
-
-- **Provider V2 Architecture** - Modular, extensible provider system with auto-discovery and unified interfaces
-- **OpenAI Compatible API** - Universal interface supporting vLLM, SGLang, Ollama, LM Studio for local GPU inference
-- **GUI-first workflow** via NiceGUI for import, split, tag, caption, export, and toolbox tasks
-- Supports cloud APIs and local OCR / VLM / ALM providers through a unified routing layer
-- Export captions in SRT format
-- Support for multiple video formats
-- Batch processing with progress tracking
-- Maintains original directory structure
-- Configurable through TOML files
-- Lance database integration for efficient data management
-- ONNX audio separation with 6-stem export and optional harmony split
-- Shared ONNX runtime configuration with reusable cache and provider options
-- Standalone text / document translation for txt, md, json, pdf, doc/docx, xls/xlsx, ppt/pptx, rtf, and epub
-
-## Modules
-
-### Dataset Import (`lanceImport.py`)
-- Import videos into Lance database format
-- Preserve original directory structure
-- Support for both single directory and paired directory structures
-
-### Dataset Export (`lanceexport.py`)
-- Extract videos and captions from Lance datasets
-- Maintains original file structure
-- Exports captions as SRT files in the same directory as source videos
-- Auto Clip with SRT timestamps
-
-### Auto Captioning (`captioner.py` & `api_handler_v2.py`)
-- **Provider V2 Architecture** with 20+ providers (Cloud VLM, Local VLM, OCR, Vision API)
-- **OpenAI Compatible Provider** for local inference (vLLM, SGLang, Ollama, LM Studio)
-- Remote APIs, local OCR / VLM / ALM, and OpenAI-compatible runtime routing
-- Batch processing support
-- SRT format output with timestamps
-- Robust error handling and retry mechanisms
-- Progress tracking for batch operations
-
-### Text / Document Translation (`texttranslate.py`)
-- Uses Lance version tags to store imported raw assets, normalized markdown, and translated output
-- Supports standalone `.txt/.md` assets as primary inputs
-- Normalizes documents into Markdown before chunked local-model translation
-- Default local model: `tencent/Hy-MT2-7B`; lightweight FP8 variant: `tencent/Hy-MT2-1.8B-FP8`
-- Exports translated files as `*_lang.md` instead of overwriting the source
-
-### Audio Separation (`audio_separator.py`)
-- Accepts audio files, folders, and `.lance` datasets
-- Produces 6 stems by default, with optional harmony re-splitting
-- Supports `wav`, `flac`, and `mp3` export for vocal / backing-track workflows
-
-### Image2PSD / See-through (`module/see_through/cli.py`)
-- Adapts the upstream `see-through` inference pipeline into a batch-oriented CLI for this repository, exposed as `./2.6.image2psd.ps1`
-- Runs `LayerDiff transparent layers -> Marigold depth estimation -> PSD export`
-- Intended for converting single illustrations or image folders into layered PSD artifacts for further editing
-
-### Configuration (`config.py`, `config.toml` & `config/onnx.toml`)
-- API prompt configuration management
-- Customizable batch processing parameters
-- ONNX runtime defaults and per-tool overrides
-- Default schema includes file paths and metadata
-
-## Installation
-
-Give unrestricted script access to powershell so venv can work:
-
-- Open an administrator powershell window
-- Type Set-ExecutionPolicy Unrestricted and answer A
-- Close admin powershell window
-
-![Video Preview](https://files.catbox.moe/jr5n3e.gif)
-
-### Windows
-Run the following PowerShell script:
-```powershell
-./1.install-uv-qinglong.ps1
-```
-
-### Linux
-1. First install PowerShell:
-```bash
-sudo sh ./0、install pwsh.sh
-```
-2. Then run the installation script using PowerShell:
-```powershell
-sudo pwsh ./1.install-uv-qinglong.ps1
-```
-use sudo pwsh if you in Linux.
-
-### TensorRT (Optional)
-ONNX dependency profiles install `tensorrt-cu13==10.16.1.11` by default.
-On Windows, if TensorRT libraries are still missing at runtime, install TensorRT 10.16.1.11 for CUDA 13.0 manually from [NVIDIA's Windows zip](https://developer.download.nvidia.com/compute/machine-learning/tensorrt/10.16.1/zip/TensorRT-10.16.1.11.Windows.amd64.cuda-13.2.zip?t=eyJscyI6IndlYnNpdGUiLCJsc2QiOiJkZXZlbG9wZXIubnZpZGlhLmNvbS9kb3dubG9hZHMvY29tcHV0ZS9tYWNoaW5lLWxlYXJuaW5nL3RlbnNvcnJ0LyJ9).
-TensorRT can accelerate local ONNX tools such as WD14Tagger; API providers are unaffected.
-
-## Usage
-
-### Recommended flow: use the GUI first
-
-1. Install dependencies:
-   ```powershell
-   ./1.install-uv-qinglong.ps1
-   ```
-2. Start the GUI:
-   ```powershell
-   ./start_gui.ps1
-   ```
-3. The browser will open `http://127.0.0.1:7899` by default.
-4. In the GUI, start with the `Setup` page to check Python / PyTorch / CUDA, then use `Import -> Split -> Tagger -> Caption -> Export / Tools`.
-
-### GUI startup methods
-
-#### Method 1: recommended project wrapper
+安装脚本在子 PowerShell 进程中激活 `.venv`，不会改变当前终端。直接运行 Python CLI 前，先在当前终端激活项目环境：
 
 ```powershell
-./start_gui.ps1
+# Windows PowerShell
+. .\.venv\Scripts\Activate.ps1
+
+# Linux Bash
+source .venv/bin/activate
 ```
 
-- Switches to the project root, fixes `PYTHONPATH`, and reuses `.venv` / `venv` when present
-- Uses the `$Config` block in `start_gui.ps1`; the current default endpoint is `127.0.0.1:7899`
-- Starts in browser mode by default; if the port is busy, the launcher probes the next available ports and prints the actual URL
+基础入口可以直接查看帮助；可选工具会在 argparse 之前导入模型依赖，必须先运行对应 wrapper 安装 profile。WaterDetect 使用自己的 PEP 723 `uv run` 环境：
 
-#### Method 2: call the Python entrypoint directly
+| 入口 | 依赖准备 | 帮助命令 |
+| --- | --- | --- |
+| `module.lanceImport` | 基础依赖 | `python -m module.lanceImport --help` |
+| `module.lanceexport` | 基础依赖 | `python -m module.lanceexport --help` |
+| `module.captioner` | 基础依赖；本地路由按配置安装 extra | `python -m module.captioner --help` |
+| `module/waterdetect.py` | PEP 723 脚本依赖 | `uv run module/waterdetect.py --help` |
+| `module.texttranslate` | 先运行 `5.translate.ps1`（`translate`） | `python -m module.texttranslate --help` |
+| `utils.psd_dataset_pipeline` | 先运行 `2.4.psdexport.ps1`（`psdexport`） | `python -m utils.psd_dataset_pipeline --help` |
+| `module.audio_separator` | 先运行 `2.5.audio_separator.ps1`（`vocal-midi`） | `python -m module.audio_separator --help` |
+| `module.muscriptor_tool.cli` | 先运行 `2.7.music_transcription.ps1`（`muscriptor-local`） | `python -m module.muscriptor_tool.cli --help` |
+| `module.sheet_music_musvit` | GUI Tools 或先安装 `musvit-onnx` | `python -m module.sheet_music_musvit --help` |
+| `module.see_through.cli` | 先运行 `2.6.image2psd.ps1`（`see-through`） | `python -m module.see_through.cli --help` |
+| `utils.preprocess_datasets` | 先运行 `2.2.preprocess_images.ps1`（`image-align`） | `python -m utils.preprocess_datasets --help` |
+
+关键行为：
+
+- `module.lanceImport` 的 `--data_storage_version` 控制新建数据集格式，默认脚本配置为 `2.2`。
+- `module.lanceexport` 可用 `--version`、`--caption_suffix` 和 `--caption_extension` 控制导出版本与文件名。
+- `module.texttranslate` 支持 `--normalize_only`、`--skip_normalize`、`--no_export` 和 `--runtime_backend openai`。
+- `module.audio_separator` 默认输出 6 stems，可追加 `--harmony_separation`。
+- `module.see_through.cli` 适合批量图片；模型和中间文件会占用大量磁盘空间。
+
+## MuScriptor 音频转 MIDI
+
+项目集成固定版本 `muscriptor==0.2.1`，只接受三个官方模型：
+[small](https://huggingface.co/MuScriptor/muscriptor-small)、
+[medium](https://huggingface.co/MuScriptor/muscriptor-medium) 和
+[large](https://huggingface.co/MuScriptor/muscriptor-large)，CLI、GUI 和 runtime 默认使用 `large`。不接受本地权重、URL 或自定义仓库。
+首次使用前须在 Hugging Face 模型页接受条款并运行 `hf auth login`。模型权重采用 CC BY-NC 4.0，且模型页另有输入音乐权利要求；代码和 SoundFont 分别按各自许可证分发。
+
+PowerShell 批处理入口会按项目现有方式把独立 profile 增量安装到当前 Python 环境：
 
 ```powershell
-python -m gui.launch --port 7899
+.\2.7.music_transcription.ps1 .\audio --format midi --format jsonl
 ```
 
-Common variants:
+也可以先安装 profile，再直接使用 CLI：
 
 ```powershell
-python -m gui.launch --cloud --port 7899 --no-browser
-python -m gui.launch --native --port 7899
+uv pip install --python .\.venv\Scripts\python.exe -r pyproject.toml --extra muscriptor-local
+python -m module.muscriptor_tool.cli transcribe song.wav --format midi
+python -m module.muscriptor_tool.cli batch .\album --model large --device cuda:0 --format midi --format json --format jsonl
+python -m module.muscriptor_tool.cli list-instruments --format json
 ```
 
-- `--cloud` binds to `0.0.0.0`
-- `--native` uses native window mode (requires `pywebview`)
-- `--no-browser` keeps the browser closed
+批处理可组合导出 MIDI、JSON 和 JSONL，并按输入相对路径建立项目目录；未传 `--output-dir` 时，结果写入输入位置下的 `muscriptor_output`。每项文件名为 `transcription.mid`、`events.json`、`events.jsonl`、`metadata.json`，根目录另有 `manifest.json`。同一输入只推理一次；完成签名、原子写入和输出锁支持中断后恢复。默认递归处理目录；关闭“跳过已完成”即可重跑，不另设覆盖开关。
 
-See [gui/README.md](gui/README.md) for the page layout and GUI-specific notes.
+事件只包含 onset、offset、pitch 和 instrument。模型不转录原始力度，MIDI 使用上游固定力度；同一乐器同一音高的同时重叠音符无法表示，鼓按 onset-only 与上游最小时长规则输出。密集混音、少见音色、重处理音频和部分合唱材料可能降低准确度，工具不会用后处理猜测缺失信息。
 
-### Model / provider usage in the GUI
+试听是符号输出之外的可选项：`--preview-mode midi` 导出纯合成 MIDI 音频，`comparison` 导出左声道原音、右声道合成 MIDI 的对照音频。默认格式为 MP3，仅在当前 `soundfile/libsndfile` 通过实际读写探测时开放；WAV 可作为显式回退。试听需要 PATH 中的 FluidSynth，并自动使用 MuScriptor 官方 `MuseScore_General.sf2` SoundFont；本项目没有系统音源或自定义 SoundFont 选项。当前范围不包含上游 WebUI、钢琴卷帘或单文件 Demo 页面。
 
-- Remote APIs, OCR, local VLMs, and local ALMs are now configured from the GUI
-- When you select a local OCR / VLM / ALM route in the `Caption` page, the GUI automatically adds the matching `uv extra`
-- Manual `uv sync --extra xxx` steps for each local VLM / ALM are no longer the recommended workflow
-- If you intentionally stay on the script path, edit the corresponding `.ps1` file or `config/*.toml`
+Linux 可用发行版包管理器安装，例如 `sudo apt install fluidsynth`。Windows 可从 [FluidSynth 官方 Releases](https://github.com/FluidSynth/fluidsynth/releases) 安装并把可执行文件目录加入 PATH。两端都用 `fluidsynth --version` 检测；检测失败时 MIDI、JSON、JSONL 仍可使用，只需关闭试听或先选择 WAV 排除 MP3 编码问题。
 
-### Script mode (advanced / batch workflows)
+## 输入、输出与数据安全
 
-If you already know the project and want direct scripting, these entry points are still available:
+- Lance 是导入、字幕、标签和翻译的主要中间格式；导出前请确认当前 version/tag。
+- 默认导入配置不保存原始二进制 blob，具体行为以 `lanceImport.ps1` 和 GUI 选项为准。
+- 翻译不会覆盖原文件，默认写出带语言后缀的 Markdown，例如 `foo_zh_cn.md`。
+- 脚本和 GUI 可能把输入绝对路径、模型名和错误信息写入任务日志；分享日志前请脱敏。
+- 当前部分字幕入口仍通过命令行参数传递 API Key。不要把任务日志、进程列表截图或完整命令行复制到公开渠道；长期使用建议改用环境变量或受控凭据存储。
+
+## 目录与配置速查
+
+| 路径 | 作用 |
+| --- | --- |
+| `gui/launch.py` | GUI 实际 Python 入口 |
+| `gui/README.md` | GUI 页面、启动参数和故障排查 |
+| `module/providers/` | Provider V2 实现 |
+| `module/caption_pipeline/` | 字幕任务编排与 Lance 同步 |
+| `config/model.toml` | Provider / 本地模型路由默认值 |
+| `config/config.toml` | 任务和模型运行参数 |
+| `config/general.toml` | 通用路径、批处理和界面默认值 |
+| `config/onnx.toml` | ONNX Runtime、缓存和执行 provider |
+| `config/task_tabs.toml` | GUI 任务标签页运行时设置 |
+| `config/env_vars.json` | GUI 生成的本地环境变量（明文，不提交） |
+| `tests/` | 单元、集成和跨平台兼容测试 |
+
+完整配置说明见 [docs/configuration.md](docs/configuration.md)。
+
+## 故障排查
+
+1. **找不到 `uv`**：重启终端；确认 `uv --version` 可执行，再重新运行安装脚本。
+2. **GUI 启动失败**：优先使用 `start_gui.ps1`，不要从 `gui/` 子目录猜入口；检查 `uv run gui/launch.py --help`。
+3. **端口冲突**：指定 `--port`，或使用终端输出的自动切换地址。
+4. **本地模型缺依赖**：回到 `Caption` / `Tools` 页面重新选择路由，让 GUI 补齐 profile；不要混装互相冲突的 OCR / CUDA extra。
+5. **Hugging Face 403**：确认模型访问条款已接受，`HF_TOKEN` 已注入当前运行环境。
+6. **显存不足**：降低批大小、分辨率或并发数，启用 CPU/offload 选项，并清理不再使用的模型缓存。
+7. **翻译或 Lance 更新失败**：确认输入是有效目录或 `.lance`，先运行 `--normalize_only` 验证规范化链路，再查看任务日志。
+8. **云端模式风险**：`--cloud` 没有内置鉴权；停止服务并改回本机绑定，或放在已有认证与 TLS 的反向代理后面。
+
+更多处理步骤见 [docs/troubleshooting.md](docs/troubleshooting.md)。
+
+## 开发与验证
+
+测试工具属于 `test` dependency group，不在基础安装中。先从仓库根目录把测试依赖安装到项目环境，再在当前终端激活 `.venv`（Windows 使用 `. .\.venv\Scripts\Activate.ps1`，Linux 使用 `source .venv/bin/activate`）：
 
 ```powershell
-./lanceImport.ps1
-./4.captioner.ps1
-./lanceExport.ps1
-./2.2.preprocess_images.ps1
-./2.5.audio_separator.ps1
-./2.6.image2psd.ps1
-./5.translate.ps1
+# Windows PowerShell
+uv pip install --python .\.venv\Scripts\python.exe --group test
+
+# Linux Bash
+uv pip install --python .venv/bin/python --group test
 ```
 
-Notes:
+然后运行非网络、非 GPU、非可选运行时测试：
 
-- `4.captioner.ps1` runs batch captioning
-- `2.2.preprocess_images.ps1` handles image preprocessing and optional image alignment; `--matcher-backend=auto` prefers `affine_steerers` on CUDA and `xfeat` otherwise, then falls back to ORB
-- `2.5.audio_separator.ps1` runs the ONNX audio separator
-- `2.5.audio_separator.ps1` now installs and reuses the `vocal-midi` profile by default, so no extra manual `--extra vocal-midi` step is needed
-- `2.6.image2psd.ps1` runs the see-through batch CLI and converts image folders into layered PSD outputs; it installs and reuses the `see-through` profile by default
-- `5.translate.ps1` normalizes and translates documents, exporting files such as `*_zh_cn.md`
-- Day-to-day runs install the selected dependency profile incrementally; `uv.lock` is mainly kept for CI / release maintenance
-
-### Upstream Repositories And Citation
-- Upstream repository for `Image2PSD / see-through`: [`shitagaki-lab/see-through`](https://github.com/shitagaki-lab/see-through)
-- [`module/see_through/`](module/see_through/) in this repository is an extracted and workflow-adapted integration for qinglong-captions, not a file-by-file mirror of the upstream codebase
-- Reference project for the `vocal-midi` path: [`openvpi/GAME`](https://github.com/openvpi/GAME)
-- The `GAME` repository does not currently publish an official BibTeX entry in its README, so the entry below is a repository-level software citation; prefer the upstream citation if they publish one later
-
-```bibtex
-@article{lin2026seethrough,
-  title={See-through: Single-image Layer Decomposition for Anime Characters},
-  author={Lin, Jian and Li, Chengze and Qin, Haoyun and Chan, Kwun Wang and Jin, Yanghua and Liu, Hanyuan and Choy, Stephen Chun Wang and Liu, Xueting},
-  journal={arXiv preprint arXiv:2602.03749},
-  year={2026}
-}
+```shell
+python -m pytest tests -q --strict-markers -m "not optional_runtime and not gpu and not network"
 ```
 
-```bibtex
-@InProceedings{ke2023repurposing,
-  title={Repurposing Diffusion-Based Image Generators for Monocular Depth Estimation},
-  author={Bingxin Ke and Anton Obukhov and Shengyu Huang and Nando Metzger and Rodrigo Caye Daudt and Konrad Schindler},
-  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
-  year={2024}
-}
+CI 当前还会运行：
+
+```shell
+python -m ruff check module gui utils config tests --select F821,F823
 ```
 
-```bibtex
-@software{openvpi_game,
-  title={GAME: Generative Adaptive MIDI Extractor},
-  author={{OpenVPI}},
-  url={https://github.com/openvpi/GAME}
-}
-```
+提交前请不要把 `config/env_vars.json`、模型缓存、数据集、日志或本地凭据加入 Git。
+
+## 上游与引用
+
+- [See-through](https://github.com/shitagaki-lab/see-through)：Image2PSD 上游
+- [GAME](https://github.com/openvpi/GAME)：`vocal-midi` 使用的音高与分段模型参考
+- 其他 Provider 和模型的来源、许可证与限制请以对应上游仓库为准
+- 完整历史见 [CHANGELOG.md](CHANGELOG.md)
+
+## 许可证
+
+本项目使用仓库根目录的 [LICENSE](LICENSE)。第三方目录和模型仍受各自许可证、使用条款与访问协议约束。

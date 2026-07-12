@@ -1,7 +1,7 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 
 echo "检查是否已安装 PowerShell..."
-if ! command -v pwsh &> /dev/null
+if ! command -v pwsh >/dev/null 2>&1
 then
     echo "PowerShell 未安装，正在安装..."
     
