@@ -427,7 +427,9 @@ def styled_select(
         placeholder_text = placeholder or t("search_or_select")
         props = f'dense stack-label dropdown-icon="{dropdown_icon}" placeholder="{placeholder_text}"'
         if searchable:
-            props += ' use-input fill-input hide-selected input-debounce="0"'
+            props += ' use-input fill-input input-debounce="0"'
+            if not multiple:
+                props += " hide-selected"
         if multiple:
             props += " use-chips"
         if new_value_mode:

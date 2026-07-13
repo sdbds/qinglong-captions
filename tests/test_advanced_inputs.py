@@ -133,6 +133,25 @@ def test_styled_select_supports_project_styled_multiple_values():
     assert any("use-chips" in props for props in fake_select.props_calls)
 
 
+def test_styled_select_keeps_searchable_multiple_values_visible():
+    advanced_inputs = _load_advanced_inputs("test_advanced_inputs_searchable_multiple_select")
+    fake_select = _FakeSelect()
+    advanced_inputs.ui = _FakeUI(fake_select)
+
+    advanced_inputs.styled_select(
+        options={"acoustic_piano": "Acoustic Piano", "voice": "Voice"},
+        value=["acoustic_piano"],
+        label="",
+        multiple=True,
+    )
+
+    combined_props = " ".join(fake_select.props_calls)
+
+    assert "use-input" in combined_props
+    assert "use-chips" in combined_props
+    assert "hide-selected" not in combined_props
+
+
 def test_styled_select_can_render_per_option_icons():
     advanced_inputs = _load_advanced_inputs("test_advanced_inputs_option_icons")
     fake_select = _FakeSelect()
