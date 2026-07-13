@@ -88,3 +88,17 @@ def test_readmes_document_official_models_and_preview_boundary():
         assert "MIDI" in combined and "JSONL" in combined, guide_path
         assert "SoundFont" in combined, guide_path
         assert "muscriptor-local" in combined, guide_path
+        assert "rouard2026muscriptoropenmodelmultiinstrument" in readme, readme_path
+        assert "2607.08168" in readme, readme_path
+
+
+def test_official_webui_launcher_reuses_project_venv():
+    launcher = (ROOT / "2.7.1.muscriptor_webui.ps1").read_text(encoding="utf-8")
+
+    assert '".venv\\Scripts\\python.exe"' in launcher
+    assert '"muscriptor-local"' in launcher
+    assert "-m muscriptor.main serve" in launcher
+    assert "uvx" not in launcher.lower()
+    assert '[string]$Model = "large"' in launcher
+    assert '[Alias("ModelSize")]' in launcher
+    assert "Start-Process" not in launcher

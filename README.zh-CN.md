@@ -165,6 +165,8 @@ MuScriptor 通过 `muscriptor-local` profile 安装，支持官方 `small`、`me
 
 可选的纯 MIDI 试听或“左声道原音、右声道合成 MIDI”对照试听，无论选择 MP3 还是 WAV，都要求系统 `PATH` 中存在原生 [FluidSynth](https://github.com/FluidSynth/fluidsynth/releases) 可执行文件。改用 WAV 不能绕过该要求；MP3 还要求当前 `soundfile/libsndfile` 支持 MP3 编码。Windows 请使用 x64 版本，把解压后的 `bin` 目录加入 `PATH`，重启终端和 GUI 后用 `fluidsynth --version` 验证。官方 `MuseScore_General.sf2` SoundFont 会自动解析，不需要系统音源或自定义 SoundFont。
 
+运行 `2.7.1.muscriptor_webui.ps1` 可使用项目共享 `.venv` 体验 MuScriptor 官方 WebUI。脚本支持 `-Model small|medium|large`（默认 `large`）和 `-Device auto|cpu|cuda|cuda:N`；不要使用会创建独立工具环境的 `uvx muscriptor serve`。
+
 全部入口见 [工具文档索引](docs/tools/README.md)。
 
 ## 选择字幕模型
@@ -227,6 +229,7 @@ PowerShell 入口把配置集中放在文件顶部。先编辑脚本顶部的 `C
 
 - `Image2PSD / see-through` 对接上游仓库：[shitagaki-lab/see-through](https://github.com/shitagaki-lab/see-through)。当前仓库中的 `module/see_through/` 是针对青龙工具链做的抽取与批处理适配，不是逐文件镜像。
 - `vocal-midi` 路径使用的音高与分段模型参考项目：[openvpi/GAME](https://github.com/openvpi/GAME)。GAME 当前未在 README 提供官方 BibTeX；下方保留旧版仓库级引用，上游发布正式 citation 后应以上游为准。
+- 音频转 MIDI 功能集成 [muscriptor/muscriptor](https://github.com/muscriptor/muscriptor)。本功能用于研究成果时，请引用官方 [MuScriptor 论文](https://arxiv.org/abs/2607.08168)。
 
 ```bibtex
 @article{lin2026seethrough,
@@ -251,6 +254,18 @@ PowerShell 入口把配置集中放在文件顶部。先编辑脚本顶部的 `C
   title={GAME: Generative Adaptive MIDI Extractor},
   author={{OpenVPI}},
   url={https://github.com/openvpi/GAME}
+}
+```
+
+```bibtex
+@misc{rouard2026muscriptoropenmodelmultiinstrument,
+  title={MuScriptor: An Open Model for Multi-Instrument Music Transcription},
+  author={Simon Rouard and Michael Krause and Axel Roebel and Carl-Johann Simon-Gabriel and Alexandre Défossez},
+  year={2026},
+  eprint={2607.08168},
+  archivePrefix={arXiv},
+  primaryClass={cs.SD},
+  url={https://arxiv.org/abs/2607.08168}
 }
 ```
 

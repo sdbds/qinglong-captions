@@ -148,6 +148,8 @@ MuScriptor installs through the `muscriptor-local` profile and supports the offi
 
 Optional MIDI-only or left-original/right-synthesized preview audio, in either MP3 or WAV format, requires the native [FluidSynth](https://github.com/FluidSynth/fluidsynth/releases) executable on `PATH`. Switching to WAV does not remove this requirement; MP3 additionally requires working `soundfile/libsndfile` MP3 encoding. On Windows, use an x64 build, add its extracted `bin` directory to `PATH`, restart the shell and GUI, and verify it with `fluidsynth --version`. The official `MuseScore_General.sf2` SoundFont is resolved automatically; no system or custom SoundFont is required.
 
+Run `2.7.1.muscriptor_webui.ps1` to try the official MuScriptor WebUI with the project's shared `.venv`. The launcher accepts `-Model small|medium|large` (default: `large`) and `-Device auto|cpu|cuda|cuda:N`. Do not use `uvx muscriptor serve`, which creates a separate tool environment.
+
 See the [tool documentation index](docs/tools/README.en.md) for every entrypoint.
 
 ## Choose a Caption Model
@@ -207,6 +209,7 @@ See [docs/troubleshooting.en.md](docs/troubleshooting.en.md) for the expanded ch
 
 - `Image2PSD / see-through` integrates [shitagaki-lab/see-through](https://github.com/shitagaki-lab/see-through). The local `module/see_through/` package is a workflow adaptation, not a file-for-file mirror.
 - The `vocal-midi` path references [openvpi/GAME](https://github.com/openvpi/GAME). GAME does not currently publish an official BibTeX entry in its README, so the legacy repository-level citation is retained below; prefer a future upstream citation.
+- Audio-to-MIDI transcription integrates [muscriptor/muscriptor](https://github.com/muscriptor/muscriptor). Cite the official [MuScriptor paper](https://arxiv.org/abs/2607.08168) when this integration contributes to research results.
 
 ```bibtex
 @article{lin2026seethrough,
@@ -231,6 +234,18 @@ See [docs/troubleshooting.en.md](docs/troubleshooting.en.md) for the expanded ch
   title={GAME: Generative Adaptive MIDI Extractor},
   author={{OpenVPI}},
   url={https://github.com/openvpi/GAME}
+}
+```
+
+```bibtex
+@misc{rouard2026muscriptoropenmodelmultiinstrument,
+  title={MuScriptor: An Open Model for Multi-Instrument Music Transcription},
+  author={Simon Rouard and Michael Krause and Axel Roebel and Carl-Johann Simon-Gabriel and Alexandre Défossez},
+  year={2026},
+  eprint={2607.08168},
+  archivePrefix={arXiv},
+  primaryClass={cs.SD},
+  url={https://arxiv.org/abs/2607.08168}
 }
 ```
 

@@ -9,6 +9,7 @@
 3. PowerShell 入口在 Linux/无 `LOCALAPPDATA` 环境下使用 `HOME` 或仓库本地目录作为 `UV_CACHE_DIR`；Linux PowerShell helper 改用可移植的 Bash/POSIX 检测，并忽略 GUI 生成的明文 `config/env_vars.json`。
 4. 音频分轨新增 MuScriptor 全分轨转 MIDI 二级选项：按分轨标签约束音色家族，支持为 `other` 自动识别或手动限定音色，并复用一次模型加载处理六轨；可为每轨生成纯 MIDI 或左右声道对照试听。
 5. 修复 MuScriptor 试听首次下载官方 SoundFont 时缺少 SOCKS 代理支持的问题，并在分轨 MIDI 失败汇总中直接显示共同根因。
+6. 补充 MuScriptor 官方论文 [MuScriptor: An Open Model for Multi-Instrument Music Transcription](https://arxiv.org/abs/2607.08168) 的上游说明与 BibTeX 引用。
 
 ## 4.5 - 新增 OCR Provider、Grok Build 订阅与 GUI 任务标签页
 

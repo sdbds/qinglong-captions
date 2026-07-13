@@ -313,7 +313,7 @@ def test_transcribe_once_fans_one_event_stream_to_all_formats(tmp_path):
     assert loaded.midi_calls == 1
     assert json.loads((tmp_path / "events.json").read_text())[-1]["type"] == "end"
     assert len((tmp_path / "events.jsonl").read_text().splitlines()) == 2
-    assert (tmp_path / "transcription.mid").read_bytes() == b"MThd..."
+    assert (tmp_path / "song.mid").read_bytes() == b"MThd..."
     assert result.note_count == 1
     assert result.event_count == 2
 ```
@@ -326,7 +326,7 @@ Expected: failure reports missing `OutputTargets` or `transcribe_once`.
 
 - [ ] **Step 6: Implement atomic one-pass fan-out**
 
-`OutputTargets.for_directory()` maps MIDI to `transcription.mid`, JSON to `events.json`, and JSONL to `events.jsonl`. `transcribe_once()` must:
+`OutputTargets.for_directory()` maps MIDI to the source stem plus `.mid`, JSON to `events.json`, and JSONL to `events.jsonl`. `transcribe_once()` must:
 
 ```python
 events: list[Any] = []
@@ -428,7 +428,7 @@ def test_all_complete_items_skip_without_model_or_preview_preflight(tmp_path, mo
 
 - [ ] **Step 5: Implement signatures, metadata, manifests, and file lock**
 
-`run_signature()` hashes canonical UTF-8 JSON containing source relative path/size/`mtime_ns`, MuScriptor version, official model variant, resolved device, instruments, normalized decoding options, symbolic formats, preview content/format, and fixed renderer id `muscriptor-0.2.1:SF2_URL`. `is_item_complete()` requires parseable schema-1 metadata with status `ok`, matching signature, and every requested output present.
+`run_signature()` hashes canonical UTF-8 JSON containing source relative path/size/`mtime_ns`, MuScriptor version, official model variant, resolved device, instruments, normalized decoding options, symbolic formats, preview content/format, and fixed renderer id `muscriptor-0.2.1:SF2_URL`. `is_item_complete()` requires parseable schema-2 metadata with status `ok`, matching signature, and every requested output present. Item metadata keeps requested instruments separate from the actual instruments summarized from note-start events.
 
 `run_batch()` acquires `<output>/.muscriptor.lock` before loading a model. It discovers and checks completion first, loads once only when pending work exists, processes files serially, records `ok|partial|failed`, continues unless `fail_fast`, writes metadata last, and always atomically writes a run manifest for normal, partial, and fail-fast completion.
 
@@ -440,7 +440,7 @@ def test_switching_preview_format_removes_only_old_known_preview(tmp_path):
     item_dir.mkdir(parents=True)
     (item_dir / "preview.wav").write_bytes(b"old")
     (item_dir / "keep.txt").write_text("user")
-    prune_known_outputs(item_dir, requested={"preview.mp3", "transcription.mid"})
+    prune_known_outputs(item_dir, requested={"preview.mp3", "song.mid"}, output_stem="song")
     assert not (item_dir / "preview.wav").exists()
     assert (item_dir / "keep.txt").read_text() == "user"
 
@@ -450,7 +450,7 @@ def test_preview_failure_keeps_symbolic_outputs_and_marks_partial(tmp_path):
     metadata = json.loads(next(tmp_path.rglob("metadata.json")).read_text())
     assert summary.partial == 1
     assert metadata["status"] == "partial"
-    assert (next(tmp_path.rglob("transcription.mid"))).exists()
+    assert (next(tmp_path.rglob("song.mid"))).exists()
 ```
 
 - [ ] **Step 7: Run batch tests**

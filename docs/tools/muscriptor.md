@@ -21,6 +21,15 @@ python -m module.muscriptor_tool.cli batch .\album --model large --device cuda:0
 python -m module.muscriptor_tool.cli list-instruments --format json
 ```
 
+体验 MuScriptor 官方 WebUI 时运行：
+
+```powershell
+.\2.7.1.muscriptor_webui.ps1
+.\2.7.1.muscriptor_webui.ps1 -Model small -Device cuda:0 -Port 8222
+```
+
+脚本把 `muscriptor-local` 安装到项目共享 `.venv`，然后从同一环境启动官方 `muscriptor serve`，访问终端显示的地址即可。`-Model`（别名 `-ModelSize`）支持 `small`、`medium`、`large`，默认使用 `large`；设备默认 `auto`。不要使用 `uvx muscriptor serve`：`uvx` 会解析独立工具环境，不复用项目 `.venv`，可能重复安装另一套 Torch/CUDA 依赖。
+
 ## 输出与恢复
 
 批处理按输入相对路径建立项目目录；默认输出到输入位置下的 `muscriptor_output`。每项包含以源文件名为 stem 的 `<source-stem>.mid`、`events.json`、`events.jsonl`、`metadata.json`，根目录包含 `manifest.json`。`metadata.json` 分别记录手动限制的 `instruments` 和模型实际识别到的 `detected_instruments`。同一输入只推理一次，完成签名、原子写入和输出锁支持中断恢复。
