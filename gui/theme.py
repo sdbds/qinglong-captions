@@ -896,8 +896,16 @@ body.dark-mode .q-field__control {
 
 /* Select chip cleanup */
 .q-select .q-field__native > span { background: transparent; padding: 0; }
-.q-select .q-chip { background: transparent; color: inherit; padding: 0; margin: 0; border: none; }
-.q-select .q-chip__content { color: inherit; }
+.q-select .q-chip {
+    background: var(--ql-accent-muted);
+    color: inherit;
+    min-height: 24px;
+    padding: 0 6px;
+    margin: 2px 6px 2px 0;
+    border: 1px solid var(--ql-accent-border);
+    border-radius: var(--ql-radius-sm);
+}
+.q-select .q-chip__content { color: inherit; gap: 4px; }
 .q-select .q-field__control-container { padding-top: 0; }
 
 /* Path input */
