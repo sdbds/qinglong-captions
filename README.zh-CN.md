@@ -165,7 +165,9 @@ MuScriptor 通过 `muscriptor-local` profile 安装，支持官方 `small`、`me
 
 可选的纯 MIDI 试听或“左声道原音、右声道合成 MIDI”对照试听，无论选择 MP3 还是 WAV，都要求系统 `PATH` 中存在原生 [FluidSynth](https://github.com/FluidSynth/fluidsynth/releases) 可执行文件。改用 WAV 不能绕过该要求；MP3 还要求当前 `soundfile/libsndfile` 支持 MP3 编码。Windows 请使用 x64 版本，把解压后的 `bin` 目录加入 `PATH`，重启终端和 GUI 后用 `fluidsynth --version` 验证。官方 `MuseScore_General.sf2` SoundFont 会自动解析，不需要系统音源或自定义 SoundFont。
 
-运行 `2.7.1.muscriptor_webui.ps1` 可使用项目共享 `.venv` 体验 MuScriptor 官方 WebUI。脚本支持 `-Model small|medium|large`（默认 `large`）和 `-Device auto|cpu|cuda|cuda:N`；不要使用会创建独立工具环境的 `uvx muscriptor serve`。
+运行 `2.7.1.muscriptor_webui.ps1` 可使用项目共享 `.venv` 和优化后的 SDPA runtime 体验 MuScriptor 官方 WebUI。服务就绪后脚本会自动打开浏览器，传入 `-NoBrowser` 可关闭该行为。脚本支持 `-Model small|medium|large`（默认 `large`）、`-Device auto|cpu|cuda|cuda:N` 和 `-BatchSize N`。默认值 `0` 会直接读取已记录的模型显存曲线，按总显存选择偶数 batch，不再重新执行 BS1/BS2 校准。CUDA OOM 会自动缩小 batch；Windows 下若检测到当前进程开始使用共享 GPU 显存，后续 batch 会减 2。每次请求结束后会释放临时张量和空闲 CUDA cache，但保留模型权重。CPU 使用 BS1。不要使用会创建独立工具环境的 `uvx muscriptor serve`。
+
+项目内所有 MuScriptor 入口都会读取 `config/muscriptor_batch_profiles.toml` 的模型显存曲线，在加载权重前检查最低显存，并共用相同的自适应 CUDA runtime。runtime 的分配器预算会同时扣除配置的预留显存和 PyTorch 之外已经占用的显存。GUI 还会在页面打开时把用户所选 GPU 的总显存代入曲线来选择 batch；记录中的参考 GPU 只标明测量来源，不参与匹配。扣除分段预留后无法容纳模型时，`auto` 在加载前回退 CPU，显式 CUDA 则直接阻止任务。用户手动修改 batch 前，切换模型或设备会同步刷新推荐值；手动修改后不再自动覆盖。
 
 全部入口见 [工具文档索引](docs/tools/README.md)。
 

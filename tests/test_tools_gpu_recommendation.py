@@ -1,10 +1,7 @@
 import sys
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-
-from gui.wizard import step6_tools
 from gui.utils.i18n import get_i18n, set_language
+from gui.wizard import step6_tools
 from module.gpu_profile import GPUDeviceInfo, GPUProbeResult
 from module.see_through.see_through_profile import recommend_see_through_config
 
@@ -145,6 +142,7 @@ def test_tools_step_only_builds_requested_panels(monkeypatch):
 
     monkeypatch.setattr(step, "_render_watermark_tool", lambda: calls.append("watermark"))
     monkeypatch.setattr(step, "_render_audio_separator_tool", lambda: calls.append("audio_separator"))
+    monkeypatch.setattr(step, "_schedule_see_through_recommendation_refresh", lambda: None)
 
     step._ensure_tool_panel_rendered("watermark")
     step._ensure_tool_panel_rendered("watermark")
@@ -206,6 +204,20 @@ def test_tools_step_see_through_summary_mentions_multi_gpu_probe():
     assert ">= 16 GB" in summary
 
 
+def test_music_transcription_summary_mentions_selected_gpu_and_batch():
+    step = step6_tools.ToolsStep()
+    step.gpu_probe = _make_multi_probe()
+    step.config["music_transcription_device"] = "cuda:1"
+    step.config["music_transcription_batch_size"] = 8
+
+    summary = step._build_music_transcription_gpu_summary()
+
+    assert "GPU Zero" in summary
+    assert "2 GPUs" in summary
+    assert "CUDA 1 - GPU One (24.0 GB)" in summary
+    assert f"{step6_tools.t('batch_size')}: 8" in summary
+
+
 def test_tools_step_exposes_gpu_detail_lines_for_multi_gpu_probe():
     step = step6_tools.ToolsStep()
     step.gpu_probe = _make_multi_probe()
@@ -255,7 +267,7 @@ def test_tools_step_see_through_option_labels_follow_current_language():
         set_language(original_lang)
 
 
-def test_tools_step_only_requests_gpu_probe_when_see_through_panel_renders(monkeypatch):
+def test_tools_step_requests_gpu_probe_when_gpu_aware_panel_renders(monkeypatch):
     step = step6_tools.ToolsStep()
     watermark = _DummyContainer()
     see_through = _DummyContainer()

@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from .adaptive_batch import AdaptiveBatchModelProxy
+from .batch_profiles import InsufficientVRAMError, get_batch_profile_catalog
 from .options import ModelVariant, TranscriptionOptions
 
 
@@ -117,6 +119,41 @@ def resolve_device(requested: str, torch_module: Any) -> str:
     return f"cuda:{index}"
 
 
+def _cuda_total_memory(torch_module: Any, device: str) -> int | None:
+    try:
+        properties = torch_module.cuda.get_device_properties(device)
+        total_memory = int(properties.total_memory)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return total_memory if total_memory > 0 else None
+
+
+def _resolve_model_device(
+    options: TranscriptionOptions,
+    torch_module: Any,
+    *,
+    console: Any | None = None,
+) -> str:
+    resolved = resolve_device(options.device, torch_module)
+    if not resolved.startswith("cuda:"):
+        return resolved
+    total_memory = _cuda_total_memory(torch_module, resolved)
+    if total_memory is None:
+        return resolved
+    try:
+        get_batch_profile_catalog().recommend(options.model, total_memory)
+    except InsufficientVRAMError as exc:
+        if options.device != "auto":
+            raise
+        if console is not None:
+            console.print(
+                "[yellow]MuScriptor auto device fallback:[/yellow] "
+                f"{exc}; using CPU"
+            )
+        return "cpu"
+    return resolved
+
+
 def _http_status(exc: BaseException) -> int | None:
     response = getattr(exc, "response", None)
     status = getattr(response, "status_code", None)
@@ -148,6 +185,15 @@ def _hf_download_progress(console: Any | None):
     return hf_download_reporting(console)
 
 
+def _optimize_attention(model: Any, package_version: str) -> int:
+    if package_version != "0.2.1":
+        return 0
+
+    from .attention import optimize_muscriptor_sdpa
+
+    return optimize_muscriptor_sdpa(model)
+
+
 def load_model(
     options: TranscriptionOptions,
     *,
@@ -155,7 +201,11 @@ def load_model(
     console: Any | None = None,
 ) -> LoadedModel:
     bindings = upstream or _import_upstream()
-    resolved_device = resolve_device(options.device, bindings.torch)
+    resolved_device = _resolve_model_device(
+        options,
+        bindings.torch,
+        console=console,
+    )
     repo_id = options.model.repo_id
     if console is not None:
         console.print(f"[cyan]Resolving Hugging Face model:[/cyan] {repo_id}")
@@ -177,9 +227,30 @@ def load_model(
     if console is not None:
         console.print(f"[green]Hugging Face model ready:[/green] {repo_id}")
 
+    optimized_layers = _optimize_attention(model, bindings.version)
+    if console is not None and optimized_layers:
+        console.print(
+            f"[green]MuScriptor optimized SDPA ready:[/green] {optimized_layers} attention layers"
+        )
+
     actual_device = str(getattr(model, "_device", resolved_device))
+    runtime_model = model
+    if actual_device.startswith("cuda:"):
+        total_memory = _cuda_total_memory(bindings.torch, actual_device)
+        initial_auto_batch_size = (
+            get_batch_profile_catalog().recommend(options.model, total_memory)
+            if total_memory is not None
+            else None
+        )
+        runtime_model = AdaptiveBatchModelProxy(
+            model,
+            options.batch_size,
+            console=console,
+            package_version=bindings.version,
+            initial_auto_batch_size=initial_auto_batch_size,
+        )
     return LoadedModel(
-        model=model,
+        model=runtime_model,
         package_version=bindings.version,
         requested_device=options.device,
         resolved_device=actual_device,

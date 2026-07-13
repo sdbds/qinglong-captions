@@ -352,6 +352,10 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "music_transcription_output_required": "Select at least one output format",
         "music_transcription_instruments_required": "Select at least one instrument or use Auto Detect",
         "music_transcription_invalid_config": "Invalid music transcription settings",
+        "music_transcription_insufficient_vram": (
+            "{model} requires at least {required:.2f} GiB total VRAM; "
+            "select CPU or another model."
+        ),
         "start_music_transcription": "Start Transcription",
         "music_transcription_success": "Music transcription completed",
         "music_transcription_failed": "Music transcription failed",
@@ -1025,6 +1029,9 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "music_transcription_output_required": "请至少选择一种输出格式",
         "music_transcription_instruments_required": "请至少选择一种音色，或使用自动识别",
         "music_transcription_invalid_config": "音乐转录设置无效",
+        "music_transcription_insufficient_vram": (
+            "{model} 至少需要 {required:.2f} GiB 总显存；请选择 CPU 或其他模型。"
+        ),
         "start_music_transcription": "开始转录",
         "music_transcription_success": "音乐转录完成",
         "music_transcription_failed": "音乐转录失败",
@@ -1699,6 +1706,10 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "music_transcription_output_required": "出力形式を 1 つ以上選択してください",
         "music_transcription_instruments_required": "楽器を 1 つ以上選択するか、自動検出を使用してください",
         "music_transcription_invalid_config": "音楽トランスクリプション設定が無効です",
+        "music_transcription_insufficient_vram": (
+            "{model} には合計 {required:.2f} GiB 以上の VRAM が必要です。"
+            "CPU または別のモデルを選択してください。"
+        ),
         "start_music_transcription": "変換開始",
         "music_transcription_success": "音楽トランスクリプション完了",
         "music_transcription_failed": "音楽トランスクリプション失敗",
@@ -2372,6 +2383,10 @@ TRANSLATIONS: Dict[str, Dict[str, Any]] = {
         "music_transcription_output_required": "하나 이상의 출력 형식을 선택하세요",
         "music_transcription_instruments_required": "하나 이상의 악기를 선택하거나 자동 감지를 사용하세요",
         "music_transcription_invalid_config": "음악 트랜스크립션 설정이 올바르지 않습니다",
+        "music_transcription_insufficient_vram": (
+            "{model}에는 총 VRAM이 최소 {required:.2f} GiB 필요합니다. "
+            "CPU 또는 다른 모델을 선택하세요."
+        ),
         "start_music_transcription": "변환 시작",
         "music_transcription_success": "음악 트랜스크립션 완료",
         "music_transcription_failed": "음악 트랜스크립션 실패",

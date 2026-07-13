@@ -25,10 +25,13 @@ python -m module.muscriptor_tool.cli list-instruments --format json
 
 ```powershell
 .\2.7.1.muscriptor_webui.ps1
-.\2.7.1.muscriptor_webui.ps1 -Model small -Device cuda:0 -Port 8222
+.\2.7.1.muscriptor_webui.ps1 -Model small -Device cuda:0 -BatchSize 4 -Port 8222
+.\2.7.1.muscriptor_webui.ps1 -NoBrowser
 ```
 
-脚本把 `muscriptor-local` 安装到项目共享 `.venv`，然后从同一环境启动官方 `muscriptor serve`，访问终端显示的地址即可。`-Model`（别名 `-ModelSize`）支持 `small`、`medium`、`large`，默认使用 `large`；设备默认 `auto`。不要使用 `uvx muscriptor serve`：`uvx` 会解析独立工具环境，不复用项目 `.venv`，可能重复安装另一套 Torch/CUDA 依赖。
+脚本把 `muscriptor-local` 安装到项目共享 `.venv`，通过项目优化后的 SDPA runtime 加载模型，同时继续使用官方 WebUI 和 HTTP 服务；服务健康检查通过后自动打开浏览器。`-NoBrowser` 可关闭自动打开。`-Model`（别名 `-ModelSize`）支持 `small`、`medium`、`large`，默认使用 `large`；设备默认 `auto`。`-BatchSize` 默认 `0`：启动时直接读取已记录的模型显存曲线，按总显存选择偶数 batch，不再重新执行 BS1/BS2 校准。OOM 时会自动改用较小批次；Windows 下检测到当前进程新增共享 GPU 显存占用后，后续 batch 会减 2。每次请求完成或取消后都会释放临时张量和空闲 CUDA cache，但保留模型权重。CPU 使用 BS1。传入正整数可跳过 profile 选择，但仍保留显存保护。batch 大于 1 会提高吞吐，但同批后续 5 秒块的页面事件会延后出现。不要使用 `uvx muscriptor serve`：`uvx` 会解析独立工具环境，不复用项目 `.venv`，可能重复安装另一套 Torch/CUDA 依赖。
+
+CLI、官方 WebUI 启动器、批量转录与音频分离共用 `config/muscriptor_batch_profiles.toml` 的模型显存曲线和自适应 CUDA runtime；加载权重前，显存不足的 `auto` 会回退 CPU，显式 CUDA 则直接阻止任务。CUDA 分配器预算会扣除分段预留和当前设备上 PyTorch 之外的显存占用。打开任一 GUI 页面时，还会把用户所选 GPU 的总显存代入 BS1/BS2 与完整 batch 验证后的边际显存公式来选择偶数 batch，参考 GPU 只标明测量来源。在不超过 16 GiB 时使用 1 GiB 预留，small、medium、large 的最低总显存约为 1.90、3.25、10.28 GiB。用户手动修改前，切换模型或设备会重新计算。
 
 ## 输出与恢复
 

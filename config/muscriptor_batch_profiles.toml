@@ -1,0 +1,48 @@
+schema_version = 1
+reserve_bytes = 2147483648
+low_vram_max_bytes = 17179869184
+low_vram_reserve_bytes = 1073741824
+probe_batch_sizes = [1, 2]
+prefer_even = true
+
+# Provenance only. Runtime recommendations never match this GPU name or total.
+[benchmark]
+date = "2026-07-13"
+device = "NVIDIA GeForce RTX 4090"
+total_vram_bytes = 24146083840
+muscriptor_version = "0.2.1"
+torch_version = "2.13.0+cu130"
+cuda_version = "13.0"
+attention = "optimized_sdpa"
+audio = "16 kHz silence; BS1/BS2 calibration plus a full recommended-batch validation"
+
+# minimum_vram_bytes is the largest observed BS1 peak for the model.
+# bs2_minus_bs1_bytes is the measured marginal cost from BS1 to BS2.
+# The validated batch/peak pair guards against unsafe linear extrapolation.
+
+[models.small]
+repo_id = "MuScriptor/muscriptor-small"
+minimum_vram_bytes = 962592768
+peak_bs1_bytes = 933232640
+bs2_minus_bs1_bytes = 224395264
+validated_batch_size = 46
+validation_peak_reserved_bytes = 21472739328
+validation_chunks = 97
+
+[models.medium]
+repo_id = "MuScriptor/muscriptor-medium"
+minimum_vram_bytes = 2413821952
+peak_bs1_bytes = 2401239040
+bs2_minus_bs1_bytes = 543162368
+validated_batch_size = 36
+validation_peak_reserved_bytes = 21541945344
+validation_chunks = 39
+
+[models.large]
+repo_id = "MuScriptor/muscriptor-large"
+minimum_vram_bytes = 9963569152
+peak_bs1_bytes = 9950986240
+bs2_minus_bs1_bytes = 1530920960
+validated_batch_size = 8
+validation_peak_reserved_bytes = 21338521600
+validation_chunks = 11

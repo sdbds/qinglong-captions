@@ -45,7 +45,6 @@ torch-base = [
     "accelerate",
     "huggingface_hub[hf_xet]>=0.35.2",
     "safetensors",
-    "sageattention==2.2.0; sys_platform == 'win32' and python_version == '3.11'",
 ]
 onnx-base = [
     "qinglong-captions[torch-base]",
@@ -1010,9 +1009,6 @@ explicit = true
 dots_ocr = { path = "third_party/dots.ocr", editable = true }
 flash-attn = [
     { url = "https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.13.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32'" },
-]
-sageattention = [
-    { url = "https://github.com/sdbds/SageAttention-for-windows/releases/download/torch2130%2Bcu130/sageattention-2.2.0+cu130torch2.13.0-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11'" },
 ]
 onnxruntime-gpu = { index = "onnxruntime-cuda13" }
 torch = [

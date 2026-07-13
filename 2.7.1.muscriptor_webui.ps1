@@ -6,7 +6,10 @@ param(
     [ValidateSet("small", "medium", "large")]
     [string]$Model = "large",
     [ValidatePattern("^(auto|cpu|cuda(:[0-9]+)?)$")]
-    [string]$Device = "auto"
+    [string]$Device = "auto",
+    [ValidateRange(0, 1024)]
+    [int]$BatchSize = 0,
+    [switch]$NoBrowser
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,13 +53,68 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $DisplayHost = if ($BindHost -in @("0.0.0.0", "::")) { "127.0.0.1" } else { $BindHost }
-Write-Output "MuScriptor WebUI: http://${DisplayHost}:$Port"
-Write-Output "Model: $Model | Device: $Device"
+$UrlHost = if ($DisplayHost.Contains(":")) { "[$DisplayHost]" } else { $DisplayHost }
+$WebUrl = "http://${UrlHost}:$Port"
+Write-Output "MuScriptor WebUI: $WebUrl"
+Write-Output "Model: $Model | Device: $Device | Batch size: $BatchSize (0 = recorded VRAM profile)"
 Write-Output "Press Ctrl+C to stop the server."
 
-& $PythonExe -m muscriptor.main serve `
-    --host $BindHost `
-    --port $Port `
-    --model $Model `
-    --device $Device
-exit $LASTEXITCODE
+$ServerArguments = @(
+    "-m",
+    "module.muscriptor_tool.webui",
+    "--host",
+    $BindHost,
+    "--port",
+    $Port,
+    "--model",
+    $Model,
+    "--device",
+    $Device,
+    "--batch-size",
+    $BatchSize
+)
+
+$ServerProcess = $null
+$ExitCode = 1
+try {
+    $ServerProcess = Start-Process `
+        -FilePath $PythonExe `
+        -ArgumentList $ServerArguments `
+        -NoNewWindow `
+        -PassThru
+
+    if (-not $NoBrowser) {
+        Write-Output "Waiting for the WebUI server before opening the browser..."
+        $ServerReady = $false
+        while (-not $ServerProcess.HasExited) {
+            try {
+                $Health = Invoke-WebRequest `
+                    -Uri "$WebUrl/health" `
+                    -UseBasicParsing `
+                    -TimeoutSec 2
+                if ($Health.StatusCode -eq 200) {
+                    $ServerReady = $true
+                    break
+                }
+            } catch {}
+            Start-Sleep -Milliseconds 750
+            $ServerProcess.Refresh()
+        }
+        if (-not $ServerReady -and $ServerProcess.HasExited) {
+            throw "MuScriptor server exited before the WebUI became ready (code $($ServerProcess.ExitCode))."
+        }
+        try {
+            Start-Process $WebUrl
+        } catch {
+            Write-Warning "Could not open the default browser. Open $WebUrl manually."
+        }
+    }
+
+    $ServerProcess.WaitForExit()
+    $ExitCode = $ServerProcess.ExitCode
+} finally {
+    if ($null -ne $ServerProcess -and -not $ServerProcess.HasExited) {
+        Stop-Process -Id $ServerProcess.Id -Force -ErrorAction SilentlyContinue
+    }
+}
+exit $ExitCode

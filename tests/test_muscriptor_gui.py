@@ -68,6 +68,9 @@ def test_music_transcription_tool_renders_complete_controls():
     }
     assert step.music_transcription_output_formats.value == ["midi"]
     assert step.music_transcription_preview_format.value == "mp3"
+    assert step._music_transcription_gpu_summary_label is not None
+    assert step._music_transcription_gpu_summary_meta_container is not None
+    assert step._music_transcription_gpu_details_container is not None
     assert tuple(step.music_transcription_instruments.options) == OFFICIAL_INSTRUMENT_NAMES
     assert "option" in step.music_transcription_instruments.slots
     assert "props.opt.value" in step.music_transcription_instruments.slots["option"].template

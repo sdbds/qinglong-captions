@@ -15,11 +15,14 @@ ROOT = Path(__file__).resolve().parent.parent
 
 from module.audio_separator import (
     HARMONY_OUTPUT_DIRNAME,
+    STEM_MIDI_SILENCE_RMS_DBFS,
+    analyze_stem_midi_silence,
     build_parser,
     build_song_output_dir,
     collect_existing_stem_midi_candidates,
     collect_audio_inputs,
     run_audio_separator,
+    waveform_max_window_rms_dbfs,
 )
 from module.audio_separator_core import (
     AudioSeparatorMetadata,
@@ -388,6 +391,43 @@ def test_audio_separator_parser_defaults():
     assert args.muscriptor_other_instruments == ""
     assert args.muscriptor_preview_mode == "none"
     assert args.muscriptor_preview_format == "mp3"
+
+
+def test_stem_midi_silence_analysis_uses_max_window_rms_without_mixing_channels():
+    silent, silent_dbfs = analyze_stem_midi_silence(
+        torch.zeros((2, 200)),
+        sample_rate=100,
+    )
+    residual, residual_dbfs = analyze_stem_midi_silence(
+        torch.full((2, 100), 10 ** ((STEM_MIDI_SILENCE_RMS_DBFS - 1.0) / 20.0)),
+        sample_rate=100,
+    )
+    sparse = torch.zeros((2, 200))
+    sparse[0, 150:160] = 0.1
+    audible, audible_dbfs = analyze_stem_midi_silence(sparse, sample_rate=100)
+    opposite_channels = torch.stack(
+        (torch.full((100,), 0.01), torch.full((100,), -0.01))
+    )
+
+    assert silent is True
+    assert silent_dbfs == -200.0
+    assert residual is True
+    assert residual_dbfs < STEM_MIDI_SILENCE_RMS_DBFS
+    assert audible is False
+    assert audible_dbfs > STEM_MIDI_SILENCE_RMS_DBFS
+    assert abs(
+        waveform_max_window_rms_dbfs(opposite_channels, sample_rate=100) - (-40.0)
+    ) < 0.001
+
+
+def test_stem_midi_silence_analysis_fails_open_for_non_finite_audio():
+    waveform = torch.zeros((2, 100))
+    waveform[0, 0] = float("nan")
+
+    is_silent, rms_dbfs = analyze_stem_midi_silence(waveform, sample_rate=100)
+
+    assert is_silent is False
+    assert rms_dbfs == 0.0
 
 
 def test_vocal_midi_parser_defaults():
@@ -775,13 +815,17 @@ def test_run_audio_separator_vocal_midi_uses_current_run_input_path_without_resc
     assert transcribe_calls[0] != stale_old
 
 
-def test_run_audio_separator_passes_all_primary_stems_to_muscriptor(monkeypatch, tmp_path):
+def test_run_audio_separator_skips_silent_stem_midi_but_exports_all_stem_audio(
+    monkeypatch,
+    tmp_path,
+):
     input_dir = tmp_path / "music"
     input_dir.mkdir()
     source_path = input_dir / "song.wav"
     source_path.write_bytes(b"audio")
     stem_names = ("bass", "drums", "other", "vocals", "guitar", "piano")
     captured = {}
+    written = []
 
     class _FakeSeparator:
         def __init__(self, *, repo_id, model_dir, force_download, logger=None):
@@ -790,7 +834,11 @@ def test_run_audio_separator_passes_all_primary_stems_to_muscriptor(monkeypatch,
 
         def separate_file(self, source_path, *, segment_size, overlap, batch_size):
             return {
-                stem: torch.full((2, 1600), 0.1, dtype=torch.float32)
+                stem: torch.full(
+                    (2, 1600),
+                    0.0 if stem == "piano" else 0.1,
+                    dtype=torch.float32,
+                )
                 for stem in stem_names
             }
 
@@ -798,6 +846,7 @@ def test_run_audio_separator_passes_all_primary_stems_to_muscriptor(monkeypatch,
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_bytes(b"stem")
+            written.append(output_path)
             return output_path
 
         def close(self):
@@ -836,8 +885,10 @@ def test_run_audio_separator_passes_all_primary_stems_to_muscriptor(monkeypatch,
     result = run_audio_separator(args)
 
     assert result == 0
-    assert [candidate.stem_name for candidate in captured["candidates"]] == list(stem_names)
+    assert [candidate.stem_name for candidate in captured["candidates"]] == list(stem_names[:-1])
     assert all(candidate.input_path.is_file() for candidate in captured["candidates"])
+    assert len(written) == len(stem_names)
+    assert any("_(piano)_" in path.name for path in written)
     assert captured["options"].model.value == "medium"
     assert captured["options"].device == "cpu"
     assert captured["options"].batch_size == 2
@@ -845,6 +896,65 @@ def test_run_audio_separator_passes_all_primary_stems_to_muscriptor(monkeypatch,
     assert captured["kwargs"]["preview"].content.value == "comparison"
     assert captured["kwargs"]["preview"].format.value == "wav"
     assert captured["kwargs"]["overwrite"] is True
+
+
+def test_run_audio_separator_all_silent_stems_avoid_muscriptor_setup(
+    monkeypatch,
+    tmp_path,
+):
+    input_dir = tmp_path / "music"
+    input_dir.mkdir()
+    source_path = input_dir / "song.wav"
+    source_path.write_bytes(b"audio")
+    printed = []
+    written = []
+
+    class _FakeSeparator:
+        def __init__(self, **_kwargs):
+            self.model_tag = "primary"
+            self.providers = ("CPUExecutionProvider",)
+            self.metadata = SimpleNamespace(sample_rate=44100)
+
+        def separate_file(self, *_args, **_kwargs):
+            return {
+                "piano": torch.zeros((2, 1600), dtype=torch.float32),
+                "guitar": torch.zeros((2, 1600), dtype=torch.float32),
+            }
+
+        def write_audio(self, _waveform, output_path, **_kwargs):
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"stem")
+            written.append(output_path)
+            return output_path
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr("module.audio_separator.AudioSeparator", _FakeSeparator)
+    monkeypatch.setattr(
+        "module.audio_separator.transcribe_stem_candidates",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("MuScriptor setup should not run")
+        ),
+    )
+    monkeypatch.setattr(
+        "module.audio_separator.console.print",
+        lambda *args, **_kwargs: printed.append(" ".join(str(item) for item in args)),
+    )
+    monkeypatch.setattr(
+        "module.audio_separator.collect_audio_inputs",
+        lambda _path: ([source_path], input_dir),
+    )
+
+    result = run_audio_separator(
+        build_parser().parse_args([str(input_dir), "--muscriptor_midi", "--overwrite"])
+    )
+
+    assert result == 0
+    assert len(written) == 2
+    assert any("no audible primary stems" in line for line in printed)
+    assert any("stem_midi_silent_skipped=2" in line for line in printed)
 
 
 def test_run_audio_separator_prints_muscriptor_root_error_after_progress(monkeypatch, tmp_path):
@@ -920,13 +1030,27 @@ def test_existing_primary_stems_can_run_muscriptor_without_reseparation(monkeypa
     stem_names = ("bass", "drums", "other", "vocals", "guitar", "piano")
     for stem_name in stem_names:
         (song_output_dir / f"song_({stem_name})_primary.wav").write_bytes(b"stem")
+    stale_midi_dir = song_output_dir / "04_stem_midi"
+    stale_midi_dir.mkdir()
+    stale_midi = stale_midi_dir / "song_(piano).mid"
+    stale_metadata = stale_midi_dir / "song_(piano).metadata.json"
+    stale_preview = stale_midi_dir / "song_(piano).preview.mp3"
+    stale_midi.write_bytes(b"MThd")
+    stale_metadata.write_text("{}", encoding="utf-8")
+    stale_preview.write_bytes(b"preview")
     captured = {}
 
     class _FakeSeparator:
         def __init__(self, *, repo_id, model_dir, force_download, logger=None):
             self.model_tag = "primary"
             self.providers = ("CPUExecutionProvider",)
-            self.metadata = SimpleNamespace(stem_names=stem_names)
+            self.metadata = SimpleNamespace(stem_names=stem_names, sample_rate=44100)
+
+        def read_audio(self, path):
+            if "other" in Path(path).name:
+                raise RuntimeError("decode failed")
+            level = 0.0 if "piano" in Path(path).name else 0.1
+            return torch.full((2, 1600), level, dtype=torch.float32)
 
         def separate_file(self, *_args, **_kwargs):
             raise AssertionError("existing primary stems should not be separated again")
@@ -953,8 +1077,11 @@ def test_existing_primary_stems_can_run_muscriptor_without_reseparation(monkeypa
     )
 
     assert result == 0
-    assert [candidate.stem_name for candidate in captured["candidates"]] == list(stem_names)
+    assert [candidate.stem_name for candidate in captured["candidates"]] == list(stem_names[:-1])
     assert all(candidate.input_path.parent == song_output_dir for candidate in captured["candidates"])
+    assert not stale_midi.exists()
+    assert not stale_metadata.exists()
+    assert not stale_preview.exists()
 
 
 def test_collect_existing_stem_candidates_ignores_wrong_model_or_format(tmp_path):

@@ -97,8 +97,13 @@ def test_official_webui_launcher_reuses_project_venv():
 
     assert '".venv\\Scripts\\python.exe"' in launcher
     assert '"muscriptor-local"' in launcher
-    assert "-m muscriptor.main serve" in launcher
+    assert '"module.muscriptor_tool.webui"' in launcher
     assert "uvx" not in launcher.lower()
     assert '[string]$Model = "large"' in launcher
     assert '[Alias("ModelSize")]' in launcher
-    assert "Start-Process" not in launcher
+    assert '[int]$BatchSize = 0' in launcher
+    assert '"--batch-size"' in launcher
+    assert '[switch]$NoBrowser' in launcher
+    assert '"$WebUrl/health"' in launcher
+    assert "Start-Process $WebUrl" in launcher
+    assert "Stop-Process -Id $ServerProcess.Id" in launcher

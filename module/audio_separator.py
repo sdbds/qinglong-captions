@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
 
 import torch
 
@@ -48,6 +49,7 @@ from module.muscriptor_tool.options import (
 )
 from module.muscriptor_tool.stems import (
     StemMidiCandidate,
+    build_stem_midi_output_paths,
     transcribe_stem_candidates,
 )
 from module.vocal_midi import (
@@ -71,6 +73,8 @@ console = Console(color_system="truecolor", force_terminal=True)
 HARMONY_OUTPUT_DIRNAME = "02_harmony_split"
 HARMONY_DRY_STEM_NAME = "dry_vocal"
 HARMONY_BACKING_STEM_NAME = "harmony"
+STEM_MIDI_SILENCE_RMS_DBFS = -60.0
+STEM_MIDI_DBFS_FLOOR = -200.0
 
 
 @dataclass(frozen=True)
@@ -86,6 +90,101 @@ class VocalMidiCandidate:
     source_path: Path
     song_output_dir: Path
     input_path: Path
+
+
+def waveform_max_window_rms_dbfs(
+    waveform: torch.Tensor,
+    *,
+    sample_rate: int,
+) -> float:
+    samples = waveform.detach().to(dtype=torch.float32)
+    if samples.numel() == 0:
+        return STEM_MIDI_DBFS_FLOOR
+    if not bool(torch.isfinite(samples).all().item()):
+        return 0.0
+    if samples.ndim == 0:
+        samples = samples.reshape(1, 1)
+    elif samples.ndim == 1:
+        samples = samples.unsqueeze(0)
+    elif samples.ndim > 2:
+        samples = samples.reshape(-1, samples.shape[-1])
+
+    # A local maximum protects sparse notes from being hidden by a quiet full-track average.
+    window_size = max(1, int(sample_rate))
+    max_mean_square = 0.0
+    for start in range(0, int(samples.shape[-1]), window_size):
+        window = samples[..., start : start + window_size]
+        if window.numel():
+            max_mean_square = max(
+                max_mean_square,
+                float(window.square().mean().item()),
+            )
+    if max_mean_square <= 0.0:
+        return STEM_MIDI_DBFS_FLOOR
+    return max(STEM_MIDI_DBFS_FLOOR, 10.0 * math.log10(max_mean_square))
+
+
+def analyze_stem_midi_silence(
+    waveform: torch.Tensor,
+    *,
+    sample_rate: int,
+) -> tuple[bool, float]:
+    max_window_rms_dbfs = waveform_max_window_rms_dbfs(
+        waveform,
+        sample_rate=sample_rate,
+    )
+    return (
+        max_window_rms_dbfs < STEM_MIDI_SILENCE_RMS_DBFS,
+        max_window_rms_dbfs,
+    )
+
+
+def remove_stale_stem_midi_outputs(
+    candidate: StemMidiCandidate,
+) -> tuple[int, tuple[str, ...]]:
+    paths = build_stem_midi_output_paths(candidate)
+    targets = (
+        paths.midi,
+        paths.metadata,
+        paths.midi.with_suffix(".preview.wav"),
+        paths.midi.with_suffix(".preview.mp3"),
+    )
+    removed = 0
+    errors: list[str] = []
+    for target in targets:
+        try:
+            if target.is_file():
+                target.unlink()
+                removed += 1
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            errors.append(f"{target}: {type(exc).__name__}: {exc}")
+    return removed, tuple(errors)
+
+
+def report_silent_stem_midi_skip(
+    candidate: StemMidiCandidate,
+    *,
+    rms_dbfs: float,
+    logger: Callable[[str], object],
+) -> None:
+    removed, cleanup_errors = remove_stale_stem_midi_outputs(candidate)
+    if cleanup_errors:
+        logger(
+            "[yellow]Could not remove stale MIDI for silent stem:[/yellow] "
+            f"{cleanup_errors[0]}"
+            + (
+                f" (+{len(cleanup_errors) - 1} more cleanup error(s))"
+                if len(cleanup_errors) > 1
+                else ""
+            )
+        )
+    logger(
+        "[yellow]Skipping silent stem MIDI:[/yellow] "
+        f"{candidate.input_path} | max 1s RMS={rms_dbfs:.1f} dBFS"
+        + (f" | removed {removed} stale output(s)" if removed else "")
+    )
 
 
 def select_vocal_stem(stems: Mapping[str, torch.Tensor]) -> tuple[str, torch.Tensor] | None:
@@ -457,6 +556,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
     harmony_candidates: list[HarmonyCandidate] = []
     vocal_midi_candidates: list[VocalMidiCandidate] = []
     stem_midi_candidates: list[StemMidiCandidate] = []
+    stem_midi_silent_skipped = 0
 
     with Progress(
         "[progress.description]{task.description}",
@@ -499,10 +599,38 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                             separator=separator,
                             output_format=args.output_format,
                         )
-                        stem_midi_candidates.extend(existing_candidates)
-                        if existing_candidates:
+                        audible_candidates: list[StemMidiCandidate] = []
+                        sample_rate = int(
+                            getattr(getattr(separator, "metadata", None), "sample_rate", 44100)
+                            or 44100
+                        )
+                        for candidate in existing_candidates:
+                            try:
+                                is_silent, rms_dbfs = analyze_stem_midi_silence(
+                                    separator.read_audio(candidate.input_path),
+                                    sample_rate=sample_rate,
+                                )
+                            except Exception as exc:
+                                progress_console.print(
+                                    "[yellow]Could not check existing stem for silence; "
+                                    f"MuScriptor will try it normally:[/yellow] {candidate.input_path} "
+                                    f"({type(exc).__name__}: {exc})"
+                                )
+                                audible_candidates.append(candidate)
+                                continue
+                            if is_silent:
+                                stem_midi_silent_skipped += 1
+                                report_silent_stem_midi_skip(
+                                    candidate,
+                                    rms_dbfs=rms_dbfs,
+                                    logger=progress_console.print,
+                                )
+                                continue
+                            audible_candidates.append(candidate)
+                        stem_midi_candidates.extend(audible_candidates)
+                        if audible_candidates:
                             progress_console.print(
-                                f"[blue]Reusing {len(existing_candidates)} existing primary stem(s) for MuScriptor MIDI.[/blue]"
+                                f"[blue]Reusing {len(audible_candidates)} audible primary stem(s) for MuScriptor MIDI.[/blue]"
                             )
                     skipped += 1
                     progress.update(task, advance=1)
@@ -543,14 +671,29 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                             output_format=args.output_format,
                         )
                         if args.muscriptor_midi:
-                            stem_midi_candidates.append(
-                                StemMidiCandidate(
-                                    source_path=source_path,
-                                    song_output_dir=song_output_dir,
-                                    stem_name=stem_name,
-                                    input_path=output_path,
-                                )
+                            candidate = StemMidiCandidate(
+                                source_path=source_path,
+                                song_output_dir=song_output_dir,
+                                stem_name=stem_name,
+                                input_path=output_path,
                             )
+                            sample_rate = int(
+                                getattr(getattr(separator, "metadata", None), "sample_rate", 44100)
+                                or 44100
+                            )
+                            is_silent, rms_dbfs = analyze_stem_midi_silence(
+                                waveform,
+                                sample_rate=sample_rate,
+                            )
+                            if is_silent:
+                                stem_midi_silent_skipped += 1
+                                report_silent_stem_midi_skip(
+                                    candidate,
+                                    rms_dbfs=rms_dbfs,
+                                    logger=progress_console.print,
+                                )
+                            else:
+                                stem_midi_candidates.append(candidate)
                         if selected_vocal is not None and stem_name == selected_vocal[0]:
                             vocal_output_path = output_path
 
@@ -737,7 +880,15 @@ def run_audio_separator(args: argparse.Namespace) -> int:
 
     if args.muscriptor_midi:
         if not stem_midi_candidates:
-            console.print("[yellow]MuScriptor stem MIDI enabled, but no primary stems were produced.[/yellow]")
+            if stem_midi_silent_skipped:
+                console.print(
+                    "[yellow]MuScriptor stem MIDI enabled, but no audible primary stems "
+                    f"were found; skipped {stem_midi_silent_skipped} silent stem(s).[/yellow]"
+                )
+            else:
+                console.print(
+                    "[yellow]MuScriptor stem MIDI enabled, but no primary stems were produced.[/yellow]"
+                )
         else:
             raw_batch_size = int(args.muscriptor_batch_size)
             if raw_batch_size < 0:
@@ -833,6 +984,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
         f"harmony_processed={harmony_processed} harmony_skipped={harmony_skipped} "
         f"vocal_midi_processed={vocal_midi_processed} vocal_midi_skipped={vocal_midi_skipped} "
         f"stem_midi_processed={stem_midi_processed} stem_midi_skipped={stem_midi_skipped} "
+        f"stem_midi_silent_skipped={stem_midi_silent_skipped} "
         f"stem_midi_partial={stem_midi_partial} "
         f"failed={failures}"
     )

@@ -11,6 +11,11 @@ from gui.components.advanced_inputs import editable_slider, styled_input, styled
 from gui.components.path_selector import create_path_selector
 from gui.theme import COLORS, get_classes
 from gui.utils.i18n import t
+from module.muscriptor_tool.batch_profiles import (
+    InsufficientVRAMError,
+    get_batch_profile_catalog,
+    recommend_batch_size,
+)
 from module.muscriptor_tool.catalog import OFFICIAL_INSTRUMENT_NAMES
 from module.muscriptor_tool.options import (
     DEFAULT_BEAM_SIZE,
@@ -426,11 +431,18 @@ class ToolsStep:
         self._active_tool_tab = "watermark"
         self._gpu_probe_scheduled = False
         self._see_through_user_edited = False
+        self._applying_muscriptor_batch_default = False
+        self._music_transcription_batch_user_edited = False
+        self._audio_separator_muscriptor_batch_user_edited = False
         self._see_through_summary_label = None
         self._see_through_note_label = None
         self._see_through_summary_meta_container = None
         self._see_through_gpu_details_container = None
         self._see_through_gpu_details_open = False
+        self._music_transcription_gpu_summary_label = None
+        self._music_transcription_gpu_summary_meta_container = None
+        self._music_transcription_gpu_details_container = None
+        self._music_transcription_gpu_details_open = False
         self._audio_separator_vocal_midi_container = None
         self._audio_separator_muscriptor_container = None
         self._audio_separator_muscriptor_other_container = None
@@ -468,9 +480,7 @@ class ToolsStep:
         with container:
             self._get_tool_renderer(tab_key)()
         self._rendered_tool_tabs.add(tab_key)
-        if tab_key == "see_through":
-            self._schedule_see_through_recommendation_refresh()
-        if tab_key == "music_transcription":
+        if tab_key in {"audio_separator", "music_transcription", "see_through"}:
             self._schedule_see_through_recommendation_refresh()
 
     def _ensure_execution_panel(self):
@@ -532,6 +542,18 @@ class ToolsStep:
             f"{self.SEE_THROUGH_DTYPES.get(recommendation.dtype, recommendation.dtype)}"
         )
 
+    def _build_music_transcription_gpu_summary(self) -> str:
+        device = str(self.config["music_transcription_device"])
+        device_label = self._music_transcription_device_options().get(
+            device,
+            device.upper(),
+        )
+        return (
+            f"{t('gpu')}: {_format_gpu_summary(self.gpu_probe)} | "
+            f"{t('device')}: {device_label} | "
+            f"{t('batch_size')}: {self.config['music_transcription_batch_size']}"
+        )
+
     def _gpu_detail_lines(self) -> tuple[str, ...]:
         return _format_gpu_device_lines(self.gpu_probe)
 
@@ -563,7 +585,15 @@ class ToolsStep:
         options = dict(self.MUSCRIPTOR_BASE_DEVICE_OPTIONS)
         if self.gpu_probe is not None:
             for device in self.gpu_probe.devices:
-                options[f"cuda:{device.index}"] = f"CUDA {device.index} - {device.name}"
+                total_vram_bytes = int(getattr(device, "total_vram_bytes", 0))
+                memory_suffix = (
+                    f" ({total_vram_bytes / 1024**3:.1f} GB)"
+                    if total_vram_bytes > 0
+                    else ""
+                )
+                options[f"cuda:{device.index}"] = (
+                    f"CUDA {device.index} - {device.name}{memory_suffix}"
+                )
         selected = str(self.config.get(config_key) or DEFAULT_DEVICE)
         options.setdefault(selected, selected.upper())
         return options
@@ -604,12 +634,158 @@ class ToolsStep:
 
             self.gpu_probe = await asyncio.to_thread(get_cached_gpu_probe, refresh=True)
             self._refresh_music_transcription_devices()
+            self._apply_muscriptor_batch_defaults()
+            self._refresh_music_transcription_gpu_status()
         except Exception as exc:
             ui.notify(f"{t('detecting_gpu')}: {exc}", type="warning")
 
     @staticmethod
     def _set_config_value(config: Dict[str, Any], key: str, value: Any) -> None:
         config[key] = value
+
+    def _muscriptor_total_vram(self, device: str) -> int | None:
+        if str(device).lower() == "cpu":
+            return 0
+        if self.gpu_probe is None:
+            return None
+        devices = tuple(getattr(self.gpu_probe, "devices", ()))
+        if not devices:
+            return 0
+        normalized = str(device or "auto").lower()
+        index = 0
+        if normalized.startswith("cuda:"):
+            try:
+                index = int(normalized.split(":", 1)[1])
+            except ValueError:
+                return None
+        selected = next(
+            (item for item in devices if int(getattr(item, "index", -1)) == index),
+            None,
+        )
+        return int(getattr(selected, "total_vram_bytes", 0)) if selected else None
+
+    def _recommended_muscriptor_batch(self, model_key: str, device_key: str) -> int | None:
+        total_vram = self._muscriptor_total_vram(str(self.config[device_key]))
+        if total_vram is None:
+            return None
+        if total_vram == 0:
+            return 1
+        try:
+            return recommend_batch_size(self.config[model_key], total_vram)
+        except InsufficientVRAMError:
+            raise
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def _validate_muscriptor_vram(self, model_key: str, device_key: str) -> None:
+        device = str(self.config[device_key])
+        if device == "cpu":
+            return
+        total_vram = self._muscriptor_total_vram(device)
+        if total_vram in (None, 0):
+            return
+        try:
+            get_batch_profile_catalog().recommend(self.config[model_key], total_vram)
+        except InsufficientVRAMError as exc:
+            if device == "auto":
+                return
+            template = t(
+                "music_transcription_insufficient_vram",
+                "{model} requires at least {required:.2f} GiB total VRAM; select CPU or another model.",
+            )
+            raise ValueError(
+                template.format(
+                    model=exc.model.repo_id,
+                    required=exc.required_bytes / 1024**3,
+                )
+            ) from exc
+
+    def _resolved_muscriptor_device(self, model_key: str, device_key: str) -> str:
+        device = str(self.config[device_key])
+        self._validate_muscriptor_vram(model_key, device_key)
+        if device != "auto":
+            return device
+        total_vram = self._muscriptor_total_vram(device)
+        if total_vram in (None, 0):
+            return device
+        try:
+            get_batch_profile_catalog().recommend(self.config[model_key], total_vram)
+        except InsufficientVRAMError:
+            return "cpu"
+        return device
+
+    def _apply_muscriptor_batch_default(self, context: str) -> None:
+        fields = {
+            "transcription": (
+                "music_transcription_model",
+                "music_transcription_device",
+                "music_transcription_batch_size",
+                "music_transcription_batch_size_slider",
+                "_music_transcription_batch_user_edited",
+            ),
+            "separator": (
+                "audio_separator_muscriptor_model",
+                "audio_separator_muscriptor_device",
+                "audio_separator_muscriptor_batch_size",
+                "audio_separator_muscriptor_batch_size_slider",
+                "_audio_separator_muscriptor_batch_user_edited",
+            ),
+        }
+        model_key, device_key, batch_key, control_name, edited_name = fields[context]
+        if getattr(self, edited_name):
+            return
+        try:
+            recommendation = self._recommended_muscriptor_batch(model_key, device_key)
+        except InsufficientVRAMError:
+            recommendation = 1
+        if recommendation is None:
+            return
+
+        self.config[batch_key] = recommendation
+        control = getattr(self, control_name, None)
+        if control is None or not hasattr(control, "update_config"):
+            return
+        self._applying_muscriptor_batch_default = True
+        try:
+            control.update_config(
+                new_max=max(128, recommendation),
+                new_value=recommendation,
+            )
+        finally:
+            self._applying_muscriptor_batch_default = False
+
+    def _apply_muscriptor_batch_defaults(self) -> None:
+        self._apply_muscriptor_batch_default("transcription")
+        self._apply_muscriptor_batch_default("separator")
+
+    def _on_music_transcription_model_change(self, value: str) -> None:
+        self.config["music_transcription_model"] = value
+        self._apply_muscriptor_batch_default("transcription")
+        self._refresh_music_transcription_gpu_status()
+
+    def _on_music_transcription_device_change(self, value: str) -> None:
+        self.config["music_transcription_device"] = value
+        self._apply_muscriptor_batch_default("transcription")
+        self._refresh_music_transcription_gpu_status()
+
+    def _on_music_transcription_batch_change(self, value: int) -> None:
+        self.config["music_transcription_batch_size"] = int(value)
+        if not self._applying_muscriptor_batch_default:
+            self._music_transcription_batch_user_edited = True
+        self._refresh_music_transcription_gpu_status()
+
+    def _on_audio_separator_muscriptor_model_change(self, value: str) -> None:
+        self.config["audio_separator_muscriptor_model"] = value
+        self._apply_muscriptor_batch_default("separator")
+
+    def _on_audio_separator_muscriptor_device_change(self, value: str) -> None:
+        self.config["audio_separator_muscriptor_device"] = value
+        self._apply_muscriptor_batch_default("separator")
+
+    def _on_audio_separator_muscriptor_batch_change(self, value: int) -> None:
+        self.config["audio_separator_muscriptor_batch_size"] = int(value)
+        if not self._applying_muscriptor_batch_default:
+            self._audio_separator_muscriptor_batch_user_edited = True
 
     def _on_music_instrument_mode_change(self, value: str) -> None:
         mode = str(value or "auto")
@@ -657,13 +833,35 @@ class ToolsStep:
             self._see_through_note_label.set_visibility(bool(note))
         self._refresh_see_through_gpu_details()
 
-    def _toggle_see_through_gpu_details(self) -> None:
-        self._see_through_gpu_details_open = not self._see_through_gpu_details_open
-        self._refresh_see_through_gpu_details()
+    def _refresh_music_transcription_gpu_status(self) -> None:
+        if self._music_transcription_gpu_summary_label is not None:
+            self._music_transcription_gpu_summary_label.set_text(
+                self._build_music_transcription_gpu_summary()
+            )
+        self._refresh_music_transcription_gpu_details()
 
-    def _refresh_see_through_gpu_details(self) -> None:
-        header_container = self._see_through_summary_meta_container
-        details_container = self._see_through_gpu_details_container
+    def _toggle_music_transcription_gpu_details(self) -> None:
+        self._music_transcription_gpu_details_open = (
+            not self._music_transcription_gpu_details_open
+        )
+        self._refresh_music_transcription_gpu_details()
+
+    def _refresh_music_transcription_gpu_details(self) -> None:
+        self._refresh_gpu_detail_containers(
+            self._music_transcription_gpu_summary_meta_container,
+            self._music_transcription_gpu_details_container,
+            details_open=self._music_transcription_gpu_details_open,
+            on_toggle=self._toggle_music_transcription_gpu_details,
+        )
+
+    def _refresh_gpu_detail_containers(
+        self,
+        header_container: Any,
+        details_container: Any,
+        *,
+        details_open: bool,
+        on_toggle: Any,
+    ) -> None:
         if header_container is None or details_container is None:
             return
 
@@ -680,22 +878,35 @@ class ToolsStep:
         with header_container:
             with ui.row().classes("w-full items-center gap-2"):
                 ui.icon("dns", size="16px").style(f"color: {COLORS['info']};")
-                ui.label(f"{t('detected_gpus')} ({len(lines)})").classes("text-caption").style(
-                    "color: var(--color-text-secondary);"
-                )
+                ui.label(f"{t('detected_gpus')} ({len(lines)})").classes(
+                    "text-caption"
+                ).style("color: var(--color-text-secondary);")
                 ui.button(
-                    t("toggle"),
-                    on_click=self._toggle_see_through_gpu_details,
-                    icon="unfold_more",
-                ).props('flat dense type="button"')
+                    icon="unfold_less" if details_open else "unfold_more",
+                    on_click=on_toggle,
+                ).props('flat dense round type="button"').tooltip(t("gpu_details"))
 
-        details_container.set_visibility(self._see_through_gpu_details_open)
-        if not self._see_through_gpu_details_open:
+        details_container.set_visibility(details_open)
+        if not details_open:
             return
 
         with details_container:
             for line in lines:
-                ui.label(line).classes("text-caption").style("color: var(--color-text-secondary);")
+                ui.label(line).classes("text-caption").style(
+                    "color: var(--color-text-secondary);"
+                )
+
+    def _toggle_see_through_gpu_details(self) -> None:
+        self._see_through_gpu_details_open = not self._see_through_gpu_details_open
+        self._refresh_see_through_gpu_details()
+
+    def _refresh_see_through_gpu_details(self) -> None:
+        self._refresh_gpu_detail_containers(
+            self._see_through_summary_meta_container,
+            self._see_through_gpu_details_container,
+            details_open=self._see_through_gpu_details_open,
+            on_toggle=self._toggle_see_through_gpu_details,
+        )
 
     def _set_control_value(self, control: Any, value: Any) -> None:
         if control is None:
@@ -744,6 +955,8 @@ class ToolsStep:
 
         self.gpu_probe = probe
         self._refresh_music_transcription_devices()
+        self._apply_muscriptor_batch_defaults()
+        self._refresh_music_transcription_gpu_status()
         if not self._see_through_user_edited:
             self._apply_see_through_recommendation(recommendation)
         else:
@@ -1208,11 +1421,7 @@ class ToolsStep:
                                 icon="model_training",
                                 icon_color=COLORS["secondary"],
                                 searchable=False,
-                                on_change=lambda value: self._set_config_value(
-                                    self.config,
-                                    "audio_separator_muscriptor_model",
-                                    value,
-                                ),
+                                on_change=self._on_audio_separator_muscriptor_model_change,
                             )
                         with ui.element("div"):
                             self.audio_separator_muscriptor_device = styled_select(
@@ -1222,22 +1431,20 @@ class ToolsStep:
                                 icon="memory",
                                 icon_color=COLORS["info"],
                                 new_value_mode="add-unique",
-                                on_change=lambda value: self._set_config_value(
-                                    self.config,
-                                    "audio_separator_muscriptor_device",
-                                    value,
-                                ),
+                                on_change=self._on_audio_separator_muscriptor_device_change,
                             )
                         with ui.element("div"):
-                            editable_slider(
+                            self.audio_separator_muscriptor_batch_size_slider = editable_slider(
                                 label_key="muscriptor_stem_batch_size",
                                 value_ref=self.config,
                                 value_key="audio_separator_muscriptor_batch_size",
                                 min_val=0,
-                                max_val=16,
+                                max_val=128,
                                 step=1,
                                 decimals=0,
+                                on_change=self._on_audio_separator_muscriptor_batch_change,
                             )
+                            self._apply_muscriptor_batch_default("separator")
 
                     with ui.column().classes("w-full items-start gap-2 q-mt-md").style("width: 100%;"):
                         ui.label(t("muscriptor_other_instrument_mode")).classes(
@@ -1341,7 +1548,35 @@ class ToolsStep:
 
             ui.separator().classes("q-my-md")
 
-            with ui.row().classes("w-full gap-4"):
+            with ui.row().classes("w-full items-center justify-between gap-2 q-mb-sm"):
+                with ui.row().classes("items-center gap-2").style(
+                    "min-width: 0; flex: 1;"
+                ):
+                    ui.icon("memory", size="18px").style(
+                        f"color: {COLORS['info']};"
+                    )
+                    self._music_transcription_gpu_summary_label = (
+                        ui.label(self._build_music_transcription_gpu_summary())
+                        .classes("text-caption")
+                        .style(
+                            "color: var(--color-text-secondary); "
+                            "white-space: normal; overflow-wrap: anywhere;"
+                        )
+                    )
+                ui.button(
+                    icon="refresh",
+                    on_click=self._refresh_music_gpu_probe,
+                ).props('flat dense round type="button"').tooltip(t("refresh"))
+
+            self._music_transcription_gpu_summary_meta_container = ui.column().classes(
+                "w-full gap-1"
+            )
+            self._music_transcription_gpu_details_container = ui.column().classes(
+                "w-full gap-1"
+            )
+            self._refresh_music_transcription_gpu_details()
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
                 self.music_transcription_model = styled_select(
                     options=self.MUSCRIPTOR_MODEL_OPTIONS,
                     value=self.config["music_transcription_model"],
@@ -1349,11 +1584,7 @@ class ToolsStep:
                     icon="model_training",
                     icon_color=COLORS["primary"],
                     searchable=False,
-                    on_change=lambda value: self._set_config_value(
-                        self.config,
-                        "music_transcription_model",
-                        value,
-                    ),
+                    on_change=self._on_music_transcription_model_change,
                     flex=1,
                 )
                 self.music_transcription_device = styled_select(
@@ -1363,29 +1594,21 @@ class ToolsStep:
                     icon="memory",
                     icon_color=COLORS["info"],
                     new_value_mode="add-unique",
-                    on_change=lambda value: self._set_config_value(
-                        self.config,
-                        "music_transcription_device",
-                        value,
-                    ),
+                    on_change=self._on_music_transcription_device_change,
                     flex=1,
                 )
-                editable_slider(
+                self.music_transcription_batch_size_slider = editable_slider(
                     label_key="music_transcription_chunk_batch_size",
                     value_ref=self.config,
                     value_key="music_transcription_batch_size",
                     min_val=0,
-                    max_val=16,
+                    max_val=128,
                     step=1,
                     decimals=0,
                     flex=1,
+                    on_change=self._on_music_transcription_batch_change,
                 )
-
-            with ui.row().classes("w-full items-center justify-end q-mt-xs"):
-                ui.button(
-                    icon="refresh",
-                    on_click=self._refresh_music_gpu_probe,
-                ).props('flat dense round type="button"').tooltip(t("detected_gpus"))
+                self._apply_muscriptor_batch_default("transcription")
 
             with ui.row().classes("w-full items-center gap-3 q-mt-md"):
                 ui.label(t("music_transcription_instrument_mode")).classes("text-caption text-weight-medium")
@@ -1916,6 +2139,11 @@ class ToolsStep:
         if not source.is_file() and not source.is_dir():
             raise ValueError(t("select_valid_input"))
 
+        resolved_device = self._resolved_muscriptor_device(
+            "music_transcription_model",
+            "music_transcription_device",
+        )
+
         formats = tuple(OutputFormat(value) for value in self.config["music_transcription_output_formats"])
         if not formats:
             raise ValueError(t("music_transcription_output_required"))
@@ -1944,7 +2172,7 @@ class ToolsStep:
 
         transcription = TranscriptionOptions.from_batch_cli(
             model=ModelVariant(self.config["music_transcription_model"]),
-            device=str(self.config["music_transcription_device"]),
+            device=resolved_device,
             batch_size=raw_batch_size or None,
             decode_mode=decode_mode,
             temperature=temperature,
@@ -2007,7 +2235,7 @@ class ToolsStep:
 
         if (
             self.config["music_transcription_model"] == ModelVariant.LARGE.value
-            and self.config["music_transcription_device"] == "cpu"
+            and "--device=cpu" in args
         ):
             ui.notify(t("music_transcription_large_cpu_warning"), type="warning")
 
@@ -2349,6 +2577,14 @@ class ToolsStep:
 
         runner_kwargs = None
         if self.config["audio_separator_muscriptor_midi"]:
+            try:
+                resolved_muscriptor_device = self._resolved_muscriptor_device(
+                    "audio_separator_muscriptor_model",
+                    "audio_separator_muscriptor_device",
+                )
+            except ValueError as exc:
+                ui.notify(str(exc), type="warning")
+                return
             other_mode = str(self.config["audio_separator_muscriptor_other_mode"])
             other_instruments = tuple(
                 str(value).strip()
@@ -2382,7 +2618,7 @@ class ToolsStep:
 
             args.append("--muscriptor_midi")
             args.append(f"--muscriptor_model={self.config['audio_separator_muscriptor_model']}")
-            args.append(f"--muscriptor_device={self.config['audio_separator_muscriptor_device']}")
+            args.append(f"--muscriptor_device={resolved_muscriptor_device}")
             args.append(f"--muscriptor_batch_size={raw_batch_size}")
             if other_mode == "specify":
                 args.append(f"--muscriptor_other_instruments={','.join(other_instruments)}")

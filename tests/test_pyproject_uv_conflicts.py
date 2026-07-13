@@ -239,16 +239,15 @@ def test_flash_attn_windows_url_is_centralized_in_uv_sources():
     assert direct_flash_attn_dependencies == []
 
 
-def test_torch_213_cuda_attention_wheels_are_pinned_for_windows():
+def test_torch_213_cuda_flash_attention_wheel_is_pinned_for_windows():
     pyproject = _load_pyproject()
     torch_base = pyproject["project"]["optional-dependencies"]["torch-base"]
     sources = pyproject["tool"]["uv"]["sources"]
 
     assert "torch==2.13.0" in torch_base
     assert "torch==2.12.1" not in torch_base
-    assert "sageattention==2.2.0; sys_platform == 'win32' and python_version == '3.11'" in torch_base
+    assert not any(dep.startswith("sageattention") for dep in torch_base)
+    assert "sageattention" not in sources
 
     flash_url = sources["flash-attn"][0]["url"]
-    sage_url = sources["sageattention"][0]["url"]
     assert "cu130torch2.13.0" in flash_url
-    assert sage_url.endswith("sageattention-2.2.0+cu130torch2.13.0-cp311-cp311-win_amd64.whl")
