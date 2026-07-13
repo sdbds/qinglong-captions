@@ -9,10 +9,9 @@ from typing import Any, Iterable, Mapping
 from .options import BatchOptions
 from .outputs import atomic_output_path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 KNOWN_OUTPUT_NAMES = frozenset(
     {
-        "transcription.mid",
         "events.json",
         "events.jsonl",
         "preview.wav",
@@ -87,17 +86,32 @@ def is_item_complete(
     return all((item_dir / name).is_file() for name in requested_names)
 
 
-def prune_known_outputs(item_dir: Path, *, requested_names: set[str]) -> None:
+def _known_output_names(output_stem: str | None = None) -> set[str]:
+    names = set(KNOWN_OUTPUT_NAMES)
+    if output_stem:
+        names.add(f"{output_stem}.mid")
+    return names
+
+
+def prune_known_outputs(
+    item_dir: Path,
+    *,
+    requested_names: set[str],
+    output_stem: str | None = None,
+) -> None:
     item_dir = Path(item_dir)
-    for name in KNOWN_OUTPUT_NAMES - set(requested_names):
+    for name in _known_output_names(output_stem) - set(requested_names):
         (item_dir / name).unlink(missing_ok=True)
 
 
-def cleanup_temporary_outputs(item_dir: Path) -> None:
+def cleanup_temporary_outputs(item_dir: Path, *, output_stem: str | None = None) -> None:
     item_dir = Path(item_dir)
     if not item_dir.is_dir():
         return
-    known_stems = {Path(name).stem for name in KNOWN_OUTPUT_NAMES} | {"metadata", "manifest"}
+    known_stems = {Path(name).stem for name in _known_output_names(output_stem)} | {
+        "metadata",
+        "manifest",
+    }
     temporary_name = re.compile(
         rf"^(?:{'|'.join(re.escape(stem) for stem in sorted(known_stems))})\.\d+\.[0-9a-fA-F]{{32}}\.part(?:\.[^.]+)?$"
     )

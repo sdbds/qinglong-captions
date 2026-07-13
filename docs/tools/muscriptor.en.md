@@ -11,6 +11,6 @@ python -m module.muscriptor_tool.cli transcribe song.wav --format midi
 python -m module.muscriptor_tool.cli batch .\album --model large --device cuda:0 --format midi --format json --format jsonl
 ```
 
-Batch output is rooted at `muscriptor_output` by default and contains transcription files, event files, metadata, and a manifest. Completion signatures, atomic writes, and output locks support interrupted-job recovery.
+Batch output is rooted at `muscriptor_output` by default and contains a source-stem MIDI file (`<source-stem>.mid`), event files, metadata, and a manifest. Each `metadata.json` distinguishes manually requested `instruments` from the model's actual `detected_instruments`. Completion signatures, atomic writes, and output locks support interrupted-job recovery.
 
 Preview audio requires FluidSynth and the official `MuseScore_General.sf2` SoundFont. MIDI, JSON, and JSONL remain available when FluidSynth is missing. Events contain onset, offset, pitch, and instrument; original velocity is not reconstructed.

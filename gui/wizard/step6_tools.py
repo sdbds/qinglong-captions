@@ -365,6 +365,14 @@ class ToolsStep:
             "audio_separator_vocal_midi_t0": DEFAULT_VOCAL_MIDI_T0,
             "audio_separator_vocal_midi_nsteps": DEFAULT_VOCAL_MIDI_NSTEPS,
             "audio_separator_vocal_midi_est_threshold": DEFAULT_VOCAL_MIDI_EST_THRESHOLD,
+            "audio_separator_muscriptor_midi": False,
+            "audio_separator_muscriptor_model": DEFAULT_MODEL.value,
+            "audio_separator_muscriptor_device": DEFAULT_DEVICE,
+            "audio_separator_muscriptor_batch_size": 0,
+            "audio_separator_muscriptor_other_mode": "auto",
+            "audio_separator_muscriptor_other_instruments": [],
+            "audio_separator_muscriptor_preview_mode": "none",
+            "audio_separator_muscriptor_preview_format": DEFAULT_PREVIEW_FORMAT.value,
             "music_transcription_model": DEFAULT_MODEL.value,
             "music_transcription_device": DEFAULT_DEVICE,
             "music_transcription_batch_size": 0,
@@ -424,6 +432,9 @@ class ToolsStep:
         self._see_through_gpu_details_container = None
         self._see_through_gpu_details_open = False
         self._audio_separator_vocal_midi_container = None
+        self._audio_separator_muscriptor_container = None
+        self._audio_separator_muscriptor_other_container = None
+        self._audio_separator_muscriptor_preview_container = None
         self._music_transcription_instrument_container = None
         self._music_transcription_sampling_container = None
         self._music_transcription_beam_container = None
@@ -548,14 +559,20 @@ class ToolsStep:
             for option, label_key in self.SHEET_MUSIC_PREPROCESS_MODE_LABEL_KEYS.items()
         }
 
-    def _music_transcription_device_options(self) -> dict[str, str]:
+    def _muscriptor_device_options(self, config_key: str) -> dict[str, str]:
         options = dict(self.MUSCRIPTOR_BASE_DEVICE_OPTIONS)
         if self.gpu_probe is not None:
             for device in self.gpu_probe.devices:
                 options[f"cuda:{device.index}"] = f"CUDA {device.index} - {device.name}"
-        selected = str(self.config.get("music_transcription_device") or DEFAULT_DEVICE)
+        selected = str(self.config.get(config_key) or DEFAULT_DEVICE)
         options.setdefault(selected, selected.upper())
         return options
+
+    def _music_transcription_device_options(self) -> dict[str, str]:
+        return self._muscriptor_device_options("music_transcription_device")
+
+    def _audio_separator_muscriptor_device_options(self) -> dict[str, str]:
+        return self._muscriptor_device_options("audio_separator_muscriptor_device")
 
     @staticmethod
     def _music_transcription_instrument_options() -> dict[str, str]:
@@ -569,12 +586,17 @@ class ToolsStep:
 
     def _refresh_music_transcription_devices(self) -> None:
         selector = getattr(self, "music_transcription_device", None)
-        if selector is None:
-            return
-        selector.set_options(
-            self._music_transcription_device_options(),
-            value=self.config["music_transcription_device"],
-        )
+        if selector is not None:
+            selector.set_options(
+                self._music_transcription_device_options(),
+                value=self.config["music_transcription_device"],
+            )
+        stem_selector = getattr(self, "audio_separator_muscriptor_device", None)
+        if stem_selector is not None:
+            stem_selector.set_options(
+                self._audio_separator_muscriptor_device_options(),
+                value=self.config["audio_separator_muscriptor_device"],
+            )
 
     async def _refresh_music_gpu_probe(self) -> None:
         try:
@@ -594,6 +616,18 @@ class ToolsStep:
         self.config["music_transcription_instrument_mode"] = mode
         if self._music_transcription_instrument_container is not None:
             self._music_transcription_instrument_container.set_visibility(mode == "specify")
+
+    def _on_audio_separator_muscriptor_other_mode_change(self, value: str) -> None:
+        mode = str(value or "auto")
+        self.config["audio_separator_muscriptor_other_mode"] = mode
+        if self._audio_separator_muscriptor_other_container is not None:
+            self._audio_separator_muscriptor_other_container.set_visibility(mode == "specify")
+
+    def _on_audio_separator_muscriptor_preview_mode_change(self, value: str) -> None:
+        mode = str(value or "none")
+        self.config["audio_separator_muscriptor_preview_mode"] = mode
+        if self._audio_separator_muscriptor_preview_container is not None:
+            self._audio_separator_muscriptor_preview_container.set_visibility(mode != "none")
 
     def _on_music_decode_mode_change(self, value: str) -> None:
         mode = str(value or "greedy")
@@ -1018,6 +1052,12 @@ class ToolsStep:
                     "audio_separator_vocal_midi",
                     on_change=self._on_audio_separator_vocal_midi_toggle,
                 )
+                toggle_switch(
+                    "muscriptor_stem_midi",
+                    self.config,
+                    "audio_separator_muscriptor_midi",
+                    on_change=self._on_audio_separator_muscriptor_toggle,
+                )
 
             self._audio_separator_vocal_midi_container = ui.column().classes("w-full q-mt-sm")
             self._audio_separator_vocal_midi_container.set_visibility(self.config["audio_separator_vocal_midi"])
@@ -1126,6 +1166,157 @@ class ToolsStep:
                             max_val=0.95,
                             step=0.05,
                             decimals=2,
+                        )
+
+            self._audio_separator_muscriptor_container = ui.column().classes("w-full q-mt-sm")
+            self._audio_separator_muscriptor_container.set_visibility(
+                self.config["audio_separator_muscriptor_midi"]
+            )
+            with self._audio_separator_muscriptor_container:
+                with (
+                    ui.column()
+                    .classes("w-full q-pa-md")
+                    .style("background: var(--ql-inset-bg); border: 1px solid var(--ql-inset-border);")
+                ):
+                    with ui.row().classes("w-full items-center justify-between q-mb-sm"):
+                        with ui.row().classes("items-center gap-2"):
+                            ui.icon("library_music", size="18px").style(f"color: {COLORS['secondary']};")
+                            (
+                                ui.label(t("muscriptor_stem_midi_settings"))
+                                .classes("text-body1 text-weight-medium")
+                                .style("color: var(--color-text);")
+                            )
+                        ui.button(
+                            icon="refresh",
+                            on_click=self._refresh_music_gpu_probe,
+                        ).props('flat dense round type="button"').tooltip(t("detected_gpus"))
+
+                    with (
+                        ui.element("div")
+                        .classes("w-full q-mt-sm")
+                        .style(
+                            "display: grid; "
+                            "grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); "
+                            "gap: 16px;"
+                        )
+                    ):
+                        with ui.element("div"):
+                            self.audio_separator_muscriptor_model = styled_select(
+                                options=self.MUSCRIPTOR_MODEL_OPTIONS,
+                                value=self.config["audio_separator_muscriptor_model"],
+                                label=t("music_transcription_model"),
+                                icon="model_training",
+                                icon_color=COLORS["secondary"],
+                                searchable=False,
+                                on_change=lambda value: self._set_config_value(
+                                    self.config,
+                                    "audio_separator_muscriptor_model",
+                                    value,
+                                ),
+                            )
+                        with ui.element("div"):
+                            self.audio_separator_muscriptor_device = styled_select(
+                                options=self._audio_separator_muscriptor_device_options(),
+                                value=self.config["audio_separator_muscriptor_device"],
+                                label=t("device"),
+                                icon="memory",
+                                icon_color=COLORS["info"],
+                                new_value_mode="add-unique",
+                                on_change=lambda value: self._set_config_value(
+                                    self.config,
+                                    "audio_separator_muscriptor_device",
+                                    value,
+                                ),
+                            )
+                        with ui.element("div"):
+                            editable_slider(
+                                label_key="muscriptor_stem_batch_size",
+                                value_ref=self.config,
+                                value_key="audio_separator_muscriptor_batch_size",
+                                min_val=0,
+                                max_val=16,
+                                step=1,
+                                decimals=0,
+                            )
+
+                    with ui.column().classes("w-full items-start gap-2 q-mt-md").style("width: 100%;"):
+                        ui.label(t("muscriptor_other_instrument_mode")).classes(
+                            "text-caption text-weight-medium"
+                        )
+                        self.audio_separator_muscriptor_other_mode = ui.toggle(
+                            {
+                                "auto": t("music_transcription_instrument_auto"),
+                                "specify": t("music_transcription_instrument_specify"),
+                            },
+                            value=self.config["audio_separator_muscriptor_other_mode"],
+                            on_change=lambda event: self._on_audio_separator_muscriptor_other_mode_change(
+                                event.value
+                            ),
+                        ).classes("muscriptor-stem-mode-toggle").style(
+                            "width: 100%; max-width: 320px;"
+                        ).props("spread dense no-caps")
+
+                    self._audio_separator_muscriptor_other_container = ui.column().classes(
+                        "w-full q-mt-sm"
+                    )
+                    self._audio_separator_muscriptor_other_container.set_visibility(
+                        self.config["audio_separator_muscriptor_other_mode"] == "specify"
+                    )
+                    with self._audio_separator_muscriptor_other_container:
+                        self.audio_separator_muscriptor_other_instruments = styled_select(
+                            options=self._music_transcription_instrument_options(),
+                            value=self.config["audio_separator_muscriptor_other_instruments"],
+                            label=t("muscriptor_other_instruments"),
+                            icon="piano",
+                            icon_color=COLORS["secondary"],
+                            on_change=lambda value: self._set_config_value(
+                                self.config,
+                                "audio_separator_muscriptor_other_instruments",
+                                list(value or []),
+                            ),
+                            multiple=True,
+                            option_icons=MUSCRIPTOR_INSTRUMENT_ICONS,
+                        )
+
+                    with ui.column().classes("w-full items-start gap-2 q-mt-md").style("width: 100%;"):
+                        ui.label(t("music_transcription_preview")).classes(
+                            "text-caption text-weight-medium"
+                        )
+                        self.audio_separator_muscriptor_preview_mode = ui.toggle(
+                            {
+                                "none": t("music_transcription_preview_off"),
+                                PreviewContent.MIDI.value: t("music_transcription_preview_midi"),
+                                PreviewContent.COMPARISON.value: t(
+                                    "music_transcription_preview_comparison"
+                                ),
+                            },
+                            value=self.config["audio_separator_muscriptor_preview_mode"],
+                            on_change=lambda event: self._on_audio_separator_muscriptor_preview_mode_change(
+                                event.value
+                            ),
+                        ).classes("muscriptor-stem-mode-toggle").style(
+                            "width: 100%; max-width: 520px;"
+                        ).props("spread dense no-caps")
+
+                    self._audio_separator_muscriptor_preview_container = ui.column().classes(
+                        "w-full q-mt-sm"
+                    )
+                    self._audio_separator_muscriptor_preview_container.set_visibility(
+                        self.config["audio_separator_muscriptor_preview_mode"] != "none"
+                    )
+                    with self._audio_separator_muscriptor_preview_container:
+                        self.audio_separator_muscriptor_preview_format = styled_select(
+                            options={PreviewFormat.MP3.value: "MP3", PreviewFormat.WAV.value: "WAV"},
+                            value=self.config["audio_separator_muscriptor_preview_format"],
+                            label=t("music_transcription_preview_format"),
+                            icon="headphones",
+                            icon_color=COLORS["info"],
+                            searchable=False,
+                            on_change=lambda value: self._set_config_value(
+                                self.config,
+                                "audio_separator_muscriptor_preview_format",
+                                value,
+                            ),
                         )
 
     def _render_music_transcription_tool(self):
@@ -1713,6 +1904,10 @@ class ToolsStep:
         if hasattr(self, "_audio_separator_vocal_midi_container"):
             self._audio_separator_vocal_midi_container.set_visibility(enabled)
 
+    def _on_audio_separator_muscriptor_toggle(self, enabled: bool) -> None:
+        if self._audio_separator_muscriptor_container is not None:
+            self._audio_separator_muscriptor_container.set_visibility(enabled)
+
     def _build_music_transcription_args(self) -> list[str]:
         input_path = str(getattr(getattr(self, "music_transcription_input", None), "value", "") or "").strip()
         source = Path(input_path).expanduser() if input_path else None
@@ -2152,6 +2347,50 @@ class ToolsStep:
             args.append(f"--vocal_midi_nsteps={int(self.config['audio_separator_vocal_midi_nsteps'])}")
             args.append(f"--vocal_midi_est_threshold={self.config['audio_separator_vocal_midi_est_threshold']}")
 
+        runner_kwargs = None
+        if self.config["audio_separator_muscriptor_midi"]:
+            other_mode = str(self.config["audio_separator_muscriptor_other_mode"])
+            other_instruments = tuple(
+                str(value).strip()
+                for value in self.config["audio_separator_muscriptor_other_instruments"]
+                if str(value).strip()
+            )
+            if other_mode == "specify" and not other_instruments:
+                ui.notify(t("music_transcription_instruments_required"), type="warning")
+                return
+
+            raw_batch_size = int(self.config["audio_separator_muscriptor_batch_size"])
+            if raw_batch_size < 0:
+                ui.notify(t("music_transcription_invalid_config"), type="warning")
+                return
+
+            preview_mode = str(self.config["audio_separator_muscriptor_preview_mode"])
+            try:
+                preview = (
+                    PreviewRequest(
+                        content=PreviewContent(preview_mode),
+                        format=PreviewFormat(
+                            self.config["audio_separator_muscriptor_preview_format"]
+                        ),
+                    )
+                    if preview_mode != "none"
+                    else None
+                )
+            except (TypeError, ValueError):
+                ui.notify(t("music_transcription_invalid_config"), type="warning")
+                return
+
+            args.append("--muscriptor_midi")
+            args.append(f"--muscriptor_model={self.config['audio_separator_muscriptor_model']}")
+            args.append(f"--muscriptor_device={self.config['audio_separator_muscriptor_device']}")
+            args.append(f"--muscriptor_batch_size={raw_batch_size}")
+            if other_mode == "specify":
+                args.append(f"--muscriptor_other_instruments={','.join(other_instruments)}")
+            if preview is not None:
+                args.append(f"--muscriptor_preview_mode={preview.content.value}")
+                args.append(f"--muscriptor_preview_format={preview.format.value}")
+            runner_kwargs = {"uv_extra_args": ["--extra", "muscriptor-local"]}
+
         def pre_log(lv):
             lv.info(t("log_start_audio_separator"))
             lv.info(f"{t('log_input_path')}: {input_path}")
@@ -2162,6 +2401,7 @@ class ToolsStep:
             "module.audio_separator",
             args,
             name=t("job_name_audio_separator"),
+            runner_kwargs=runner_kwargs,
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("audio_separator_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("audio_separator_failed"), type="negative"),

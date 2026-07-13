@@ -17,8 +17,13 @@ class ProgressEvent:
         self.total = total
 
 
-def start(index: int = 0, pitch: int = 60):
-    return SimpleNamespace(pitch=pitch, start_time=0.25, index=index, instrument="piano")
+def start(index: int = 0, pitch: int = 60, instrument: str = "piano"):
+    return SimpleNamespace(
+        pitch=pitch,
+        start_time=0.25,
+        index=index,
+        instrument=instrument,
+    )
 
 
 def end(start_event, end_time: float = 1.5):
@@ -58,6 +63,7 @@ def test_transcribe_once_fans_one_event_stream_to_all_formats(tmp_path: Path):
     targets = OutputTargets.for_directory(
         tmp_path,
         (OutputFormat.MIDI, OutputFormat.JSON, OutputFormat.JSONL),
+        output_stem="03.With You",
     )
 
     result = transcribe_once(loaded, Path("song.wav"), TranscriptionOptions(), targets)
@@ -66,10 +72,31 @@ def test_transcribe_once_fans_one_event_stream_to_all_formats(tmp_path: Path):
     assert loaded.midi_calls == 1
     assert json.loads((tmp_path / "events.json").read_text(encoding="utf-8"))[-1]["type"] == "end"
     assert len((tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()) == 2
-    assert (tmp_path / "transcription.mid").read_bytes() == b"MThd\x02"
+    assert (tmp_path / "03.With You.mid").read_bytes() == b"MThd\x02"
     assert result.note_count == 1
     assert result.event_count == 2
     assert result.chunk_count == 1
+    assert result.detected_instruments == ("piano",)
+
+
+def test_transcribe_once_reports_unique_instruments_in_first_seen_order(tmp_path: Path):
+    from module.muscriptor_tool.outputs import OutputTargets, transcribe_once
+
+    piano = start(index=0, instrument="acoustic_piano")
+    violin = start(index=1, instrument="violin")
+    second_piano = start(index=2, instrument="acoustic_piano")
+    loaded = FakeLoadedModel(
+        [piano, end(piano), violin, end(violin), second_piano, end(second_piano)]
+    )
+
+    result = transcribe_once(
+        loaded,
+        Path("song.wav"),
+        TranscriptionOptions(),
+        OutputTargets.for_directory(tmp_path, (OutputFormat.JSONL,)),
+    )
+
+    assert result.detected_instruments == ("acoustic_piano", "violin")
 
 
 def test_jsonl_only_does_not_build_midi(tmp_path: Path):
@@ -195,7 +222,7 @@ def test_preview_failure_exposes_completed_symbolic_result(tmp_path: Path):
 
     note_start = start()
     loaded = FakeLoadedModel([note_start, end(note_start)])
-    targets = OutputTargets.for_directory(tmp_path, (OutputFormat.MIDI,))
+    targets = OutputTargets.for_directory(tmp_path, (OutputFormat.MIDI,), output_stem="song")
     preview_runtime = PreviewRuntime(
         PreviewRequest(PreviewContent.MIDI, PreviewFormat.WAV),
         tmp_path / "MuseScore_General.sf2",
@@ -217,5 +244,6 @@ def test_preview_failure_exposes_completed_symbolic_result(tmp_path: Path):
 
     assert raised.value.result.note_count == 1
     assert raised.value.result.event_count == 2
-    assert raised.value.result.outputs == {"midi": str(tmp_path / "transcription.mid")}
-    assert (tmp_path / "transcription.mid").is_file()
+    assert raised.value.result.detected_instruments == ("piano",)
+    assert raised.value.result.outputs == {"midi": str(tmp_path / "song.mid")}
+    assert (tmp_path / "song.mid").is_file()

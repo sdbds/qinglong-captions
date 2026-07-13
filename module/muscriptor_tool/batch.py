@@ -116,9 +116,9 @@ def item_output_dir(output_dir: Path, item: BatchItem) -> Path:
     return Path(output_dir) / item.relative_path.parent / item.relative_path.name
 
 
-def _requested_names(options: BatchOptions) -> set[str]:
+def _requested_names(options: BatchOptions, *, output_stem: str) -> set[str]:
     names = {
-        OutputFormat.MIDI: "transcription.mid",
+        OutputFormat.MIDI: f"{output_stem}.mid",
         OutputFormat.JSON: "events.json",
         OutputFormat.JSONL: "events.jsonl",
     }
@@ -215,6 +215,9 @@ def _metadata_payload(
         "requested_device": requested_device,
         "resolved_device": resolved_device,
         "instruments": list(options.transcription.instruments),
+        "detected_instruments": (
+            list(getattr(result, "detected_instruments", ())) if result else []
+        ),
         "options": {
             **options.transcription.as_dict(),
             "output_formats": [item.value for item in options.output_formats],
@@ -330,11 +333,11 @@ def run_batch(
             log_callback(f"Discovered {summary.discovered} supported audio file(s)")
         package_version = package_version or _default_package_version()
         resolved_device = resolved_device or _default_resolved_device(options.transcription.device)
-        requested_names = _requested_names(options)
         pending: list[tuple[BatchItem, str]] = []
 
         for item in items:
             item_dir = item_output_dir(output_dir, item)
+            requested_names = _requested_names(options, output_stem=item.source_path.stem)
             signature = run_signature(
                 item,
                 options,
@@ -399,9 +402,15 @@ def run_batch(
             item_started = time.perf_counter()
             item_dir = item_output_dir(output_dir, item)
             item_dir.mkdir(parents=True, exist_ok=True)
-            cleanup_temporary_outputs(item_dir)
-            prune_known_outputs(item_dir, requested_names=set())
-            targets = OutputTargets.for_directory(item_dir, options.output_formats)
+            output_stem = item.source_path.stem
+            cleanup_temporary_outputs(item_dir, output_stem=output_stem)
+            prune_known_outputs(item_dir, requested_names=set(), output_stem=output_stem)
+            requested_names = _requested_names(options, output_stem=output_stem)
+            targets = OutputTargets.for_directory(
+                item_dir,
+                options.output_formats,
+                output_stem=output_stem,
+            )
             preview_target = (
                 item_dir / f"preview.{options.preview.format.value}"
                 if options.preview is not None
@@ -437,7 +446,11 @@ def run_batch(
                 missing = [name for name in requested_names if not (item_dir / name).is_file()]
                 if missing:
                     raise RuntimeError(f"Requested outputs were not created: {', '.join(sorted(missing))}")
-                prune_known_outputs(item_dir, requested_names=requested_names)
+                prune_known_outputs(
+                    item_dir,
+                    requested_names=requested_names,
+                    output_stem=output_stem,
+                )
                 outputs = _relative_outputs(result, item_dir)
                 summary.processed += 1
                 if log_callback is not None:

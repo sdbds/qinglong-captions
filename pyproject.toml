@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qinglong-captions"
-version = "4.5.0"
+version = "4.6.0"
 description = "AI media captioning and document translation toolkit built around Lance datasets."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
@@ -40,11 +40,12 @@ dependencies = [
 
 [project.optional-dependencies]
 torch-base = [
-    "torch==2.12.1",
+    "torch==2.13.0",
     "torchvision",
     "accelerate",
     "huggingface_hub[hf_xet]>=0.35.2",
     "safetensors",
+    "sageattention==2.2.0; sys_platform == 'win32' and python_version == '3.11'",
 ]
 onnx-base = [
     "qinglong-captions[torch-base]",
@@ -407,6 +408,7 @@ muscriptor-local = [
     "qinglong-captions[torch-base]",
     "muscriptor==0.2.1",
     "filelock>=3.16",
+    "socksio>=1.0.0",
 ]
 codex-subscription = [
     "openai-codex",
@@ -1007,7 +1009,10 @@ explicit = true
 [tool.uv.sources]
 dots_ocr = { path = "third_party/dots.ocr", editable = true }
 flash-attn = [
-    { url = "https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.12.1cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32'" },
+    { url = "https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.13.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32'" },
+]
+sageattention = [
+    { url = "https://github.com/sdbds/SageAttention-for-windows/releases/download/torch2130%2Bcu130/sageattention-2.2.0+cu130torch2.13.0-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11'" },
 ]
 onnxruntime-gpu = { index = "onnxruntime-cuda13" }
 torch = [

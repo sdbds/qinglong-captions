@@ -19,6 +19,7 @@ def test_muscriptor_extra_is_pinned_and_uses_shared_torch_profile():
     assert "qinglong-captions[torch-base]" in dependencies
     assert "muscriptor==0.2.1" in dependencies
     assert any(item.startswith("filelock") for item in dependencies)
+    assert any(item.startswith("socksio") for item in dependencies)
 
 
 def test_muscriptor_extra_conflicts_with_native_paddle_stack():

@@ -125,7 +125,7 @@ GUI 运行时：
 | [水印检测](../docs/tools/watermark_detection.md) | `module/waterdetect.py` | PEP 723 inline dependencies；使用 `uv run module/waterdetect.py` |
 | [图片预处理](../docs/tools/image_preprocessing.md) | `utils/preprocess_datasets.py` | `image-align` |
 | [图像评分](../docs/tools/image_scoring.md) | `module/rewardmodel.py` | `reward-model` |
-| [音频分轨](../docs/tools/audio_separation.md) | `module/audio_separator.py` | `vocal-midi` |
+| [音频分轨](../docs/tools/audio_separation.md) | `module/audio_separator.py` | `vocal-midi`；启用 MuScriptor 分轨 MIDI 时追加 `muscriptor-local` |
 | [音乐转录](../docs/tools/muscriptor.md) | `module/muscriptor_tool/cli.py` | `muscriptor-local` |
 | [乐谱扫描](../docs/tools/sheet_music.md) | `module/sheet_music_musvit.py` | `musvit-onnx` |
 | [文档翻译](../docs/tools/text_translation.md) | `module/texttranslate.py` | `translate` |
@@ -138,6 +138,12 @@ python -m <module> --help
 ```
 
 WaterDetect 使用脚本内的 PEP 723 依赖声明，应运行 `uv run module/waterdetect.py --help`。[PSD Export](../docs/tools/psd_export.md) 是脚本专用入口，当前不属于 GUI Tools 页面。
+
+### 音频分轨后的 MuScriptor MIDI
+
+“全部分轨转 MIDI”是音频分轨页的二级选项。人声和鼓使用唯一音色约束；贝斯、吉他、钢琴使用各自音色家族约束，由 MuScriptor 判断原声/电声子类；只有 `other` 提供自动识别或手动多选。模型、Device 和 5 秒块批大小独立于音乐转录页配置。
+
+试听子选项为关闭、纯 MIDI、左原分轨 / 右合成 MIDI 对照，格式支持 MP3 或 WAV。试听复用每轨单次转录结果，不追加 MuScriptor 推理；开启后要求 FluidSynth 和 MuScriptor 官方默认 SoundFont。
 
 ### MuScriptor 音乐转录
 

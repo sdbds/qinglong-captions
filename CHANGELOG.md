@@ -2,11 +2,13 @@
 
 版本历史从 README 拆出，避免发行说明和操作手册互相遮挡。当前操作入口请看 [README.md](README.md)。
 
-## Unreleased
+## 4.6.0 - MuScriptor 全分轨 MIDI 与试听
 
 1. 将 README 的发行说明、配置和故障排查拆分到独立文档，并重写 Windows/Linux、GUI、脚本和 Python CLI 的使用路径。
 2. 补充可选依赖 profile、Linux x86_64 PowerShell 安装限制、OpenAI-compatible 参数边界和 GUI/脚本配置优先级说明。
 3. PowerShell 入口在 Linux/无 `LOCALAPPDATA` 环境下使用 `HOME` 或仓库本地目录作为 `UV_CACHE_DIR`；Linux PowerShell helper 改用可移植的 Bash/POSIX 检测，并忽略 GUI 生成的明文 `config/env_vars.json`。
+4. 音频分轨新增 MuScriptor 全分轨转 MIDI 二级选项：按分轨标签约束音色家族，支持为 `other` 自动识别或手动限定音色，并复用一次模型加载处理六轨；可为每轨生成纯 MIDI 或左右声道对照试听。
+5. 修复 MuScriptor 试听首次下载官方 SoundFont 时缺少 SOCKS 代理支持的问题，并在分轨 MIDI 失败汇总中直接显示共同根因。
 
 ## 4.5 - 新增 OCR Provider、Grok Build 订阅与 GUI 任务标签页
 

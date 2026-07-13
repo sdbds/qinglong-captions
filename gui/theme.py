@@ -1771,6 +1771,21 @@ def _responsive_styles() -> str:
         padding: 16px;
         border-radius: 18px;
     }
+    .muscriptor-stem-mode-toggle {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr);
+        width: 100% !important;
+        max-width: none !important;
+    }
+    .muscriptor-stem-mode-toggle > .q-btn {
+        width: 100%;
+        min-width: 0;
+        min-height: 36px;
+    }
+    .muscriptor-stem-mode-toggle > .q-btn .q-btn__content {
+        white-space: normal;
+        line-height: 1.25;
+    }
 }
 """
 

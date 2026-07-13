@@ -37,6 +37,19 @@ from module.audio_separator_core import (
     SUPPORTED_OUTPUT_FORMATS,
     AudioSeparator,
 )
+from module.muscriptor_tool.options import (
+    DEFAULT_DEVICE,
+    DEFAULT_MODEL,
+    DEFAULT_PREVIEW_FORMAT,
+    PreviewContent,
+    PreviewFormat,
+    PreviewRequest,
+    TranscriptionOptions,
+)
+from module.muscriptor_tool.stems import (
+    StemMidiCandidate,
+    transcribe_stem_candidates,
+)
 from module.vocal_midi import (
     DEFAULT_GAME_MODEL_REPO_ID,
     DEFAULT_VOCAL_MIDI_BATCH_SIZE,
@@ -244,6 +257,36 @@ def build_stem_output_path(
     return safe_child_path(song_output_dir, filename, default_name=f"{safe_leaf_name(stem_name)}.{output_format.lower()}")
 
 
+def collect_existing_stem_midi_candidates(
+    source_path: Path,
+    song_output_dir: Path,
+    *,
+    separator: AudioSeparator,
+    output_format: str,
+) -> list[StemMidiCandidate]:
+    metadata = getattr(separator, "metadata", None)
+    stem_names = tuple(getattr(metadata, "stem_names", ()) or ())
+    candidates: list[StemMidiCandidate] = []
+    for stem_name in stem_names:
+        input_path = build_stem_output_path(
+            song_output_dir,
+            source_path=source_path,
+            stem_name=str(stem_name),
+            model_tag=separator.model_tag,
+            output_format=output_format,
+        )
+        if input_path.is_file():
+            candidates.append(
+                StemMidiCandidate(
+                    source_path=source_path,
+                    song_output_dir=song_output_dir,
+                    stem_name=str(stem_name),
+                    input_path=input_path,
+                )
+            )
+    return candidates
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Separate audio into 6 stems and optionally run a second harmony split on vocals.")
     parser.add_argument("input_path", help="Input audio file, directory, or .lance dataset")
@@ -347,6 +390,45 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_VOCAL_MIDI_EST_THRESHOLD,
         help="Note presence threshold for GAME estimation",
     )
+    parser.add_argument(
+        "--muscriptor_midi",
+        action="store_true",
+        help="After separation completes, transcribe every primary stem to MIDI with MuScriptor",
+    )
+    parser.add_argument(
+        "--muscriptor_model",
+        choices=("small", "medium", "large"),
+        default=DEFAULT_MODEL.value,
+        help="Official MuScriptor model variant used for stem MIDI",
+    )
+    parser.add_argument(
+        "--muscriptor_device",
+        default=DEFAULT_DEVICE,
+        help="MuScriptor device: auto, cpu, cuda, or cuda:N",
+    )
+    parser.add_argument(
+        "--muscriptor_batch_size",
+        type=int,
+        default=0,
+        help="MuScriptor 5-second chunks per inference batch; 0 selects the runtime default",
+    )
+    parser.add_argument(
+        "--muscriptor_other_instruments",
+        default="",
+        help="Comma-separated instrument constraints for the other stem; empty enables auto detection",
+    )
+    parser.add_argument(
+        "--muscriptor_preview_mode",
+        choices=("none", PreviewContent.MIDI.value, PreviewContent.COMPARISON.value),
+        default="none",
+        help="Optional per-stem audio preview: pure MIDI or original-left/MIDI-right comparison",
+    )
+    parser.add_argument(
+        "--muscriptor_preview_format",
+        choices=(PreviewFormat.MP3.value, PreviewFormat.WAV.value),
+        default=DEFAULT_PREVIEW_FORMAT.value,
+        help="MuScriptor stem preview audio format",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing song output directories")
     parser.add_argument("--force_download", action="store_true", help="Force re-download model artifacts")
     return parser
@@ -374,6 +456,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
     processed = 0
     harmony_candidates: list[HarmonyCandidate] = []
     vocal_midi_candidates: list[VocalMidiCandidate] = []
+    stem_midi_candidates: list[StemMidiCandidate] = []
 
     with Progress(
         "[progress.description]{task.description}",
@@ -409,6 +492,18 @@ def run_audio_separator(args: argparse.Namespace) -> int:
 
                 if song_output_dir.exists() and not args.overwrite:
                     progress_console.print(f"[yellow]Skipping existing song directory:[/yellow] {song_output_dir}")
+                    if args.muscriptor_midi:
+                        existing_candidates = collect_existing_stem_midi_candidates(
+                            source_path,
+                            song_output_dir,
+                            separator=separator,
+                            output_format=args.output_format,
+                        )
+                        stem_midi_candidates.extend(existing_candidates)
+                        if existing_candidates:
+                            progress_console.print(
+                                f"[blue]Reusing {len(existing_candidates)} existing primary stem(s) for MuScriptor MIDI.[/blue]"
+                            )
                     skipped += 1
                     progress.update(task, advance=1)
                     continue
@@ -447,6 +542,15 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                             output_path,
                             output_format=args.output_format,
                         )
+                        if args.muscriptor_midi:
+                            stem_midi_candidates.append(
+                                StemMidiCandidate(
+                                    source_path=source_path,
+                                    song_output_dir=song_output_dir,
+                                    stem_name=stem_name,
+                                    input_path=output_path,
+                                )
+                            )
                         if selected_vocal is not None and stem_name == selected_vocal[0]:
                             vocal_output_path = output_path
 
@@ -624,10 +728,112 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                     finally:
                         progress.update(task, advance=1)
 
+            del vocal_midi
+
+    stem_midi_processed = 0
+    stem_midi_skipped = 0
+    stem_midi_partial = 0
+    stem_midi_error = None
+
+    if args.muscriptor_midi:
+        if not stem_midi_candidates:
+            console.print("[yellow]MuScriptor stem MIDI enabled, but no primary stems were produced.[/yellow]")
+        else:
+            raw_batch_size = int(args.muscriptor_batch_size)
+            if raw_batch_size < 0:
+                console.print("[red]MuScriptor batch size must be zero or a positive integer.[/red]")
+                failures += len(stem_midi_candidates)
+            else:
+                other_instruments = tuple(
+                    value.strip()
+                    for value in str(args.muscriptor_other_instruments).split(",")
+                    if value.strip()
+                )
+                try:
+                    base_options = TranscriptionOptions(
+                        model=args.muscriptor_model,
+                        device=args.muscriptor_device,
+                        batch_size=raw_batch_size or None,
+                    )
+                    preview = (
+                        PreviewRequest(
+                            content=PreviewContent(args.muscriptor_preview_mode),
+                            format=PreviewFormat(args.muscriptor_preview_format),
+                        )
+                        if args.muscriptor_preview_mode != "none"
+                        else None
+                    )
+                except (TypeError, ValueError) as exc:
+                    failures += len(stem_midi_candidates)
+                    print_exception(console, exc, prefix="Invalid MuScriptor stem MIDI settings")
+                else:
+                    with Progress(
+                        "[progress.description]{task.description}",
+                        SpinnerColumn(spinner_name="dots"),
+                        MofNCompleteColumn(separator="/"),
+                        BarColumn(bar_width=40, complete_style="green", finished_style="bold green"),
+                        TaskProgressColumn(),
+                        TextColumn("|"),
+                        TimeElapsedColumn(),
+                        TextColumn("|"),
+                        TimeRemainingColumn(),
+                        console=console,
+                        transient=False,
+                    ) as progress:
+                        progress_console = progress.console
+                        task = progress.add_task(
+                            "[bold blue]Transcribing separated stems to MIDI...",
+                            total=len(stem_midi_candidates),
+                        )
+                        try:
+                            from module.muscriptor_tool.runtime import load_model
+
+                            summary = transcribe_stem_candidates(
+                                stem_midi_candidates,
+                                base_options,
+                                other_instruments=other_instruments,
+                                preview=preview,
+                                overwrite=bool(args.overwrite),
+                                model_loader=lambda options: load_model(options, console=console),
+                                log_callback=progress_console.print,
+                                progress_callback=lambda _candidate, _status: progress.update(task, advance=1),
+                            )
+                            stem_midi_processed = summary.processed
+                            stem_midi_skipped = summary.skipped
+                            stem_midi_partial = int(getattr(summary, "partial", 0))
+                            stem_midi_error = getattr(summary, "setup_error", None)
+                            if stem_midi_error is None:
+                                item_errors = list(
+                                    dict.fromkeys(
+                                        item.error
+                                        for item in getattr(summary, "items", ())
+                                        if item.error
+                                    )
+                                )
+                                if len(item_errors) == 1:
+                                    stem_midi_error = item_errors[0]
+                                elif item_errors:
+                                    stem_midi_error = (
+                                        f"{len(item_errors)} distinct errors; first: {item_errors[0]}"
+                                    )
+                            failures += summary.failed + stem_midi_partial
+                        except Exception as exc:  # pragma: no cover - runtime/model failures
+                            failures += len(stem_midi_candidates)
+                            stem_midi_error = f"{type(exc).__name__}: {exc}"
+                            print_exception(progress_console, exc, prefix="Failed MuScriptor stem MIDI setup")
+
+    if stem_midi_error:
+        console.print(
+            f"MuScriptor stem MIDI error: {stem_midi_error}",
+            style="bold red",
+            markup=False,
+        )
     console.print(
         f"[bold]Finished.[/bold] processed={processed} skipped={skipped} "
         f"harmony_processed={harmony_processed} harmony_skipped={harmony_skipped} "
         f"vocal_midi_processed={vocal_midi_processed} vocal_midi_skipped={vocal_midi_skipped} "
+        f"stem_midi_processed={stem_midi_processed} stem_midi_skipped={stem_midi_skipped} "
+        f"stem_midi_partial={stem_midi_partial} "
         f"failed={failures}"
     )
     return 1 if failures else 0

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 
@@ -47,11 +47,15 @@ class EventStats:
     event_count: int = 0
     chunk_count: int = 0
     completed_chunks: int = 0
+    detected_instruments: list[str] = field(default_factory=list)
 
     def observe_event(self, event: Mapping[str, Any]) -> None:
         self.event_count += 1
         if event.get("type") == "start":
             self.note_count += 1
+            instrument = str(event.get("instrument", "")).strip()
+            if instrument and instrument not in self.detected_instruments:
+                self.detected_instruments.append(instrument)
 
     def observe_progress(self, *, completed: int, total: int) -> None:
         self.completed_chunks = max(self.completed_chunks, int(completed))

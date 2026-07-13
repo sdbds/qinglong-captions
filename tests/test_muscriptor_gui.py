@@ -246,3 +246,86 @@ def test_importing_tools_step_does_not_import_torch_or_muscriptor():
     )
 
     assert json.loads(result.stdout) == []
+
+
+def test_audio_separator_muscriptor_defaults_keep_other_stem_on_auto():
+    step = step6_tools.ToolsStep()
+
+    assert step.config["audio_separator_muscriptor_midi"] is False
+    assert step.config["audio_separator_muscriptor_model"] == "large"
+    assert step.config["audio_separator_muscriptor_device"] == "auto"
+    assert step.config["audio_separator_muscriptor_batch_size"] == 0
+    assert step.config["audio_separator_muscriptor_other_mode"] == "auto"
+    assert step.config["audio_separator_muscriptor_other_instruments"] == []
+    assert step.config["audio_separator_muscriptor_preview_mode"] == "none"
+    assert step.config["audio_separator_muscriptor_preview_format"] == "mp3"
+
+
+def test_audio_separator_maps_muscriptor_stem_midi_args_and_dependency(monkeypatch, tmp_path: Path):
+    step = step6_tools.ToolsStep()
+    input_dir = tmp_path / "audio"
+    input_dir.mkdir()
+    step.audio_separator_input = SimpleNamespace(value=str(input_dir))
+    step.audio_separator_output_format = SimpleNamespace(value="flac")
+    step.config.update(
+        {
+            "audio_separator_muscriptor_midi": True,
+            "audio_separator_muscriptor_model": "medium",
+            "audio_separator_muscriptor_device": "cuda:0",
+            "audio_separator_muscriptor_batch_size": 3,
+            "audio_separator_muscriptor_other_mode": "specify",
+            "audio_separator_muscriptor_other_instruments": ["violin", "flutes"],
+            "audio_separator_muscriptor_preview_mode": "comparison",
+            "audio_separator_muscriptor_preview_format": "wav",
+        }
+    )
+    captured = {}
+
+    async def fake_run_job(script_key, args, name, **kwargs):
+        captured.update(script_key=script_key, args=list(args), name=name, kwargs=kwargs)
+        return SimpleNamespace(status="ok")
+
+    step.panel = SimpleNamespace(run_job=fake_run_job)
+    notifications = []
+    monkeypatch.setattr(step6_tools.ui, "notify", lambda message, **kwargs: notifications.append((message, kwargs)))
+
+    asyncio.run(step._start_audio_separator())
+
+    assert notifications == []
+    assert captured["script_key"] == "module.audio_separator"
+    assert "--muscriptor_midi" in captured["args"]
+    assert "--muscriptor_model=medium" in captured["args"]
+    assert "--muscriptor_device=cuda:0" in captured["args"]
+    assert "--muscriptor_batch_size=3" in captured["args"]
+    assert "--muscriptor_other_instruments=violin,flutes" in captured["args"]
+    assert "--muscriptor_preview_mode=comparison" in captured["args"]
+    assert "--muscriptor_preview_format=wav" in captured["args"]
+    assert captured["kwargs"]["runner_kwargs"] == {
+        "uv_extra_args": ["--extra", "muscriptor-local"]
+    }
+
+
+def test_audio_separator_muscriptor_auto_other_omits_instrument_constraint(monkeypatch, tmp_path: Path):
+    step = step6_tools.ToolsStep()
+    input_dir = tmp_path / "audio"
+    input_dir.mkdir()
+    step.audio_separator_input = SimpleNamespace(value=str(input_dir))
+    step.audio_separator_output_format = SimpleNamespace(value="wav")
+    step.config["audio_separator_muscriptor_midi"] = True
+    captured = {}
+
+    async def fake_run_job(_script_key, args, name, **kwargs):
+        captured.update(args=list(args), kwargs=kwargs)
+        return SimpleNamespace(status="ok")
+
+    step.panel = SimpleNamespace(run_job=fake_run_job)
+    monkeypatch.setattr(step6_tools.ui, "notify", lambda *_args, **_kwargs: None)
+
+    asyncio.run(step._start_audio_separator())
+
+    assert not any(arg.startswith("--muscriptor_other_instruments") for arg in captured["args"])
+    assert not any(arg.startswith("--muscriptor_preview") for arg in captured["args"])
+    assert captured["kwargs"]["runner_kwargs"]["uv_extra_args"] == [
+        "--extra",
+        "muscriptor-local",
+    ]

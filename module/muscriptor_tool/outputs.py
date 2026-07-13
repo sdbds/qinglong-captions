@@ -69,11 +69,13 @@ class OutputTargets:
         cls,
         output_dir: Path,
         formats: Iterable[OutputFormat],
+        *,
+        output_stem: str = "transcription",
     ) -> "OutputTargets":
         output_dir = Path(output_dir)
         selected = {OutputFormat(item) for item in formats}
         return cls(
-            midi=output_dir / "transcription.mid" if OutputFormat.MIDI in selected else None,
+            midi=output_dir / f"{output_stem}.mid" if OutputFormat.MIDI in selected else None,
             json=output_dir / "events.json" if OutputFormat.JSON in selected else None,
             jsonl=output_dir / "events.jsonl" if OutputFormat.JSONL in selected else None,
         )
@@ -110,6 +112,7 @@ class TranscriptionResult:
     outputs: dict[str, str]
     warnings: tuple[str, ...]
     midi_bytes: bytes | None = None
+    detected_instruments: tuple[str, ...] = ()
 
 
 class RequestedOutputError(RuntimeError):
@@ -223,6 +226,7 @@ def transcribe_once(
                 outputs=dict(outputs),
                 warnings=tuple(warning_messages),
                 midi_bytes=midi_payload,
+                detected_instruments=tuple(stats.detected_instruments),
             )
             raise RequestedOutputError(
                 f"Requested preview output failed: {type(exc).__name__}: {exc}",
@@ -237,4 +241,5 @@ def transcribe_once(
         outputs=outputs,
         warnings=tuple(warning_messages),
         midi_bytes=midi_payload,
+        detected_instruments=tuple(stats.detected_instruments),
     )

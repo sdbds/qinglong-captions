@@ -9,6 +9,13 @@ $Config = @{
     batch_size      = 8                                    # Number of chunks per ONNX batch
     harmony_separation = $false                            # Run a second harmony split on non-silent vocals after the 6-stem pass
     harmony_repo_id = "bdsqlsz/mel_band_roformer_karaoke_aufr33-ONNX" # Harmony split model repo ID
+    muscriptor_midi = $false                              # Transcribe all primary stems to MIDI with MuScriptor
+    muscriptor_model = "large"                           # small | medium | large
+    muscriptor_device = "auto"                           # auto | cpu | cuda | cuda:N
+    muscriptor_batch_size = 0                             # 5-second chunks per batch; 0 = auto
+    muscriptor_other_instruments = ""                    # Empty = auto; or comma-separated MuScriptor instruments
+    muscriptor_preview_mode = "none"                      # none | midi | comparison
+    muscriptor_preview_format = "mp3"                    # mp3 | wav
     overwrite       = $false                               # Overwrite existing song output directories
     force_download  = $false                               # Force re-download model artifacts
 }
@@ -142,15 +149,33 @@ if ($Config.overlap) { [void]$ExtArgs.Add("--overlap=$($Config.overlap)") }
 if ($Config.batch_size) { [void]$ExtArgs.Add("--batch_size=$($Config.batch_size)") }
 if ($Config.harmony_separation) { [void]$ExtArgs.Add("--harmony_separation") }
 if ($Config.harmony_repo_id) { [void]$ExtArgs.Add("--harmony_repo_id=$($Config.harmony_repo_id)") }
+if ($Config.muscriptor_midi) {
+    [void]$ExtArgs.Add("--muscriptor_midi")
+    [void]$ExtArgs.Add("--muscriptor_model=$($Config.muscriptor_model)")
+    [void]$ExtArgs.Add("--muscriptor_device=$($Config.muscriptor_device)")
+    [void]$ExtArgs.Add("--muscriptor_batch_size=$($Config.muscriptor_batch_size)")
+    if ($Config.muscriptor_other_instruments) {
+        [void]$ExtArgs.Add("--muscriptor_other_instruments=$($Config.muscriptor_other_instruments)")
+    }
+    if ($Config.muscriptor_preview_mode -ne "none") {
+        [void]$ExtArgs.Add("--muscriptor_preview_mode=$($Config.muscriptor_preview_mode)")
+        [void]$ExtArgs.Add("--muscriptor_preview_format=$($Config.muscriptor_preview_format)")
+    }
+}
 if ($Config.overwrite) { [void]$ExtArgs.Add("--overwrite") }
 if ($Config.force_download) { [void]$ExtArgs.Add("--force_download") }
 #endregion
 
 #region Execute Audio Separator
 Write-Output "Starting Audio Separator..."
-Install-UvExtraPatch @("vocal-midi")
+if ($Config.muscriptor_midi) {
+    Install-UvExtraPatch @("vocal-midi", "muscriptor-local")
+    Write-Output "runtime dependency profile: extra:vocal-midi, extra:muscriptor-local"
+} else {
+    Install-UvExtraPatch @("vocal-midi")
+    Write-Output "runtime dependency profile: extra:vocal-midi"
+}
 Write-Output "runtime target environment: $(Get-UvEnvName)"
-Write-Output "runtime dependency profile: extra:vocal-midi"
 python "./module/audio_separator.py" `
     $Config.input_path `
     $ExtArgs

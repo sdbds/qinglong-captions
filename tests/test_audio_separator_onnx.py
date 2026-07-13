@@ -17,6 +17,7 @@ from module.audio_separator import (
     HARMONY_OUTPUT_DIRNAME,
     build_parser,
     build_song_output_dir,
+    collect_existing_stem_midi_candidates,
     collect_audio_inputs,
     run_audio_separator,
 )
@@ -380,6 +381,13 @@ def test_audio_separator_parser_defaults():
     assert args.batch_size == 1
     assert args.harmony_separation is False
     assert args.harmony_repo_id == DEFAULT_HARMONY_SEPARATOR_REPO_ID
+    assert args.muscriptor_midi is False
+    assert args.muscriptor_model == "large"
+    assert args.muscriptor_device == "auto"
+    assert args.muscriptor_batch_size == 0
+    assert args.muscriptor_other_instruments == ""
+    assert args.muscriptor_preview_mode == "none"
+    assert args.muscriptor_preview_format == "mp3"
 
 
 def test_vocal_midi_parser_defaults():
@@ -765,6 +773,211 @@ def test_run_audio_separator_vocal_midi_uses_current_run_input_path_without_resc
     assert result == 0
     assert transcribe_calls == [input_dir / "song" / HARMONY_OUTPUT_DIRNAME / "song_(dry_vocal)_harmony.wav"]
     assert transcribe_calls[0] != stale_old
+
+
+def test_run_audio_separator_passes_all_primary_stems_to_muscriptor(monkeypatch, tmp_path):
+    input_dir = tmp_path / "music"
+    input_dir.mkdir()
+    source_path = input_dir / "song.wav"
+    source_path.write_bytes(b"audio")
+    stem_names = ("bass", "drums", "other", "vocals", "guitar", "piano")
+    captured = {}
+
+    class _FakeSeparator:
+        def __init__(self, *, repo_id, model_dir, force_download, logger=None):
+            self.model_tag = "primary"
+            self.providers = ("CPUExecutionProvider",)
+
+        def separate_file(self, source_path, *, segment_size, overlap, batch_size):
+            return {
+                stem: torch.full((2, 1600), 0.1, dtype=torch.float32)
+                for stem in stem_names
+            }
+
+        def write_audio(self, waveform, output_path, *, output_format):
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"stem")
+            return output_path
+
+        def close(self):
+            return None
+
+    def fake_transcribe(candidates, base_options, **kwargs):
+        captured["candidates"] = tuple(candidates)
+        captured["options"] = base_options
+        captured["kwargs"] = kwargs
+        for candidate in candidates:
+            kwargs["progress_callback"](candidate, "ok")
+        return SimpleNamespace(processed=len(candidates), skipped=0, failed=0)
+
+    monkeypatch.setattr("module.audio_separator.AudioSeparator", _FakeSeparator)
+    monkeypatch.setattr("module.audio_separator.transcribe_stem_candidates", fake_transcribe)
+    monkeypatch.setattr("module.audio_separator.console.print", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "module.audio_separator.collect_audio_inputs",
+        lambda path: ([source_path], input_dir),
+    )
+
+    args = build_parser().parse_args(
+        [
+            str(input_dir),
+            "--muscriptor_midi",
+            "--muscriptor_model=medium",
+            "--muscriptor_device=cpu",
+            "--muscriptor_batch_size=2",
+            "--muscriptor_other_instruments=violin,flutes",
+            "--muscriptor_preview_mode=comparison",
+            "--muscriptor_preview_format=wav",
+            "--overwrite",
+        ]
+    )
+
+    result = run_audio_separator(args)
+
+    assert result == 0
+    assert [candidate.stem_name for candidate in captured["candidates"]] == list(stem_names)
+    assert all(candidate.input_path.is_file() for candidate in captured["candidates"])
+    assert captured["options"].model.value == "medium"
+    assert captured["options"].device == "cpu"
+    assert captured["options"].batch_size == 2
+    assert captured["kwargs"]["other_instruments"] == ("violin", "flutes")
+    assert captured["kwargs"]["preview"].content.value == "comparison"
+    assert captured["kwargs"]["preview"].format.value == "wav"
+    assert captured["kwargs"]["overwrite"] is True
+
+
+def test_run_audio_separator_prints_muscriptor_root_error_after_progress(monkeypatch, tmp_path):
+    input_dir = tmp_path / "music"
+    input_dir.mkdir()
+    source_path = input_dir / "song.wav"
+    source_path.write_bytes(b"audio")
+    printed = []
+
+    class _FakeSeparator:
+        def __init__(self, **_kwargs):
+            self.model_tag = "primary"
+            self.providers = ("CPUExecutionProvider",)
+
+        def separate_file(self, *_args, **_kwargs):
+            return {"vocals": torch.full((2, 1600), 0.1, dtype=torch.float32)}
+
+        def write_audio(self, _waveform, output_path, **_kwargs):
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"stem")
+            return output_path
+
+        def close(self):
+            return None
+
+    def fake_transcribe(candidates, _base_options, **kwargs):
+        for candidate in candidates:
+            kwargs["progress_callback"](candidate, "failed")
+        return SimpleNamespace(
+            processed=0,
+            skipped=0,
+            partial=0,
+            failed=len(candidates),
+            setup_error="PreviewUnavailable: SOCKS proxy requires socksio",
+            items=[],
+        )
+
+    monkeypatch.setattr("module.audio_separator.AudioSeparator", _FakeSeparator)
+    monkeypatch.setattr("module.audio_separator.transcribe_stem_candidates", fake_transcribe)
+    monkeypatch.setattr(
+        "module.audio_separator.console.print",
+        lambda *args, **kwargs: printed.append((args, kwargs)),
+    )
+    monkeypatch.setattr(
+        "module.audio_separator.collect_audio_inputs",
+        lambda _path: ([source_path], input_dir),
+    )
+
+    result = run_audio_separator(
+        build_parser().parse_args(
+            [str(input_dir), "--muscriptor_midi", "--muscriptor_preview_mode=midi"]
+        )
+    )
+
+    assert result == 1
+    assert any(
+        args
+        and args[0]
+        == "MuScriptor stem MIDI error: PreviewUnavailable: SOCKS proxy requires socksio"
+        and kwargs == {"style": "bold red", "markup": False}
+        for args, kwargs in printed
+    )
+
+
+def test_existing_primary_stems_can_run_muscriptor_without_reseparation(monkeypatch, tmp_path):
+    input_dir = tmp_path / "music"
+    input_dir.mkdir()
+    source_path = input_dir / "song.wav"
+    source_path.write_bytes(b"audio")
+    song_output_dir = input_dir / "song"
+    song_output_dir.mkdir()
+    stem_names = ("bass", "drums", "other", "vocals", "guitar", "piano")
+    for stem_name in stem_names:
+        (song_output_dir / f"song_({stem_name})_primary.wav").write_bytes(b"stem")
+    captured = {}
+
+    class _FakeSeparator:
+        def __init__(self, *, repo_id, model_dir, force_download, logger=None):
+            self.model_tag = "primary"
+            self.providers = ("CPUExecutionProvider",)
+            self.metadata = SimpleNamespace(stem_names=stem_names)
+
+        def separate_file(self, *_args, **_kwargs):
+            raise AssertionError("existing primary stems should not be separated again")
+
+        def close(self):
+            return None
+
+    def fake_transcribe(candidates, _base_options, **kwargs):
+        captured["candidates"] = tuple(candidates)
+        for candidate in candidates:
+            kwargs["progress_callback"](candidate, "ok")
+        return SimpleNamespace(processed=len(candidates), skipped=0, failed=0)
+
+    monkeypatch.setattr("module.audio_separator.AudioSeparator", _FakeSeparator)
+    monkeypatch.setattr("module.audio_separator.transcribe_stem_candidates", fake_transcribe)
+    monkeypatch.setattr("module.audio_separator.console.print", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "module.audio_separator.collect_audio_inputs",
+        lambda path: ([source_path], input_dir),
+    )
+
+    result = run_audio_separator(
+        build_parser().parse_args([str(input_dir), "--muscriptor_midi", "--muscriptor_device=cpu"])
+    )
+
+    assert result == 0
+    assert [candidate.stem_name for candidate in captured["candidates"]] == list(stem_names)
+    assert all(candidate.input_path.parent == song_output_dir for candidate in captured["candidates"])
+
+
+def test_collect_existing_stem_candidates_ignores_wrong_model_or_format(tmp_path):
+    source_path = tmp_path / "song.wav"
+    source_path.write_bytes(b"source")
+    song_output_dir = tmp_path / "song"
+    song_output_dir.mkdir()
+    (song_output_dir / "song_(vocals)_primary.wav").write_bytes(b"current")
+    (song_output_dir / "song_(drums)_old.wav").write_bytes(b"old-model")
+    (song_output_dir / "song_(piano)_primary.flac").write_bytes(b"wrong-format")
+    separator = SimpleNamespace(
+        model_tag="primary",
+        metadata=SimpleNamespace(stem_names=("vocals", "drums", "piano")),
+    )
+
+    candidates = collect_existing_stem_midi_candidates(
+        source_path,
+        song_output_dir,
+        separator=separator,
+        output_format="wav",
+    )
+
+    assert [candidate.stem_name for candidate in candidates] == ["vocals"]
 
 
 def test_build_vocal_midi_output_dir_without_model_name(tmp_path):

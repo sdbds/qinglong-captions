@@ -23,7 +23,7 @@ python -m module.muscriptor_tool.cli list-instruments --format json
 
 ## 输出与恢复
 
-批处理按输入相对路径建立项目目录；默认输出到输入位置下的 `muscriptor_output`。每项包含 `transcription.mid`、`events.json`、`events.jsonl`、`metadata.json`，根目录包含 `manifest.json`。同一输入只推理一次，完成签名、原子写入和输出锁支持中断恢复。
+批处理按输入相对路径建立项目目录；默认输出到输入位置下的 `muscriptor_output`。每项包含以源文件名为 stem 的 `<source-stem>.mid`、`events.json`、`events.jsonl`、`metadata.json`，根目录包含 `manifest.json`。`metadata.json` 分别记录手动限制的 `instruments` 和模型实际识别到的 `detected_instruments`。同一输入只推理一次，完成签名、原子写入和输出锁支持中断恢复。
 
 ## 试听
 

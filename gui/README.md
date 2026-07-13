@@ -82,7 +82,7 @@ uv run gui/launch.py --native --port 7899
 - [水印检测](../docs/tools/watermark_detection.md)
 - [图片缩放、裁剪和可选对齐](../docs/tools/image_preprocessing.md)
 - [图像质量评分](../docs/tools/image_scoring.md)
-- [ONNX 音频分轨与可选 harmony 二次分离](../docs/tools/audio_separation.md)
+- [ONNX 音频分轨与可选 harmony、GAME 人声 MIDI、MuScriptor 全分轨 MIDI / 试听](../docs/tools/audio_separation.md)
 - [MuScriptor 官方模型音频转 MIDI](../docs/tools/muscriptor.md)
 - [MuSViT ONNX 乐谱扫描 embedding](../docs/tools/sheet_music.md)
 - [文本 / 文档规范化与翻译](../docs/tools/text_translation.md)
@@ -102,7 +102,7 @@ uv run gui/launch.py --native --port 7899
 | WaterDetect | `2.1.image_watermark_detect.ps1` | `uv run module/waterdetect.py --help` | PEP 723 inline dependencies |
 | Preprocess | `2.2.preprocess_images.ps1` | `python -m utils.preprocess_datasets` | `image-align` |
 | Reward model | `2.3.image_reward_model.ps1` | `python -m module.rewardmodel` | `reward-model` |
-| Audio separation | `2.5.audio_separator.ps1` | `python -m module.audio_separator` | `vocal-midi` |
+| Audio separation | `2.5.audio_separator.ps1` | `python -m module.audio_separator` | `vocal-midi`；MuScriptor 分轨 MIDI 追加 `muscriptor-local` |
 | Music transcription | `2.7.music_transcription.ps1` | `python -m module.muscriptor_tool.cli batch` | `muscriptor-local` |
 | Sheet music | GUI Tools（无独立 PowerShell wrapper） | `python -m module.sheet_music_musvit --help` | `musvit-onnx` |
 | Image2PSD | `2.6.image2psd.ps1` | `python -m module.see_through.cli` | `see-through` |

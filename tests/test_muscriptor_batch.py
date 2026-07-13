@@ -114,11 +114,54 @@ def test_batch_loads_once_and_transcribes_each_pending_file_once(tmp_path: Path)
     assert calls == {"loads": 1, "files": ["a.wav", "b.flac"]}
     assert summary.processed == 2
     assert summary.failed == 0
+    assert (tmp_path / "out" / "a.wav" / "a.mid").is_file()
+    assert (tmp_path / "out" / "sub" / "b.flac" / "b.mid").is_file()
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["muscriptor_version"] == "0.2.1"
     assert manifest["model_variant"] == "large"
     assert manifest["requested_device"] == "auto"
     assert manifest["resolved_device"] == "cpu"
+
+
+def test_metadata_distinguishes_requested_and_detected_instruments(tmp_path: Path):
+    from module.muscriptor_tool.batch import run_batch
+
+    inputs = tmp_path / "inputs"
+    output = tmp_path / "out"
+    write_audio_tree(inputs, ("song.wav",))
+    calls: dict[str, object] = {"loads": 0, "files": []}
+
+    def transcribe(_loaded, _source, _options, targets, **_kwargs):
+        targets.midi.parent.mkdir(parents=True, exist_ok=True)
+        targets.midi.write_bytes(b"MThd")
+        return TranscriptionResult(
+            note_count=3,
+            event_count=6,
+            chunk_count=1,
+            completed_chunks=1,
+            outputs={"midi": str(targets.midi)},
+            warnings=(),
+            midi_bytes=b"MThd",
+            detected_instruments=("acoustic_piano", "drums"),
+        )
+
+    summary = run_batch(
+        inputs,
+        output,
+        BatchOptions(),
+        model_loader=loader_with_calls(calls),
+        transcriber=transcribe,
+        package_version="0.2.1",
+        resolved_device="cpu",
+    )
+
+    metadata = json.loads(
+        (output / "song.wav" / "metadata.json").read_text(encoding="utf-8")
+    )
+    assert summary.processed == 1
+    assert metadata["schema_version"] == 2
+    assert metadata["instruments"] == []
+    assert metadata["detected_instruments"] == ["acoustic_piano", "drums"]
 
 
 def test_batch_routes_chunk_updates_to_structured_progress_callback(tmp_path: Path):
@@ -173,7 +216,7 @@ def test_run_batch_uses_input_local_output_when_omitted(tmp_path: Path):
 
     output = inputs / "muscriptor_output"
     assert summary.processed == 1
-    assert (output / "song.wav" / "transcription.mid").is_file()
+    assert (output / "song.wav" / "song.mid").is_file()
     assert (output / "manifest.json").is_file()
 
 
@@ -211,6 +254,32 @@ def test_all_complete_items_skip_without_model_or_preview_preflight(tmp_path: Pa
 
     assert second.skipped == 1
     assert second.processed == 0
+
+
+def test_schema_one_metadata_is_reprocessed_for_detected_instruments(tmp_path: Path):
+    from module.muscriptor_tool.batch import run_batch
+
+    inputs = tmp_path / "inputs"
+    output = tmp_path / "out"
+    write_audio_tree(inputs, ("song.wav",))
+    calls: dict[str, object] = {"loads": 0, "files": []}
+    kwargs = {
+        "model_loader": loader_with_calls(calls),
+        "transcriber": successful_transcriber(calls),
+        "package_version": "0.2.1",
+        "resolved_device": "cpu",
+    }
+    run_batch(inputs, output, BatchOptions(), **kwargs)
+    metadata_path = output / "song.wav" / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["schema_version"] = 1
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    summary = run_batch(inputs, output, BatchOptions(), **kwargs)
+
+    assert summary.processed == 1
+    assert summary.skipped == 0
+    assert calls["loads"] == 2
 
 
 def test_source_mtime_change_invalidates_completion(tmp_path: Path):
@@ -327,6 +396,20 @@ def test_prune_known_outputs_never_deletes_user_files(tmp_path: Path):
     assert (item_dir / "keep.txt").read_text(encoding="utf-8") == "keep.txt"
 
 
+def test_prune_known_outputs_removes_source_stem_midi(tmp_path: Path):
+    from module.muscriptor_tool.manifest import prune_known_outputs
+
+    item_dir = tmp_path / "song.mp3"
+    item_dir.mkdir()
+    (item_dir / "song.mid").write_bytes(b"current")
+    (item_dir / "notes.mid").write_bytes(b"user")
+
+    prune_known_outputs(item_dir, requested_names={"song.mid"}, output_stem="song")
+
+    assert (item_dir / "song.mid").exists()
+    assert (item_dir / "notes.mid").exists()
+
+
 def test_run_signature_changes_with_output_selection(tmp_path: Path):
     from module.muscriptor_tool.batch import discover_inputs
     from module.muscriptor_tool.manifest import run_signature
@@ -411,7 +494,7 @@ def test_preview_preflight_runs_once_and_preview_failure_is_partial(tmp_path: Pa
     assert calls["preflight"] == 1
     assert summary.partial == 1
     assert summary.processed == 1
-    assert (output / "a.wav" / "transcription.mid").exists()
+    assert (output / "a.wav" / "a.mid").exists()
     metadata = json.loads((output / "a.wav" / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["status"] == "partial"
     assert metadata["options"]["preview"]["soundfont"] == {
@@ -505,7 +588,7 @@ def test_failed_rerun_does_not_report_stale_outputs_as_partial(tmp_path: Path):
     write_audio_tree(inputs, ("song.wav",))
     item_dir = output / "song.wav"
     item_dir.mkdir(parents=True)
-    (item_dir / "transcription.mid").write_bytes(b"old")
+    (item_dir / "song.mid").write_bytes(b"old")
     calls: dict[str, object] = {"loads": 0, "files": []}
 
     def fail(*_args, **_kwargs):
@@ -523,7 +606,7 @@ def test_failed_rerun_does_not_report_stale_outputs_as_partial(tmp_path: Path):
 
     assert summary.failed == 1
     assert summary.partial == 0
-    assert not (item_dir / "transcription.mid").exists()
+    assert not (item_dir / "song.mid").exists()
 
 
 def test_temporary_cleanup_matches_only_tool_nonce_pattern(tmp_path: Path):
@@ -531,12 +614,12 @@ def test_temporary_cleanup_matches_only_tool_nonce_pattern(tmp_path: Path):
 
     item_dir = tmp_path / "song.wav"
     item_dir.mkdir()
-    tool_temp = item_dir / f"transcription.123.{'a' * 32}.part.mid"
-    user_file = item_dir / "transcription.notes.part.user"
+    tool_temp = item_dir / f"song.123.{'a' * 32}.part.mid"
+    user_file = item_dir / "song.notes.part.user"
     tool_temp.write_bytes(b"temp")
     user_file.write_bytes(b"user")
 
-    cleanup_temporary_outputs(item_dir)
+    cleanup_temporary_outputs(item_dir, output_stem="song")
 
     assert not tool_temp.exists()
     assert user_file.read_bytes() == b"user"

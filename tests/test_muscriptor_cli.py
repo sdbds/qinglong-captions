@@ -496,7 +496,7 @@ def test_real_cuda_batch_smoke(muscriptor_sample_audio: Path, tmp_path: Path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert (output_dir / "sample.wav" / "transcription.mid").is_file()
+    assert (output_dir / "sample.wav" / "sample.mid").is_file()
     assert (output_dir / "sample.wav" / "events.jsonl").is_file()
 
 

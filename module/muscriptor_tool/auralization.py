@@ -85,7 +85,10 @@ def preflight_preview(
     try:
         soundfont_path = Path(resolver()).expanduser().resolve()
     except Exception as exc:
-        raise PreviewUnavailable("MuScriptor's official default SoundFont is unavailable") from exc
+        detail = f"{type(exc).__name__}: {exc}"
+        raise PreviewUnavailable(
+            f"MuScriptor's official default SoundFont is unavailable ({detail})"
+        ) from exc
     if not soundfont_path.is_file():
         raise PreviewUnavailable(f"MuScriptor's official default SoundFont is missing: {soundfont_path}")
     return PreviewRuntime(request=request, soundfont_path=soundfont_path)

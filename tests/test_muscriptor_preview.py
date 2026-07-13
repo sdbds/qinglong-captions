@@ -102,6 +102,22 @@ def test_missing_fluidsynth_does_not_download_default_sf2():
     assert calls == []
 
 
+def test_soundfont_resolution_error_includes_actionable_root_cause(tmp_path: Path):
+    from module.muscriptor_tool.auralization import PreviewUnavailable, preflight_preview
+
+    def fail_resolver():
+        raise ImportError("SOCKS proxy requires the socksio package")
+
+    with pytest.raises(PreviewUnavailable, match="socksio"):
+        preflight_preview(
+            PreviewRequest(PreviewContent.MIDI, PreviewFormat.WAV),
+            soundfile_module=FakeSoundFile(),
+            which=lambda _name: "fluidsynth",
+            run=successful_run,
+            resolve_default_sf2=fail_resolver,
+        )
+
+
 def test_render_preview_uses_synthesize_for_midi_mode(tmp_path: Path):
     from module.muscriptor_tool.auralization import PreviewRuntime, render_preview
 
