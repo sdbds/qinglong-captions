@@ -4,7 +4,7 @@
 由 console_wrapper.py 通过 PYTHONPATH 自动注入，在所有业务代码之前执行。
 
 功能：
-  1. 替换 sys.stdout 为 _FakeTTY — isatty()=True，让 rich 认为在 TTY 环境
+  1. 替换 sys.stdout/sys.stderr 为 _FakeTTY — isatty()=True，让 rich 认为在 TTY 环境
   2. Monkey-patch rich.console.Console.__init__，强制 legacy_windows=False，
      禁用 Windows Console API 渲染，让 rich 改为输出标准 ANSI 转义码
   3. _FakeTTY.write() 同时将输出镜像到 _QINGLONG_LOG_FILE 指定的日志文件
@@ -17,7 +17,7 @@ _requested_color_system = os.environ.get("_QINGLONG_RICH_COLOR_SYSTEM", "").stri
 
 
 class _FakeTTY:
-    """isatty()=True 的流，内容同步写到原始 stdout buffer 和日志文件"""
+    """isatty()=True 的流，内容同步写到原始流和日志文件"""
 
     def __init__(self, raw_buf, log_path: str):
         self._raw = raw_buf
@@ -53,11 +53,12 @@ class _FakeTTY:
         return True
 
 
-# 替换 sys.stdout（仅在有日志文件时；若无则保持原样，不影响交互式使用）
+# 同时包装 stdout 和 stderr。MuScriptor 等 Rich CLI 将状态和进度写入
+# stderr；只镜像 stdout 会让原生控制台有输出，而 GUI 日志保持空白。
 if _log_path:
     try:
-        _tee = _FakeTTY(sys.stdout.buffer, _log_path)
-        sys.stdout = _tee
+        sys.stdout = _FakeTTY(sys.stdout.buffer, _log_path)
+        sys.stderr = _FakeTTY(sys.stderr.buffer, _log_path)
     except Exception:
         pass
 

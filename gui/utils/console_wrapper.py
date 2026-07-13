@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 
 # _color_inject/ 目录包含 sitecustomize.py，通过 PYTHONPATH 注入到子进程，
-# 在子进程启动时自动替换 sys.stdout 为 _FakeTTY（isatty=True）并
+# 在子进程启动时自动替换 sys.stdout/sys.stderr 为 _FakeTTY（isatty=True）并
 # monkey-patch rich.console.Console 禁用 legacy_windows，让 rich 输出 ANSI 码。
 _COLOR_INJECT_DIR = str(Path(__file__).parent / "_color_inject")
 
@@ -145,7 +145,7 @@ def main():
         bufsize=0,
     )
 
-    # 日志文件由子进程内 sitecustomize 的 _FakeTTY 直接写入（含 ANSI 码）
+    # 日志文件由子进程内 sitecustomize 的 stdout/stderr _FakeTTY 直接写入（含 ANSI 码）
     # 这里只负责把 PIPE 输出转发到本控制台窗口（用于实时显示）
     try:
         while True:

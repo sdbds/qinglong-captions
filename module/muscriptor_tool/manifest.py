@@ -90,6 +90,9 @@ def _known_output_names(output_stem: str | None = None) -> set[str]:
     names = set(KNOWN_OUTPUT_NAMES)
     if output_stem:
         names.add(f"{output_stem}.mid")
+        # Preview files are named after the source item; include both formats
+        # so disabling/changing preview mode removes stale artifacts.
+        names.update({f"{output_stem}_preview.wav", f"{output_stem}_preview.mp3"})
     return names
 
 

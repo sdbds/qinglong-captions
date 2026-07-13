@@ -1,5 +1,7 @@
 import asyncio
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -14,6 +16,29 @@ _WINDOWS_NATIVE_ONLY = pytest.mark.skipif(
     sys.platform != "win32",
     reason="native console lifecycle requires Windows CREATE_NEW_CONSOLE and taskkill",
 )
+
+
+def test_color_inject_mirrors_stdout_and_stderr_to_gui_log(tmp_path):
+    log_file = tmp_path / "output.log"
+    inject_dir = Path(__file__).resolve().parents[1] / "gui" / "utils" / "_color_inject"
+    env = os.environ.copy()
+    env["_QINGLONG_LOG_FILE"] = str(log_file)
+    env["PYTHONPATH"] = str(inject_dir)
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; print('stdout-visible'); print('stderr-visible', file=sys.stderr)",
+        ],
+        env=env,
+        capture_output=True,
+        check=True,
+    )
+
+    mirrored = log_file.read_text(encoding="utf-8")
+    assert mirrored.count("stdout-visible") == 1
+    assert mirrored.count("stderr-visible") == 1
 
 
 def test_console_wrapper_publishes_exit_signal_atomically(monkeypatch, tmp_path):

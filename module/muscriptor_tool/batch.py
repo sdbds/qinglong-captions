@@ -124,7 +124,7 @@ def _requested_names(options: BatchOptions, *, output_stem: str) -> set[str]:
     }
     requested = {names[item] for item in options.output_formats}
     if options.preview is not None:
-        requested.add(f"preview.{options.preview.format.value}")
+        requested.add(f"{output_stem}_preview.{options.preview.format.value}")
     return requested
 
 
@@ -412,7 +412,7 @@ def run_batch(
                 output_stem=output_stem,
             )
             preview_target = (
-                item_dir / f"preview.{options.preview.format.value}"
+                item_dir / f"{output_stem}_preview.{options.preview.format.value}"
                 if options.preview is not None
                 else None
             )
