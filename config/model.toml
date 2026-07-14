@@ -148,6 +148,22 @@ min_pixels = 2048
 max_pixels = 16777216
 image_patch_size = 16
 
+# OvisOCR2 configuration
+# Model: https://huggingface.co/ATH-MaaS/OvisOCR2
+# Direct runtime: uv sync --extra ovis-ocr2
+# OpenAI-compatible runtime: deploy vLLM 0.22.1 on Linux/WSL and configure the shared runtime URL.
+[ovis_ocr2]
+model_list."OvisOCR2 0.8B" = { model_id = "ATH-MaaS/OvisOCR2", meta = { min_vram_gb = 8 } }
+model_id = "ATH-MaaS/OvisOCR2"
+runtime_backend = "direct"
+prompt = ""
+max_new_tokens = 16384
+temperature = 0.0
+top_p = 1.0
+min_pixels = 200704
+max_pixels = 8294400
+visual_region_mode = "crop"
+
 # LightOnOCR-2 configuration
 # Model: https://huggingface.co/lightonai/LightOnOCR-2-1B
 # Requires: transformers[serving]>=5.0.0

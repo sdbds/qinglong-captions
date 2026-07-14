@@ -169,6 +169,15 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
         capabilities=capabilities(supports_images=True, supports_documents=True),
     ),
     ProviderDeclaration(
+        name="ovis_ocr2",
+        module_path="module.providers.ocr.ovis_ocr2",
+        priority=122,
+        routes=(route("ocr_model", order=15),),
+        config_sections=("ovis_ocr2",),
+        prompt_prefixes=("ovis_ocr2",),
+        capabilities=capabilities(supports_images=True, supports_documents=True),
+    ),
+    ProviderDeclaration(
         name="unlimited_ocr",
         module_path="module.providers.ocr.unlimited",
         priority=125,

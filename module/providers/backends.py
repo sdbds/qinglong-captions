@@ -242,6 +242,7 @@ class OpenAIChatRuntime:
         max_tokens: Optional[int] = None,
         response_format: Optional[dict[str, Any]] = None,
         stop: Optional[list[str]] = None,
+        extra_body: Optional[Mapping[str, Any]] = None,
     ) -> str:
         if not self.config.base_url:
             raise RuntimeError("OPENAI_RUNTIME_BASE_URL_MISSING")
@@ -265,6 +266,8 @@ class OpenAIChatRuntime:
             request["response_format"] = response_format
         if stop:
             request["stop"] = stop
+        if extra_body is not None:
+            request["extra_body"] = dict(extra_body)
 
         completion = client.chat.completions.create(**request)
         return extract_message_text(completion.choices[0].message.content)

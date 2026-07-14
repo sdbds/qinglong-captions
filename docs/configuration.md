@@ -68,6 +68,25 @@ openai_api_key   = <local placeholder or server key>
 
 不同 extra 可能存在依赖冲突。不要一次性安装所有可选 profile；让 GUI 按当前任务安装，或只在隔离虚拟环境中手工测试。
 
+#### OvisOCR2
+
+`ovis_ocr2` 支持图片与 PDF，默认通过 Direct Transformers 运行 `ATH-MaaS/OvisOCR2`：
+
+```powershell
+uv sync --extra ovis-ocr2
+```
+
+相关默认值位于 `config/model.toml` 的 `[ovis_ocr2]`。`visual_region_mode = "crop"` 会把模型输出的 `images/bbox_L_T_R_B.jpg` 区域裁到输出目录并保留可渲染标签；设为 `"drop"` 时只移除这些标签。空 `prompt` 使用模型官方提示词。
+
+也可以连接外部 OpenAI-compatible vLLM 服务。vLLM 不原生支持 Windows，请在 Linux 或 WSL 中启动服务：
+
+```bash
+pip install "vllm==0.22.1" pillow
+vllm serve ATH-MaaS/OvisOCR2 --gdn-prefill-backend triton --gpu-memory-utilization 0.8
+```
+
+随后配置共享的 `openai_base_url`、`openai_model_name = ATH-MaaS/OvisOCR2` 和 API Key（本地无鉴权服务可使用占位值）。两种后端共享逐页容错、重复尾清理、bbox 处理和 Markdown 写盘逻辑；生成文本本身不保证逐字一致。
+
 ## Lance 与标签
 
 - `lanceImport.ps1` 顶部的 `data_storage_version` 控制新建数据集格式；当前默认是 `2.2`。

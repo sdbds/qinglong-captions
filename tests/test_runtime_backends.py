@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # Import transformer_loader before any sys.modules patching. If torch is first
 # imported inside patch.dict(sys.modules, ...), the context rollback removes the
 # fresh torch modules from sys.modules and PyTorch cannot be safely re-imported.
-from utils import transformer_loader as transformer_loader_module
+from utils import transformer_loader as transformer_loader_module  # noqa: E402
 
 
 def test_resolve_runtime_backend_prefers_args_over_config():
@@ -576,6 +576,42 @@ def test_hy_mt_openai_backend_uses_chat_runtime():
     assert request["max_tokens"] == 777
     assert request["temperature"] == 0.3
     assert request["messages"][0]["role"] == "user"
+
+
+def test_openai_chat_runtime_passes_extra_body_without_mutating_it():
+    from module.providers.backends import OpenAIChatRuntime, RuntimeBackendConfig
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="markdown"))]
+    )
+    extra_body = {
+        "mm_processor_kwargs": {"images_kwargs": {"min_pixels": 200704}},
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+
+    with patch("openai.OpenAI", return_value=mock_client):
+        result = OpenAIChatRuntime(
+            RuntimeBackendConfig(
+                mode="openai",
+                base_url="http://127.0.0.1:8000/v1",
+                api_key="",
+                model_id="served-ovis",
+                temperature=0.0,
+                top_p=1.0,
+                max_tokens=16384,
+            )
+        ).complete(
+            [{"role": "user", "content": [{"type": "text", "text": "ocr"}]}],
+            extra_body=extra_body,
+        )
+
+    assert result == "markdown"
+    assert mock_client.chat.completions.create.call_args.kwargs["extra_body"] == extra_body
+    assert extra_body == {
+        "mm_processor_kwargs": {"images_kwargs": {"min_pixels": 200704}},
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
 
 
 def test_local_llm_direct_loader_uses_transformers_v5_dtype_kwarg():

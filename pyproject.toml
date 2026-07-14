@@ -280,6 +280,11 @@ infinity-parser2-ocr = [
     "triton-windows; sys_platform == 'win32'",
     "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
 ]
+ovis-ocr2 = [
+    "qinglong-captions[torch-base]",
+    "transformers[serving]>=5.7.0",
+    "PyMuPDF",
+]
 chandra-ocr = [
     "qinglong-captions[torch-base]",
     "transformers[serving]",
@@ -594,6 +599,23 @@ conflicts = [
         { extra = "cohere-transcribe-local" },
         { extra = "reward-model" },
         { extra = "music-flamingo-local" },
+    ],
+    [
+        # OvisOCR2 requires native Qwen3.5 support from Transformers >=5.7.
+        # Keep it away from older pins and forked Transformers runtimes.
+        { extra = "ovis-ocr2" },
+        { extra = "paddleocr-native" },
+        { extra = "reward-model" },
+        { extra = "deepseek-ocr" },
+        { extra = "unlimited-ocr" },
+        { extra = "dots-ocr" },
+        { extra = "penguin-vl-local" },
+        { extra = "hunyuan-ocr" },
+        { extra = "glm-ocr" },
+        { extra = "qwen-vl-local" },
+        { extra = "music-flamingo-local" },
+        { extra = "eureka-audio-local" },
+        { extra = "cohere-transcribe-local" },
     ],
     [
         { extra = "translate" },

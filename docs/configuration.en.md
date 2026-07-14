@@ -37,6 +37,25 @@ Cloud Providers are configured on the GUI `Caption` page. OpenAI-compatible serv
 
 For local OCR, VLM, and ALM routes, the GUI reads `config/model.toml` and installs the matching `uv extra`. Do not install every optional profile in one environment because OCR, CUDA, and Transformers combinations can conflict.
 
+### OvisOCR2
+
+The `ovis_ocr2` route accepts images and PDFs. Its default Direct Transformers runtime loads `ATH-MaaS/OvisOCR2`:
+
+```powershell
+uv sync --extra ovis-ocr2
+```
+
+Defaults live in `[ovis_ocr2]` in `config/model.toml`. With `visual_region_mode = "crop"`, matching `images/bbox_L_T_R_B.jpg` regions are cropped into the output directory and their renderable tags are retained. Set it to `"drop"` to remove only those tags. A blank `prompt` uses the official model prompt.
+
+The same route can call an external OpenAI-compatible vLLM server. vLLM does not natively support Windows, so run it on Linux or WSL:
+
+```bash
+pip install "vllm==0.22.1" pillow
+vllm serve ATH-MaaS/OvisOCR2 --gdn-prefill-backend triton --gpu-memory-utilization 0.8
+```
+
+Configure the shared `openai_base_url`, `openai_model_name = ATH-MaaS/OvisOCR2`, and API key afterward. Both runtimes use the same page failure handling, repeated-tail cleanup, bbox processing, and Markdown persistence; generated text is not expected to be byte-identical across inference engines.
+
 ## Lance and translation tags
 
 - `data_storage_version` in `lanceImport.ps1` controls newly created dataset format; the wrapper defaults to `2.2`.
