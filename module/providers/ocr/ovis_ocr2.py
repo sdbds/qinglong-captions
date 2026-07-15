@@ -94,7 +94,12 @@ def _find_repeated_tail(
 
 
 def _collapse_repeated_tail(text: str, match: _RepeatedTailMatch) -> str:
-    suffix_start = len(text) - match.matched_chars + match.period_len
+    repeat_start = len(text) - match.matched_chars
+    repeated_unit = text[repeat_start : repeat_start + match.period_len]
+    if repeated_unit.strip() == "1" and "\n" in repeated_unit:
+        return text[:repeat_start].rstrip()
+
+    suffix_start = repeat_start + match.period_len
     trailing = text[-match.trailing_chars :] if match.trailing_chars else ""
     return text[:suffix_start] + trailing
 

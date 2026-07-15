@@ -155,6 +155,24 @@ def test_collapse_repeated_tail_preserves_partial_period():
     assert ovis_module._collapse_repeated_tail(text, match) == "header#abcab"
 
 
+def test_collapse_repeated_tail_drops_confirmed_standalone_one_cycle():
+    prefix = "header\n006\n"
+    text = prefix + "1\n\n" * 80
+    match = ovis_module._find_repeated_tail(
+        text,
+        min_text_len=0,
+        max_period=200,
+        min_period=1,
+        min_repeat_chars=200,
+        min_repeat_times=8,
+    )
+
+    assert match is not None
+    assert match.period_len == 3
+    assert ovis_module._collapse_repeated_tail(text, match) == "header\n006"
+    assert ovis_module._clean_truncated_repeats("legitimate content\n1") == "legitimate content\n1"
+
+
 def test_early_match_requires_both_repeat_and_character_thresholds():
     seven_long_units = "".join(chr(0x400 + index) for index in range(30)) * 7
     eight_units = "".join(chr(0x500 + index) for index in range(25)) * 8
@@ -297,7 +315,7 @@ def test_normalize_triggered_repeat_requires_the_recorded_fingerprint():
     )
 
     assert trigger is not None
-    assert ovis_module._normalize_triggered_repeat("header\n" + repeated, trigger) == "header\n1\n\n"
+    assert ovis_module._normalize_triggered_repeat("header\n" + repeated, trigger) == "header"
     assert ovis_module._normalize_triggered_repeat("header\n" + repeated[:-1] + "x", trigger) is None
 
 
@@ -434,7 +452,7 @@ def _run_direct_character_generation(monkeypatch, *, final_text=None):
 def test_direct_inferencer_normalizes_and_logs_triggered_repeat(monkeypatch):
     result, log, trigger = _run_direct_character_generation(monkeypatch)
 
-    assert result == "header\n1\n\n"
+    assert result == "header"
     assert trigger.triggered_at_tokens == 247
     assert "generated_tokens=247" in log
     assert "period_chars=3" in log
