@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
-from contextlib import contextmanager, nullcontext
 import importlib.util
 import sys
 import threading
+from contextlib import contextmanager, nullcontext
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -55,33 +55,104 @@ class _RichHFDownloadProgress:
         self._desc = desc or "download"
         self._total = total
         self._initial = initial
+        self._completed = initial
         self._task_id: Optional[int] = None
+        self._closed = False
 
-    def __enter__(self) -> "_RichHFDownloadProgress":
-        self._task_id = self._progress.add_task(
-            f"[cyan]{self._desc}[/cyan]",
-            total=self._total,
-            completed=self._initial,
-        )
+    def start(self) -> "_RichHFDownloadProgress":
+        if self._task_id is None and not self._closed:
+            self._task_id = self._progress.add_task(
+                f"[cyan]{self._desc}[/cyan]",
+                total=self._total,
+                completed=self._completed,
+            )
         return self
 
+    def __enter__(self) -> "_RichHFDownloadProgress":
+        return self.start()
+
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
-        if self._task_id is not None:
-            if exc_type is None and self._total is not None:
-                self._progress.update(self._task_id, completed=self._total)
-            self._progress.remove_task(self._task_id)
+        if exc_type is None and self._total is not None:
+            self.n = self._total
+        self.close()
         return False
 
+    @property
+    def n(self) -> float:
+        return self._completed
+
+    @n.setter
+    def n(self, value: float) -> None:
+        self._completed = value
+        if self._task_id is not None:
+            self._progress.update(self._task_id, completed=value)
+
+    @property
+    def total(self) -> Optional[float]:
+        return self._total
+
+    @total.setter
+    def total(self, value: Optional[float]) -> None:
+        self._total = value
+        if self._task_id is not None:
+            self._progress.update(self._task_id, total=value)
+
     def update(self, advance: float) -> None:
-        if self._task_id is None or not advance:
+        if self._closed or not advance:
+            return
+        self.start()
+        self._completed += advance
+        if self._task_id is None:
             return
         self._progress.update(self._task_id, advance=advance)
+
+    def set_description(self, desc: str, refresh: bool = True) -> None:
+        self._desc = desc or "download"
+        if self._task_id is not None:
+            self._progress.update(self._task_id, description=f"[cyan]{self._desc}[/cyan]")
+        if refresh:
+            self.refresh()
+
+    def set_postfix_str(self, _postfix: str = "", refresh: bool = True) -> None:
+        if refresh:
+            self.refresh()
+
+    def refresh(self) -> None:
+        if not self._closed:
+            self._progress.refresh()
+
+    def close(self) -> None:
+        if self._task_id is not None:
+            self._progress.remove_task(self._task_id)
+            self._task_id = None
+        self._closed = True
+
+
+def _single_line_snapshot_tqdm_class() -> type[Any]:
+    """Build a tqdm class that never emits cursor-up controls for sibling bars."""
+
+    try:
+        from huggingface_hub.utils import tqdm as base_tqdm
+    except (AttributeError, ImportError):
+        from tqdm.auto import tqdm as base_tqdm
+    if not isinstance(base_tqdm, type):
+        from tqdm.auto import tqdm as base_tqdm
+
+    class _SingleLineSnapshotTqdm(base_tqdm):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            kwargs["position"] = 0
+            kwargs.setdefault("leave", False)
+            super().__init__(*args, **kwargs)
+
+    return _SingleLineSnapshotTqdm
 
 
 _HF_PROGRESS_PATCH_LOCK = threading.RLock()
 _HF_PROGRESS_PATCH_DEPTH = 0
 _HF_PROGRESS_PATCH_ORIGINAL: Any = None
 _HF_PROGRESS_PATCH_PROGRESS: Optional[Progress] = None
+_HF_XET_PROGRESS_MODULE: Any = None
+_HF_XET_PROGRESS_PATCH_ORIGINAL: Any = None
 
 
 @contextmanager
@@ -127,6 +198,7 @@ def hf_download_reporting(console: Optional[Any] = None):
     """Render Hugging Face download progress with Rich while loading artifacts."""
 
     global _HF_PROGRESS_PATCH_DEPTH, _HF_PROGRESS_PATCH_ORIGINAL, _HF_PROGRESS_PATCH_PROGRESS
+    global _HF_XET_PROGRESS_MODULE, _HF_XET_PROGRESS_PATCH_ORIGINAL
 
     try:
         from huggingface_hub import file_download
@@ -165,6 +237,34 @@ def hf_download_reporting(console: Optional[Any] = None):
                 )
 
             file_download._get_progress_bar_context = _rich_progress_context
+
+            try:
+                xet_progress_module = importlib.import_module(
+                    "huggingface_hub.utils._xet_progress_reporting"
+                )
+            except Exception:
+                xet_progress_module = None
+
+            xet_progress_factory = getattr(xet_progress_module, "_create_progress_bar", None)
+            if xet_progress_module is not None and callable(xet_progress_factory):
+                _HF_XET_PROGRESS_MODULE = xet_progress_module
+                _HF_XET_PROGRESS_PATCH_ORIGINAL = xet_progress_factory
+
+                def _rich_xet_progress_factory(*args: Any, **kwargs: Any):
+                    progress = _HF_PROGRESS_PATCH_PROGRESS
+                    original_factory = _HF_XET_PROGRESS_PATCH_ORIGINAL
+                    if progress is None and callable(original_factory):
+                        return original_factory(*args, **kwargs)
+
+                    bar = _RichHFDownloadProgress(
+                        progress,
+                        desc=str(kwargs.get("desc") or "download"),
+                        total=kwargs.get("total"),
+                        initial=int(kwargs.get("initial") or 0),
+                    )
+                    return bar.start()
+
+                xet_progress_module._create_progress_bar = _rich_xet_progress_factory
         _HF_PROGRESS_PATCH_DEPTH += 1
 
     try:
@@ -174,10 +274,14 @@ def hf_download_reporting(console: Optional[Any] = None):
             _HF_PROGRESS_PATCH_DEPTH -= 1
             if _HF_PROGRESS_PATCH_DEPTH == 0:
                 file_download._get_progress_bar_context = _HF_PROGRESS_PATCH_ORIGINAL
+                if _HF_XET_PROGRESS_MODULE is not None and _HF_XET_PROGRESS_PATCH_ORIGINAL is not None:
+                    _HF_XET_PROGRESS_MODULE._create_progress_bar = _HF_XET_PROGRESS_PATCH_ORIGINAL
                 if _HF_PROGRESS_PATCH_PROGRESS is not None:
                     _HF_PROGRESS_PATCH_PROGRESS.stop()
                 _HF_PROGRESS_PATCH_ORIGINAL = None
                 _HF_PROGRESS_PATCH_PROGRESS = None
+                _HF_XET_PROGRESS_MODULE = None
+                _HF_XET_PROGRESS_PATCH_ORIGINAL = None
 
 
 def load_pretrained_component(
@@ -354,6 +458,8 @@ def snapshot_download_with_reporting(
 
     try:
         with hf_download_reporting(resolved_console):
+            if kwargs.get("tqdm_class") is None:
+                kwargs["tqdm_class"] = _single_line_snapshot_tqdm_class()
             snapshot_path = snapshot_download(repo_id=repo_id, **kwargs)
     except Exception:
         resolved_console.print(f"[red]Failed to download Hugging Face snapshot:[/red] {repo_id}")

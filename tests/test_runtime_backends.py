@@ -1231,6 +1231,54 @@ def test_load_pretrained_component_wraps_hf_progress_context(monkeypatch):
     assert "Hugging Face model ready" in output
 
 
+def test_hf_download_reporting_wraps_xet_progress_factory(monkeypatch):
+    from contextlib import contextmanager
+
+    from utils.transformer_loader import hf_download_reporting
+
+    @contextmanager
+    def original_progress_context(**_kwargs):
+        yield None
+
+    def original_xet_progress_factory(**_kwargs):
+        raise AssertionError("Xet tqdm factory should be replaced while reporting is active")
+
+    fake_file_download = types.SimpleNamespace(_get_progress_bar_context=original_progress_context)
+    fake_hf = types.ModuleType("huggingface_hub")
+    fake_hf.file_download = fake_file_download
+    fake_utils = types.ModuleType("huggingface_hub.utils")
+    fake_utils.__path__ = []
+    fake_utils.enable_progress_bars = lambda: None
+    fake_xet_progress = types.ModuleType("huggingface_hub.utils._xet_progress_reporting")
+    fake_xet_progress._create_progress_bar = original_xet_progress_factory
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.utils", fake_utils)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.utils._xet_progress_reporting", fake_xet_progress)
+
+    with hf_download_reporting(Console(file=io.StringIO(), force_terminal=False)):
+        assert fake_xet_progress._create_progress_bar is not original_xet_progress_factory
+        progress = fake_xet_progress._create_progress_bar(
+            cls=object,
+            log_level=20,
+            name="huggingface_hub.xet_get",
+            desc="model.safetensors: reconstructing file",
+            total=100,
+            initial=10,
+            position=1,
+        )
+        assert progress.n == 10
+        progress.update(15)
+        progress.total = 120
+        progress.set_postfix_str("25MB/s", refresh=False)
+        progress.refresh()
+        assert progress.n == 25
+        assert progress.total == 120
+        progress.close()
+
+    assert fake_xet_progress._create_progress_bar is original_xet_progress_factory
+
+
 def test_snapshot_download_with_reporting_wraps_hf_progress_context(monkeypatch):
     from contextlib import contextmanager
 
@@ -1282,6 +1330,50 @@ def test_snapshot_download_with_reporting_wraps_hf_progress_context(monkeypatch)
     assert state["patched_during_call"] is True
     assert state["kwargs"]["local_dir"] == "C:/cache"
     assert fake_file_download._get_progress_bar_context is original_progress_context
+
+
+def test_snapshot_download_with_reporting_avoids_multiline_cursor_controls(monkeypatch):
+    from contextlib import contextmanager
+
+    from huggingface_hub.utils import tqdm as default_tqdm
+
+    from utils.transformer_loader import snapshot_download_with_reporting
+
+    state = {}
+
+    @contextmanager
+    def original_progress_context(**_kwargs):
+        yield None
+
+    fake_file_download = types.SimpleNamespace(_get_progress_bar_context=original_progress_context)
+    fake_hf = types.ModuleType("huggingface_hub")
+    fake_hf.file_download = fake_file_download
+    fake_utils = types.ModuleType("huggingface_hub.utils")
+    fake_utils.enable_progress_bars = lambda: None
+
+    def fake_snapshot_download(*, repo_id, **kwargs):
+        progress_output = io.StringIO()
+        tqdm_class = kwargs.get("tqdm_class") or default_tqdm
+        download_bar = tqdm_class(total=1, desc="Downloading bytes", file=progress_output)
+        fetch_bar = tqdm_class(total=1, desc="Fetching files", file=progress_output)
+        fetch_bar.update(1)
+        fetch_bar.close()
+        download_bar.close()
+        state["progress_output"] = progress_output.getvalue()
+        return f"C:/models/{repo_id.replace('/', '_')}"
+
+    fake_hf.snapshot_download = fake_snapshot_download
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.utils", fake_utils)
+
+    path = snapshot_download_with_reporting(
+        "demo/model",
+        console=Console(file=io.StringIO(), force_terminal=False),
+    )
+
+    assert path == "C:/models/demo_model"
+    assert "\x1b[A" not in state["progress_output"]
 
 
 def test_load_pretrained_component_temporarily_disables_library_progress_bars(monkeypatch):
