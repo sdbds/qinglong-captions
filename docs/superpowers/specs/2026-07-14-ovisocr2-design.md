@@ -199,6 +199,8 @@ visual_region_mode = "crop"
 
 `flash-linear-attention` 和 `causal-conv1d` 是可选性能依赖，不加入默认 extra，也不成为 Direct 正确性的前置条件。项目不承诺其 Windows 原生安装链路；用户即使自行安装且两个模块都能成功导入，重复尾 StoppingCriteria 仍保持启用。快速内核负责吞吐，停止条件负责终止，不能用前者替换后者。
 
+Windows 的快速内核导入会触发 Torch Inductor 读取自带源码模板。系统默认 GBK 时，模板中的非 GBK 字符可能让导入以 `UnicodeDecodeError` 失败；这不是 OvisOCR2 模型或 Processor 错误。GUI 子进程环境和 `4.captioner.ps1` 因此在调用 Python 前默认设置 `PYTHONUTF8=1`，但保留用户显式设置的值，不在 Python 进程启动后补救编码模式。
+
 ## 验证
 
 - 单元测试覆盖重复尾边界、crop/drop、非法及重复 bbox、裁图失败和 PDF 路径重写。
@@ -216,3 +218,5 @@ visual_region_mode = "crop"
 2026-07-16 对重跑后的 21 组 `.txt/result.md` 做尾行审计：两者 21/21 完全一致；`007`、`013`、`014`、`019` 末行出现孤立 `1`。四次生成日志均因 `period_chars=3` 的周期重复停止，实际循环单元为 `1\n\n`，旧折叠逻辑按模型卡语义保留一份。原图页脚分别为 `006`、`012`、`013`、`018`，证明这四个 `1` 均不是页码。修复只删除已由周期检测确认的独占行 `1` 循环。
 
 同日用实际 `007.jpg` 做修复后 Direct 冒烟：在 288 个生成 tokens 时确认周期长度为 3、重复 70 次；新逻辑返回 253 字符，末行是原图页码 `006`。含模型冷加载及同时运行的批处理任务共 93.50 秒，断言末行不等于 `1`。
+
+Windows Python 3.11.11、Torch 2.13.0+cu130 环境另行验证了 `flash-linear-attention==0.5.1`、`causal-conv1d==1.6.2.post1` 和 `triton-windows==3.7.1.post27` 可以同时导入。未启用 UTF-8 模式时已复现 Torch Inductor 模板的 GBK 解码失败；以 `PYTHONUTF8=1` 启动同一解释器后导入成功。该结果只证明当前环境的可用性，不把第三方 Windows wheel 变成默认安装契约。

@@ -129,6 +129,9 @@ foreach ($Path in $VenvPaths) {
 }
 
 $Env:HF_HOME = "huggingface"
+if (-not $Env:PYTHONUTF8) {
+  $Env:PYTHONUTF8 = "1"
+}
 $Env:XFORMERS_FORCE_DISABLE_TRITON = "1"
 #$Env:HF_ENDPOINT = "https://hf-mirror.com"
 $Env:PILLOW_IGNORE_XMP_DATA_IS_TOO_LONG = "1"

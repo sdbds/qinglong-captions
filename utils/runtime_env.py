@@ -42,6 +42,8 @@ def build_runtime_env(
     if env_overrides:
         env.update({str(key): str(value) for key, value in env_overrides.items() if value is not None})
 
+    env.setdefault("PYTHONUTF8", "1")
+
     project_root = str(project_root_from(work_dir))
     existing = env.get("PYTHONPATH", "")
     paths = [part for part in existing.split(os.pathsep) if part]

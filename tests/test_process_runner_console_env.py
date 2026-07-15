@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-
 from gui.utils.process_runner import ProcessRunner
+from utils import runtime_env
 
 
 def test_normalize_console_color_system_accepts_aliases():
@@ -37,3 +37,19 @@ def test_build_native_wrapper_env_drops_color_override_when_none():
 def test_normalize_console_color_system_rejects_unknown_value():
     with pytest.raises(ValueError, match="Unsupported console_color_system"):
         ProcessRunner._normalize_console_color_system("neon")
+
+
+def test_runtime_env_enables_python_utf8_mode_by_default(monkeypatch, tmp_path):
+    monkeypatch.setattr(runtime_env, "_load_gui_env_overrides", lambda: {})
+
+    env = runtime_env.build_runtime_env(tmp_path, base_env={})
+
+    assert env["PYTHONUTF8"] == "1"
+
+
+def test_runtime_env_preserves_explicit_python_utf8_override(monkeypatch, tmp_path):
+    monkeypatch.setattr(runtime_env, "_load_gui_env_overrides", lambda: {})
+
+    env = runtime_env.build_runtime_env(tmp_path, base_env={"PYTHONUTF8": "0"})
+
+    assert env["PYTHONUTF8"] == "0"

@@ -81,6 +81,13 @@ def test_captioner_parser_rejects_removed_grok_build_effort_option():
         parser.parse_args(["dataset", "--grok_build_effort=low"])
 
 
+def test_captioner_powershell_defaults_python_utf8_without_overriding_user_value():
+    script = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
+
+    assert "if (-not $Env:PYTHONUTF8) {" in script
+    assert '$Env:PYTHONUTF8 = "1"' in script
+
+
 def test_captioner_powershell_passes_cloud_max_concurrency_only_when_gt_one():
     script = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
