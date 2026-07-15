@@ -3,8 +3,10 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from gui.utils.toml_helpers import ModelListEntry
+import pytest
 
+from gui.utils.toml_helpers import ModelListEntry
+from module.providers.ocr.ovis_ocr2_contract import OVIS_OCR2_DEFAULT_PROMPT
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -20,6 +22,9 @@ def _load_model_config_panel_module(module_name: str):
 
 class _FakeContext:
     def classes(self, *_args, **_kwargs):
+        return self
+
+    def props(self, *_args, **_kwargs):
         return self
 
     def style(self, *_args, **_kwargs):
@@ -79,12 +84,16 @@ class _FakeUI:
         self._fake_controls = list(fake_controls)
         self.created_selects = []
         self.created_inputs = []
+        self.created_textareas = []
         self.created_html = []
 
     def row(self):
         return _FakeContext()
 
     def column(self):
+        return _FakeContext()
+
+    def expansion(self, *_args, **_kwargs):
         return _FakeContext()
 
     def label(self, *_args, **_kwargs):
@@ -103,6 +112,12 @@ class _FakeUI:
         fake_input.value = kwargs.get("value")
         self.created_inputs.append(fake_input)
         return fake_input
+
+    def textarea(self, *_args, **kwargs):
+        fake_textarea = self._fake_controls.pop(0)
+        fake_textarea.value = kwargs.get("value")
+        self.created_textareas.append(fake_textarea)
+        return fake_textarea
 
     def html(self, content):
         self.created_html.append(content)
@@ -159,6 +174,88 @@ def test_model_config_panel_renders_paddle_ocr_model_tier_as_fixed_select(monkey
     fake_select.on_value_change_handler(SimpleNamespace(value="small"))
 
     assert parent_dict["model_tier"] == "small"
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "expected_options"),
+    [
+        ("runtime_backend", "direct", {"direct": "direct", "openai": "openai"}),
+        ("visual_region_mode", "crop", {"crop": "crop", "drop": "drop"}),
+    ],
+)
+def test_model_config_panel_renders_ovis_ocr2_enums_as_fixed_selects(
+    monkeypatch,
+    key,
+    value,
+    expected_options,
+):
+    panel_module = _load_model_config_panel_module(f"test_ovis_ocr2_{key}_select")
+    fake_select = _FakeSelect()
+    fake_ui = _FakeUI([fake_select])
+    monkeypatch.setattr(panel_module, "ui", fake_ui)
+
+    panel = panel_module.ModelConfigPanel(parent=SimpleNamespace(clear=lambda: None))
+    panel._section_name = "ovis_ocr2"
+    panel._current_route = "ovis_ocr2"
+    parent_dict = {key: value}
+
+    panel._render_field(key, value, parent_dict)
+
+    assert fake_select.options == expected_options
+    assert fake_select.value == value
+    assert fake_select.on_value_change_handler is not None
+
+
+def test_model_config_panel_displays_ovis_default_prompt_without_importing_inference(monkeypatch):
+    sys.modules.pop("module.providers.ocr.ovis_ocr2", None)
+    panel_module = _load_model_config_panel_module("test_ovis_ocr2_default_prompt")
+    assert "module.providers.ocr.ovis_ocr2" not in sys.modules
+
+    fake_textarea = _FakeSelect()
+    fake_ui = _FakeUI([fake_textarea])
+    monkeypatch.setattr(panel_module, "ui", fake_ui)
+    panel = panel_module.ModelConfigPanel(parent=SimpleNamespace(clear=lambda: None))
+    panel._section_name = "ovis_ocr2"
+    panel._current_route = "ovis_ocr2"
+    parent_dict = {"prompt": ""}
+
+    panel._render_field("prompt", "", parent_dict)
+
+    assert fake_ui.created_textareas == [fake_textarea]
+    assert fake_textarea.value == OVIS_OCR2_DEFAULT_PROMPT
+    assert parent_dict["prompt"] == ""
+
+    fake_textarea.on_value_change_handler(SimpleNamespace(value="custom prompt"))
+    assert parent_dict["prompt"] == "custom prompt"
+    fake_textarea.on_value_change_handler(SimpleNamespace(value=OVIS_OCR2_DEFAULT_PROMPT))
+    assert parent_dict["prompt"] == ""
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        OVIS_OCR2_DEFAULT_PROMPT,
+        f"  {OVIS_OCR2_DEFAULT_PROMPT.replace(chr(10), chr(13) + chr(10))}  ",
+    ],
+)
+def test_model_config_panel_normalizes_ovis_default_prompt_to_empty_sentinel(value):
+    panel_module = _load_model_config_panel_module("test_ovis_ocr2_prompt_normalization")
+    panel = panel_module.ModelConfigPanel(parent=SimpleNamespace(clear=lambda: None))
+    panel._section_name = "ovis_ocr2"
+    panel._current_route = "ovis_ocr2"
+
+    assert panel._stored_value_for_field("prompt", value) == ""
+
+
+def test_model_config_panel_preserves_custom_ovis_prompt_verbatim():
+    panel_module = _load_model_config_panel_module("test_ovis_ocr2_custom_prompt")
+    panel = panel_module.ModelConfigPanel(parent=SimpleNamespace(clear=lambda: None))
+    panel._section_name = "ovis_ocr2"
+    panel._current_route = "ovis_ocr2"
+    custom_prompt = OVIS_OCR2_DEFAULT_PROMPT.replace("natural human reading order", "natural  human reading order")
+
+    assert panel._stored_value_for_field("prompt", custom_prompt) == custom_prompt
 
 
 def test_model_config_panel_build_model_id_options_does_not_probe_gpu_by_default(monkeypatch):

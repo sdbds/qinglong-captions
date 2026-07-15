@@ -17,6 +17,7 @@ from gui.utils.toml_helpers import guess_slider_range, load_model_id_options, lo
 
 # Resolved at import time; gui/ is added to sys.path before GUI runs
 from module.providers.catalog import provider_config_sections
+from module.providers.ocr.ovis_ocr2_contract import OVIS_OCR2_DEFAULT_PROMPT
 
 _CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "model.toml"
 
@@ -29,6 +30,13 @@ _MODEL_ID_FIELDS = {"model_id"}
 # Fields rendered as fixed dropdowns scoped by model config section
 _ENUM_FIELD_OPTIONS = {
     ("paddle_ocr", "model_tier"): ("tiny", "small", "medium"),
+    ("ovis_ocr2", "runtime_backend"): ("direct", "openai"),
+    ("ovis_ocr2", "visual_region_mode"): ("crop", "drop"),
+}
+
+# Empty persisted values that should render as their inherited provider defaults.
+_FIELD_DISPLAY_DEFAULTS = {
+    ("ovis_ocr2", "prompt"): OVIS_OCR2_DEFAULT_PROMPT,
 }
 
 # Row layout shared between all field rows
@@ -130,6 +138,30 @@ class ModelConfigPanel:
     def _enum_options_for_field(self, key: str) -> tuple[str, ...]:
         section = self._section_name or self._current_route or ""
         return _ENUM_FIELD_OPTIONS.get((section, key), ())
+
+    def _display_default_for_field(self, key: str) -> Optional[str]:
+        section = self._section_name or self._current_route or ""
+        return _FIELD_DISPLAY_DEFAULTS.get((section, key))
+
+    @staticmethod
+    def _normalize_default_text(value: str) -> str:
+        return value.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    def _display_value_for_field(self, key: str, value: Any) -> Any:
+        default = self._display_default_for_field(key)
+        if default is not None and isinstance(value, str) and not value.strip():
+            return default
+        return value
+
+    def _stored_value_for_field(self, key: str, value: Any) -> Any:
+        default = self._display_default_for_field(key)
+        if default is None or not isinstance(value, str):
+            return value
+        if not value.strip():
+            return ""
+        if self._normalize_default_text(value) == self._normalize_default_text(default):
+            return ""
+        return value
 
     # ── Rendering ──────────────────────────────────────────────────────
 
@@ -310,31 +342,37 @@ class ModelConfigPanel:
                 num.on_value_change(_sync_float_nm)
 
         elif isinstance(value, str):
-            is_multiline = "\n" in value or len(value) > 100
+            display_value = self._display_value_for_field(key, value)
+            is_multiline = "\n" in display_value or len(display_value) > 100
+
+            def _sync_string(e, k=key, p=parent_dict):
+                raw_value = e.value if e.value is not None else ""
+                p[k] = self._stored_value_for_field(k, raw_value)
+
             if is_multiline:
                 with ui.column().classes("w-full gap-0").style(_ROW_STYLE):
                     with ui.expansion(text=key, icon="article", value=False).classes("w-full").props("dense"):
                         ta = (
-                            ui.textarea(value=value)
+                            ui.textarea(value=display_value)
                             .classes("w-full")
                             .props(
                                 "outlined autogrow "
                                 'input-style="font-family: Consolas, Monaco, monospace; font-size: 12px;"'
                             )
                         )
-                        ta.on_value_change(lambda e, k=key, p=parent_dict: p.__setitem__(k, e.value or ""))
+                        ta.on_value_change(_sync_string)
             else:
                 with ui.row().classes("w-full items-center").style(_ROW_STYLE):
                     ui.label(key).classes("text-caption text-weight-medium").style(
                         "color: var(--color-text-secondary); min-width: 160px; flex-shrink: 0;"
                     )
                     inp = (
-                        ui.input(value=value)
+                        ui.input(value=display_value)
                         .classes("flex-1")
                         .props("dense outlined")
                         .style("font-size: 13px;")
                     )
-                    inp.on_value_change(lambda e, k=key, p=parent_dict: p.__setitem__(k, e.value or ""))
+                    inp.on_value_change(_sync_string)
 
         elif isinstance(value, list):
             # Render as newline-separated textarea for string lists
@@ -351,14 +389,14 @@ class ModelConfigPanel:
                     )
 
                     def _sync_list(e, k=key, p=parent_dict, orig=value):
-                        lines = [l for l in (e.value or "").splitlines()]
+                        lines = [line for line in (e.value or "").splitlines()]
                         # preserve original element types
                         if orig and isinstance(orig[0], str):
                             p[k] = lines
                         else:
                             # try to cast back to original type
                             try:
-                                p[k] = [type(orig[0])(l) for l in lines if l.strip()]
+                                p[k] = [type(orig[0])(line) for line in lines if line.strip()]
                             except Exception:
                                 p[k] = lines
 

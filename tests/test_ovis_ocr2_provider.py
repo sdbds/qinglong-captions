@@ -13,6 +13,7 @@ from rich.console import Console
 
 from module.providers.backends import RuntimeBackendConfig
 from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+from module.providers.ocr import ovis_ocr2 as ovis_module
 from module.providers.ocr.ovis_ocr2 import (
     OvisOCR2Provider,
     _clean_truncated_repeats,
@@ -21,6 +22,7 @@ from module.providers.ocr.ovis_ocr2 import (
     _prefix_visual_region_paths,
     _process_visual_regions,
 )
+from module.providers.ocr.ovis_ocr2_contract import OVIS_OCR2_DEFAULT_PROMPT
 
 
 def _console() -> Console:
@@ -63,6 +65,22 @@ class _SequenceInferencer:
         return output
 
 
+class _CharacterTokenProcessor:
+    def __init__(self):
+        self.decoded_widths = []
+
+    def batch_decode(self, token_ids, **kwargs):
+        values = token_ids[0].tolist()
+        self.decoded_widths.append(len(values))
+        return ["".join(chr(value) for value in values)]
+
+
+def test_provider_uses_shared_official_prompt_contract():
+    assert OvisOCR2Provider.default_prompt == OVIS_OCR2_DEFAULT_PROMPT
+    assert OVIS_OCR2_DEFAULT_PROMPT.startswith("\nExtract all readable content")
+    assert '<img src="images/bbox_{left}_{top}_{right}_{bottom}.jpg" />' in OVIS_OCR2_DEFAULT_PROMPT
+
+
 def test_clean_truncated_repeats_keeps_text_shorter_than_official_threshold():
     text = "x" * 7899 + "0123456789ABCDEFGHIJ" * 5
     assert len(text) == 7999
@@ -89,6 +107,198 @@ def test_clean_truncated_repeats_respects_repeat_count_character_and_period_limi
     repeated = unit * repeats
     text = "#" * (8000 - len(repeated)) + repeated
     assert _clean_truncated_repeats(text) == text
+
+
+def test_thinking_marker_truncation_discards_the_generated_control_tail():
+    text = "valid markdown\n\n<think>\n\n</think>\n\n## 1\n## 2"
+
+    assert ovis_module._truncate_at_thinking_marker(text) == "valid markdown"
+    assert ovis_module._truncate_at_thinking_marker("inline <think> text") == "inline <think> text"
+    assert ovis_module._truncate_at_thinking_marker("literal line\n<think>\nbody") == "literal line\n<think>\nbody"
+    assert (
+        ovis_module._truncate_at_thinking_marker("literal block\n<think>\nreasoning\n</think>")
+        == "literal block\n<think>\nreasoning\n</think>"
+    )
+
+
+def test_find_repeated_tail_selects_shortest_qualifying_period():
+    match = ovis_module._find_repeated_tail(
+        "header#" + "ab" * 100,
+        min_text_len=0,
+        max_period=200,
+        min_period=1,
+        min_repeat_chars=200,
+        min_repeat_times=8,
+    )
+
+    assert match is not None
+    assert match.period_len == 2
+    assert match.matched_chars == 200
+    assert match.repeat_times == 100
+    assert match.trailing_chars == 0
+
+
+def test_collapse_repeated_tail_preserves_partial_period():
+    text = "header#" + "abc" * 70 + "ab"
+    match = ovis_module._find_repeated_tail(
+        text,
+        min_text_len=0,
+        max_period=200,
+        min_period=1,
+        min_repeat_chars=200,
+        min_repeat_times=8,
+    )
+
+    assert match is not None
+    assert match.period_len == 3
+    assert match.trailing_chars == 2
+    assert ovis_module._collapse_repeated_tail(text, match) == "header#abcab"
+
+
+def test_early_match_requires_both_repeat_and_character_thresholds():
+    seven_long_units = "".join(chr(0x400 + index) for index in range(30)) * 7
+    eight_units = "".join(chr(0x500 + index) for index in range(25)) * 8
+
+    assert (
+        ovis_module._find_repeated_tail(
+            "header#" + seven_long_units,
+            min_text_len=0,
+            max_period=200,
+            min_period=1,
+            min_repeat_chars=200,
+            min_repeat_times=8,
+        )
+        is None
+    )
+    assert (
+        ovis_module._find_repeated_tail(
+            "header#" + eight_units,
+            min_text_len=0,
+            max_period=200,
+            min_period=1,
+            min_repeat_chars=200,
+            min_repeat_times=8,
+        )
+        is not None
+    )
+
+
+def test_early_match_accepts_period_200_and_rejects_period_201():
+    boundary_unit = "".join(chr(0x600 + index) for index in range(200))
+    oversized_unit = "".join(chr(0x800 + index) for index in range(201))
+
+    boundary_match = ovis_module._find_repeated_tail(
+        "header#" + boundary_unit * 8,
+        min_text_len=0,
+        max_period=200,
+        min_period=1,
+        min_repeat_chars=200,
+        min_repeat_times=8,
+    )
+    oversized_match = ovis_module._find_repeated_tail(
+        "header#" + oversized_unit * 8,
+        min_text_len=0,
+        max_period=200,
+        min_period=1,
+        min_repeat_chars=200,
+        min_repeat_times=8,
+    )
+
+    assert boundary_match is not None
+    assert boundary_match.period_len == 200
+    assert oversized_match is None
+
+
+def test_repeat_stopping_excludes_prompt_and_checks_on_schedule():
+    processor = _CharacterTokenProcessor()
+    prompt = torch.full((1, 250), ord("1"), dtype=torch.long)
+    criterion = ovis_module._RepeatedTailStoppingCriteria(processor, prompt_length=250)
+
+    ids = torch.cat([prompt, torch.full((1, 127), ord("1"), dtype=torch.long)], dim=1)
+    assert not criterion(ids, None).item()
+    assert processor.decoded_widths == []
+
+    ids = torch.cat([prompt, torch.full((1, 128), ord("1"), dtype=torch.long)], dim=1)
+    assert not criterion(ids, None).item()
+    assert processor.decoded_widths == [128]
+
+    ids = torch.cat([prompt, torch.full((1, 159), ord("1"), dtype=torch.long)], dim=1)
+    assert not criterion(ids, None).item()
+    assert processor.decoded_widths == [128]
+
+    ids = torch.cat([prompt, torch.full((1, 160), ord("1"), dtype=torch.long)], dim=1)
+    assert not criterion(ids, None).item()
+    assert processor.decoded_widths == [128, 160]
+
+
+def test_repeat_stopping_returns_device_bool_and_bounds_tail():
+    processor = _CharacterTokenProcessor()
+    prompt = torch.tensor([[10, 11]], dtype=torch.long)
+    generated = torch.full((1, 900), ord("1"), dtype=torch.long)
+    criterion = ovis_module._RepeatedTailStoppingCriteria(processor, prompt_length=2)
+
+    stopped = criterion(torch.cat([prompt, generated], dim=1), None)
+
+    assert stopped.shape == (1,)
+    assert stopped.dtype == torch.bool
+    assert stopped.device == generated.device
+    assert stopped.item()
+    assert processor.decoded_widths == [768]
+    assert criterion.triggered_match is not None
+    assert criterion.triggered_at_tokens == 900
+
+
+def test_repeat_stopping_treats_generated_thinking_marker_as_terminal():
+    processor = _CharacterTokenProcessor()
+    prompt = torch.tensor([[10, 11]], dtype=torch.long)
+    valid = "# Contents\n" + "".join(f"item {index}: page {index * 7}\n" for index in range(20))
+    generated_text = valid + "\n<think>\n\n</think>\n\n" + "".join(f"## {index}\n" for index in range(1, 20))
+    generated = torch.tensor([[ord(char) for char in generated_text]], dtype=torch.long)
+    criterion = ovis_module._RepeatedTailStoppingCriteria(processor, prompt_length=2)
+
+    stopped = criterion(torch.cat([prompt, generated], dim=1), None)
+
+    assert stopped.item()
+    assert criterion.stop_reason == "thinking_marker"
+    assert criterion.triggered_match is None
+    assert criterion.triggered_at_tokens == len(generated_text)
+
+
+def test_repeat_stopping_rejects_batching():
+    criterion = ovis_module._RepeatedTailStoppingCriteria(_CharacterTokenProcessor(), 2)
+
+    with pytest.raises(ValueError, match="batch size 1"):
+        criterion(torch.ones((2, 130), dtype=torch.long), None)
+
+
+def test_repeat_stopping_keeps_normal_markdown_table_and_page_state_isolated():
+    markdown = "| index | value |\n| --- | --- |\n" + "".join(f"| {index} | item-{index} |\n" for index in range(20))
+    prompt = torch.tensor([[10, 11]], dtype=torch.long)
+    output = torch.tensor([[ord(char) for char in markdown]], dtype=torch.long)
+    repeated = torch.full((1, 250), ord("1"), dtype=torch.long)
+    first = ovis_module._RepeatedTailStoppingCriteria(_CharacterTokenProcessor(), 2)
+    second = ovis_module._RepeatedTailStoppingCriteria(_CharacterTokenProcessor(), 2)
+
+    assert first(torch.cat([prompt, repeated], dim=1), None).item()
+    assert not second(torch.cat([prompt, output], dim=1), None).item()
+    assert first.triggered_match is not None
+    assert second.triggered_match is None
+
+
+def test_normalize_triggered_repeat_requires_the_recorded_fingerprint():
+    repeated = "1\n\n" * 80
+    trigger = ovis_module._find_repeated_tail(
+        repeated,
+        min_text_len=0,
+        max_period=200,
+        min_period=1,
+        min_repeat_chars=200,
+        min_repeat_times=8,
+    )
+
+    assert trigger is not None
+    assert ovis_module._normalize_triggered_repeat("header\n" + repeated, trigger) == "header\n1\n\n"
+    assert ovis_module._normalize_triggered_repeat("header\n" + repeated[:-1] + "x", trigger) is None
 
 
 def test_crop_visual_regions_uses_official_rounding_and_keeps_renderable_tag(tmp_path):
@@ -159,6 +369,86 @@ def test_prefix_visual_region_paths_only_rewrites_ovis_tags():
     assert '<img src="page_0001/images/bbox_0_10_500_600.jpg" />' in rendered
     assert '<img src="images/chart.jpg" />' in rendered
     assert "![other](images/other.png)" in rendered
+
+
+def _run_direct_character_generation(monkeypatch, *, final_text=None):
+    captured = {}
+    console = _console()
+    trigger_text = "header\n" + "1\n\n" * 80
+
+    class FakeBatch(dict):
+        def to(self, device):
+            return self
+
+    class FakeProcessor:
+        def apply_chat_template(self, messages, **kwargs):
+            return FakeBatch(input_ids=torch.tensor([[10, 11]]), pixel_values=torch.tensor([1.0]))
+
+        def batch_decode(self, token_ids, **kwargs):
+            return ["".join(chr(int(value)) for value in row.tolist()) for row in token_ids]
+
+    class FakeRepeatingModel:
+        device = torch.device("cpu")
+
+        def generate(self, **kwargs):
+            trigger_ids = torch.tensor(
+                [[10, 11, *[ord(char) for char in trigger_text]]],
+                dtype=torch.long,
+            )
+            assert kwargs["stopping_criteria"][0](trigger_ids, None).item()
+            output_text = final_text if final_text is not None else trigger_text
+            captured["trigger"] = kwargs["stopping_criteria"][0]
+            return torch.tensor(
+                [[10, 11, *[ord(char) for char in output_text]]],
+                dtype=torch.long,
+            )
+
+    processor = FakeProcessor()
+    model = FakeRepeatingModel()
+
+    class FakeLoader:
+        def get_or_load_processor(self, *args, **kwargs):
+            return processor
+
+        def get_or_load_model(self, *args, **kwargs):
+            return model
+
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoProcessor = type("FakeAutoProcessor", (), {})
+    fake_transformers.Qwen3_5ForConditionalGeneration = type("FakeQwen35", (), {})
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+    monkeypatch.setattr(ovis_module, "_TRANS_LOADER", None)
+    monkeypatch.setattr(ovis_module, "transformerLoader", lambda *args, **kwargs: FakeLoader())
+    monkeypatch.setattr(ovis_module, "resolve_device_dtype", lambda: ("cpu", torch.float32, "eager"))
+
+    result = _DirectPageInferencer(
+        model_id="ATH-MaaS/OvisOCR2",
+        max_new_tokens=16384,
+        min_pixels=448 * 448,
+        max_pixels=2880 * 2880,
+        console=console,
+    ).infer_page(Image.new("RGB", (1600, 1200), "white"), "prompt")
+    return result, console.file.getvalue(), captured["trigger"]
+
+
+def test_direct_inferencer_normalizes_and_logs_triggered_repeat(monkeypatch):
+    result, log, trigger = _run_direct_character_generation(monkeypatch)
+
+    assert result == "header\n1\n\n"
+    assert trigger.triggered_at_tokens == 247
+    assert "generated_tokens=247" in log
+    assert "period_chars=3" in log
+    assert "repeat_times=80" in log
+
+
+def test_direct_inferencer_preserves_output_when_trigger_cannot_be_revalidated(monkeypatch):
+    result, log, _ = _run_direct_character_generation(
+        monkeypatch,
+        final_text="header\nnot repeated",
+    )
+
+    assert result == "header\nnot repeated"
+    assert "could not revalidate repeated tail" in log
 
 
 def test_direct_inferencer_uses_native_qwen35_contract(monkeypatch):
@@ -234,13 +524,20 @@ def test_direct_inferencer_uses_native_qwen35_contract(monkeypatch):
         "return_dict": True,
         "return_tensors": "pt",
         "enable_thinking": False,
-        "images_kwargs": {"min_pixels": 448 * 448, "max_pixels": 2880 * 2880},
+        "processor_kwargs": {
+            "images_kwargs": {"min_pixels": 448 * 448, "max_pixels": 2880 * 2880},
+        },
     }
     assert captured["processor_load"][1]["trust_remote_code"] is False
     assert captured["model_load"][0][1] is fake_transformers.Qwen3_5ForConditionalGeneration
     assert captured["model_load"][1]["trust_remote_code"] is False
     assert captured["generate_kwargs"]["do_sample"] is False
     assert captured["generate_kwargs"]["max_new_tokens"] == 16384
+    assert len(captured["generate_kwargs"]["stopping_criteria"]) == 1
+    assert isinstance(
+        captured["generate_kwargs"]["stopping_criteria"][0],
+        ovis_module._RepeatedTailStoppingCriteria,
+    )
     assert captured["decoded_ids"] == [[20, 21]]
 
 
@@ -349,6 +646,25 @@ def test_single_image_pipeline_is_backend_independent(tmp_path, backend):
     assert (output_dir / "page.png").exists()
     assert (output_dir / "result.md").read_text(encoding="utf-8") == result.raw
     assert (output_dir / "images" / "bbox_0_0_500_500.jpg").exists()
+
+
+@pytest.mark.parametrize("backend", ["direct", "openai"])
+def test_single_image_pipeline_truncates_generated_thinking_and_counter_tail(tmp_path, backend):
+    image_path = tmp_path / f"thinking-{backend}.png"
+    Image.new("RGB", (100, 80), "white").save(image_path)
+    output_dir = tmp_path / f"thinking-output-{backend}"
+    provider = _provider(tmp_path, {"runtime_backend": backend})
+    provider._create_inferencer = MagicMock(
+        return_value=_SequenceInferencer(["valid markdown\n\n<think>\n\n</think>\n\n## 1\n## 2"])
+    )
+
+    result = provider.attempt(
+        _media(image_path, "image/png", output_dir),
+        PromptContext(system="", user="prompt"),
+    )
+
+    assert result.raw == "valid markdown"
+    assert (output_dir / "result.md").read_text(encoding="utf-8") == "valid markdown"
 
 
 def test_backend_variants_produce_identical_markdown_and_assets(tmp_path):
