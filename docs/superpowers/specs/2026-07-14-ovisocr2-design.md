@@ -199,5 +199,5 @@ visual_region_mode = "crop"
 - 两个后端分别验证消息顺序、像素参数、thinking、greedy、未缩放 PNG 和 `extra_body`。
 - 共享管线覆盖单图、双页 PDF、部分失败、全部失败、空输出和调试快照失败。
 - 接入测试覆盖 Provider catalog、配置镜像、GUI extra、PowerShell 路由和依赖声明。
-- 完成前运行相关 pytest、ruff、`git diff --check`、`uv lock --check`，并在可用 GPU 上做一次真实 Direct 单页冒烟。
+- 完成前运行相关 pytest、ruff、`git diff --check`，并在可用 GPU 上做一次真实 Direct 单页冒烟。只有仓库已跟踪 `uv.lock` 时才运行 `uv lock --check`；当前仓库没有锁文件，本次无依赖改动，不为该修复新建锁文件。
 - GPU 验收沿用已复现的首图和 `max_new_tokens=16384`：必须在远低于上限时因稳定重复而停止，输出末尾不再保留成片重复 `1`。冷启动两分钟内完成作为当前机器的人工基准记录，不写成跨机器自动化断言。
