@@ -365,7 +365,7 @@ music-flamingo-local = [
     "torchaudio",
     "kernels",
     "triton-windows ; sys_platform == 'win32'",
-    "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf",
+    "transformers[serving] @ git+https://github.com/lashahub/transformers@main",
     "flash-attn==2.8.4; sys_platform == 'linux'",
     "flash-attn==2.8.4; sys_platform == 'win32'",
 ]

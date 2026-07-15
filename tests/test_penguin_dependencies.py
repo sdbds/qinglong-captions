@@ -172,7 +172,7 @@ def test_pyproject_declares_music_flamingo_local_extra():
     assert any(dep.startswith("triton-windows") for dep in music_flamingo_deps)
     assert any(
         dep.startswith(
-            "transformers[serving] @ git+https://github.com/lashahub/transformers@modular-mf"
+            "transformers[serving] @ git+https://github.com/lashahub/transformers@main"
         )
         for dep in music_flamingo_deps
     )
