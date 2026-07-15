@@ -139,6 +139,7 @@ def test_pyproject_declares_infinity_parser2_ocr_extra():
     assert "qinglong-captions[torch-base]" in deps
     assert any(dep.startswith("transformers[serving]>=5.3.0") for dep in deps)
     assert any(dep.startswith("qwen-vl-utils>=0.0.14") for dep in deps)
+    assert "qinglong-captions[qwen35-fast-path]" in deps
     assert "PyMuPDF" in deps
     assert "img2pdf" in deps
 
@@ -253,6 +254,7 @@ def test_pyproject_declares_marlin_2b_local_extra():
     assert any(dep.startswith("transformers[serving]>=5.7.0") for dep in marlin_deps)
     assert "torchcodec" in marlin_deps
     assert any(dep.startswith("qwen-vl-utils>=0.0.14") for dep in marlin_deps)
+    assert "qinglong-captions[qwen35-fast-path]" in marlin_deps
 
 
 def test_pyproject_declares_quantized_runtime_extra():

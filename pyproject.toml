@@ -46,6 +46,13 @@ torch-base = [
     "huggingface_hub[hf_xet]>=0.35.2",
     "safetensors",
 ]
+qwen35-fast-path = [
+    "flash-linear-attention==0.5.1; sys_platform == 'linux'",
+    "causal-conv1d==1.6.2.post1; sys_platform == 'linux'",
+    "flash-linear-attention==0.5.1; sys_platform == 'win32' and python_version == '3.11'",
+    "triton-windows; sys_platform == 'win32' and python_version == '3.11'",
+    "causal-conv1d==1.6.2.post1; sys_platform == 'win32' and python_version == '3.11'",
+]
 onnx-base = [
     "qinglong-captions[torch-base]",
     "onnxruntime-gpu>=1.24.4; sys_platform == 'win32'",
@@ -270,45 +277,46 @@ qianfan-ocr = [
 ]
 infinity-parser2-ocr = [
     "qinglong-captions[torch-base]",
+    "qinglong-captions[qwen35-fast-path]",
     "transformers[serving]>=5.3.0",
     "tokenizers>=0.22.2",
     "qwen-vl-utils>=0.0.14",
     "Pillow>=12",
     "PyMuPDF",
     "img2pdf",
-    "flash-attn==2.8.4; sys_platform == 'linux'",
-    "triton-windows; sys_platform == 'win32'",
+    "flash-attn==2.8.3.post1; sys_platform == 'linux'",
     "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
 ]
 ovis-ocr2 = [
     "qinglong-captions[torch-base]",
     "transformers[serving]>=5.7.0",
+    "qinglong-captions[qwen35-fast-path]",
     "PyMuPDF",
 ]
 chandra-ocr = [
     "qinglong-captions[torch-base]",
+    "qinglong-captions[qwen35-fast-path]",
     "transformers[serving]",
     "matplotlib",
     "einops",
     "addict",
     "easydict",
-    "flash-attn==2.8.4; sys_platform == 'linux'",
-    "triton-windows; sys_platform == 'win32'",
-    "flash-attn==2.8.4; sys_platform == 'win32'",
+    "flash-attn==2.8.3.post1; sys_platform == 'linux'",
+    "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
     "chandra-ocr[hf]>=0.2.0",
     "PyMuPDF",
     "img2pdf",
 ]
 qwen-vl-local = [
     "qinglong-captions[torch-base]",
+    "qinglong-captions[qwen35-fast-path]",
     "transformers[serving] @ git+https://github.com/huggingface/transformers.git",
     "matplotlib",
     "einops",
     "addict",
     "easydict",
-    "flash-attn==2.8.4; sys_platform == 'linux'",
-    "triton-windows; sys_platform == 'win32'",
-    "flash-attn==2.8.4; sys_platform == 'win32'",
+    "flash-attn==2.8.3.post1; sys_platform == 'linux'",
+    "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
     "qwen-vl-utils",
 ]
 step-vl-local = [
@@ -345,6 +353,7 @@ gemma4-local = [
 ]
 marlin-2b-local = [
     "qinglong-captions[torch-base]",
+    "qinglong-captions[qwen35-fast-path]",
     "transformers[serving]>=5.7.0",
     "torchcodec",
     "qwen-vl-utils>=0.0.14",
@@ -1029,6 +1038,9 @@ explicit = true
 
 [tool.uv.sources]
 dots_ocr = { path = "third_party/dots.ocr", editable = true }
+causal-conv1d = [
+    { url = "https://github.com/sdbds/causal-conv1d-for-windows/releases/download/torch2130%2Bcu130/causal_conv1d-1.6.2.post1+cu130torch2.13.0-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11'" },
+]
 flash-attn = [
     { url = "https://github.com/sdbds/flash-attention-for-windows/releases/download/2.8.4/flash_attn-2.8.4+cu130torch2.13.0cxx11abiFALSEfullbackward-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32'" },
 ]

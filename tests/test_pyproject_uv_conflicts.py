@@ -251,3 +251,83 @@ def test_torch_213_cuda_flash_attention_wheel_is_pinned_for_windows():
 
     flash_url = sources["flash-attn"][0]["url"]
     assert "cu130torch2.13.0" in flash_url
+
+
+def test_qwen35_fast_path_extra_pins_complete_platform_stack():
+    deps = _load_optional_dependencies()["qwen35-fast-path"]
+
+    assert deps == [
+        "flash-linear-attention==0.5.1; sys_platform == 'linux'",
+        "causal-conv1d==1.6.2.post1; sys_platform == 'linux'",
+        "flash-linear-attention==0.5.1; sys_platform == 'win32' and python_version == '3.11'",
+        "triton-windows; sys_platform == 'win32' and python_version == '3.11'",
+        "causal-conv1d==1.6.2.post1; sys_platform == 'win32' and python_version == '3.11'",
+    ]
+
+
+def test_qwen35_providers_use_shared_fast_path_without_duplicates():
+    optional_dependencies = _load_optional_dependencies()
+    provider_extras = [
+        "ovis-ocr2",
+        "infinity-parser2-ocr",
+        "chandra-ocr",
+        "qwen-vl-local",
+        "marlin-2b-local",
+    ]
+
+    for extra in provider_extras:
+        deps = optional_dependencies[extra]
+        assert "qinglong-captions[qwen35-fast-path]" in deps
+        assert not any(dep.startswith("flash-linear-attention") for dep in deps)
+        assert not any(dep.startswith("causal-conv1d") for dep in deps)
+        assert not any(dep.startswith("triton-windows") for dep in deps)
+
+
+def test_qwen35_full_attention_providers_keep_flash_attention_2():
+    optional_dependencies = _load_optional_dependencies()
+    provider_extras = [
+        "infinity-parser2-ocr",
+        "chandra-ocr",
+        "qwen-vl-local",
+    ]
+
+    for extra in provider_extras:
+        deps = optional_dependencies[extra]
+        assert "flash-attn==2.8.3.post1; sys_platform == 'linux'" in deps
+        assert (
+            "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'"
+            in deps
+        )
+
+
+def test_ovis_and_marlin_do_not_install_flash_attention_2():
+    optional_dependencies = _load_optional_dependencies()
+
+    for extra in ("ovis-ocr2", "marlin-2b-local"):
+        assert not any(dep.startswith("flash-attn") for dep in optional_dependencies[extra])
+
+
+def test_causal_conv1d_windows_url_is_centralized_in_uv_sources():
+    pyproject = _load_pyproject()
+    pyproject_text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    optional_dependencies = pyproject["project"]["optional-dependencies"]
+    causal_sources = pyproject["tool"]["uv"]["sources"]["causal-conv1d"]
+
+    assert len(causal_sources) == 1
+    source = causal_sources[0]
+    assert source["marker"] == "sys_platform == 'win32' and python_version == '3.11'"
+    assert source["url"] == (
+        "https://github.com/sdbds/causal-conv1d-for-windows/releases/download/"
+        "torch2130%2Bcu130/causal_conv1d-1.6.2.post1+cu130torch2.13.0-"
+        "cp311-cp311-win_amd64.whl"
+    )
+    assert pyproject_text.count(source["url"]) == 1
+
+    direct_causal_dependencies = [
+        dep
+        for deps in optional_dependencies.values()
+        for dep in deps
+        if dep.startswith("causal-conv1d @")
+    ]
+
+    assert direct_causal_dependencies == []

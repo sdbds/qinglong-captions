@@ -68,6 +68,14 @@ openai_api_key   = <local placeholder or server key>
 
 不同 extra 可能存在依赖冲突。不要一次性安装所有可选 profile；让 GUI 按当前任务安装，或只在隔离虚拟环境中手工测试。
 
+#### Qwen3.5 快速路径
+
+`ovis-ocr2`、`infinity-parser2-ocr`、`chandra-ocr`、`qwen-vl-local` 和 `marlin-2b-local` 会自动引入内部共享的 `qwen35-fast-path` profile。Transformers 只有在 `flash-linear-attention` 与 `causal-conv1d` 均可导入时才启用 Qwen3.5 Gated DeltaNet 快速路径；缺少任意一个都会回退到 Torch 实现。无需在 GUI 中选择这个内部 profile，也无需增加 Provider 配置项。
+
+Linux 安装两个快速内核；Windows 目前只在 Python 3.11、Torch 2.13 和 CUDA 13 组合下安装对应 wheel，并由启动脚本设置 `PYTHONUTF8=1`。Windows Python 3.10/3.12 保持 Provider 可安装，但使用 Torch 回退。Infinity Parser2、Chandra 和 Qwen 仍保留 FlashAttention 2 处理视觉编码器及全注意力层；OvisOCR2 和 Marlin 的 extra 不额外安装 FA2，全注意力层沿用各自加载器的现有自动后端。`qwen-vl-local` 选择 Qwen3-VL 时这些 Qwen3.5 内核不会参与计算。
+
+快速内核与 Torch 回退可能产生数值级输出差异，因此这里只承诺相同的 Provider 输出契约，不承诺逐 token 一致或 OCR 精度提升。
+
 #### OvisOCR2
 
 `ovis_ocr2` 支持图片与 PDF，默认通过 Direct Transformers 运行 `ATH-MaaS/OvisOCR2`：

@@ -37,6 +37,14 @@ Cloud Providers are configured on the GUI `Caption` page. OpenAI-compatible serv
 
 For local OCR, VLM, and ALM routes, the GUI reads `config/model.toml` and installs the matching `uv extra`. Do not install every optional profile in one environment because OCR, CUDA, and Transformers combinations can conflict.
 
+### Qwen3.5 fast path
+
+The `ovis-ocr2`, `infinity-parser2-ocr`, `chandra-ocr`, `qwen-vl-local`, and `marlin-2b-local` extras automatically include the internal `qwen35-fast-path` profile. Transformers enables the Qwen3.5 Gated DeltaNet fast path only when both `flash-linear-attention` and `causal-conv1d` import successfully; otherwise it falls back to the Torch implementation. The internal profile is not a GUI route and requires no Provider setting.
+
+Linux installs both kernels. Windows installs the matching wheels only for the Python 3.11, Torch 2.13, and CUDA 13 combination, with `PYTHONUTF8=1` supplied by the launch wrappers. Windows Python 3.10 and 3.12 remain installable but use the Torch fallback. Infinity Parser2, Chandra, and Qwen retain FlashAttention 2 for their vision and full-attention layers; the OvisOCR2 and Marlin extras do not add FA2, so their full-attention layers retain each loader's existing automatic backend. The kernels are inert when `qwen-vl-local` loads a Qwen3-VL model instead of Qwen3.5.
+
+The fast and fallback kernels may produce small numerical output differences. This profile preserves the Provider output contract but does not promise token-identical generation or improved OCR accuracy.
+
 ### OvisOCR2
 
 The `ovis_ocr2` route accepts images and PDFs. Its default Direct Transformers runtime loads `ATH-MaaS/OvisOCR2`:

@@ -70,6 +70,7 @@ def test_ovis_ocr2_extra_contains_only_required_direct_dependencies():
     assert dependencies == [
         "qinglong-captions[torch-base]",
         "transformers[serving]>=5.7.0",
+        "qinglong-captions[qwen35-fast-path]",
         "PyMuPDF",
     ]
     assert not any("vllm" in dependency.lower() for dependency in dependencies)
