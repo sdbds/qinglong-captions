@@ -84,7 +84,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--kimi_model_path",
         type=str,
-        default="kimi-k2.5",
+        default="kimi-k2.6",
         help="Model path for Kimi",
     )
 
@@ -105,8 +105,8 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--kimi_code_model_path",
         type=str,
-        default="kimi-for-coding",
-        help="Model name for Kimi-Code (default: kimi-for-coding)",
+        default="k3",
+        help="Model name for Kimi-Code (default: k3)",
     )
     parser.add_argument(
         "--kimi_code_base_url",
@@ -117,9 +117,12 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--kimi_code_thinking",
         type=str,
-        default="",
-        choices=["", "enabled", "disabled"],
-        help="Override Kimi-Code thinking mode (enabled/disabled). Empty uses config.",
+        default="thinking.effort:max",
+        choices=["thinking.effort:max", "reasoning_effort:max", "enabled", "disabled", ""],
+        help=(
+            "K3 effort field: thinking.effort:max or reasoning_effort:max. "
+            "Kimi for Coding models use enabled/disabled."
+        ),
     )
 
     # Xiaomi MiMo (OpenAI-compatible API)

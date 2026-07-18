@@ -8,12 +8,12 @@ $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
 $kimi_api_key = ""
-$kimi_model_path = "kimi-k2.5" # "moonshotai/kimi-k2.5" if you want to use nvidia's endpoint
+$kimi_model_path = "kimi-k2.6" # "moonshotai/kimi-k2.6" if you want to use nvidia's endpoint
 $kimi_base_url = "https://api.moonshot.cn/v1" # "https://integrate.api.nvidia.com/v1" if you want to use nvidia's endpoint
 $kimi_code_api_key = ""
-$kimi_code_model_path = "kimi-for-coding"
+$kimi_code_model_path = "k3"
 $kimi_code_base_url = "https://api.kimi.com/coding/v1"
-$kimi_code_thinking = "disabled" # "", "enabled", "disabled"
+$kimi_code_thinking = "thinking.effort:max" # k3: "thinking.effort:max"/"reasoning_effort:max"; older models: "enabled"/"disabled"
 
 # Xiaomi MiMo API 配置（OpenAI 兼容接口）
 $mimo_api_key = ""              # MiMo API 密钥 (从 platform.xiaomimimo.com 获取)
@@ -406,7 +406,7 @@ if ($kimi_code_api_key) {
   [void]$ext_args.Add("--kimi_code_api_key=$kimi_code_api_key")
 }
 
-if ($kimi_code_model_path -and $kimi_code_model_path -ne "kimi-for-coding") {
+if ($kimi_code_model_path -and $kimi_code_model_path -ne "k3") {
   [void]$ext_args.Add("--kimi_code_model_path=$kimi_code_model_path")
 }
 

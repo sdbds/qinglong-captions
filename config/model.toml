@@ -511,6 +511,9 @@ language = ""
 [kimi_vl]
 thinking = "enabled"  # enabled | disabled
 
+[kimi_code]
+thinking_mode = "thinking.effort:max"  # k3: thinking.effort:max | reasoning_effort:max; older: enabled | disabled
+
 [mimo]
 thinking = "disabled"  # enabled | disabled
 max_completion_tokens = 8192

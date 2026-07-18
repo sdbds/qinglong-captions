@@ -580,13 +580,70 @@ def test_caption_step_grok_build_model_options_include_grok_45_default():
     assert "grok_build_effort" not in CaptionStep().config
 
 
-def test_caption_step_builds_kimi_code_thinking_arg():
-    CaptionStep = _load_caption_step("test_step4_caption_kimi_code_thinking")
+def test_caption_step_lists_current_kimi_and_kimi_code_models():
+    CaptionStep = _load_caption_step("test_step4_caption_current_kimi_models")
+
+    assert CaptionStep.API_CONFIGS["Kimi"]["models"] == [
+        "kimi-k2.7-code",
+        "kimi-k2.7-code-highspeed",
+        "kimi-k2.6",
+        "kimi-k2.5",
+    ]
+    assert CaptionStep.API_CONFIGS["Kimi"]["default_model"] == "kimi-k2.6"
+    assert CaptionStep.API_CONFIGS["Kimi-Code"]["models"] == [
+        "k3",
+        "kimi-for-coding",
+        "kimi-for-coding-highspeed",
+    ]
+    assert CaptionStep.API_CONFIGS["Kimi-Code"]["default_model"] == "k3"
+    assert CaptionStep.KIMI_CODE_THINKING_OPTIONS == {
+        "thinking.effort:max": "thinking.effort:max",
+        "reasoning_effort:max": "reasoning_effort:max",
+    }
+
+
+def test_caption_step_switches_kimi_code_thinking_options_with_model():
+    CaptionStep = _load_caption_step("test_step4_caption_kimi_code_thinking_switch")
+
+    class FakeSelect:
+        def __init__(self, value):
+            self.options = {}
+            self.value = value
+
+        def set_options(self, options, *, value=...):
+            self.options = options
+            if value is not ...:
+                self.value = value
+            return self
+
+    step = CaptionStep()
+    step.kimi_code_thinking = FakeSelect("thinking.effort:max")
+
+    step._sync_kimi_code_thinking_options("kimi-for-coding")
+
+    assert step.kimi_code_thinking.options == {
+        "enabled": "enabled",
+        "disabled": "disabled",
+    }
+    assert step.kimi_code_thinking.value == "enabled"
+    assert step.config["kimi_code_thinking"] == "enabled"
+
+    step.kimi_code_thinking.value = "disabled"
+    step._sync_kimi_code_thinking_options("kimi-for-coding-highspeed")
+    assert step.kimi_code_thinking.value == "disabled"
+
+    step._sync_kimi_code_thinking_options("k3")
+    assert step.kimi_code_thinking.options == CaptionStep.KIMI_CODE_THINKING_OPTIONS
+    assert step.kimi_code_thinking.value == "thinking.effort:max"
+
+
+def test_caption_step_builds_k3_thinking_effort_arg():
+    CaptionStep = _load_caption_step("test_step4_caption_k3_thinking_effort")
 
     step = CaptionStep()
     step.api_keys = {"kimi_code_api_key": SimpleNamespace(value="kc-test")}
-    step.kimi_code_api_key_model = SimpleNamespace(value="k2p5")
-    step.kimi_code_thinking = SimpleNamespace(value="enabled")
+    step.kimi_code_api_key_model = SimpleNamespace(value="k3")
+    step.kimi_code_thinking = SimpleNamespace(value="thinking.effort:max")
     step.ocr_model = SimpleNamespace(value="")
     step.vlm_image_model = SimpleNamespace(value="kimi_code")
     step.alm_model = SimpleNamespace(value="")
@@ -596,16 +653,17 @@ def test_caption_step_builds_kimi_code_thinking_arg():
     args = step._build_caption_args("demo-dataset")
 
     assert "--kimi_code_api_key=kc-test" in args
-    assert "--kimi_code_model_path=kimi-for-coding" in args
-    assert "--kimi_code_thinking=enabled" in args
+    assert "--kimi_code_model_path=k3" in args
+    assert "--kimi_code_thinking=thinking.effort:max" in args
 
 
-def test_caption_step_defaults_kimi_code_thinking_to_disabled():
-    CaptionStep = _load_caption_step("test_step4_caption_kimi_code_default_thinking")
+def test_caption_step_can_build_k3_reasoning_effort_arg():
+    CaptionStep = _load_caption_step("test_step4_caption_k3_reasoning_effort")
 
     step = CaptionStep()
     step.api_keys = {"kimi_code_api_key": SimpleNamespace(value="kc-test")}
-    step.kimi_code_api_key_model = SimpleNamespace(value="kimi-for-coding")
+    step.kimi_code_api_key_model = SimpleNamespace(value="k3")
+    step.kimi_code_thinking = SimpleNamespace(value="reasoning_effort:max")
     step.ocr_model = SimpleNamespace(value="")
     step.vlm_image_model = SimpleNamespace(value="kimi_code")
     step.alm_model = SimpleNamespace(value="")
@@ -614,7 +672,8 @@ def test_caption_step_defaults_kimi_code_thinking_to_disabled():
 
     args = step._build_caption_args("demo-dataset")
 
-    assert "--kimi_code_thinking=disabled" in args
+    assert "--kimi_code_model_path=k3" in args
+    assert "--kimi_code_thinking=reasoning_effort:max" in args
 
 
 def test_caption_step_builds_codex_subscription_args_without_api_key_fallback():

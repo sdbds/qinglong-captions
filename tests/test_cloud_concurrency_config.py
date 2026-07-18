@@ -21,16 +21,18 @@ def test_captioner_parser_accepts_cloud_max_concurrency():
     assert args.cloud_max_concurrency == 3
 
 
-def test_captioner_parser_accepts_kimi_code_thinking_mode():
+def test_captioner_parser_uses_current_kimi_models_and_k3_effort_mode():
     from module.captioner import setup_parser
 
     parser = setup_parser()
 
     default_args = parser.parse_args(["dataset"])
-    assert default_args.kimi_code_thinking == ""
+    assert default_args.kimi_model_path == "kimi-k2.6"
+    assert default_args.kimi_code_model_path == "k3"
+    assert default_args.kimi_code_thinking == "thinking.effort:max"
 
-    args = parser.parse_args(["dataset", "--kimi_code_thinking=disabled"])
-    assert args.kimi_code_thinking == "disabled"
+    args = parser.parse_args(["dataset", "--kimi_code_thinking=reasoning_effort:max"])
+    assert args.kimi_code_thinking == "reasoning_effort:max"
 
 
 def test_captioner_parser_accepts_grok_build_subscription_options():
@@ -96,10 +98,12 @@ def test_captioner_powershell_passes_cloud_max_concurrency_only_when_gt_one():
     assert '--cloud_max_concurrency=$cloud_max_concurrency' in script
 
 
-def test_captioner_powershell_passes_kimi_code_thinking():
+def test_captioner_powershell_uses_current_kimi_models_and_k3_effort():
     script = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
-    assert '$kimi_code_thinking = "disabled"' in script
+    assert '$kimi_model_path = "kimi-k2.6"' in script
+    assert '$kimi_code_model_path = "k3"' in script
+    assert '$kimi_code_thinking = "thinking.effort:max"' in script
     assert "if ($kimi_code_thinking)" in script
     assert "--kimi_code_thinking=$kimi_code_thinking" in script
 

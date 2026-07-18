@@ -56,7 +56,7 @@ def _load_current_route_model_ids() -> dict[str, str]:
 def _normalize_kimi_code_model_path(value: str) -> str:
     model = str(value or "").strip()
     if not model:
-        return "kimi-for-coding"
+        return "k3"
     if model.lower() in {"k2p5", "kimi-code"}:
         return "kimi-for-coding"
     return model
@@ -171,22 +171,23 @@ class CaptionStep:
         "Kimi": {
             "key_name": "kimi_api_key",
             "models": [
+                "kimi-k2.7-code",
+                "kimi-k2.7-code-highspeed",
+                "kimi-k2.6",
                 "kimi-k2.5",
-                "kimi-k2",
-                "kimi-k2-turbo-preview",
-                "kimi-k2-thinking",
-                "kimi-k2-thinking-turbo",
             ],
-            "default_model": "kimi-k2.5",
+            "default_model": "kimi-k2.6",
             "supports_video": True,
             "supports_task": False,
         },
         "Kimi-Code": {
             "key_name": "kimi_code_api_key",
             "models": [
+                "k3",
                 "kimi-for-coding",
+                "kimi-for-coding-highspeed",
             ],
-            "default_model": "kimi-for-coding",
+            "default_model": "k3",
             "supports_video": True,
             "supports_task": False,
         },
@@ -309,8 +310,12 @@ class CaptionStep:
         "high": "high",
     }
     KIMI_CODE_THINKING_OPTIONS = {
-        "disabled": "disabled",
+        "thinking.effort:max": "thinking.effort:max",
+        "reasoning_effort:max": "reasoning_effort:max",
+    }
+    KIMI_CODE_LEGACY_THINKING_OPTIONS = {
         "enabled": "enabled",
+        "disabled": "disabled",
     }
     GROK_BUILD_PERMISSION_MODE_OPTIONS = {
         "dontAsk": "dontAsk",
@@ -470,7 +475,7 @@ class CaptionStep:
             "grok_build_permission_mode": "dontAsk",
             "grok_build_sandbox": "read-only",
             "grok_build_prompt_json_max_chars": 24000,
-            "kimi_code_thinking": "disabled",
+            "kimi_code_thinking": "thinking.effort:max",
         }
         self.panel: "ExecutionPanel | None" = None
         self.api_keys = {}
@@ -482,6 +487,21 @@ class CaptionStep:
     @staticmethod
     def _has_text(value: Any) -> bool:
         return value is not None and str(value).strip() != ""
+
+    @classmethod
+    def _kimi_code_thinking_options_for_model(cls, model_path: str) -> tuple[dict[str, str], str]:
+        if _normalize_kimi_code_model_path(model_path).lower() == "k3":
+            return cls.KIMI_CODE_THINKING_OPTIONS, "thinking.effort:max"
+        return cls.KIMI_CODE_LEGACY_THINKING_OPTIONS, "enabled"
+
+    def _sync_kimi_code_thinking_options(self, model_path: str) -> None:
+        options, default_value = self._kimi_code_thinking_options_for_model(model_path)
+        control = getattr(self, "kimi_code_thinking", None)
+        current_value = str(getattr(control, "value", "") or "").strip()
+        next_value = current_value if current_value in options else default_value
+        self.config["kimi_code_thinking"] = next_value
+        if control is not None:
+            control.set_options(options, value=next_value)
 
     def _local_model_fit_header(self) -> str:
         if self.gpu_probe is None:
@@ -1035,7 +1055,7 @@ class CaptionStep:
                         thinking_control = getattr(self, "kimi_code_thinking", None)
                         kimi_code_thinking = str(
                             getattr(thinking_control, "value", None)
-                            or self.config.get("kimi_code_thinking", "disabled")
+                            or self.config.get("kimi_code_thinking", "thinking.effort:max")
                             or ""
                         ).strip()
                         if kimi_code_thinking:
@@ -1541,6 +1561,9 @@ class CaptionStep:
                             icon="smart_toy",
                             icon_color=COLORS["primary"],
                             new_value_mode="add-unique",
+                            on_change=(
+                                self._sync_kimi_code_thinking_options if api_name == "Kimi-Code" else None
+                            ),
                         )
                         setattr(self, f"{config['key_name']}_model", model_select)
 

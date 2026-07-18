@@ -84,6 +84,7 @@ series_exclude_list = [
     "pc-98",
     "mooncancer",
     "post shibuya",
+    "new year",
 ]
 
 [reward_model]

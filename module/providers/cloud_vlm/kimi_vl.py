@@ -1,8 +1,8 @@
 """Kimi VL Provider
 
 注意：kimi_vl 和 kimi_code 是两个独立的 provider
-- kimi_vl: 使用 integrate.api.nvidia.com，支持 JSON 结构化输出
-- kimi_code: 使用 api.moonshot.cn
+- kimi_vl: 使用 Kimi 开放平台，支持 JSON 结构化输出
+- kimi_code: 使用 api.kimi.com/coding 会员端点
 
 kimi_code 优先级高于 kimi_vl
 """
@@ -182,6 +182,8 @@ def attempt_kimi_vl(
     image_pixels: Optional[Pixels] = None,
     pair_pixels: Optional[Pixels] = None,
     thinking: str = "enabled",
+    thinking_effort: str = "",
+    reasoning_effort: str = "",
     mode: str = "all",
     max_tokens: int = 8192,
     max_tokens_param: str = "max_tokens",
@@ -207,7 +209,14 @@ def attempt_kimi_vl(
     merged_tags = tags_from_json if tags_from_json else captions
     messages = _inject_tags_into_messages(messages, merged_tags)
 
-    extra_body = {"thinking": {"type": thinking}} if thinking in ("enabled", "disabled") else None
+    if thinking_effort:
+        extra_body = {"thinking": {"effort": thinking_effort}}
+    elif reasoning_effort:
+        extra_body = {"reasoning_effort": reasoning_effort}
+    elif thinking in ("enabled", "disabled"):
+        extra_body = {"thinking": {"type": thinking}}
+    else:
+        extra_body = None
     if temperature is None:
         temperature = 0.6 if thinking == "disabled" else 1.0
 
@@ -306,7 +315,7 @@ def attempt_kimi_vl(
 
 @register_provider("kimi_vl")
 class KimiVLProvider(CloudVLMProvider):
-    """Kimi VL Provider (NVIDIA API)"""
+    """Kimi multimodal provider for the Kimi Open Platform API."""
 
     @classmethod
     def can_handle(cls, args, mime: str) -> bool:
@@ -363,7 +372,7 @@ class KimiVLProvider(CloudVLMProvider):
         timing_metadata: dict[str, Any] = {}
         result = attempt_kimi_vl(
             client=client,
-            model_path=getattr(self.ctx.args, "kimi_model_path", "kimi-k2.5"),
+            model_path=getattr(self.ctx.args, "kimi_model_path", "kimi-k2.6"),
             messages=messages,
             console=self.ctx.console,
             progress=self.ctx.progress,

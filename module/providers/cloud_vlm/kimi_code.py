@@ -1,8 +1,8 @@
 """Kimi Code Provider
 
 注意：kimi_code 和 kimi_vl 是两个独立的 provider：
-- kimi_code: 使用 api.kimi.com/coding，支持 thinking 模式
-- kimi_vl: 使用 integrate.api.nvidia.com，支持 JSON 结构化输出
+- kimi_code: 使用 api.kimi.com/coding，提供 K3 与 Kimi for Coding 模型
+- kimi_vl: 使用 Kimi 开放平台，支持 JSON 结构化输出
 
 优先级：kimi_code > kimi_vl
 """
@@ -24,8 +24,11 @@ class KimiCodeProvider(CloudVLMProvider):
         """kimi_code 优先级高于 kimi_vl"""
         return getattr(args, "kimi_code_api_key", "") != "" and mime.startswith(("image", "video"))
 
-    KIMI_CODE_DEFAULT_MODEL = "kimi-for-coding"
+    KIMI_CODE_DEFAULT_MODEL = "k3"
+    KIMI_CODE_STANDARD_MODEL = "kimi-for-coding"
     KIMI_CODE_LEGACY_MODEL_ALIASES = frozenset({"k2p5", "kimi-code"})
+    K3_THINKING_EFFORT_MODE = "thinking.effort:max"
+    K3_REASONING_EFFORT_MODE = "reasoning_effort:max"
 
     # Kimi Coding API identifies coding agents by User-Agent.
     KIMI_CODE_USER_AGENT = "claude-code/2.1.162"
@@ -36,12 +39,12 @@ class KimiCodeProvider(CloudVLMProvider):
         if not normalized:
             return cls.KIMI_CODE_DEFAULT_MODEL
         if normalized.lower() in cls.KIMI_CODE_LEGACY_MODEL_ALIASES:
-            return cls.KIMI_CODE_DEFAULT_MODEL
+            return cls.KIMI_CODE_STANDARD_MODEL
         return normalized
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
-        from openai import OpenAI
         from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl, ensure_kimi_dual_caption_prompt
+        from openai import OpenAI
 
         base_url = getattr(self.ctx.args, "kimi_code_base_url", "https://api.kimi.com/coding/v1")
         client = OpenAI(
@@ -88,18 +91,33 @@ class KimiCodeProvider(CloudVLMProvider):
         else:
             return CaptionResult(raw="")
 
-        # Kimi Code docs expose thinking as a boolean mode, not effort levels.
-        kimi_code_thinking = str(getattr(self.ctx.args, "kimi_code_thinking", "") or "").strip()
-        if kimi_code_thinking in ("enabled", "disabled"):
-            thinking = kimi_code_thinking
-        else:
-            kimi_vl_config = self.ctx.config.get("kimi_vl", {})
-            thinking = kimi_vl_config.get("thinking", "enabled") if kimi_vl_config else "enabled"
-
-        timing_metadata = {}
         model_path = self.normalize_model_path(
             getattr(self.ctx.args, "kimi_code_model_path", self.KIMI_CODE_DEFAULT_MODEL)
         )
+        kimi_code_config = self.ctx.config.get("kimi_code", {})
+        configured_mode = kimi_code_config.get("thinking_mode", "") if kimi_code_config else ""
+        thinking_mode = str(
+            getattr(self.ctx.args, "kimi_code_thinking", "")
+            or configured_mode
+            or self.K3_THINKING_EFFORT_MODE
+        ).strip()
+
+        thinking = ""
+        thinking_effort = ""
+        reasoning_effort = ""
+        if model_path.lower() == "k3":
+            if thinking_mode == self.K3_REASONING_EFFORT_MODE:
+                reasoning_effort = "max"
+            elif thinking_mode == self.K3_THINKING_EFFORT_MODE:
+                thinking_effort = "max"
+            elif thinking_mode in ("enabled", "disabled"):
+                thinking = thinking_mode
+        else:
+            if thinking_mode not in ("enabled", "disabled"):
+                thinking_mode = "enabled"
+            thinking = thinking_mode
+
+        timing_metadata = {}
         result = attempt_kimi_vl(
             client=client,
             model_path=model_path,
@@ -111,12 +129,19 @@ class KimiCodeProvider(CloudVLMProvider):
             image_pixels=image_pixels,
             pair_pixels=pair_pixels,
             thinking=thinking,
+            thinking_effort=thinking_effort,
+            reasoning_effort=reasoning_effort,
             mode=getattr(self.ctx.args, "mode", "all"),
             timing_metadata=timing_metadata,
         )
         if "duration_seconds" in timing_metadata:
             timing_metadata["duration_log_label"] = f"Kimi Code caption completed: {Path(media.uri).name}"
-        metadata = {"provider": self.name, "thinking": thinking, **timing_metadata}
+        metadata = {
+            "provider": self.name,
+            "model": model_path,
+            "thinking_mode": thinking_mode,
+            **timing_metadata,
+        }
 
         # 处理 JSON 解析 - 尝试解析为 dict，根据 mode 过滤字段
         import json
