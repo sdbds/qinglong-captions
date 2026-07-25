@@ -1,32 +1,18 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
-import uuid
 import warnings as warnings_module
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, Callable, Iterable, Iterator, TextIO
 
+from module.music_export import atomic_output_path
+
 from .events import EventStats, event_to_dict, is_progress_event
 from .options import OutputFormat, TranscriptionOptions
 from .runtime import LoadedModel
-
-
-@contextmanager
-def atomic_output_path(target: Path) -> Iterator[Path]:
-    target = Path(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    nonce = uuid.uuid4().hex
-    temporary = target.with_name(f"{target.stem}.{os.getpid()}.{nonce}.part{target.suffix}")
-    try:
-        yield temporary
-        os.replace(temporary, target)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
 
 
 @contextmanager

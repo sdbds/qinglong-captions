@@ -39,12 +39,30 @@ def test_recent_gui_i18n_keys_are_available_in_all_languages():
         "music_transcription",
         "music_transcription_preview",
         "job_name_music_transcription",
+        "sheet_music_input_placeholder",
+        "sheet_music_output_format",
+        "sheet_music_output_musicxml",
+        "sheet_music_output_midi",
+        "sheet_music_output_both",
     ]
 
     for lang in TRANSLATIONS:
         i18n = I18n(lang)
         for key in keys:
             assert i18n.t(key) != key
+
+
+def test_sheet_music_translations_describe_omr_not_embeddings():
+    keys = (
+        "sheet_music_desc",
+        "start_sheet_music",
+        "sheet_music_success",
+        "sheet_music_failed",
+        "log_start_sheet_music",
+    )
+    for mapping in TRANSLATIONS.values():
+        values = " ".join(str(mapping[key]).lower() for key in keys)
+        assert "embedding" not in values
 
 
 def test_removed_grok_build_effort_key_is_not_translated():

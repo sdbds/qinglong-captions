@@ -1,10 +1,10 @@
 # MuSViT ONNX Sheet Music Tool Design
 
-## 2026-07-08 Revision Note
+## 2026-07-23 Revision Note
 
-This document describes the completed first integration: MuSViT encoder ONNX embeddings. The user-facing sheet-music scanning goal has moved to official full-page OMR inference, with image/PDF input and MusicXML/MIDI output. The replacement design is recorded in `docs/superpowers/specs/2026-07-08-musvit-official-omr-inference-design.md`.
+This document describes the completed first integration: MuSViT encoder ONNX embeddings. The user-facing sheet-music tool now moves to the fine-tuned two-graph ONNX full-page OMR model, with image/PDF input and MusicXML/MIDI output. The replacement design is recorded in `docs/superpowers/specs/2026-07-23-musvit-onnx-omr-inference-design.md`.
 
-Do not use this ONNX embedding design as the product contract for OMR. It remains useful only for advanced/debug feature extraction unless a later implementation removes it entirely.
+Do not use this embedding design as the product contract for OMR. The replacement does not expose embedding extraction as a GUI mode, fallback, or alternate output.
 
 ## Background
 

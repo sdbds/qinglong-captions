@@ -19,6 +19,7 @@ class OnnxMultiModelSpec:
     local_dir: str | Path
     bundle_key: str
     support_files: Mapping[str, str] = field(default_factory=dict)
+    revision: str | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,8 @@ def load_multi_model_bundle(
         "local_dir": spec.local_dir,
         "force_download": runtime.force_download,
     }
+    if spec.revision is not None:
+        artifact_kwargs["revision"] = spec.revision
     if logger is not None and _supports_keyword_argument(artifact_loader, "logger"):
         artifact_kwargs["logger"] = logger
 
@@ -78,6 +81,8 @@ def load_multi_model_bundle(
             "local_dir": spec.local_dir,
             "force_download": runtime.force_download,
         }
+        if spec.revision is not None:
+            support_kwargs["revision"] = spec.revision
         if logger is not None and _supports_keyword_argument(support_file_loader, "logger"):
             support_kwargs["logger"] = logger
         support_paths = {

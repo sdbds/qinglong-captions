@@ -312,16 +312,15 @@ force_eager_attention = false
 output_dir = "workspace/see_through_output"
 
 [musvit]
-repo_id = "bdsqlsz/musvit-onnx"
+repo_id = "bdsqlsz/qinglong-musvit-1.0"
+revision = "6f47cefe0e736fbdd0eab9e8bc8d4602e81939fe"
 model_dir = "huggingface"
-batch_size = 1
-preprocess_mode = "page_resize"
+output_format = "musicxml"
 pdf_dpi = 144
 recursive = true
 skip_completed = true
 overwrite = false
 force_download = false
-output_dir = "workspace/musvit_output"
 
 [moondream]
 model_list."Moondream 3 Preview" = { model_id = "moondream/moondream3-preview", meta = { min_vram_gb = 6 } }

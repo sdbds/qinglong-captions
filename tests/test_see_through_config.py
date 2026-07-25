@@ -26,19 +26,28 @@ def test_model_toml_contains_see_through_section():
 def test_model_toml_contains_musvit_section():
     parsed = tomllib.loads((ROOT / "config" / "model.toml").read_text(encoding="utf-8"))
 
-    assert parsed["musvit"]["repo_id"] == "bdsqlsz/musvit-onnx"
+    assert parsed["musvit"]["repo_id"] == "bdsqlsz/qinglong-musvit-1.0"
+    assert parsed["musvit"]["revision"] == "6f47cefe0e736fbdd0eab9e8bc8d4602e81939fe"
     assert parsed["musvit"]["model_dir"] == "huggingface"
-    assert parsed["musvit"]["batch_size"] == 1
-    assert parsed["musvit"]["preprocess_mode"] == "page_resize"
+    assert parsed["musvit"]["output_format"] == "musicxml"
+    assert "output_dir" not in parsed["musvit"]
     assert parsed["musvit"]["pdf_dpi"] == 144
     assert parsed["musvit"]["recursive"] is True
     assert parsed["musvit"]["skip_completed"] is True
+    assert "batch_size" not in parsed["musvit"]
+    assert "preprocess_mode" not in parsed["musvit"]
+    assert "max_tokens" not in parsed["musvit"]
 
 
 def test_onnx_toml_contains_musvit_runtime_section():
     parsed = tomllib.loads((ROOT / "config" / "onnx.toml").read_text(encoding="utf-8"))
 
-    assert "musvit" in parsed["onnx_runtime"]
+    musvit = parsed["onnx_runtime"]["musvit"]
+    assert musvit["execution_provider"] == "cuda"
+    assert musvit["cuda"]["arena_extend_strategy"] == "kNextPowerOfTwo"
+    assert musvit["cuda"]["use_tf32"] == 0
+    assert musvit["cuda"]["tunable_op_enable"] is False
+    assert musvit["cuda"]["tunable_op_tuning_enable"] is False
 
 
 def test_split_loader_reads_see_through_file(tmp_path):

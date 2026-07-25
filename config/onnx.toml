@@ -28,6 +28,13 @@ trt_layer_norm_fp32_fallback = true
 [onnx_runtime.waterdetect]
 
 [onnx_runtime.musvit]
+execution_provider = "cuda"
+
+[onnx_runtime.musvit.cuda]
+arena_extend_strategy = "kNextPowerOfTwo"
+use_tf32 = 0
+tunable_op_enable = false
+tunable_op_tuning_enable = false
 
 [onnx_runtime.paddle_ocr]
 
