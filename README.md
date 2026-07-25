@@ -141,7 +141,7 @@ Lance versions and media/caption export are documented in the [Import / Export g
 | Audio separation | [Audio Separation](docs/tools/audio_separation.en.md) | `2.5.audio_separator.ps1` |
 | Image2PSD | [See-through](docs/tools/image2psd.en.md) | `2.6.image2psd.ps1` |
 | Audio to MIDI | [MuScriptor](docs/tools/muscriptor.en.md) | `2.7.music_transcription.ps1` |
-| Sheet-music embeddings | [MuSViT](docs/tools/sheet_music.en.md) | GUI Tools |
+| Sheet-music OMR | [MuSViT](docs/tools/sheet_music.en.md) | GUI Tools |
 | Text and document translation | [Translation](docs/tools/text_translation.en.md) | `5.translate.ps1` |
 
 MuScriptor installs through the `muscriptor-local` profile and supports the official `small`, `medium`, and `large` models. Runs that request only MIDI, JSON, or JSONL do not need an audio synthesizer. If preview is enabled, its runtime preflight runs before model inference and stops the batch when FluidSynth or the official SoundFont is unavailable; disable preview to export symbolic outputs without it. The profile includes SOCKS proxy support for first-use SoundFont downloads.

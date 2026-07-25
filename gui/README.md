@@ -84,7 +84,7 @@ uv run gui/launch.py --native --port 7899
 - [图像质量评分](../docs/tools/image_scoring.md)
 - [ONNX 音频分轨与可选 harmony、GAME 人声 MIDI、MuScriptor 全分轨 MIDI / 试听](../docs/tools/audio_separation.md)
 - [MuScriptor 官方模型音频转 MIDI](../docs/tools/muscriptor.md)
-- [MuSViT ONNX 乐谱扫描 embedding](../docs/tools/sheet_music.md)
+- [MuSViT ONNX 乐谱 OMR 转录](../docs/tools/sheet_music.md)
 - [文本 / 文档规范化与翻译](../docs/tools/text_translation.md)
 - [Image2PSD / See-through 分层](../docs/tools/image2psd.md)
 

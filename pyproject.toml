@@ -104,8 +104,14 @@ see-through = [
     "triton-windows; sys_platform == 'win32'",
     "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
 ]
+music-export = [
+    "mido>=1.3.0",
+    "music21==9.9.2; python_version == '3.10'",
+    "music21==10.5.0; python_version >= '3.11' and python_version < '3.13'",
+]
 musvit-onnx = [
     "qinglong-captions[onnx-base]",
+    "qinglong-captions[music-export]",
     "numpy",
     "pillow>=11.3",
     "PyMuPDF",
@@ -419,6 +425,7 @@ vocal-midi = [
 ]
 muscriptor-local = [
     "qinglong-captions[torch-base]",
+    "qinglong-captions[music-export]",
     "muscriptor==0.2.1",
     "filelock>=3.16",
     "socksio>=1.0.0",

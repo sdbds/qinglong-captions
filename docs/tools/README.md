@@ -22,7 +22,7 @@
 | 音频分轨 | [音频分轨](audio_separation.md) | `2.5.audio_separator.ps1` |
 | Image2PSD | [Image2PSD / See-through](image2psd.md) | `2.6.image2psd.ps1` |
 | 音乐转录 | [MuScriptor 音频转 MIDI](muscriptor.md) | `2.7.music_transcription.ps1` |
-| 乐谱扫描 | [MuSViT 乐谱 embedding](sheet_music.md) | GUI Tools / `module.sheet_music_musvit` |
+| 乐谱 OMR | [MuSViT 乐谱转录](sheet_music.md) | GUI Tools / `module.sheet_music_musvit` |
 | 文档翻译 | [文本与文档翻译](text_translation.md) | `5.translate.ps1` |
 
 参数来源和 profile 映射见 [配置指南](../configuration.md) 与 [GUI 参数映射](../../gui/PARAMETERS.md)。

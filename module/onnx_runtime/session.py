@@ -58,6 +58,57 @@ def _provider_signature(provider: Any) -> tuple[str, str]:
     return (str(provider), "")
 
 
+def _maybe_preload_provider_dlls(providers: list[Any]) -> None:
+    provider_names = {_provider_name(provider) for provider in providers}
+    if not provider_names.intersection(
+        {
+            "CUDAExecutionProvider",
+            "TensorrtExecutionProvider",
+            "NvTensorRtRtxExecutionProvider",
+        }
+    ):
+        return
+
+    import onnxruntime as ort
+
+    preload_dlls = getattr(ort, "preload_dlls", None)
+    if callable(preload_dlls):
+        preload_dlls()
+
+
+def _actual_session_providers(
+    sessions: Mapping[str, Any],
+    requested_providers: list[Any],
+) -> tuple[Any, ...]:
+    reported: dict[str, tuple[str, ...]] = {}
+    for name, session in sessions.items():
+        get_providers = getattr(session, "get_providers", None)
+        if not callable(get_providers):
+            continue
+        provider_names = tuple(
+            _provider_name(provider) for provider in get_providers()
+        )
+        if not provider_names:
+            raise RuntimeError(f"ONNX session {name!r} reports no providers")
+        reported[name] = provider_names
+
+    if not reported:
+        return tuple(requested_providers)
+
+    first_name, first_providers = next(iter(reported.items()))
+    mismatches = {
+        name: providers
+        for name, providers in reported.items()
+        if providers != first_providers
+    }
+    if mismatches:
+        details = {first_name: first_providers, **mismatches}
+        raise RuntimeError(
+            f"ONNX session provider mismatch across bundle: {details!r}"
+        )
+    return first_providers
+
+
 def _provider_options(
     runtime: OnnxRuntimeConfig,
     provider_name: str,
@@ -303,15 +354,27 @@ def load_session_bundle(
     if session_factory is None:
         import onnxruntime as ort
 
+        _maybe_preload_provider_dlls(providers)
         session_factory = ort.InferenceSession
     if session_options_factory is None:
         session_options_factory = lambda: build_session_options(runtime)
 
-    sessions = {
-        name: session_factory(str(Path(path)), sess_options=session_options_factory(), providers=providers)
-        for name, path in session_paths.items()
-    }
-    bundle = OnnxSessionBundle(sessions=sessions, providers=tuple(providers))
+    sessions: dict[str, Any] = {}
+    try:
+        for name, path in session_paths.items():
+            sessions[name] = session_factory(
+                str(Path(path)),
+                sess_options=session_options_factory(),
+                providers=providers,
+            )
+        actual_providers = _actual_session_providers(sessions, providers)
+    except BaseException:
+        OnnxSessionBundle(sessions=sessions, providers=()).close()
+        raise
+    bundle = OnnxSessionBundle(
+        sessions=sessions,
+        providers=actual_providers,
+    )
 
     with _CACHE_LOCK:
         _SESSION_BUNDLE_CACHE[cache_key] = bundle

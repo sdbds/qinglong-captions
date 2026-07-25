@@ -14,12 +14,24 @@ def _project() -> dict:
 
 
 def test_muscriptor_extra_is_pinned_and_uses_shared_torch_profile():
-    dependencies = _project()["project"]["optional-dependencies"]["muscriptor-local"]
+    extras = _project()["project"]["optional-dependencies"]
+    dependencies = extras["muscriptor-local"]
 
     assert "qinglong-captions[torch-base]" in dependencies
+    assert "qinglong-captions[music-export]" in dependencies
     assert "muscriptor==0.2.1" in dependencies
     assert any(item.startswith("filelock") for item in dependencies)
     assert any(item.startswith("socksio") for item in dependencies)
+
+    shared = extras["music-export"]
+    assert shared == [
+        "mido>=1.3.0",
+        "music21==9.9.2; python_version == '3.10'",
+        "music21==10.5.0; python_version >= '3.11' and python_version < '3.13'",
+    ]
+    assert "qinglong-captions[music-export]" in extras["musvit-onnx"]
+    assert all(not item.startswith(("mido", "music21")) for item in dependencies)
+    assert all(not item.startswith(("mido", "music21")) for item in extras["musvit-onnx"])
 
 
 def test_muscriptor_extra_conflicts_with_native_paddle_stack():

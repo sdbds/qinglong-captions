@@ -6,6 +6,31 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def test_model_specs_preserve_positional_support_file_argument():
+    from module.onnx_runtime.multi_model import OnnxMultiModelSpec
+    from module.onnx_runtime.single_model import OnnxModelSpec
+
+    single = OnnxModelSpec(
+        "repo/model",
+        "model.onnx",
+        "cache",
+        "single",
+        {"config": "config.json"},
+    )
+    multi = OnnxMultiModelSpec(
+        "repo/model",
+        {"encoder": "encoder.onnx"},
+        "cache",
+        "multi",
+        {"config": "config.json"},
+    )
+
+    assert single.support_files == {"config": "config.json"}
+    assert single.revision is None
+    assert multi.support_files == {"config": "config.json"}
+    assert multi.revision is None
+
+
 def test_load_single_model_bundle_downloads_artifact_and_builds_session(tmp_path):
     from module.onnx_runtime.config import OnnxRuntimeConfig
     from module.onnx_runtime.single_model import OnnxModelSpec, load_single_model_bundle
@@ -149,6 +174,45 @@ def test_load_single_model_bundle_downloads_optional_support_files(tmp_path):
     assert bundle.support_paths == {"inference_config": tmp_path / "inference.yml"}
 
 
+def test_load_single_model_bundle_forwards_revision(tmp_path):
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.single_model import OnnxModelSpec, load_single_model_bundle
+
+    captured = {}
+
+    def fake_download(repo_id, onnx_filename, **kwargs):
+        captured["artifact"] = kwargs
+        return tmp_path / onnx_filename
+
+    def fake_support_download(repo_id, files, **kwargs):
+        captured["support"] = kwargs
+        return {name: tmp_path / filename for name, filename in files.items()}
+
+    def fake_load_session_bundle(**kwargs):
+        return SimpleNamespace(
+            sessions={"model": SimpleNamespace(get_inputs=lambda: [])},
+            providers=("CPUExecutionProvider",),
+        )
+
+    load_single_model_bundle(
+        spec=OnnxModelSpec(
+            repo_id="repo/model",
+            revision="abc123",
+            onnx_filename="model.onnx",
+            local_dir=tmp_path,
+            bundle_key="single:revision",
+            support_files={"config": "config.json"},
+        ),
+        runtime_config=OnnxRuntimeConfig(execution_provider="cpu"),
+        artifact_loader=fake_download,
+        support_file_loader=fake_support_download,
+        session_bundle_loader=fake_load_session_bundle,
+    )
+
+    assert captured["artifact"]["revision"] == "abc123"
+    assert captured["support"]["revision"] == "abc123"
+
+
 def test_load_multi_model_bundle_downloads_artifacts_and_support_files(tmp_path):
     from module.onnx_runtime.config import OnnxRuntimeConfig
     from module.onnx_runtime.multi_model import OnnxMultiModelSpec, load_multi_model_bundle
@@ -218,3 +282,42 @@ def test_load_multi_model_bundle_downloads_artifacts_and_support_files(tmp_path)
         "encoder": tmp_path / "encoder.onnx",
         "decoder": tmp_path / "decoder.onnx",
     }
+
+
+def test_load_multi_model_bundle_forwards_revision(tmp_path):
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.multi_model import OnnxMultiModelSpec, load_multi_model_bundle
+
+    captured = {}
+
+    def fake_artifact_loader(repo_id, artifacts, **kwargs):
+        captured["artifacts"] = kwargs
+        return {name: tmp_path / filename for name, filename in artifacts.items()}
+
+    def fake_support_loader(repo_id, files, **kwargs):
+        captured["support"] = kwargs
+        return {name: tmp_path / filename for name, filename in files.items()}
+
+    def fake_load_session_bundle(**kwargs):
+        return SimpleNamespace(
+            sessions={"encoder": object(), "decoder": object()},
+            providers=("CPUExecutionProvider",),
+        )
+
+    load_multi_model_bundle(
+        spec=OnnxMultiModelSpec(
+            repo_id="repo/model",
+            revision="abc123",
+            artifacts={"encoder": "encoder.onnx", "decoder": "decoder.onnx"},
+            local_dir=tmp_path,
+            bundle_key="multi:revision",
+            support_files={"config": "config.json"},
+        ),
+        runtime_config=OnnxRuntimeConfig(execution_provider="cpu"),
+        artifact_loader=fake_artifact_loader,
+        support_file_loader=fake_support_loader,
+        session_bundle_loader=fake_load_session_bundle,
+    )
+
+    assert captured["artifacts"]["revision"] == "abc123"
+    assert captured["support"]["revision"] == "abc123"

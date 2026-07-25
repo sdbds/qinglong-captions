@@ -22,7 +22,7 @@ The root README keeps installation, the core workflow, and navigation. Each page
 | Audio separation | [Audio separation](audio_separation.en.md) | `2.5.audio_separator.ps1` |
 | Image2PSD | [Image2PSD / See-through](image2psd.en.md) | `2.6.image2psd.ps1` |
 | Music transcription | [MuScriptor audio to MIDI](muscriptor.en.md) | `2.7.music_transcription.ps1` |
-| Sheet-music scan | [MuSViT embeddings](sheet_music.en.md) | GUI Tools / `module.sheet_music_musvit` |
+| Sheet-music OMR | [MuSViT transcription](sheet_music.en.md) | GUI Tools / `module.sheet_music_musvit` |
 | Document translation | [Text and document translation](text_translation.en.md) | `5.translate.ps1` |
 
 See the [configuration guide](../configuration.en.md) and [GUI parameter map](../../gui/PARAMETERS.md) for profile and parameter ownership.

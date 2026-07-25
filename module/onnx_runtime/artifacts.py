@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
+from urllib.parse import quote
 
 
 def _emit_log(logger: Callable[..., Any] | None, message: str) -> None:
@@ -28,8 +29,20 @@ def _normalize_variant(variant: str) -> str:
     return value
 
 
-def build_local_model_dir(model_dir: str | Path, repo_id: str) -> Path:
-    return Path(model_dir) / repo_id.replace("/", "_")
+def build_local_model_dir(
+    model_dir: str | Path,
+    repo_id: str,
+    *,
+    revision: str | None = None,
+) -> Path:
+    target = Path(model_dir) / repo_id.replace("/", "_")
+    normalized_revision = str(revision or "").strip()
+    if not normalized_revision:
+        return target
+    revision_dir = quote(normalized_revision, safe="")
+    if revision_dir in {".", ".."}:
+        revision_dir = f"_{revision_dir}"
+    return target / revision_dir
 
 
 def build_component_filename(component: str, variant: str = "") -> str:
@@ -56,6 +69,7 @@ def download_repo_file(
     repo_id: str,
     filename: str,
     *,
+    revision: str | None = None,
     local_dir: str | Path | None = None,
     force_download: bool = False,
     downloader: Callable[..., str] | None = None,
@@ -69,20 +83,26 @@ def download_repo_file(
     download_dir = None if local_dir is None else str(Path(local_dir))
     existing_target = Path(download_dir) / filename if download_dir is not None else None
 
-    if existing_target is not None and existing_target.exists() and not force_download:
+    if (
+        revision is None
+        and existing_target is not None
+        and existing_target.exists()
+        and not force_download
+    ):
         _emit_log(logger, f"[green]Using existing repo file[/green] {existing_target}")
         return existing_target
 
     _emit_log(logger, f"[cyan]Downloading repo file[/cyan] {repo_id}:{filename}")
     _maybe_enable_hf_progress_bars()
-    target = Path(
-        downloader(
-            repo_id=repo_id,
-            filename=filename,
-            local_dir=download_dir,
-            force_download=force_download,
-        )
-    )
+    download_kwargs = {
+        "repo_id": repo_id,
+        "filename": filename,
+        "local_dir": download_dir,
+        "force_download": force_download,
+    }
+    if revision is not None:
+        download_kwargs["revision"] = revision
+    target = Path(downloader(**download_kwargs))
     _emit_log(logger, f"[green]Downloaded repo file[/green] {target}")
     return target
 
@@ -91,6 +111,7 @@ def download_repo_file_set(
     repo_id: str,
     files: Mapping[str, str],
     *,
+    revision: str | None = None,
     local_dir: str | Path | None = None,
     force_download: bool = False,
     downloader: Callable[..., str] | None = None,
@@ -100,6 +121,7 @@ def download_repo_file_set(
         name: download_repo_file(
             repo_id,
             filename,
+            revision=revision,
             local_dir=local_dir,
             force_download=force_download,
             downloader=downloader,
@@ -113,11 +135,12 @@ def download_onnx_artifact(
     repo_id: str,
     onnx_filename: str,
     *,
+    revision: str | None = None,
     local_dir: str | Path | None = None,
     force_download: bool = False,
     repo_files: Iterable[str] | None = None,
     downloader: Callable[..., str] | None = None,
-    repo_file_lister: Callable[[str], Iterable[str]] | None = None,
+    repo_file_lister: Callable[..., Iterable[str]] | None = None,
     logger: Callable[..., Any] | None = None,
 ) -> Path:
     if repo_files is None:
@@ -125,7 +148,10 @@ def download_onnx_artifact(
             from huggingface_hub import list_repo_files
 
             repo_file_lister = list_repo_files
-        repo_files = tuple(repo_file_lister(repo_id))
+        if revision is None:
+            repo_files = tuple(repo_file_lister(repo_id))
+        else:
+            repo_files = tuple(repo_file_lister(repo_id, revision=revision))
     else:
         repo_files = tuple(repo_files)
 
@@ -139,20 +165,26 @@ def download_onnx_artifact(
 
     for file_name in list_required_artifact_files(repo_files, onnx_filename):
         existing_target = Path(download_dir) / file_name if download_dir is not None else None
-        if existing_target is not None and existing_target.exists() and not force_download:
+        if (
+            revision is None
+            and existing_target is not None
+            and existing_target.exists()
+            and not force_download
+        ):
             target = existing_target
             _emit_log(logger, f"[green]Using existing ONNX artifact[/green] {target}")
         else:
             _emit_log(logger, f"[cyan]Downloading ONNX artifact[/cyan] {repo_id}:{file_name}")
             _maybe_enable_hf_progress_bars()
-            target = Path(
-                downloader(
-                    repo_id=repo_id,
-                    filename=file_name,
-                    local_dir=download_dir,
-                    force_download=force_download,
-                )
-            )
+            download_kwargs = {
+                "repo_id": repo_id,
+                "filename": file_name,
+                "local_dir": download_dir,
+                "force_download": force_download,
+            }
+            if revision is not None:
+                download_kwargs["revision"] = revision
+            target = Path(downloader(**download_kwargs))
             _emit_log(logger, f"[green]Downloaded ONNX artifact[/green] {target}")
         if file_name == onnx_filename:
             downloaded_model = target
@@ -167,11 +199,12 @@ def download_onnx_artifact_set(
     repo_id: str,
     artifacts: Mapping[str, str],
     *,
+    revision: str | None = None,
     local_dir: str | Path | None = None,
     force_download: bool = False,
     repo_files: Iterable[str] | None = None,
     downloader: Callable[..., str] | None = None,
-    repo_file_lister: Callable[[str], Iterable[str]] | None = None,
+    repo_file_lister: Callable[..., Iterable[str]] | None = None,
     logger: Callable[..., Any] | None = None,
 ) -> dict[str, Path]:
     if repo_files is None:
@@ -179,13 +212,17 @@ def download_onnx_artifact_set(
             from huggingface_hub import list_repo_files
 
             repo_file_lister = list_repo_files
-        repo_files = tuple(repo_file_lister(repo_id))
+        if revision is None:
+            repo_files = tuple(repo_file_lister(repo_id))
+        else:
+            repo_files = tuple(repo_file_lister(repo_id, revision=revision))
     else:
         repo_files = tuple(repo_files)
     return {
         name: download_onnx_artifact(
             repo_id,
             onnx_filename,
+            revision=revision,
             local_dir=local_dir,
             force_download=force_download,
             repo_files=repo_files,

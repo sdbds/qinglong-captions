@@ -79,6 +79,122 @@ def test_download_onnx_artifact_logs_when_using_existing_file(tmp_path):
     assert logs == [f"[green]Using existing ONNX artifact[/green] {model_path}"]
 
 
+def test_download_onnx_artifact_propagates_revision_to_listing_and_downloads(tmp_path):
+    from module.onnx_runtime.artifacts import download_onnx_artifact
+
+    listed = []
+    downloaded = []
+
+    def fake_list_repo_files(repo_id, *, revision):
+        listed.append((repo_id, revision))
+        return ("model.onnx", "model.onnx_data")
+
+    def fake_download(*, repo_id, filename, revision, local_dir=None, force_download=False):
+        downloaded.append((repo_id, filename, revision))
+        target = Path(local_dir or tmp_path) / filename
+        target.write_text(filename, encoding="utf-8")
+        return str(target)
+
+    model_path = download_onnx_artifact(
+        "repo/model",
+        "model.onnx",
+        revision="abc123",
+        local_dir=tmp_path,
+        downloader=fake_download,
+        repo_file_lister=fake_list_repo_files,
+    )
+
+    assert model_path == tmp_path / "model.onnx"
+    assert listed == [("repo/model", "abc123")]
+    assert downloaded == [
+        ("repo/model", "model.onnx", "abc123"),
+        ("repo/model", "model.onnx_data", "abc123"),
+    ]
+
+
+def test_download_repo_file_propagates_revision(tmp_path):
+    from module.onnx_runtime.artifacts import download_repo_file
+
+    captured = {}
+
+    def fake_download(**kwargs):
+        captured.update(kwargs)
+        target = Path(kwargs["local_dir"]) / kwargs["filename"]
+        target.write_text("{}", encoding="utf-8")
+        return str(target)
+
+    result = download_repo_file(
+        "repo/model",
+        "config.json",
+        revision="abc123",
+        local_dir=tmp_path,
+        downloader=fake_download,
+    )
+
+    assert result == tmp_path / "config.json"
+    assert captured["revision"] == "abc123"
+
+
+def test_revision_download_rechecks_existing_repo_file(tmp_path):
+    from module.onnx_runtime.artifacts import download_repo_file
+
+    target = tmp_path / "config.json"
+    target.write_text("stale", encoding="utf-8")
+    calls = []
+
+    def fake_download(**kwargs):
+        calls.append(kwargs)
+        target.write_text("pinned", encoding="utf-8")
+        return str(target)
+
+    result = download_repo_file(
+        "repo/model",
+        "config.json",
+        revision="abc123",
+        local_dir=tmp_path,
+        downloader=fake_download,
+    )
+
+    assert result == target
+    assert target.read_text(encoding="utf-8") == "pinned"
+    assert calls[0]["revision"] == "abc123"
+
+
+def test_revision_download_rechecks_existing_onnx_artifact(tmp_path):
+    from module.onnx_runtime.artifacts import download_onnx_artifact
+
+    target = tmp_path / "model.onnx"
+    target.write_text("stale", encoding="utf-8")
+    calls = []
+
+    def fake_download(**kwargs):
+        calls.append(kwargs)
+        target.write_text("pinned", encoding="utf-8")
+        return str(target)
+
+    result = download_onnx_artifact(
+        "repo/model",
+        "model.onnx",
+        revision="abc123",
+        local_dir=tmp_path,
+        repo_files=("model.onnx",),
+        downloader=fake_download,
+    )
+
+    assert result == target
+    assert target.read_text(encoding="utf-8") == "pinned"
+    assert calls[0]["revision"] == "abc123"
+
+
+def test_revision_scopes_local_model_directory():
+    from module.onnx_runtime.artifacts import build_local_model_dir
+
+    assert build_local_model_dir("huggingface", "repo/model") == Path("huggingface/repo_model")
+    assert build_local_model_dir("huggingface", "repo/model", revision="refs/pr/7") == Path(
+        "huggingface/repo_model/refs%2Fpr%2F7"
+    )
+
+
 def test_build_component_filename_uses_variant_suffixes():
     from module.onnx_runtime.artifacts import build_component_filename
 
@@ -108,6 +224,18 @@ def test_select_execution_providers_prefers_cuda_and_falls_back_to_cpu():
     assert providers[-1] == "CPUExecutionProvider"
 
 
+def test_explicit_cuda_resolves_to_cpu_only_when_cuda_is_unavailable():
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.session import build_execution_providers
+
+    providers = build_execution_providers(
+        OnnxRuntimeConfig(execution_provider="cuda"),
+        available_providers=["CPUExecutionProvider"],
+    )
+
+    assert providers == ["CPUExecutionProvider"]
+
+
 def test_runtime_config_uses_native_tensorrt_option_names():
     from module.onnx_runtime.config import OnnxRuntimeConfig
 
@@ -125,7 +253,6 @@ def test_runtime_config_uses_native_tensorrt_option_names():
         "tunable_op_enable": True,
         "tunable_op_tuning_enable": True,
     }
-
     assert tensorrt_options["trt_engine_cache_enable"] is True
     assert tensorrt_options["trt_timing_cache_enable"] is True
     assert tensorrt_options["trt_fp16_enable"] is True
@@ -151,6 +278,25 @@ def test_runtime_config_uses_native_tensorrt_option_names():
     assert openvino_options == {
         "device_type": "GPU_FP32",
     }
+
+
+def test_cuda_sessions_preload_onnxruntime_provider_dlls(monkeypatch):
+    from types import SimpleNamespace
+
+    from module.onnx_runtime.session import _maybe_preload_provider_dlls
+
+    calls = []
+    monkeypatch.setitem(
+        sys.modules,
+        "onnxruntime",
+        SimpleNamespace(preload_dlls=lambda: calls.append("preloaded")),
+    )
+
+    _maybe_preload_provider_dlls(
+        [("CUDAExecutionProvider", {"use_tf32": 0}), "CPUExecutionProvider"]
+    )
+
+    assert calls == ["preloaded"]
 
 
 def test_load_session_bundle_caches_sessions(tmp_path):
@@ -193,6 +339,61 @@ def test_load_session_bundle_caches_sessions(tmp_path):
     assert bundle1 is bundle2
     assert set(bundle1.sessions) == {"embed_tokens", "decoder"}
     assert len(calls) == 2
+
+
+def test_load_session_bundle_reports_actual_session_providers(tmp_path):
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.session import clear_session_bundle_cache, load_session_bundle
+
+    class CpuFallbackSession:
+        def __init__(self, path, sess_options=None, providers=None):
+            self.requested_providers = providers
+
+        @staticmethod
+        def get_providers():
+            return ["CPUExecutionProvider"]
+
+    clear_session_bundle_cache()
+    bundle = load_session_bundle(
+        bundle_key="actual-provider:model",
+        session_paths={"model": tmp_path / "model.onnx"},
+        runtime_config=OnnxRuntimeConfig(execution_provider="cuda"),
+        available_providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        session_factory=CpuFallbackSession,
+        session_options_factory=lambda: object(),
+    )
+
+    assert bundle.providers == ("CPUExecutionProvider",)
+
+
+def test_load_session_bundle_rejects_provider_mismatch_between_sessions(tmp_path):
+    import pytest
+
+    from module.onnx_runtime.config import OnnxRuntimeConfig
+    from module.onnx_runtime.session import clear_session_bundle_cache, load_session_bundle
+
+    class MismatchedSession:
+        def __init__(self, path, sess_options=None, providers=None):
+            self.path = Path(path)
+
+        def get_providers(self):
+            if self.path.name == "encoder.onnx":
+                return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            return ["CPUExecutionProvider"]
+
+    clear_session_bundle_cache()
+    with pytest.raises(RuntimeError, match="provider mismatch"):
+        load_session_bundle(
+            bundle_key="mismatched-providers:model",
+            session_paths={
+                "encoder": tmp_path / "encoder.onnx",
+                "decoder": tmp_path / "decoder.onnx",
+            },
+            runtime_config=OnnxRuntimeConfig(execution_provider="cuda"),
+            available_providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            session_factory=MismatchedSession,
+            session_options_factory=lambda: object(),
+        )
 
 
 def test_runtime_config_prefers_onnx_section_over_legacy_model_section():

@@ -46,9 +46,6 @@ DEFAULT_VOCAL_MIDI_T0 = 0.0
 DEFAULT_VOCAL_MIDI_NSTEPS = 8
 DEFAULT_VOCAL_MIDI_EST_THRESHOLD = 0.2
 DEFAULT_VOCAL_MIDI_OUTPUT_FORMATS = "mid"
-DEFAULT_SHEET_MUSIC_REPO_ID = "bdsqlsz/musvit-onnx"
-DEFAULT_SHEET_MUSIC_MODEL_DIR = "huggingface"
-DEFAULT_SHEET_MUSIC_OUTPUT_DIR = "workspace/musvit_output"
 DEFAULT_SHEET_MUSIC_PDF_DPI = 144
 
 GAME_ONNX_MODEL_LABELS: dict[str, str] = {
@@ -278,9 +275,10 @@ class ToolsStep:
         "delete": "see_through_offload_delete",
         "cpu": "see_through_offload_cpu",
     }
-    SHEET_MUSIC_PREPROCESS_MODE_LABEL_KEYS = {
-        "page_resize": "sheet_music_preprocess_page_resize",
-        "pad_square": "sheet_music_preprocess_pad_square",
+    SHEET_MUSIC_OUTPUT_FORMAT_LABEL_KEYS = {
+        "musicxml": "sheet_music_output_musicxml",
+        "midi": "sheet_music_output_midi",
+        "both": "sheet_music_output_both",
     }
     MUSCRIPTOR_MODEL_OPTIONS = {item.value: item.repo_id for item in ModelVariant}
     MUSCRIPTOR_BASE_DEVICE_OPTIONS = {
@@ -393,12 +391,11 @@ class ToolsStep:
             "music_transcription_preview_format": DEFAULT_PREVIEW_FORMAT.value,
             "music_transcription_skip_completed": True,
             "music_transcription_notes": False,
-            "sheet_music_batch_size": 1,
+            "sheet_music_output_format": "musicxml",
             "sheet_music_pdf_dpi": DEFAULT_SHEET_MUSIC_PDF_DPI,
             "sheet_music_recursive": True,
             "sheet_music_skip_completed": True,
             "sheet_music_overwrite": False,
-            "sheet_music_force_download": False,
             "translate_max_chars": 2200,
             "translate_context_chars": 300,
             "translate_max_new_tokens": 4096,
@@ -575,10 +572,10 @@ class ToolsStep:
             for option, label_key in self.SEE_THROUGH_OFFLOAD_POLICY_LABEL_KEYS.items()
         }
 
-    def _sheet_music_preprocess_mode_options(self) -> dict[str, str]:
+    def _sheet_music_output_format_options(self) -> dict[str, str]:
         return {
             option: t(label_key)
-            for option, label_key in self.SHEET_MUSIC_PREPROCESS_MODE_LABEL_KEYS.items()
+            for option, label_key in self.SHEET_MUSIC_OUTPUT_FORMAT_LABEL_KEYS.items()
         }
 
     def _muscriptor_device_options(self, config_key: str) -> dict[str, str]:
@@ -1771,7 +1768,7 @@ class ToolsStep:
                 )
 
     def _render_sheet_music_tool(self):
-        """渲染乐谱扫描 embedding 工具"""
+        """渲染乐谱 OMR 转录工具"""
         with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
             with ui.row().classes("w-full items-center gap-2 q-mb-md"):
                 ui.icon("library_music", size="22px").style(f"color: {COLORS['secondary']};")
@@ -1781,53 +1778,24 @@ class ToolsStep:
 
             self.sheet_music_input = create_path_selector(
                 label=t("input_path"),
-                selection_type="file",
+                selection_type="file_or_dir",
                 file_filter=".png .jpg .jpeg .webp .bmp .tif .tiff .pdf",
-                placeholder=t("input_path_placeholder"),
+                placeholder=t("sheet_music_input_placeholder"),
             )
             self.sheet_music_output = create_path_selector(
                 label=t("output_dir"),
-                default_path=DEFAULT_SHEET_MUSIC_OUTPUT_DIR,
                 selection_type="dir",
                 placeholder=t("path_placeholder"),
             )
 
             with ui.row().classes("w-full gap-4 q-mt-md"):
-                self.sheet_music_repo_id = styled_select(
-                    options={DEFAULT_SHEET_MUSIC_REPO_ID: DEFAULT_SHEET_MUSIC_REPO_ID},
-                    value=DEFAULT_SHEET_MUSIC_REPO_ID,
-                    label=t("sheet_music_repo_id"),
-                    icon="cloud_download",
+                self.sheet_music_output_format = styled_select(
+                    options=self._sheet_music_output_format_options(),
+                    value=self.config["sheet_music_output_format"],
+                    label=t("sheet_music_output_format"),
+                    icon="music_note",
                     icon_color=COLORS["primary"],
-                    new_value_mode="add-unique",
-                    flex=1,
-                )
-                self.sheet_music_model_dir = styled_input(
-                    value=DEFAULT_SHEET_MUSIC_MODEL_DIR,
-                    label=t("sheet_music_model_dir"),
-                    icon="folder",
-                    icon_color=COLORS["info"],
-                    flex=1,
-                )
-
-            with ui.row().classes("w-full gap-4 q-mt-md"):
-                self.sheet_music_preprocess_mode = styled_select(
-                    options=self._sheet_music_preprocess_mode_options(),
-                    value="page_resize",
-                    label=t("sheet_music_preprocess_mode"),
-                    icon="crop",
-                    icon_color=COLORS["secondary"],
                     searchable=False,
-                    flex=1,
-                )
-                editable_slider(
-                    label_key="batch_size",
-                    value_ref=self.config,
-                    value_key="sheet_music_batch_size",
-                    min_val=1,
-                    max_val=16,
-                    step=1,
-                    decimals=0,
                     flex=1,
                 )
                 editable_slider(
@@ -1848,7 +1816,6 @@ class ToolsStep:
 
             with ui.row().classes("w-full gap-4 q-mt-md"):
                 toggle_switch("overwrite", self.config, "sheet_music_overwrite")
-                toggle_switch("sheet_music_force_download", self.config, "sheet_music_force_download")
 
     def _render_translate_tool(self):
         """渲染文本/文档翻译工具"""
@@ -2255,46 +2222,36 @@ class ToolsStep:
         )
 
     async def _start_sheet_music(self):
-        """开始乐谱扫描 embedding 提取"""
+        """开始乐谱 OMR 转录"""
         input_path = getattr(getattr(self, "sheet_music_input", None), "value", "")
         if not input_path or not Path(input_path).exists():
             ui.notify(t("select_valid_input"), type="warning")
             return
 
         output_path = str(getattr(getattr(self, "sheet_music_output", None), "value", "") or "").strip()
-        repo_id = str(
-            getattr(getattr(self, "sheet_music_repo_id", None), "value", DEFAULT_SHEET_MUSIC_REPO_ID)
-            or DEFAULT_SHEET_MUSIC_REPO_ID
-        ).strip()
-        model_dir = str(
-            getattr(getattr(self, "sheet_music_model_dir", None), "value", DEFAULT_SHEET_MUSIC_MODEL_DIR)
-            or DEFAULT_SHEET_MUSIC_MODEL_DIR
-        ).strip()
-        preprocess_mode = str(
-            getattr(getattr(self, "sheet_music_preprocess_mode", None), "value", "page_resize") or "page_resize"
+        output_format = str(
+            getattr(
+                getattr(self, "sheet_music_output_format", None),
+                "value",
+                self.config["sheet_music_output_format"],
+            )
+            or self.config["sheet_music_output_format"]
         ).strip()
 
         args = [input_path]
         if output_path:
             args.append(f"--output_dir={output_path}")
-        args.append(f"--repo_id={repo_id}")
-        args.append(f"--model_dir={model_dir}")
-        args.append(f"--batch_size={int(self.config['sheet_music_batch_size'])}")
+        args.append(f"--output_format={output_format}")
         args.append(f"--pdf_dpi={int(self.config['sheet_music_pdf_dpi'])}")
-        args.append(f"--preprocess_mode={preprocess_mode}")
         args.append("--recursive" if self.config["sheet_music_recursive"] else "--no-recursive")
         args.append("--skip_completed" if self.config["sheet_music_skip_completed"] else "--no-skip_completed")
-        if self.config["sheet_music_overwrite"]:
-            args.append("--overwrite")
-        if self.config["sheet_music_force_download"]:
-            args.append("--force_download")
+        args.append("--overwrite" if self.config["sheet_music_overwrite"] else "--no-overwrite")
 
         def pre_log(lv):
             lv.info(t("log_start_sheet_music"))
             lv.info(f"{t('log_input_path')}: {input_path}")
             if output_path:
                 lv.info(f"{t('log_output_dir')}: {output_path}")
-            lv.info(f"{t('log_model')}: {repo_id}")
             lv.info(f"{t('log_params')}: {args}")
 
         panel = self._ensure_execution_panel()

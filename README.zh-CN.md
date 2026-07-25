@@ -158,7 +158,7 @@ Caption 负责核心推理：它可连接云端 API、OpenAI-compatible 服务�
 | 音频分轨 | [Audio Separation](docs/tools/audio_separation.md) | `2.5.audio_separator.ps1` |
 | Image2PSD | [See-through](docs/tools/image2psd.md) | `2.6.image2psd.ps1` |
 | 音频转 MIDI | [MuScriptor](docs/tools/muscriptor.md) | `2.7.music_transcription.ps1` |
-| 乐谱扫描 embedding | [MuSViT](docs/tools/sheet_music.md) | GUI Tools |
+| 乐谱 OMR 转录 | [MuSViT](docs/tools/sheet_music.md) | GUI Tools |
 | 文本与文档翻译 | [Translation](docs/tools/text_translation.md) | `5.translate.ps1` |
 
 MuScriptor 通过 `muscriptor-local` profile 安装，支持官方 `small`、`medium`、`large` 模型。只导出 MIDI、JSON 或 JSONL 时不需要音频合成器。启用试听后，运行时会在模型推理前执行预检；FluidSynth 或官方 SoundFont 不可用会终止整批任务，因此需要关闭试听才能在没有试听运行时的情况下只导出符号结果。该 profile 已包含首次下载 SoundFont 所需的 SOCKS 代理支持。

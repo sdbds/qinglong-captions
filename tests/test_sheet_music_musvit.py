@@ -1,242 +1,469 @@
 import argparse
-import json
-import sys
+import io
 from pathlib import Path
 from types import SimpleNamespace
 
-import numpy as np
+import pytest
 from PIL import Image
+from rich.console import Console
 
-ROOT = Path(__file__).resolve().parent.parent
 
-
-def _write_preprocessor_config(path: Path) -> Path:
-    path.write_text(
-        json.dumps(
-            {
-                "image_processor_type": "ViTImageProcessor",
-                "do_resize": True,
-                "size": {"height": 1024, "width": 1024},
-                "do_rescale": True,
-                "rescale_factor": 1 / 255,
-                "do_normalize": False,
-            }
-        ),
-        encoding="utf-8",
+def test_parser_defaults_to_pinned_omr_model_and_symbolic_output():
+    from module.sheet_music_musvit import (
+        DEFAULT_MODEL_REPO_ID,
+        DEFAULT_MODEL_REVISION,
+        build_parser,
     )
-    return path
+
+    args = build_parser(
+        {
+            "musvit": {
+                "repo_id": DEFAULT_MODEL_REPO_ID,
+                "revision": DEFAULT_MODEL_REVISION,
+                "model_dir": "huggingface",
+                "output_dir": "workspace/musvit_omr_output",
+                "output_format": "musicxml",
+                "pdf_dpi": 144,
+                "recursive": True,
+                "skip_completed": True,
+                "overwrite": False,
+                "force_download": False,
+            }
+        }
+    ).parse_args(["input.png"])
+
+    assert args.repo_id == DEFAULT_MODEL_REPO_ID
+    assert args.revision == DEFAULT_MODEL_REVISION
+    assert args.output_dir is None
+    assert args.output_format == "musicxml"
+    assert args.pdf_dpi == 144
+    assert not hasattr(args, "batch_size")
+    assert not hasattr(args, "preprocess_mode")
 
 
-def test_default_spec_uses_uploaded_musvit_onnx_repo(tmp_path):
-    from module.sheet_music_musvit import DEFAULT_MUSVIT_ONNX_REPO_ID, MuSViTOnnxEmbedder
+def test_default_output_directory_is_input_local(tmp_path: Path):
+    from module.sheet_music_musvit import default_output_dir
 
-    config_path = _write_preprocessor_config(tmp_path / "preprocessor_config.json")
+    source_file = tmp_path / "score.pdf"
+    source_file.write_bytes(b"%PDF")
+    source_dir = tmp_path / "scores"
+    source_dir.mkdir()
+
+    assert default_output_dir(source_file) == tmp_path / "musvit_omr_output"
+    assert default_output_dir(source_dir) == source_dir / "musvit_omr_output"
+
+
+def test_run_cli_resolves_omitted_output_directory_next_to_input(tmp_path: Path):
+    from module.sheet_music_musvit import run_sheet_music_musvit
+
+    input_path = tmp_path / "score.png"
+    Image.new("RGB", (2, 2), color="white").save(input_path)
     captured = {}
 
-    def fake_bundle_loader(**kwargs):
-        captured.update(kwargs)
-        return SimpleNamespace(
-            model_path=tmp_path / "model.onnx",
-            support_paths={"preprocessor_config": config_path},
-            session=SimpleNamespace(get_outputs=lambda: [SimpleNamespace(name="last_hidden_state")]),
-            providers=("CPUExecutionProvider",),
-            input_metas=(SimpleNamespace(name="pixel_values"),),
-        )
+    class FakeRecognizer:
+        providers = ("CPUExecutionProvider",)
 
-    MuSViTOnnxEmbedder(model_dir=tmp_path, bundle_loader=fake_bundle_loader)
+        def __init__(self, **kwargs):
+            pass
 
-    spec = captured["spec"]
-    assert spec.repo_id == DEFAULT_MUSVIT_ONNX_REPO_ID == "bdsqlsz/musvit-onnx"
-    assert spec.onnx_filename == "model.onnx"
-    assert spec.support_files == {"preprocessor_config": "preprocessor_config.json"}
-
-
-def test_preprocess_image_resizes_to_float_chw(tmp_path):
-    from module.sheet_music_musvit import load_musvit_preprocessor_config, preprocess_image
-
-    config_path = _write_preprocessor_config(tmp_path / "preprocessor_config.json")
-    image_path = tmp_path / "score.png"
-    Image.new("RGB", (8, 4), color=(255, 128, 0)).save(image_path)
-
-    config = load_musvit_preprocessor_config(config_path)
-    tensor = preprocess_image(image_path, config, preprocess_mode="page_resize")
-
-    assert tensor.shape == (3, 1024, 1024)
-    assert tensor.dtype == np.float32
-    assert float(tensor.max()) <= 1.0
-    assert float(tensor.min()) >= 0.0
-
-
-def test_embed_file_writes_npz_and_metadata(tmp_path):
-    from module.sheet_music_musvit import MuSViTOnnxEmbedder
-
-    config_path = _write_preprocessor_config(tmp_path / "preprocessor_config.json")
-    image_path = tmp_path / "score.png"
-    Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image_path)
-
-    class FakeSession:
-        @staticmethod
-        def get_outputs():
-            return [SimpleNamespace(name="last_hidden_state")]
+    class FakePipeline:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
 
         @staticmethod
-        def run(output_names, feed):
-            assert output_names == ["last_hidden_state"]
-            assert feed["pixel_values"].shape == (1, 3, 1024, 1024)
-            return [np.zeros((1, 4097, 768), dtype=np.float32)]
+        def run(path):
+            return SimpleNamespace(
+                ok=True,
+                manifest_path=tmp_path / "musvit_omr_output" / "manifest.json",
+                pages=(SimpleNamespace(skipped=False, ok=True),),
+                documents=(),
+                source_failures={},
+                processed=1,
+                skipped=0,
+                failed=0,
+            )
 
-    def fake_bundle_loader(**kwargs):
-        return SimpleNamespace(
-            model_path=tmp_path / "model.onnx",
-            support_paths={"preprocessor_config": config_path},
-            session=FakeSession(),
-            providers=("CPUExecutionProvider",),
-            input_metas=(SimpleNamespace(name="pixel_values"),),
-        )
-
-    embedder = MuSViTOnnxEmbedder(model_dir=tmp_path, bundle_loader=fake_bundle_loader)
-    result = embedder.embed_file(image_path, output_dir=tmp_path / "out", overwrite=True)
-
-    assert result.embedding_path.exists()
-    assert result.metadata_path.exists()
-    arrays = np.load(result.embedding_path)
-    assert arrays["last_hidden_state"].shape == (4097, 768)
-    assert arrays["cls_embedding"].shape == (768,)
-    assert arrays["patch_embeddings"].shape == (4096, 768)
-    metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
-    assert metadata["source_path"] == str(image_path)
-    assert metadata["providers"] == ["CPUExecutionProvider"]
-
-
-def test_embed_inputs_runs_session_in_batches(tmp_path):
-    from module.sheet_music_musvit import MuSViTOnnxEmbedder
-
-    config_path = _write_preprocessor_config(tmp_path / "preprocessor_config.json")
-    input_dir = tmp_path / "scores"
-    input_dir.mkdir()
-    for index in range(3):
-        Image.new("RGB", (8, 8), color=(255, 255, 255)).save(input_dir / f"score_{index}.png")
-
-    run_shapes = []
-
-    class FakeSession:
-        @staticmethod
-        def get_outputs():
-            return [SimpleNamespace(name="last_hidden_state")]
-
-        @staticmethod
-        def run(output_names, feed):
-            batch_shape = feed["pixel_values"].shape
-            run_shapes.append(batch_shape)
-            return [np.zeros((batch_shape[0], 4097, 768), dtype=np.float32)]
-
-    def fake_bundle_loader(**kwargs):
-        return SimpleNamespace(
-            model_path=tmp_path / "model.onnx",
-            support_paths={"preprocessor_config": config_path},
-            session=FakeSession(),
-            providers=("CPUExecutionProvider",),
-            input_metas=(SimpleNamespace(name="pixel_values"),),
-        )
-
-    embedder = MuSViTOnnxEmbedder(model_dir=tmp_path, bundle_loader=fake_bundle_loader)
-    results = embedder.embed_inputs(input_dir, output_dir=tmp_path / "out", batch_size=2, overwrite=True)
-
-    assert run_shapes == [(2, 3, 1024, 1024), (1, 3, 1024, 1024)]
-    assert len(results) == 3
-    assert all(result.embedding_path.exists() for result in results)
-
-
-def test_embed_inputs_expands_pdf_pages_and_writes_page_metadata(tmp_path):
-    from module.sheet_music_musvit import MuSViTOnnxEmbedder
-
-    config_path = _write_preprocessor_config(tmp_path / "preprocessor_config.json")
-    pdf_path = tmp_path / "score.pdf"
-    pdf_path.write_bytes(b"%PDF-1.4\n")
-    live_pages = []
-    closed_pages = []
-    captured_dpi = []
-    live_pages_during_inference = []
-
-    def tracked_page(page_number: int, size: tuple[int, int]):
-        image = Image.new("RGB", size, color=(255, 255, 255))
-        live_pages.append(page_number)
-        original_close = image.close
-
-        def close():
-            closed_pages.append(page_number)
-            if page_number in live_pages:
-                live_pages.remove(page_number)
-            original_close()
-
-        image.close = close
-        return SimpleNamespace(
-            pdf_path=pdf_path,
-            page_index=page_number - 1,
-            page_number=page_number,
-            page_count=2,
-            image=image,
-            size=size,
-            dpi=123,
-            image_format="PNG",
-        )
-
-    def fake_pdf_renderer(path, *, dpi, image_format):
-        captured_dpi.append((Path(path), dpi, image_format))
-        yield tracked_page(1, (12, 8))
-        yield tracked_page(2, (10, 6))
-
-    class FakeSession:
-        @staticmethod
-        def get_outputs():
-            return [SimpleNamespace(name="last_hidden_state")]
-
-        @staticmethod
-        def run(output_names, feed):
-            live_pages_during_inference.append(tuple(live_pages))
-            assert feed["pixel_values"].shape == (1, 3, 1024, 1024)
-            return [np.zeros((1, 4097, 768), dtype=np.float32)]
-
-    def fake_bundle_loader(**kwargs):
-        return SimpleNamespace(
-            model_path=tmp_path / "model.onnx",
-            support_paths={"preprocessor_config": config_path},
-            session=FakeSession(),
-            providers=("CPUExecutionProvider",),
-            input_metas=(SimpleNamespace(name="pixel_values"),),
-        )
-
-    embedder = MuSViTOnnxEmbedder(model_dir=tmp_path, bundle_loader=fake_bundle_loader)
-    results = embedder.embed_inputs(
-        pdf_path,
-        output_dir=tmp_path / "out",
-        batch_size=1,
-        pdf_dpi=123,
-        pdf_renderer=fake_pdf_renderer,
-        overwrite=True,
+    args = argparse.Namespace(
+        input_path=str(input_path),
+        output_dir=None,
+        output_format="musicxml",
+        repo_id="custom/repo",
+        revision="custom-revision",
+        model_dir=str(tmp_path / "models"),
+        pdf_dpi=144,
+        recursive=True,
+        skip_completed=True,
+        overwrite=False,
+        force_download=False,
+        max_tokens=None,
     )
 
-    assert captured_dpi == [(pdf_path, 123, "PNG")]
-    assert live_pages_during_inference == [(1,), (2,)]
-    assert closed_pages == [1, 2]
-    assert live_pages == []
-    assert [result.output_dir.name for result in results] == ["page_0001", "page_0002"]
-    assert (tmp_path / "out" / "score.pdf" / "page_0001" / "embedding.npz").exists()
-    metadata = json.loads((tmp_path / "out" / "score.pdf" / "page_0002" / "metadata.json").read_text(encoding="utf-8"))
-    assert metadata["source_path"] == str(pdf_path)
-    assert metadata["source_type"] == "pdf_page"
-    assert metadata["pdf_page_index"] == 1
-    assert metadata["pdf_page_number"] == 2
-    assert metadata["pdf_page_count"] == 2
-    assert metadata["rendered_page_size"] == [10, 6]
+    assert (
+        run_sheet_music_musvit(
+            args,
+            recognizer_factory=FakeRecognizer,
+            pipeline_factory=FakePipeline,
+        )
+        == 0
+    )
+    assert captured["output_dir"] == tmp_path / "musvit_omr_output"
 
 
-def test_build_parser_defaults_to_uploaded_repo():
-    from module.sheet_music_musvit import DEFAULT_MUSVIT_ONNX_REPO_ID, build_parser
+def test_run_cli_forwards_omr_options_and_returns_pipeline_status(
+    monkeypatch,
+    tmp_path: Path,
+):
+    import module.sheet_music_musvit as sheet_music_musvit
 
-    args = build_parser().parse_args(["input.png"])
+    input_path = tmp_path / "score.png"
+    Image.new("RGB", (2, 2), color="white").save(input_path)
+    output_dir = tmp_path / "out"
+    captured = {}
+    output_bytes = io.BytesIO()
+    output_stream = io.TextIOWrapper(output_bytes, encoding="gbk")
+    monkeypatch.setattr(
+        sheet_music_musvit,
+        "console",
+        Console(
+            file=output_stream,
+            color_system="truecolor",
+            force_terminal=True,
+        ),
+    )
 
-    assert args.repo_id == DEFAULT_MUSVIT_ONNX_REPO_ID
-    assert args.model_dir == "huggingface"
-    assert args.batch_size == 1
-    assert args.pdf_dpi == 144
+    class FakeRecognizer:
+        providers = ("CPUExecutionProvider",)
+
+        def __init__(self, **kwargs):
+            captured["recognizer"] = kwargs
+
+    class FakePipeline:
+        def __init__(self, **kwargs):
+            captured["pipeline"] = kwargs
+
+        def run(self, path):
+            captured["input_path"] = Path(path)
+            return SimpleNamespace(
+                ok=True,
+                manifest_path=output_dir / "manifest.json",
+                pages=(SimpleNamespace(skipped=False, ok=True),),
+                documents=(),
+                source_failures={},
+                processed=1,
+                skipped=0,
+                failed=0,
+            )
+
+    args = argparse.Namespace(
+        input_path=str(input_path),
+        output_dir=str(output_dir),
+        output_format="both",
+        repo_id="custom/repo",
+        revision="custom-revision",
+        model_dir=str(tmp_path / "models"),
+        pdf_dpi=200,
+        recursive=False,
+        skip_completed=False,
+        overwrite=True,
+        force_download=True,
+        max_tokens=123,
+    )
+
+    exit_code = sheet_music_musvit.run_sheet_music_musvit(
+        args,
+        recognizer_factory=FakeRecognizer,
+        pipeline_factory=FakePipeline,
+    )
+    output_stream.flush()
+
+    assert exit_code == 0
+    assert captured["recognizer"]["repo_id"] == "custom/repo"
+    assert captured["recognizer"]["revision"] == "custom-revision"
+    assert captured["pipeline"]["output_format"] == "both"
+    assert captured["pipeline"]["pdf_dpi"] == 200
+    assert captured["pipeline"]["max_tokens"] == 123
+    assert captured["input_path"] == input_path
+
+
+def test_run_cli_escapes_manifest_path_outside_console_encoding(
+    monkeypatch,
+    tmp_path: Path,
+):
+    import module.sheet_music_musvit as sheet_music_musvit
+
+    input_path = tmp_path / "score.png"
+    Image.new("RGB", (2, 2), color="white").save(input_path)
+    output_bytes = io.BytesIO()
+    output_stream = io.TextIOWrapper(output_bytes, encoding="gbk")
+    monkeypatch.setattr(
+        sheet_music_musvit,
+        "console",
+        Console(
+            file=output_stream,
+            color_system=None,
+            force_terminal=False,
+        ),
+    )
+
+    class FakeRecognizer:
+        providers = ("CPUExecutionProvider",)
+
+        def __init__(self, **kwargs):
+            pass
+
+    class FakePipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        @staticmethod
+        def run(path):
+            return SimpleNamespace(
+                ok=True,
+                manifest_path=tmp_path / "manifest_\u3099.json",
+                pages=(SimpleNamespace(skipped=True, ok=True),),
+                documents=(),
+                source_failures={},
+                processed=0,
+                skipped=1,
+                failed=0,
+            )
+
+    args = argparse.Namespace(
+        input_path=str(input_path),
+        output_dir="",
+        output_format="musicxml",
+        repo_id="custom/repo",
+        revision="custom-revision",
+        model_dir=str(tmp_path / "models"),
+        pdf_dpi=144,
+        recursive=True,
+        skip_completed=True,
+        overwrite=False,
+        force_download=False,
+        max_tokens=None,
+    )
+
+    exit_code = sheet_music_musvit.run_sheet_music_musvit(
+        args,
+        recognizer_factory=FakeRecognizer,
+        pipeline_factory=FakePipeline,
+    )
+    output_stream.flush()
+
+    assert exit_code == 0
+    assert b"manifest_" in output_bytes.getvalue()
+
+
+def test_run_cli_returns_nonzero_when_any_page_fails(tmp_path: Path):
+    from module.sheet_music_musvit import run_sheet_music_musvit
+
+    input_path = tmp_path / "score.png"
+    Image.new("RGB", (2, 2), color="white").save(input_path)
+
+    class FakeRecognizer:
+        providers = ("CPUExecutionProvider",)
+
+        def __init__(self, **kwargs):
+            pass
+
+    class FailingPipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        @staticmethod
+        def run(path):
+            return SimpleNamespace(
+                ok=False,
+                manifest_path=tmp_path / "manifest.json",
+                pages=(SimpleNamespace(skipped=False, ok=False),),
+                documents=(),
+                source_failures={},
+                processed=1,
+                skipped=0,
+                failed=1,
+            )
+
+    args = argparse.Namespace(
+        input_path=str(input_path),
+        output_dir=str(tmp_path / "out"),
+        output_format="musicxml",
+        repo_id="custom/repo",
+        revision="custom-revision",
+        model_dir=str(tmp_path / "models"),
+        pdf_dpi=144,
+        recursive=True,
+        skip_completed=True,
+        overwrite=False,
+        force_download=False,
+        max_tokens=None,
+    )
+
+    assert (
+        run_sheet_music_musvit(
+            args,
+            recognizer_factory=FakeRecognizer,
+            pipeline_factory=FailingPipeline,
+        )
+        == 1
+    )
+
+
+def test_run_cli_reports_document_only_aggregation_failure(
+    monkeypatch,
+    tmp_path: Path,
+):
+    import module.sheet_music_musvit as sheet_music_musvit
+
+    input_path = tmp_path / "score.pdf"
+    input_path.write_bytes(b"%PDF")
+    output_bytes = io.BytesIO()
+    output_stream = io.TextIOWrapper(output_bytes, encoding="gbk")
+    monkeypatch.setattr(
+        sheet_music_musvit,
+        "console",
+        Console(
+            file=output_stream,
+            color_system=None,
+            force_terminal=False,
+        ),
+    )
+
+    class FakeRecognizer:
+        providers = ("CPUExecutionProvider",)
+
+        def __init__(self, **kwargs):
+            pass
+
+    class FailingPipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        @staticmethod
+        def run(path):
+            return SimpleNamespace(
+                ok=False,
+                manifest_path=tmp_path / "manifest.json",
+                pages=(SimpleNamespace(skipped=False, ok=True),),
+                documents=(SimpleNamespace(ok=False),),
+                source_failures={},
+                processed=1,
+                skipped=0,
+                failed=1,
+            )
+
+    args = argparse.Namespace(
+        input_path=str(input_path),
+        output_dir=str(tmp_path / "out"),
+        output_format="both",
+        repo_id="custom/repo",
+        revision="custom-revision",
+        model_dir=str(tmp_path / "models"),
+        pdf_dpi=144,
+        recursive=True,
+        skip_completed=True,
+        overwrite=False,
+        force_download=False,
+        max_tokens=None,
+    )
+
+    assert (
+        sheet_music_musvit.run_sheet_music_musvit(
+            args,
+            recognizer_factory=FakeRecognizer,
+            pipeline_factory=FailingPipeline,
+        )
+        == 1
+    )
+    output_stream.flush()
+    assert "processed=1 skipped=0 failed=1" in output_bytes.getvalue().decode(
+        "gbk"
+    )
+
+
+@pytest.mark.parametrize(
+    ("pdf_dpi", "max_tokens"),
+    (
+        (0, None),
+        (144, 1),
+        (144, 7513),
+    ),
+)
+def test_invalid_runtime_args_fail_before_loading_model(
+    tmp_path: Path,
+    pdf_dpi: int,
+    max_tokens: int | None,
+):
+    from module.sheet_music_musvit import run_sheet_music_musvit
+
+    input_path = tmp_path / "score.png"
+    Image.new("RGB", (2, 2), color="white").save(input_path)
+    recognizer_calls = []
+
+    class MustNotLoadRecognizer:
+        def __init__(self, **kwargs):
+            recognizer_calls.append(kwargs)
+
+    args = argparse.Namespace(
+        input_path=str(input_path),
+        output_dir=str(tmp_path / "out"),
+        output_format="musicxml",
+        repo_id="custom/repo",
+        revision="custom-revision",
+        model_dir=str(tmp_path / "models"),
+        pdf_dpi=pdf_dpi,
+        recursive=True,
+        skip_completed=True,
+        overwrite=False,
+        force_download=False,
+        max_tokens=max_tokens,
+    )
+
+    assert (
+        run_sheet_music_musvit(
+            args,
+            recognizer_factory=MustNotLoadRecognizer,
+        )
+        == 1
+    )
+    assert recognizer_calls == []
+
+
+def test_pipeline_construction_errors_are_reported_as_cli_failures(tmp_path: Path):
+    from module.sheet_music_musvit import run_sheet_music_musvit
+
+    input_path = tmp_path / "score.png"
+    Image.new("RGB", (2, 2), color="white").save(input_path)
+
+    class FakeRecognizer:
+        providers = ("CPUExecutionProvider",)
+
+        def __init__(self, **kwargs):
+            pass
+
+    class FailingPipeline:
+        def __init__(self, **kwargs):
+            raise ValueError("invalid pipeline options")
+
+    args = argparse.Namespace(
+        input_path=str(input_path),
+        output_dir=str(tmp_path / "out"),
+        output_format="musicxml",
+        repo_id="custom/repo",
+        revision="custom-revision",
+        model_dir=str(tmp_path / "models"),
+        pdf_dpi=144,
+        recursive=True,
+        skip_completed=True,
+        overwrite=False,
+        force_download=False,
+        max_tokens=None,
+    )
+
+    assert (
+        run_sheet_music_musvit(
+            args,
+            recognizer_factory=FakeRecognizer,
+            pipeline_factory=FailingPipeline,
+        )
+        == 1
+    )

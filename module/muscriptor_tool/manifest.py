@@ -6,8 +6,9 @@ import re
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from module.music_export import atomic_output_path
+
 from .options import BatchOptions
-from .outputs import atomic_output_path
 
 SCHEMA_VERSION = 2
 KNOWN_OUTPUT_NAMES = frozenset(

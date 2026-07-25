@@ -1,8 +1,23 @@
 # 通用音乐时序分析、增强 MIDI 与 MusicXML 导出设计
 
 - 日期：2026-07-19
-- 状态：已确认，等待实现计划
-- 影响范围：MuScriptor、本地 GAME 人声转 MIDI、音频分离后的 MIDI 工作流、MuScriptor WebUI、音频预览
+- 状态：已确认，实施计划于 2026-07-23 修订
+- 影响范围：MuScriptor、本地 GAME 人声转 MIDI、音频分离后的 MIDI 工作流、MuScriptor WebUI、音频预览、MuSViT OMR 公共导出边界
+
+## 2026-07-23 导出所有权修订
+
+MuSViT OMR 已成为第二个真实的符号乐谱导出消费者。公共文件事务和
+`music21.stream.Score` 写出不再由 `module.muscriptor_tool` 私有拥有：
+
+- `module.music_export` 唯一负责通用 ExportJob、临时文件、写后校验、原子替换和逐格式状态；
+- `module.music_export.music21_writers` 负责已有 `music21.stream.Score` 的 MusicXML/MIDI 写出与通用回读校验；
+- `module.muscriptor_tool.musicxml_export` 只负责 `AnalyzedScore -> music21.stream.Score` 领域适配和 MuScriptor 特有语义校验；
+- `module.muscriptor_tool.midi_export` 继续直接使用 mido，以保留音频秒级时序，不改走 music21；
+- MuScriptor 与 OMR 不互相导入领域模型，均只依赖中立的 `module.music_export`。
+
+本修订覆盖本文后续任何把通用临时写入、原子替换或 MusicXML 回读归给
+`module.muscriptor_tool` 的旧表述，并同步修订
+`docs/superpowers/plans/2026-07-19-enriched-music-exports-implementation.md`。
 
 ## 1. 背景与问题定义
 
@@ -79,6 +94,21 @@
 - midi_timing.py：统一 seconds、beats、ticks 的双向映射和 MIDI tempo meta 生成。
 - cache.py：按源音频状态、算法版本、checkpoint 和手动覆盖生成缓存/批处理签名。
 
+新增通用导出包：
+
+    module/music_export/
+        __init__.py
+        service.py
+        music21_writers.py
+        validation.py
+
+职责：
+
+- service.py：执行不含领域模型的 ExportJob；每种格式独立临时写入、校验、原子替换并返回 ExportStatus。
+- music21_writers.py：将调用方已经构建的 music21.stream.Score 写成 MusicXML 或 MIDI。
+- validation.py：通用格式回读和非空/结构校验；调用方可追加领域语义校验 callback。
+- 该包不导入 muscriptor_tool、sheet_music_omr、AnalyzedScore 或任何模型运行时。
+
 扩展 MuScriptor 包：
 
     module/muscriptor_tool/
@@ -95,7 +125,7 @@
 - dynamics.py：从完整混音估算相对力度。
 - midi_export.py：用 mido 直接写 Type 1 MIDI，不调用上游固定 120/100 的导出器。
 - structured_export.py：写 JSON v2 和 JSONL。
-- musicxml_export.py：从 AnalyzedScore 直接构建 music21 Score。
+- musicxml_export.py：从 AnalyzedScore 直接构建 music21 Score，并提供 MuScriptor 特有语义校验；通用写出与回读交给 music_export。
 - fluidsynth_runtime.py：发现、验证、安装和解析 FluidSynth 可执行文件。
 
 ### 4.2 依赖方向
@@ -108,10 +138,9 @@
                 |
                 +--> EnrichedNote + 相对力度
                          |
-                         +--> MIDI
-                         +--> JSON v2
-                         +--> JSONL
-                         +--> MusicXML
+                         +--> mido MIDI adapter ------+
+                         +--> JSON/JSONL adapters -----+--> music_export ExportJob
+                         +--> music21 Score adapter ---+
 
 GAME 人声转 MIDI 只依赖 MusicTiming 和 midi_timing，不依赖 MuScriptor 的 score、dynamics、MusicXML 或 FluidSynth。
 
@@ -446,8 +475,9 @@ spool 在成功或失败后清理，不能被批处理当作完成输出。
 - 新格式名 musicxml。
 - 文件名为 source-stem.musicxml。
 - CLI 单文件模式支持写 stdout。
-- Python 3.10 固定使用 music21==9.9.1；Python 3.11 和 3.12 固定使用 music21==10.5.0。
-- 直接从 AnalyzedScore 构建，不经由临时 MIDI。
+- Python 3.10 固定使用 music21==9.9.2；Python 3.11 和 3.12 固定使用 music21==10.5.0。
+- MuScriptor adapter 直接从 AnalyzedScore 构建 music21 Score，不经由临时 MIDI。
+- 该 Score 交给 module.music_export 的通用 writer、validator 和 ExportJob 服务写出。
 
 谱面规则：
 
@@ -465,10 +495,11 @@ spool 在成功或失败后清理，不能被批处理当作完成输出。
 
 导出验证：
 
-1. 调用 isWellFormedNotation。
-2. 写出后用 music21 重新读取。
-3. 验证 Part、Measure、音符/和弦、tempo 标记的基本数量。
-4. 解析失败时仅标记 MusicXML 输出失败，不删除已成功的 MIDI/JSON/JSONL。
+1. MuScriptor adapter 在提交 ExportJob 前调用 isWellFormedNotation。
+2. module.music_export 写入临时目标后用 music21 重新读取。
+3. 通用 validator 验证非空 Score、Part 和 Measure；MuScriptor callback 再验证音符/和弦、tempo 标记的预期数量。
+4. 全部校验通过后才原子替换正式目标。
+5. 解析失败时 ExportStatus 仅标记 MusicXML 输出失败，不删除已成功的 MIDI/JSON/JSONL。
 
 ## 9. 各工作流数据流
 
@@ -616,7 +647,8 @@ JSON v2 是有意的结构升级。项目内部消费者必须同时识别：
 
 - 旧 MIDI 或无 timing metadata 的 GAME 输出不算完成，需重建。
 - 临时文件、spool、.part 和 staging 不算正式输出。
-- MIDI、JSON、JSONL、MusicXML 和 sidecar 分别写临时文件后原子 replace。
+- MIDI、JSON、JSONL、MusicXML 和 sidecar 都作为独立 ExportJob，经
+  module.music_export 分别写临时文件、校验后原子 replace。
 - manifest/清理逻辑认识 .musicxml 和新增 sidecar。
 - 清理只删除项目声明拥有的产物，不删除未知文件。
 
@@ -641,9 +673,14 @@ JSON v2 是有意的结构升级。项目内部消费者必须同时识别：
 建议依赖：
 
 - muscriptor-local extra 增加 beat-this==1.1.0。
-- muscriptor-local 在 Python 3.10 增加 music21==9.9.1，在 Python 3.11/3.12 增加 music21==10.5.0，使用 PEP 508 python_version marker。
+- 新增 music-export extra，统一拥有 mido>=1.3.0、Python 3.10 的 music21==9.9.2 和 Python 3.11/3.12 的 music21==10.5.0。
+- muscriptor-local 与 musvit-onnx 都引用 qinglong-captions[music-export]，不各自复制 music21 marker。
 - vocal-midi extra 增加 beat-this==1.1.0，不增加 music21。
 - 继续使用已有 torch、mido、numpy、filelock。
+
+module.music_export.service 和不依赖 music21 的 validator 必须可独立导入；
+包级 `__init__` 不得急切导入 music21_writers，否则 vocal-midi 会被迫安装
+与其无关的 music21。
 
 Beat This 代码与权重采用 MIT 许可；实现时在依赖文档/第三方声明中保留来源。FluidSynth 为 LGPL；项目下载原始官方二进制，不修改或静态链接，缓存 manifest 记录官方资产来源。
 
@@ -673,6 +710,13 @@ Beat This 代码与权重采用 MIT 许可；实现时在依赖文档/第三方�
 
 ### 15.3 输出测试
 
+module.music_export 的中立契约独立测试：
+
+- writer 或 validator 失败不会替换已有正式文件，且总会清理临时文件。
+- 一个格式失败不阻止后续 ExportJob，逐格式 ExportStatus 完整。
+- music21 MusicXML/MIDI writer 均能回读，空文件和损坏文件被拒绝。
+- 测试包不导入 AnalyzedScore 或任何 OMR/音频模型。
+
 MIDI 用 mido 回读并验证：
 
 - conductor tempo/time signature。
@@ -694,7 +738,7 @@ MusicXML 用 music21 回读并验证：
 - part、measure、note/chord 数量。
 - voice、tie、tempo、dynamic 和空谱。
 - MuseScore 可读性保留一项人工 smoke checklist，但自动测试不依赖 MuseScore 安装。
-- Python 3.10/music21 9.9.1 与 Python 3.11-3.12/music21 10.5.0 运行相同的 exporter contract tests。
+- Python 3.10/music21 9.9.2 与 Python 3.11-3.12/music21 10.5.0 运行相同的 exporter contract tests。
 
 ### 15.4 FluidSynth 测试
 
@@ -732,9 +776,10 @@ MusicXML 用 music21 回读并验证：
 10. Windows x64 首次请求预览时可私有安装已校验的 FluidSynth；不修改 PATH。
 11. 不请求预览时无 FluidSynth 检查或下载。
 12. MuScriptor 上游 WebUI 导出的 MIDI 也具有检测 tempo 和相对力度。
-13. 所有新增测试通过，默认测试过程无外部网络依赖。
-14. 一小时输入的力度分析内存上界由固定 chunk 大小决定，不随音频时长线性增长。
-15. Python 3.10、3.11、3.12 均能解析 muscriptor-local 依赖并运行 MusicXML contract tests。
+13. module.music_export 是文件事务和通用 music21 writer 的唯一所有者，且不导入 MuScriptor 或 OMR 领域模型。
+14. 所有新增测试通过，默认测试过程无外部网络依赖。
+15. 一小时输入的力度分析内存上界由固定 chunk 大小决定，不随音频时长线性增长。
+16. Python 3.10、3.11、3.12 均能解析 muscriptor-local 依赖并运行 MusicXML contract tests。
 
 ## 17. 被否决的方案
 

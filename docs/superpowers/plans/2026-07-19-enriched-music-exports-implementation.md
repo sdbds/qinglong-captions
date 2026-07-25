@@ -4,15 +4,35 @@
 
 **Goal:** Replace fixed 120 BPM exports with shared audio-derived timing, add relative MuScriptor velocity and MusicXML, reuse timing in GAME vocal MIDI, and provide an on-demand project-private FluidSynth runtime.
 
-**Architecture:** A dependency-light module/music_analysis package owns timing facts and seconds/beats/ticks conversion. MuScriptor builds one canonical AnalyzedScore, then pure MIDI/JSON/JSONL/MusicXML exporters consume it. Preview and WebUI use project-owned render/server adapters so private FluidSynth and enriched MIDI cannot be bypassed.
+**Architecture:** A dependency-light module/music_analysis package owns timing facts and seconds/beats/ticks conversion. MuScriptor builds one canonical AnalyzedScore and domain adapters produce MIDI/JSON/JSONL payloads or a music21 Score. The neutral module/music_export package exclusively owns export transactions, generic validation and music21 file writers. Preview and WebUI use project-owned render/server adapters so private FluidSynth and enriched MIDI cannot be bypassed.
 
-**Tech Stack:** Python 3.10-3.12, pytest, torch, beat-this 1.1.0 small0, mido, music21 9.9.1/10.5.0, FastAPI, soundfile, filelock.
+**Tech Stack:** Python 3.10-3.12, pytest, torch, beat-this 1.1.0 small0, mido, music21 9.9.2/10.5.0, FastAPI, soundfile, filelock.
+
+## 2026-07-23 Export Ownership Revision
+
+MuSViT OMR is now a second accepted symbolic-score consumer. This plan is
+therefore amended before implementation:
+
+- `module/music_export` is the single owner of ExportJob, sibling temporary
+  files, validation-before-replace, atomic replacement and per-format status;
+- generic MusicXML/MIDI writing from an existing `music21.stream.Score` also
+  belongs to `module/music_export`;
+- `module/muscriptor_tool/musicxml_export.py` only adapts `AnalyzedScore` into a
+  music21 Score and supplies MuScriptor-specific semantic checks;
+- MuScriptor's direct mido MIDI serialization stays in
+  `module/muscriptor_tool/midi_export.py` because it preserves audio-time
+  semantics;
+- neither domain package imports the other. Both submit callbacks and targets
+  to the neutral service.
+
+The prerequisite task and the revised Task 8 and Task 9 below implement this
+ownership directly.
 
 ## Global Constraints
 
 - Preserve Python requires-python >=3.10,<3.13.
 - Pin beat-this==1.1.0 and use checkpoint small0 on CPU by default.
-- Pin music21==9.9.1 on Python 3.10 and music21==10.5.0 on Python 3.11/3.12.
+- Pin music21==9.9.2 on Python 3.10 and music21==10.5.0 on Python 3.11/3.12.
 - No test may download Beat This weights or FluidSynth unless an existing explicit real-smoke environment gate is enabled.
 - Manual BPM and meter together must bypass Beat This.
 - Automatic timing failure must emit source=fallback, 120 BPM, 4/4, and an actionable warning.
@@ -21,7 +41,10 @@
 - Existing system FluidSynth wins; managed Windows x64 cache is second; no permanent or process-wide PATH mutation.
 - QINGLONG_CAPTIONS_DISABLE_FLUIDSYNTH_DOWNLOAD=1 disables managed FluidSynth download.
 - Symbolic exports never probe or download FluidSynth unless preview is requested.
-- All owned file outputs use temporary files plus atomic replacement.
+- All owned file outputs submit independent ExportJobs to module/music_export;
+  validation succeeds before atomic replacement.
+- module/music_export must not import muscriptor_tool, sheet_music_omr,
+  AnalyzedScore or model runtime code.
 - Preserve MuScriptor 0.2.1 canonical validation and overlap-trimming behavior before enrichment.
 - Do not edit upstream compiled web_dist assets.
 - Design source of truth: docs/superpowers/specs/2026-07-19-music-analysis-enriched-midi-musicxml-design.md.
@@ -39,13 +62,24 @@ New common timing files:
 - module/music_analysis/beat_this_runtime.py: lazy small0 adapter with injected test seam.
 - module/music_analysis/cache.py: timing signatures and per-source analysis cache.
 
+New common export files:
+
+- module/music_export/__init__.py: stable transaction exports without eagerly
+  importing music21_writers.
+- module/music_export/service.py: ExportJob, ExportStatus and independent
+  validation-before-replace execution.
+- module/music_export/music21_writers.py: MusicXML/MIDI writers for an existing
+  music21.stream.Score.
+- module/music_export/validation.py: generic MusicXML/MIDI readback validators.
+
 New MuScriptor files:
 
 - module/muscriptor_tool/score.py: canonical event pairing/cleanup and AnalyzedScore.
 - module/muscriptor_tool/dynamics.py: fixed-memory chunked relative intensity.
 - module/muscriptor_tool/midi_export.py: Type 1 conductor/instrument MIDI.
 - module/muscriptor_tool/structured_export.py: JSON v2 and JSONL records.
-- module/muscriptor_tool/musicxml_export.py: music21 score construction and readback validation.
+- module/muscriptor_tool/musicxml_export.py: AnalyzedScore-to-music21 Score
+  adapter and MuScriptor-specific semantic validation.
 - module/muscriptor_tool/fluidsynth_runtime.py: resolver and managed Windows installer.
 - module/muscriptor_tool/web_server.py: local /transcribe and /auralize routes over the upstream app.
 
@@ -70,12 +104,117 @@ New focused tests:
 - tests/test_music_analysis_postprocess.py
 - tests/test_music_analysis_midi_timing.py
 - tests/test_music_analysis_runtime.py
+- tests/test_music_export_service.py
+- tests/test_music_export_music21.py
 - tests/test_muscriptor_score.py
 - tests/test_muscriptor_dynamics.py
 - tests/test_muscriptor_musicxml.py
 - tests/test_muscriptor_fluidsynth.py
 
 Existing integration tests are extended in place.
+
+---
+
+### Prerequisite Task 0: Neutral Export Transactions
+
+This ownership task runs before Task 1 because GAME MIDI and later MuScriptor
+tasks already write project-owned artifacts. It is the same shared deliverable
+established by the MuSViT OMR implementation. If OMR lands first, audit and
+extend that exact package rather than creating a parallel service; passing this
+task's dependency-direction and transaction tests marks the prerequisite
+complete.
+
+**Files:**
+- Create or verify: module/music_export/__init__.py
+- Create or verify: module/music_export/service.py
+- Create or verify: module/music_export/validation.py
+- Create: tests/test_music_export_service.py
+- Modify: pyproject.toml
+- Modify: module/muscriptor_tool/outputs.py
+- Modify: module/muscriptor_tool/manifest.py
+- Modify: module/muscriptor_tool/auralization.py
+- Modify: tests/test_muscriptor_dependencies.py
+
+**Interfaces:**
+- ExportJob(format, target, writer, validator).
+- ExportStatus(format, target, ok, error).
+- run_export_jobs() and atomic_output_path() live only in module.music_export.
+- validate_nonempty_file() and validate_midi_file() supply generic validators.
+- music-export owns mido/music21 pins; muscriptor-local and musvit-onnx
+  reference that extra.
+
+- [ ] **Step 1: Write failing ownership and transaction tests**
+
+Assert that validation happens before replacement, an existing final target
+survives writer/validator failure, temporary files are always removed, jobs
+continue independently in request order, and module.music_export imports no
+domain package. Importing module.music_export.service must not import or require
+music21.
+
+Assert the exact shared dependency contract:
+
+~~~toml
+"mido>=1.3.0"
+"music21==9.9.2; python_version == '3.10'"
+"music21==10.5.0; python_version >= '3.11' and python_version < '3.13'"
+~~~
+
+Neither consumer extra may duplicate these three requirements directly.
+
+- [ ] **Step 2: Run tests and verify RED**
+
+Run: python -m pytest tests/test_music_export_service.py tests/test_muscriptor_dependencies.py tests/test_muscriptor_preview.py -q
+
+Expected: module.music_export does not exist and generic atomic writes are still
+owned by module.muscriptor_tool.outputs.
+
+- [ ] **Step 3: Implement and migrate the single owner**
+
+~~~python
+@dataclass(frozen=True)
+class ExportJob:
+    format: str
+    target: Path
+    writer: Callable[[Path], None]
+    validator: Callable[[Path], None]
+
+
+@dataclass(frozen=True)
+class ExportStatus:
+    format: str
+    target: Path
+    ok: bool
+    error: str | None = None
+~~~
+
+`run_export_jobs()` creates the target parent and a unique sibling temporary
+path that preserves the final suffix, invokes writer and validator, then calls
+`os.replace`. It catches each job independently, records an actionable error,
+and removes the temporary path in `finally`.
+`atomic_output_path()` remains available as a low-level common primitive for
+call sites that cannot yet form a multi-format job.
+
+Add the neutral music-export dependency extra and make both muscriptor-local
+and musvit-onnx reference it. Keep `module.music_export.__init__` free of eager
+music21 imports so service-only consumers remain lightweight.
+
+Move the existing helper from module.muscriptor_tool.outputs and update every
+current import, including manifest and preview code. Delete the old definition;
+do not leave a compatibility wrapper.
+
+- [ ] **Step 4: Run tests and verify GREEN**
+
+Run: python -m pytest tests/test_music_export_service.py tests/test_muscriptor_dependencies.py tests/test_muscriptor_events_outputs.py tests/test_muscriptor_preview.py -q
+
+Expected: all focused tests pass and no import still treats
+module.muscriptor_tool.outputs as the transaction owner.
+
+- [ ] **Step 5: Commit**
+
+~~~powershell
+git add pyproject.toml module/music_export module/muscriptor_tool/outputs.py module/muscriptor_tool/manifest.py module/muscriptor_tool/auralization.py tests/test_music_export_service.py tests/test_muscriptor_dependencies.py tests/test_muscriptor_events_outputs.py tests/test_muscriptor_preview.py
+git commit -m "refactor: centralize music export transactions"
+~~~
 
 ---
 
@@ -424,12 +563,11 @@ Add tests proving one model load across files, injected Audio2Frames output, off
 
 - [ ] **Step 2: Add dependency contract tests and verify RED**
 
-Assert pyproject markers are exactly:
+Assert `muscriptor-local` adds the timing dependency while retaining its
+Prerequisite Task 0 reference to `qinglong-captions[music-export]`:
 
 ~~~toml
 "beat-this==1.1.0"
-"music21==9.9.1; python_version == '3.10'"
-"music21==10.5.0; python_version >= '3.11' and python_version < '3.13'"
 ~~~
 
 Run: python -m pytest tests/test_music_analysis_runtime.py tests/test_muscriptor_dependencies.py tests/test_audio_separator_dependency_profiles.py -q
@@ -522,7 +660,7 @@ git commit -m "feat: add lazy Beat This timing analysis"
 
 **Interfaces:**
 - Consumes: MusicTiming, TimingOverrides, TimingMap, build_conductor_track.
-- Produces: atomic .mid plus .timing.json sidecar.
+- Produces: validated .mid plus .timing.json ExportJobs.
 
 - [ ] **Step 1: Write failing MIDI timing tests**
 
@@ -572,12 +710,23 @@ def _save_midi_file(
     midi_file = mido.MidiFile(type=1, ticks_per_beat=480, charset="utf8")
     midi_file.tracks.append(build_conductor_track(timing, ticks_per_beat=480))
     midi_file.tracks.append(_vocal_note_track(notes, TimingMap(timing, ticks_per_beat=480), velocity=64))
-    with atomic_output_path(output_path) as temporary:
-        midi_file.save(temporary)
+    status = run_export_jobs(
+        (
+            ExportJob(
+                "midi",
+                output_path,
+                midi_file.save,
+                validate_midi_file,
+            ),
+        )
+    )[0]
+    if not status.ok:
+        raise VocalMidiExportError(status.error)
     return output_path
 ~~~
 
-Add bpm/time_signature/timing parameters to transcribe_file and CLI parser. Write the sidecar after all requested outputs using the same atomic helper.
+Add bpm/time_signature/timing parameters to transcribe_file and CLI parser.
+Write and validate the sidecar as its own ExportJob after all requested outputs.
 
 - [ ] **Step 4: Run focused tests and verify GREEN**
 
@@ -816,7 +965,7 @@ git add module/muscriptor_tool/dynamics.py tests/test_muscriptor_dynamics.py
 git commit -m "feat: estimate chunked relative note dynamics"
 ~~~
 
-### Task 8: Pure MIDI And Structured Exporters
+### Task 8: Pure MIDI, Structured Adapters And ExportJob Integration
 
 **Files:**
 - Create: module/muscriptor_tool/midi_export.py
@@ -827,41 +976,70 @@ git commit -m "feat: estimate chunked relative note dynamics"
 
 **Interfaces:**
 - Consumes: AnalyzedScore.
-- Produces: score_to_midi_bytes(), score_to_json_payload(), iter_jsonl_records().
+- Produces: score_to_midi_bytes(), score_to_json_payload(),
+  iter_jsonl_records().
+- Submits one neutral ExportJob per requested final format.
 
 - [ ] **Step 1: Replace fake upstream-MIDI expectations with failing enriched contracts**
 
 ~~~python
 def test_four_symbolic_views_share_timing_and_velocity(tmp_path):
-    result = transcribe_once(fake_loaded, source, options, targets, timing_analyzer=fake_analyzer)
+    result = transcribe_once(
+        fake_loaded,
+        source,
+        options,
+        targets,
+        timing_analyzer=fake_analyzer,
+    )
     midi = mido.MidiFile(file=io.BytesIO((tmp_path / "song.mid").read_bytes()))
     json_payload = json.loads((tmp_path / "events.json").read_text())
-    jsonl = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    jsonl = [
+        json.loads(line)
+        for line in (tmp_path / "events.jsonl").read_text().splitlines()
+    ]
     assert json_payload["schema_version"] == 2
     assert jsonl[0]["record_type"] == "metadata"
     assert json_payload["analysis"]["global_bpm"] == 90.0
     assert first_midi_velocity(midi) == first_json_velocity(json_payload)
+    assert result.status_by_format["midi"].ok
 ~~~
 
-Add Type 1 conductor/program/drum channel, end-before-repeated-on ordering, empty transcription, JSON v1 reader compatibility, JSON/JSONL equivalence and per-format partial failure tests.
+Add Type 1 conductor/program/drum channel, end-before-repeated-on ordering,
+empty transcription, JSON v1 reader compatibility, JSON/JSONL equivalence and
+per-format partial failure tests. A failed JSON validator must not prevent a
+valid MIDI job from committing.
 
 - [ ] **Step 2: Run tests and verify RED**
 
-Run: python -m pytest tests/test_muscriptor_events_outputs.py -q
+Run: python -m pytest tests/test_music_export_service.py tests/test_muscriptor_events_outputs.py -q
 
-Expected: JSON is still a v1 array and MIDI still calls loaded.midi_bytes.
+Expected: JSON is still a v1 array, MIDI still calls loaded.midi_bytes and
+MuScriptor does not expose per-format ExportStatus.
 
-- [ ] **Step 3: Implement pure exporters**
+- [ ] **Step 3: Implement pure adapters and submit neutral jobs**
 
 ~~~python
-def score_to_midi_bytes(score: AnalyzedScore, *, ticks_per_beat: int = 480) -> bytes:
+def score_to_midi_bytes(
+    score: AnalyzedScore,
+    *,
+    ticks_per_beat: int = 480,
+) -> bytes:
     midi = mido.MidiFile(type=1, ticks_per_beat=ticks_per_beat)
-    midi.tracks.append(build_conductor_track(score.timing, ticks_per_beat=ticks_per_beat))
+    midi.tracks.append(
+        build_conductor_track(score.timing, ticks_per_beat=ticks_per_beat)
+    )
     for instrument, notes in group_notes_for_midi(score.notes):
-        midi.tracks.append(build_instrument_track(instrument, notes, TimingMap(score.timing, ticks_per_beat=ticks_per_beat)))
+        midi.tracks.append(
+            build_instrument_track(
+                instrument,
+                notes,
+                TimingMap(score.timing, ticks_per_beat=ticks_per_beat),
+            )
+        )
     output = io.BytesIO()
     midi.save(file=output)
     return output.getvalue()
+
 
 def score_to_json_payload(score: AnalyzedScore) -> dict[str, Any]:
     return {
@@ -869,20 +1047,19 @@ def score_to_json_payload(score: AnalyzedScore) -> dict[str, Any]:
         "analysis": analysis_to_dict(score.timing),
         "events": list(score_events(score)),
     }
-
-def iter_jsonl_records(score: AnalyzedScore) -> Iterator[dict[str, Any]]:
-    yield {"record_type": "metadata", "schema_version": 2, "analysis": analysis_to_dict(score.timing)}
-    for event in score_events(score):
-        yield {"record_type": "event", **event}
 ~~~
 
-Refactor transcribe_once into collection, canonical-score construction, then independent exporter calls. JSONL may spool canonical event records but must write final metadata and enriched events atomically.
+Keep serialization functions in the MuScriptor domain. Refactor transcribe_once
+into event collection, canonical-score construction and independent ExportJobs
+whose callbacks serialize/validate each format. JSONL may spool canonical event
+records, but its final output is one validated job.
 
 - [ ] **Step 4: Run tests and verify GREEN**
 
-Run: python -m pytest tests/test_muscriptor_events_outputs.py tests/test_muscriptor_score.py -q
+Run: python -m pytest tests/test_music_export_service.py tests/test_muscriptor_events_outputs.py tests/test_muscriptor_score.py -q
 
-Expected: all focused tests pass.
+Expected: all focused tests pass, per-format statuses preserve request order and
+one failed format does not roll back another successful format.
 
 - [ ] **Step 5: Commit**
 
@@ -891,9 +1068,11 @@ git add module/muscriptor_tool/midi_export.py module/muscriptor_tool/structured_
 git commit -m "feat: export enriched MIDI and structured events"
 ~~~
 
-### Task 9: MusicXML Export
+### Task 9: Shared music21 Writers And MuScriptor MusicXML Adapter
 
 **Files:**
+- Create: module/music_export/music21_writers.py
+- Create: tests/test_music_export_music21.py
 - Create: module/muscriptor_tool/musicxml_export.py
 - Create: tests/test_muscriptor_musicxml.py
 - Modify: module/muscriptor_tool/options.py
@@ -903,64 +1082,84 @@ git commit -m "feat: export enriched MIDI and structured events"
 - Modify: tests/test_muscriptor_cli.py
 
 **Interfaces:**
-- Consumes: AnalyzedScore.
-- Produces: score_to_musicxml_bytes() and OutputFormat.MUSICXML.
+- Common: write_musicxml_score(), write_midi_score(),
+  validate_musicxml_file(), validate_midi_file().
+- MuScriptor-only: build_music21_score(), validate_muscriptor_musicxml().
+- Produces: OutputFormat.MUSICXML.
 
-- [ ] **Step 1: Write failing notation and CLI tests**
+- [ ] **Step 1: Write failing common-writer, notation and CLI tests**
 
 ~~~python
-def test_musicxml_round_trip_preserves_parts_tempo_ties_and_voices(tmp_path):
-    payload = score_to_musicxml_bytes(polyphonic_score_fixture())
+def test_common_music21_writers_round_trip_without_domain_models(tmp_path):
+    score = minimal_music21_score()
+    musicxml_path = tmp_path / "score.musicxml"
+    midi_path = tmp_path / "score.mid"
+    write_musicxml_score(score, musicxml_path)
+    write_midi_score(score, midi_path)
+    assert validate_musicxml_file(musicxml_path).parts
+    validate_midi_file(midi_path)
+
+
+def test_muscriptor_adapter_preserves_parts_tempo_ties_and_voices(tmp_path):
+    analyzed = polyphonic_score_fixture()
+    score = build_music21_score(analyzed)
     path = tmp_path / "score.musicxml"
-    path.write_bytes(payload)
-    parsed = converter.parse(path)
+    write_musicxml_score(score, path)
+    parsed = validate_musicxml_file(path)
+    validate_muscriptor_musicxml(parsed, expected=analyzed)
     assert len(parsed.parts) == 2
-    assert list(parsed.recurse().getElementsByClass(tempo.MetronomeMark))
-    assert any(note.tie is not None for note in parsed.recurse().notes)
-    assert parsed.isWellFormedNotation()
-
-
-def test_empty_score_exports_one_rest_measure():
-    parsed = parse_bytes(score_to_musicxml_bytes(empty_score_fixture()))
-    assert len(parsed.parts[0].getElementsByClass(stream.Measure)) == 1
-    assert list(parsed.recurse().getElementsByClass(note.Rest))
+    assert any(item.tie is not None for item in parsed.recurse().notes)
 ~~~
 
-Add pickup measure 0, sixteenth versus triplet quantization, chords, percussion clef/GM mapping, persistent dynamics, CLI file extension and stdout tests.
+Add corrupt/empty common file rejection, pickup measure 0, sixteenth versus
+triplet quantization, chords, percussion clef/GM mapping, persistent dynamics,
+empty-score rest measure, CLI extension and stdout tests. Stdout serialization
+uses the common music21 writer/validator through a temporary target; it does not
+reimplement serialization in the MuScriptor adapter.
 
 - [ ] **Step 2: Run tests and verify RED**
 
-Run: python -m pytest tests/test_muscriptor_musicxml.py tests/test_muscriptor_options.py tests/test_muscriptor_cli.py -q
+Run: python -m pytest tests/test_music_export_music21.py tests/test_muscriptor_musicxml.py tests/test_muscriptor_options.py tests/test_muscriptor_cli.py -q
 
-Expected: exporter and OutputFormat.MUSICXML are missing.
+Expected: common writers, adapter and OutputFormat.MUSICXML are missing.
 
-- [ ] **Step 3: Implement music21 builder and readback validation**
+- [ ] **Step 3: Implement common writers and the domain adapter**
 
 ~~~python
-def score_to_musicxml_bytes(score: AnalyzedScore) -> bytes:
-    music21_score = build_music21_score(score)
-    if not music21_score.isWellFormedNotation():
-        raise MusicXmlExportError("music21 rejected the generated notation")
-    with tempfile.TemporaryDirectory(prefix="muscriptor-musicxml-") as directory:
-        path = Path(directory) / "score.musicxml"
-        music21_score.write("musicxml", fp=path)
-        _validate_musicxml_readback(path, expected=score)
-        return path.read_bytes()
+def write_musicxml_score(score: stream.Score, target: Path) -> None:
+    if not score.isWellFormedNotation():
+        raise MusicExportError("music21 rejected the notation")
+    score.write("musicxml", fp=target)
+
+
+def build_music21_score(score: AnalyzedScore) -> stream.Score:
+    result = stream.Score()
+    # Quantization, parts, voices, ties, rests, tempo and dynamics are
+    # MuScriptor semantics and remain in this adapter.
+    return finalize_muscriptor_notation(result, score)
 ~~~
 
-Use makeVoices, makeTies, makeRests and makeBeams after quantization. Add a legal rest-only part when notes are empty.
+Common validators only prove that the generated file is nonempty and can be
+read back as the requested format. MuScriptor's validator separately compares
+Part, Measure, note/chord and tempo facts with AnalyzedScore. Compose both
+callbacks in one ExportJob; only then may the service replace the final target.
+
+Use makeVoices, makeTies, makeRests and makeBeams after quantization. Add a
+legal rest-only part when notes are empty. Do not route MuScriptor's direct mido
+MIDI through music21.
 
 - [ ] **Step 4: Run tests and verify GREEN**
 
-Run: python -m pytest tests/test_muscriptor_musicxml.py tests/test_muscriptor_options.py tests/test_muscriptor_cli.py -q
+Run: python -m pytest tests/test_music_export_music21.py tests/test_muscriptor_musicxml.py tests/test_muscriptor_options.py tests/test_muscriptor_cli.py -q
 
-Expected: all focused tests pass under the installed marker-selected music21 version.
+Expected: common writer tests and MuScriptor adapter tests pass under the
+installed marker-selected music21 version.
 
 - [ ] **Step 5: Commit**
 
 ~~~powershell
-git add module/muscriptor_tool/musicxml_export.py module/muscriptor_tool/options.py module/muscriptor_tool/outputs.py module/muscriptor_tool/cli.py tests/test_muscriptor_musicxml.py tests/test_muscriptor_options.py tests/test_muscriptor_cli.py
-git commit -m "feat: export editable MusicXML scores"
+git add module/music_export/music21_writers.py module/music_export/validation.py module/muscriptor_tool/musicxml_export.py module/muscriptor_tool/options.py module/muscriptor_tool/outputs.py module/muscriptor_tool/cli.py tests/test_music_export_music21.py tests/test_muscriptor_musicxml.py tests/test_muscriptor_options.py tests/test_muscriptor_cli.py
+git commit -m "feat: share validated music21 exports"
 ~~~
 
 ### Task 10: Managed FluidSynth And Local Rendering
@@ -1489,7 +1688,8 @@ git commit -m "docs: explain enriched music export runtime"
 
 ## Execution Notes
 
-- Implement tasks in order because later exporter and integration contracts consume earlier interfaces.
+- Implement Prerequisite Task 0 first, then numbered tasks in order because
+  later exporter and integration contracts consume earlier interfaces.
 - At every RED step, confirm the failure is caused by the missing behavior rather than an import typo.
 - Do not combine task commits with unrelated dirty files from the original checkout.
 - If the installed Beat This or music21 API differs from the pinned package, inspect the pinned wheel/source and update the adapter only; keep project-facing interfaces stable.
@@ -1500,6 +1700,8 @@ git commit -m "docs: explain enriched music export runtime"
 Spec coverage:
 
 - Common BPM/meter analysis, manual bypass, fallback and quality: Tasks 1-4.
+- Single export transaction owner and neutral dependency direction:
+  Prerequisite Task 0, Tasks 5, 8 and 9.
 - Shared seconds/beats/ticks and conductor tracks: Task 3.
 - GAME vocal MIDI and metadata upgrade: Tasks 5 and 12.
 - Canonical MuScriptor behavior parity: Task 6.
@@ -1507,7 +1709,8 @@ Spec coverage:
 - MIDI, JSON v2 and JSONL equivalence: Task 8.
 - MusicXML notation and Python compatibility: Tasks 4 and 9.
 - Managed FluidSynth and preview isolation: Task 10.
-- Batch signatures, atomicity, cleanup and per-song reuse: Tasks 11 and 12.
+- Batch signatures, atomicity, cleanup and per-song reuse: Prerequisite Task 0,
+  Tasks 11 and 12.
 - Project-owned WebUI routes: Task 13.
 - CLI/NiceGUI controls: Task 14.
 - Bilingual documentation and full verification: Task 15.
