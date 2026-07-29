@@ -728,7 +728,11 @@ def test_pdf_pipeline_writes_page_results_and_rewrites_only_root_paths(tmp_path)
         SimpleNamespace(page_number=2, image=Image.new("RGB", (100, 100), "white")),
     ]
 
-    with patch("module.providers.ocr.ovis_ocr2.iter_pdf_pages_high_quality", return_value=iter(pages)):
+    with patch.object(
+        ovis_module,
+        "iter_pdf_pages_high_quality",
+        return_value=iter(pages),
+    ):
         result = provider.attempt(
             _media(pdf_path, "application/pdf", output_dir),
             PromptContext(system="", user="prompt"),
@@ -753,7 +757,11 @@ def test_pdf_pipeline_continues_after_failed_page_and_records_metadata(tmp_path)
         SimpleNamespace(page_number=2, image=Image.new("RGB", (20, 20), "white")),
     ]
 
-    with patch("module.providers.ocr.ovis_ocr2.iter_pdf_pages_high_quality", return_value=iter(pages)):
+    with patch.object(
+        ovis_module,
+        "iter_pdf_pages_high_quality",
+        return_value=iter(pages),
+    ):
         result = provider.attempt(
             _media(pdf_path, "application/pdf", output_dir),
             PromptContext(system="", user="prompt"),
@@ -782,7 +790,11 @@ def test_pdf_pipeline_treats_rgb_conversion_as_a_page_local_failure(tmp_path):
         SimpleNamespace(page_number=2, image=Image.new("RGB", (20, 20), "white")),
     ]
 
-    with patch("module.providers.ocr.ovis_ocr2.iter_pdf_pages_high_quality", return_value=iter(pages)):
+    with patch.object(
+        ovis_module,
+        "iter_pdf_pages_high_quality",
+        return_value=iter(pages),
+    ):
         result = provider.attempt(
             _media(pdf_path, "application/pdf", output_dir),
             PromptContext(system="", user="prompt"),
@@ -805,7 +817,11 @@ def test_pdf_pipeline_raises_when_every_page_inference_fails(tmp_path, outputs):
     ]
 
     with (
-        patch("module.providers.ocr.ovis_ocr2.iter_pdf_pages_high_quality", return_value=iter(pages)),
+        patch.object(
+            ovis_module,
+            "iter_pdf_pages_high_quality",
+            return_value=iter(pages),
+        ),
         pytest.raises(RuntimeError, match="all 2 PDF pages"),
     ):
         provider.attempt(

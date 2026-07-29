@@ -149,31 +149,35 @@ class TestRatingTemplate:
         assert "###Short:" not in prepared
         assert "###Long:" not in prepared
 
-    def test_quality_display_removes_only_inline_mask_separators(self):
+    def test_quality_display_removes_all_asterisks(self):
         response = (
             "**Scores:**\n"
             "**Level of S**e**x**y:** 8/10\n"
             "The b\\*\\*r\\*\\*e\\*\\*a\\*\\*s\\*\\*t\\*\\*s are partly covered; "
-            "the c\\*r\\*o\\*p is tight."
+            "the c\\*r\\*o\\*p is tight.\n"
+            "A masked phrase crosses whitespace: A\\*\\*z\\*\\*u\\*\\*r\\*\\* \\*\\*L\\*\\*a\\*\\*n\\*\\*e."
         )
 
         assert format_image_template_display_text(response, "rating") == (
-            "**Scores:**\n"
-            "**Level of Sexy:** 8/10\n"
-            "The breasts are partly covered; the crop is tight."
+            "Scores:\n"
+            "Level of Sexy: 8/10\n"
+            "The breasts are partly covered; the crop is tight.\n"
+            "A masked phrase crosses whitespace: Azur Lane."
         )
 
-    def test_quality_display_preserves_markdown_boundary_markers(self):
+    def test_quality_display_removes_markdown_asterisks(self):
         response = "**Image Description:**\nA **bold phrase** remains Markdown."
 
-        assert format_image_template_display_text(response, "rating") == response
+        assert format_image_template_display_text(response, "rating") == (
+            "Image Description:\nA bold phrase remains Markdown."
+        )
 
     def test_other_templates_do_not_apply_quality_display_cleanup(self):
         response = "S**e**x**y"
 
         assert format_image_template_display_text(response, "danbooru_tags") == response
 
-    def test_quality_processed_caption_removes_inline_masks_and_keeps_markdown(self):
+    def test_quality_processed_caption_removes_all_asterisks(self):
         from module.caption_pipeline.postprocess import postprocess_caption_content
         from module.providers.base import CaptionResult
 
@@ -181,7 +185,8 @@ class TestRatingTemplate:
             raw=(
                 "###Short:\nS**e**x**y framing.\n\n"
                 "###Long:\n**Image Description:**\n"
-                "A b\\*\\*r\\*\\*e\\*\\*a\\*\\*s\\*\\*t and a tight c\\*r\\*o\\*p."
+                "A b\\*\\*r\\*\\*e\\*\\*a\\*\\*s\\*\\*t and a tight c\\*r\\*o\\*p.\n"
+                "A\\*\\*z\\*\\*u\\*\\*r\\*\\* \\*\\*L\\*\\*a\\*\\*n\\*\\*e."
             )
         )
 
@@ -194,9 +199,9 @@ class TestRatingTemplate:
 
         assert "Sexy framing." in result.raw
         assert "A breast and a tight crop." in result.raw
-        assert "**Image Description:**" in result.raw
-        assert "S**e" not in result.raw
-        assert "\\*" not in result.raw
+        assert "Image Description:" in result.raw
+        assert "Azur Lane." in result.raw
+        assert "*" not in result.raw
 
     def test_other_template_processed_caption_keeps_inline_asterisks(self):
         from module.caption_pipeline.postprocess import postprocess_caption_content

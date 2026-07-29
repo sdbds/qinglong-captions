@@ -161,34 +161,3 @@ def test_mimo_explicit_image_template_preserves_its_output_contract():
     )
 
     assert messages[0]["content"] == "Quality-owned output contract."
-
-
-def test_mimo_passes_quality_input_contract_to_shared_request_path():
-    from module.providers.base import MediaContext, MediaModality, PromptContext
-
-    provider = _make_mimo_provider(image_prompt_template="rating")
-    provider.ctx.config["prompts"]["image_templates"] = {
-        "rating": {"use_existing_tags": False}
-    }
-
-    with (
-        patch("openai.OpenAI", MagicMock(return_value=MagicMock())),
-        patch(
-            "module.providers.cloud_vlm.mimo.attempt_kimi_vl",
-            return_value="ok",
-        ) as mock_attempt,
-    ):
-        provider.attempt(
-            MediaContext(
-                uri="/fake.jpg",
-                mime="image/jpeg",
-                sha256hash="",
-                modality=MediaModality.IMAGE,
-                blob="base64data",
-            ),
-            PromptContext(system="Quality-owned output contract.", user="Rate it."),
-        )
-
-    call = mock_attempt.call_args.kwargs
-    assert call["image_template_id"] == "rating"
-    assert call["use_existing_tags"] is False

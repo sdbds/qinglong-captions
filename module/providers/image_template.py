@@ -24,7 +24,6 @@ special case across the resolver, Gemini, Codex, and Grok Build providers.
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Dict, Optional, Tuple
 
 from module.providers.codex_schema import strip_markdown_json_fence
@@ -32,11 +31,6 @@ from module.providers.codex_schema import strip_markdown_json_fence
 DEFAULT_TEMPLATE_OUTPUT = "text"
 DEFAULT_USE_EXISTING_TAGS = True
 QUALITY_TEMPLATE_ID = "rating"
-
-_INLINE_MASK_SEPARATOR = re.compile(
-    r"(?<=\S)(?:\\\*\\\*|\*\*|(?<!\\\*)\\\*(?!\\\*)|(?<!\*)\*(?!\*))(?=\S)"
-)
-
 
 def active_image_template(args: Any) -> str:
     """Return the active non-default image template id, or '' when following the model.
@@ -101,14 +95,13 @@ def image_template_uses_existing_tags(prompts: Dict[str, Any], template_id: str)
 def postprocess_image_template_text(text: str, template_id: str) -> str:
     """Apply text cleanup required by an image template.
 
-    Quality prompts ask the model to insert ``**`` or ``\\*\\*`` inside masked
-    words, but responses sometimes collapse that to one star. Remove those
-    inline separators while retaining Markdown markers at whitespace or text
-    boundaries, such as ``**Scores:**``.
+    Quality prompts ask the model to insert asterisks inside masked words.
+    Remove escaped and unescaped asterisks alike; Quality output is plain text,
+    so Markdown emphasis is intentionally discarded too.
     """
     if template_id != QUALITY_TEMPLATE_ID:
         return text
-    return _INLINE_MASK_SEPARATOR.sub("", text)
+    return text.replace(r"\*", "").replace("*", "")
 
 
 def format_image_template_display_text(text: str, template_id: str) -> str:

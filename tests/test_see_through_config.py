@@ -7,7 +7,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 
 from config.loader import load_config
 
-
 ROOT = Path(__file__).resolve().parent.parent
 
 

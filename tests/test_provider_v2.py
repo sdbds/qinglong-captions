@@ -1234,6 +1234,317 @@ def test_kimi_provider_omits_reasoning_effort_for_non_k3_model():
     assert "reasoning_effort" not in result.metadata
 
 
+@pytest.mark.parametrize(
+    ("provider_name", "provider_config", "provider_args"),
+    [
+        (
+            "kimi_code",
+            {"kimi_code": {"reasoning_effort": "low"}},
+            {
+                "kimi_code_api_key": "test-key",
+                "kimi_code_base_url": "https://api.kimi.com/coding/v1",
+                "kimi_code_model_path": "k3-256k",
+            },
+        ),
+        (
+            "kimi_vl",
+            {"kimi_vl": {"thinking": "enabled", "reasoning_effort": "low"}},
+            {
+                "kimi_api_key": "test-key",
+                "kimi_base_url": "https://api.moonshot.cn/v1",
+                "kimi_model_path": "kimi-k3",
+            },
+        ),
+    ],
+)
+def test_kimi_providers_pass_quality_template_input_contract(
+    provider_name, provider_config, provider_args
+):
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.registry import get_registry
+    from rich.console import Console
+    import module.providers.cloud_vlm.kimi_vl as kimi_vl_module
+
+    config = {
+        **provider_config,
+        "prompts": {
+            "image_templates": {
+                "rating": {"use_existing_tags": False},
+            }
+        },
+    }
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO()),
+        config=config,
+        args=SimpleNamespace(
+            image_prompt_template="rating",
+            pair_dir="",
+            mode="all",
+            max_retries=1,
+            wait_time=0.01,
+            **provider_args,
+        ),
+    )
+    provider = get_registry().get_provider(provider_name)(ctx)
+
+    with (
+        patch("openai.OpenAI", MagicMock(return_value=MagicMock())),
+        patch.object(kimi_vl_module, "attempt_kimi_vl", return_value="ok") as mock_attempt,
+    ):
+        provider.attempt(
+            MediaContext(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                sha256hash="",
+                modality=MediaModality.IMAGE,
+                blob="base64data",
+                pixels=None,
+            ),
+            PromptContext(system="sys", user="usr"),
+        )
+
+    assert mock_attempt.call_args.kwargs["use_existing_tags"] is False
+    assert mock_attempt.call_args.kwargs["image_template_id"] == "rating"
+    assert mock_attempt.call_args.kwargs["messages"][0]["content"] == "sys"
+
+
+@pytest.mark.parametrize("template_id", ["rating", "danbooru_tags", "bbox_json"])
+def test_kimi_prompt_preparation_preserves_explicit_template_contract(template_id):
+    from module.providers.cloud_vlm.kimi_vl import prepare_kimi_image_system_prompt
+
+    prompt = "Template-owned output contract."
+
+    assert prepare_kimi_image_system_prompt(
+        prompt,
+        template_id=template_id,
+        pair_mode=False,
+    ) == prompt
+
+
+def test_kimi_prompt_preparation_preserves_pair_prompt_contract():
+    from module.providers.cloud_vlm.kimi_vl import prepare_kimi_image_system_prompt
+
+    prompt = "Answer format with '###Prompt:'."
+
+    assert prepare_kimi_image_system_prompt(
+        prompt,
+        template_id="",
+        pair_mode=True,
+    ) == prompt
+
+
+def test_kimi_prompt_preparation_keeps_default_dual_caption_behavior():
+    from module.providers.cloud_vlm.kimi_vl import prepare_kimi_image_system_prompt
+
+    prepared = prepare_kimi_image_system_prompt(
+        "Only output one long paragraph.",
+        template_id="",
+        pair_mode=False,
+    )
+
+    assert "###Short:" in prepared
+    assert "###Long:" in prepared
+    assert "Do not return only a single long paragraph." in prepared
+
+
+@pytest.mark.parametrize("provider_name", ["kimi_code", "kimi_vl"])
+def test_kimi_unknown_template_id_keeps_default_prompt_contract(provider_name):
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.registry import get_registry
+    from rich.console import Console
+    import module.providers.cloud_vlm.kimi_vl as kimi_vl_module
+
+    provider_args = {
+        "kimi_code": {
+            "kimi_code_api_key": "test-key",
+            "kimi_code_base_url": "https://api.kimi.com/coding/v1",
+            "kimi_code_model_path": "k3-256k",
+        },
+        "kimi_vl": {
+            "kimi_api_key": "test-key",
+            "kimi_base_url": "https://api.moonshot.cn/v1",
+            "kimi_model_path": "kimi-k3",
+        },
+    }
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO()),
+        config={
+            "kimi_code": {"reasoning_effort": "low"},
+            "kimi_vl": {"reasoning_effort": "low"},
+            "prompts": {"image_templates": {}},
+        },
+        args=SimpleNamespace(
+            image_prompt_template="missing",
+            pair_dir="",
+            mode="all",
+            max_retries=1,
+            wait_time=0.01,
+            **provider_args[provider_name],
+        ),
+    )
+    provider = get_registry().get_provider(provider_name)(ctx)
+
+    with (
+        patch("openai.OpenAI", MagicMock(return_value=MagicMock())),
+        patch.object(kimi_vl_module, "attempt_kimi_vl", return_value="ok") as mock_attempt,
+    ):
+        provider.attempt(
+            MediaContext(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                sha256hash="",
+                modality=MediaModality.IMAGE,
+                blob="base64data",
+                pixels=None,
+            ),
+            PromptContext(system="Only output one long paragraph.", user="usr"),
+        )
+
+    call = mock_attempt.call_args.kwargs
+    assert call["image_template_id"] == ""
+    assert call["use_existing_tags"] is True
+    assert "###Short:" in call["messages"][0]["content"]
+    assert "###Long:" in call["messages"][0]["content"]
+
+
+@pytest.mark.parametrize("provider_name", ["kimi_code", "kimi_vl"])
+def test_kimi_pair_prompt_overrides_selected_template_contract(provider_name):
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.registry import get_registry
+    from rich.console import Console
+    import module.providers.cloud_vlm.kimi_vl as kimi_vl_module
+
+    provider_args = {
+        "kimi_code": {
+            "kimi_code_api_key": "test-key",
+            "kimi_code_base_url": "https://api.kimi.com/coding/v1",
+            "kimi_code_model_path": "k3-256k",
+        },
+        "kimi_vl": {
+            "kimi_api_key": "test-key",
+            "kimi_base_url": "https://api.moonshot.cn/v1",
+            "kimi_model_path": "kimi-k3",
+        },
+    }
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO()),
+        config={
+            "kimi_code": {"reasoning_effort": "low"},
+            "kimi_vl": {"reasoning_effort": "low"},
+            "prompts": {
+                "image_templates": {
+                    "rating": {"use_existing_tags": False},
+                }
+            },
+        },
+        args=SimpleNamespace(
+            image_prompt_template="rating",
+            pair_dir="pairs",
+            mode="all",
+            max_retries=1,
+            wait_time=0.01,
+            **provider_args[provider_name],
+        ),
+    )
+    provider = get_registry().get_provider(provider_name)(ctx)
+
+    with (
+        patch("openai.OpenAI", MagicMock(return_value=MagicMock())),
+        patch.object(kimi_vl_module, "attempt_kimi_vl", return_value="ok") as mock_attempt,
+    ):
+        provider.attempt(
+            MediaContext(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                sha256hash="",
+                modality=MediaModality.IMAGE,
+                blob="base64data",
+                pair_blob="pairbase64",
+                pixels=None,
+            ),
+            PromptContext(
+                system="Answer format with '###Prompt:'.",
+                user="Compare these images.",
+            ),
+        )
+
+    call = mock_attempt.call_args.kwargs
+    assert call["image_template_id"] == ""
+    assert call["use_existing_tags"] is True
+    assert call["messages"][0]["content"] == "Answer format with '###Prompt:'."
+
+
+def test_attempt_kimi_vl_skips_tag_sources_when_input_contract_disables_them(tmp_path):
+    from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl
+    from rich.console import Console
+
+    image_path = tmp_path / "sample.jpg"
+    image_path.with_suffix(".txt").write_text("sidecar_tag\n", encoding="utf-8")
+    messages = [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "Describe the image."}],
+        }
+    ]
+    chunk = SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="ok"))])
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = [chunk]
+
+    with patch(
+        "module.providers.cloud_vlm.kimi_vl._load_tags_from_json",
+        side_effect=AssertionError("disabled contracts must not read tags.json"),
+    ):
+        attempt_kimi_vl(
+            client=mock_client,
+            model_path="k3-256k",
+            messages=messages,
+            console=Console(file=io.StringIO()),
+            progress=None,
+            task_id=None,
+            uri=str(image_path),
+            reasoning_effort="low",
+            use_existing_tags=False,
+        )
+
+    sent_messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+    assert sent_messages[0]["content"][0]["text"] == "Describe the image."
+
+
+def test_attempt_kimi_vl_injects_sidecar_tags_when_input_contract_enables_them(tmp_path):
+    from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl
+    from rich.console import Console
+
+    image_path = tmp_path / "sample.jpg"
+    image_path.with_suffix(".txt").write_text("sidecar_tag\n", encoding="utf-8")
+    messages = [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "Describe the image."}],
+        }
+    ]
+    chunk = SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="ok"))])
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = [chunk]
+
+    with patch("module.providers.cloud_vlm.kimi_vl._load_tags_from_json", return_value=[]):
+        attempt_kimi_vl(
+            client=mock_client,
+            model_path="k3-256k",
+            messages=messages,
+            console=Console(file=io.StringIO()),
+            progress=None,
+            task_id=None,
+            uri=str(image_path),
+            reasoning_effort="low",
+            use_existing_tags=True,
+        )
+
+    sent_messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+    assert sent_messages[0]["content"][0]["text"].endswith(
+        "Existing tags: sidecar_tag"
+    )
+
+
 @pytest.mark.parametrize("model_path", ["kimi-k3", "k3", "k3-256k"])
 @pytest.mark.parametrize("reasoning_effort", ["low", "high", "max"])
 def test_attempt_kimi_vl_sends_k3_reasoning_effort_as_top_level_field(model_path, reasoning_effort):
@@ -1308,6 +1619,41 @@ def test_attempt_kimi_vl_sends_pre_k3_thinking_type(thinking_mode):
 
 
 class TestKimiStructuredDisplay:
+
+    def test_quality_display_cleanup_keeps_raw_response(self):
+        from rich.console import Console
+        from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl
+
+        response_text = (
+            "**Scores:**\n"
+            "**Level of S**e**x**y:** 8/10\n"
+            "Visible b\\*\\*r\\*\\*e\\*\\*a\\*\\*s\\*\\*t\\*\\*s."
+        )
+        chunk = SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content=response_text))]
+        )
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = [chunk]
+        output = io.StringIO()
+
+        returned = attempt_kimi_vl(
+            client=mock_client,
+            model_path="k3-256k",
+            messages=[],
+            console=Console(file=output, force_terminal=False),
+            progress=None,
+            task_id=None,
+            uri="/fake.jpg",
+            reasoning_effort="low",
+            image_template_id="rating",
+        )
+
+        assert returned == response_text
+        assert "**Scores:**" in output.getvalue()
+        assert "**Level of Sexy:** 8/10" in output.getvalue()
+        assert "Visible breasts." in output.getvalue()
+        assert "S**e" not in output.getvalue()
+        assert "\\*\\*" not in output.getvalue()
 
     def test_attempt_kimi_vl_keeps_short_for_display_when_mode_long(self):
         from rich.console import Console
