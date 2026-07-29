@@ -11,6 +11,10 @@ from pathlib import Path
 
 from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.providers.cloud_vlm_base import CloudVLMProvider
+from module.providers.image_template import (
+    configured_image_template_id,
+    image_template_uses_existing_tags,
+)
 from module.providers.registry import register_provider
 from module.providers.utils import build_vision_messages
 
@@ -43,8 +47,12 @@ class KimiCodeProvider(CloudVLMProvider):
         return normalized
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
-        from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl, ensure_kimi_dual_caption_prompt
         from openai import OpenAI
+
+        from module.providers.cloud_vlm.kimi_vl import (
+            attempt_kimi_vl,
+            prepare_kimi_image_system_prompt,
+        )
 
         base_url = getattr(self.ctx.args, "kimi_code_base_url", "https://api.kimi.com/coding/v1")
         client = OpenAI(
@@ -52,6 +60,7 @@ class KimiCodeProvider(CloudVLMProvider):
             base_url=base_url,
             default_headers={"User-Agent": self.KIMI_CODE_USER_AGENT},
         )
+        image_template_id = ""
 
         pair_pixels = None
         image_pixels = None
@@ -81,8 +90,17 @@ class KimiCodeProvider(CloudVLMProvider):
             pair_dir = getattr(self.ctx.args, "pair_dir", "")
             if pair_dir and (not media.pair_blob):
                 return CaptionResult(raw="")
+            image_template_id = configured_image_template_id(
+                self.ctx.config.get("prompts", {}),
+                self.ctx.args,
+                pair_mode=bool(pair_dir),
+            )
 
-            system_prompt = ensure_kimi_dual_caption_prompt(prompts.system)
+            system_prompt = prepare_kimi_image_system_prompt(
+                prompts.system,
+                template_id=image_template_id,
+                pair_mode=bool(pair_dir),
+            )
             messages = build_vision_messages(
                 system_prompt, prompts.user, media.blob, pair_blob=media.pair_blob if pair_dir else None, text_first=False
             )
@@ -116,6 +134,9 @@ class KimiCodeProvider(CloudVLMProvider):
             if thinking_mode not in ("enabled", "disabled"):
                 thinking_mode = "enabled"
             thinking = thinking_mode
+        use_existing_tags = image_template_uses_existing_tags(
+            self.ctx.config.get("prompts", {}), image_template_id
+        )
 
         timing_metadata = {}
         result = attempt_kimi_vl(
@@ -133,6 +154,8 @@ class KimiCodeProvider(CloudVLMProvider):
             reasoning_effort=reasoning_effort,
             mode=getattr(self.ctx.args, "mode", "all"),
             timing_metadata=timing_metadata,
+            use_existing_tags=use_existing_tags,
+            image_template_id=image_template_id,
         )
         if "duration_seconds" in timing_metadata:
             timing_metadata["duration_log_label"] = f"Kimi Code caption completed: {Path(media.uri).name}"

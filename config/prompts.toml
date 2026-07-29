@@ -663,18 +663,21 @@ label = "Danbooru tags (detailed caption)"
 system_key = "mistral_ocr_image_system_prompt"
 user_key = "mistral_ocr_image_prompt"
 output = "text"
+use_existing_tags = true
 
 [prompts.image_templates.rating]
 label = "Quality / cosplay rating"
 system_key = "image_system_prompt"
 user_key = "image_prompt"
 output = "text"
+use_existing_tags = false
 
 [prompts.image_templates.bbox_json]
 label = "BBOX JSON (Ideogram 4)"
 system_key = "BBOX_prompt"
 user_key = "bbox_image_prompt"
 output = "json"
+use_existing_tags = false
 
 [prompts.task]
 

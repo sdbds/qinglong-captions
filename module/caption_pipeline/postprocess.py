@@ -13,7 +13,10 @@ from config.config import (
     VIDEO_EXTENSIONS_SET,
 )
 from module.providers.base import CaptionResult, CaptionStatus
-from module.providers.image_template import active_image_template
+from module.providers.image_template import (
+    active_image_template,
+    postprocess_image_template_text,
+)
 from utils.parse_display import extract_code_block_content, process_llm_response
 from utils.path_safety import safe_child_path, safe_leaf_name
 
@@ -220,6 +223,9 @@ def postprocess_caption_content(output, filepath, args, console):
     if not output:
         console.print(f"[red]Empty caption content for {filepath}[/red]")
         return CaptionResult(raw="", metadata=metadata)
+
+    template_id = "" if getattr(args, "pair_dir", "") else active_image_template(args)
+    output = postprocess_image_template_text(output, template_id)
 
     suffix = Path(filepath).suffix.lower()
     if suffix in VIDEO_EXTENSIONS_SET or suffix in AUDIO_EXTENSIONS_SET:

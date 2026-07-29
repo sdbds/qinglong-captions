@@ -12,8 +12,15 @@ from pathlib import Path
 from typing import Any
 
 from module.providers.base import CaptionResult, MediaContext, PromptContext
-from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl, ensure_kimi_dual_caption_prompt
+from module.providers.cloud_vlm.kimi_vl import (
+    attempt_kimi_vl,
+    prepare_kimi_image_system_prompt,
+)
 from module.providers.cloud_vlm_base import CloudVLMProvider
+from module.providers.image_template import (
+    configured_image_template_id,
+    image_template_uses_existing_tags,
+)
 from module.providers.registry import register_provider
 from module.providers.utils import build_vision_messages
 from utils.console_util import print_exception
@@ -45,6 +52,14 @@ class MimoProvider(CloudVLMProvider):
         messages = self._build_messages(media, prompts)
         if not messages:
             return CaptionResult(raw="")
+        image_template_id = configured_image_template_id(
+            self.ctx.config.get("prompts", {}),
+            self.ctx.args,
+            pair_mode=bool(getattr(self.ctx.args, "pair_dir", "")),
+        )
+        use_existing_tags = image_template_uses_existing_tags(
+            self.ctx.config.get("prompts", {}), image_template_id
+        )
 
         mimo_config = self.ctx.config.get("mimo", {}) if self.ctx.config else {}
         thinking = mimo_config.get("thinking", "disabled") if isinstance(mimo_config, dict) else "disabled"
@@ -65,6 +80,8 @@ class MimoProvider(CloudVLMProvider):
             max_tokens=max_completion_tokens,
             max_tokens_param="max_completion_tokens",
             temperature=MIMO_RECOMMENDED_TEMPERATURE,
+            use_existing_tags=use_existing_tags,
+            image_template_id=image_template_id,
         )
 
         try:
@@ -115,7 +132,15 @@ class MimoProvider(CloudVLMProvider):
             if pair_dir and not media.pair_blob:
                 return []
 
-            system_prompt = ensure_kimi_dual_caption_prompt(prompts.system)
+            system_prompt = prepare_kimi_image_system_prompt(
+                prompts.system,
+                template_id=configured_image_template_id(
+                    self.ctx.config.get("prompts", {}),
+                    self.ctx.args,
+                    pair_mode=bool(pair_dir),
+                ),
+                pair_mode=bool(pair_dir),
+            )
             return build_vision_messages(
                 system_prompt,
                 prompts.user,

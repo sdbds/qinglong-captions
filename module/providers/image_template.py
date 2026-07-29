@@ -5,7 +5,13 @@ prompt pair plus an output contract) independent of the chosen provider. This
 module is the single source of truth for:
 
 - detecting whether a non-default template is active (`active_image_template`)
+- resolving whether that template is actually configured
+  (`configured_image_template_id`)
+- resolving whether existing tags are an allowed input
+  (`image_template_uses_existing_tags`)
 - resolving a template's output contract (`image_template_output`)
+- applying template-specific text cleanup
+  (`postprocess_image_template_text`)
 - building a freeform caption prompt for structured-output providers that must
   yield their forced schema (`build_freeform_caption_prompt`)
 - parsing freeform caption output back into ``(raw, parsed)``
@@ -18,11 +24,18 @@ special case across the resolver, Gemini, Codex, and Grok Build providers.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, Optional, Tuple
 
 from module.providers.codex_schema import strip_markdown_json_fence
 
 DEFAULT_TEMPLATE_OUTPUT = "text"
+DEFAULT_USE_EXISTING_TAGS = True
+QUALITY_TEMPLATE_ID = "rating"
+
+_INLINE_MASK_SEPARATOR = re.compile(
+    r"(?<=\S)(?:\\\*\\\*|\*\*|(?<!\\\*)\\\*(?!\\\*)|(?<!\*)\*(?!\*))(?=\S)"
+)
 
 
 def active_image_template(args: Any) -> str:
@@ -37,6 +50,25 @@ def active_image_template(args: Any) -> str:
     return template_id
 
 
+def configured_image_template_id(
+    prompts: Dict[str, Any],
+    args: Any,
+    *,
+    pair_mode: bool = False,
+) -> str:
+    """Return the effective configured template id for a normal image request.
+
+    Pair prompts override image templates, and unknown template ids fall back to
+    provider defaults. Returning an empty id for both cases keeps downstream
+    input, output, and postprocessing contracts aligned with prompt resolution.
+    """
+    if pair_mode:
+        return ""
+    template_id = active_image_template(args)
+    templates = (prompts or {}).get("image_templates", {})
+    return template_id if template_id and template_id in templates else ""
+
+
 def image_template_output(prompts: Dict[str, Any], template_id: str) -> str:
     """Return the output contract ('text' | 'json') for a template id.
 
@@ -48,6 +80,40 @@ def image_template_output(prompts: Dict[str, Any], template_id: str) -> str:
     template = templates.get(template_id) or {}
     output = str(template.get("output", "") or "").strip().lower()
     return output or DEFAULT_TEMPLATE_OUTPUT
+
+
+def image_template_uses_existing_tags(prompts: Dict[str, Any], template_id: str) -> bool:
+    """Return whether a template permits sidecar or dataset tags as input.
+
+    Missing and unknown templates preserve the legacy tag-enabled behavior.
+    Only an explicit TOML boolean can change the contract.
+    """
+    if not template_id:
+        return DEFAULT_USE_EXISTING_TAGS
+    templates = (prompts or {}).get("image_templates", {})
+    template = templates.get(template_id) or {}
+    configured = template.get("use_existing_tags", DEFAULT_USE_EXISTING_TAGS)
+    if isinstance(configured, bool):
+        return configured
+    return DEFAULT_USE_EXISTING_TAGS
+
+
+def postprocess_image_template_text(text: str, template_id: str) -> str:
+    """Apply text cleanup required by an image template.
+
+    Quality prompts ask the model to insert ``**`` or ``\\*\\*`` inside masked
+    words, but responses sometimes collapse that to one star. Remove those
+    inline separators while retaining Markdown markers at whitespace or text
+    boundaries, such as ``**Scores:**``.
+    """
+    if template_id != QUALITY_TEMPLATE_ID:
+        return text
+    return _INLINE_MASK_SEPARATOR.sub("", text)
+
+
+def format_image_template_display_text(text: str, template_id: str) -> str:
+    """Apply the shared template cleanup to display text."""
+    return postprocess_image_template_text(text, template_id)
 
 
 def build_freeform_caption_prompt(*, system_prompt: str, user_prompt: str, output: str) -> str:

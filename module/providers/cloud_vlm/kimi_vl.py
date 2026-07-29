@@ -29,6 +29,11 @@ from utils.stream_util import format_description
 
 from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.providers.cloud_vlm_base import CloudVLMProvider
+from module.providers.image_template import (
+    configured_image_template_id,
+    format_image_template_display_text,
+    image_template_uses_existing_tags,
+)
 from module.providers.registry import register_provider
 from module.providers.utils import build_vision_messages
 from utils.console_util import print_exception
@@ -39,7 +44,7 @@ from utils.console_util import print_exception
 # ---------------------------------------------------------------------------
 
 def ensure_kimi_dual_caption_prompt(system_prompt: str) -> str:
-    """Normalize Kimi image prompts so models always return both short and long text."""
+    """Normalize the default Kimi caption prompt to request short and long text."""
     prompt = (system_prompt or "").strip()
 
     replacements = {
@@ -68,6 +73,18 @@ def ensure_kimi_dual_caption_prompt(system_prompt: str) -> str:
         prompt += "\n".join(additions)
 
     return prompt
+
+
+def prepare_kimi_image_system_prompt(
+    system_prompt: str,
+    *,
+    template_id: str,
+    pair_mode: bool,
+) -> str:
+    """Preserve explicit template/pair contracts; normalize only Kimi defaults."""
+    if template_id or pair_mode:
+        return system_prompt
+    return ensure_kimi_dual_caption_prompt(system_prompt)
 
 
 def _collect_stream_kimi(completion: Any, console: Console) -> str:
@@ -189,25 +206,29 @@ def attempt_kimi_vl(
     max_tokens_param: str = "max_tokens",
     temperature: Optional[float] = None,
     timing_metadata: Optional[dict[str, Any]] = None,
+    use_existing_tags: bool = True,
+    image_template_id: str = "",
 ) -> str:
     start_time = time.time()
 
-    # Try to load existing tags from sidecar .txt (align with pixtral behavior)
-    captions: list[str] = []
-    captions_path = Path(uri).with_suffix(".txt")
-    if captions_path.exists():
-        try:
-            with open(captions_path, "r", encoding="utf-8") as f:
-                captions = [line.strip() for line in f.readlines() if line.strip()]
-        except Exception:
-            pass
+    merged_tags: list[str] = []
+    if use_existing_tags:
+        # Try to load existing tags from sidecar .txt (align with pixtral behavior)
+        captions: list[str] = []
+        captions_path = Path(uri).with_suffix(".txt")
+        if captions_path.exists():
+            try:
+                with open(captions_path, "r", encoding="utf-8") as f:
+                    captions = [line.strip() for line in f.readlines() if line.strip()]
+            except Exception:
+                pass
 
-    # Try to load tags from datasets/tags.json
-    tags_from_json = _load_tags_from_json(uri, progress)
+        # Try to load tags from datasets/tags.json
+        tags_from_json = _load_tags_from_json(uri, progress)
 
-    # Inject tags hint into prompt if available (sidecar or json)
-    merged_tags = tags_from_json if tags_from_json else captions
-    messages = _inject_tags_into_messages(messages, merged_tags)
+        # Inject tags hint into prompt if available (sidecar or json)
+        merged_tags = tags_from_json if tags_from_json else captions
+        messages = _inject_tags_into_messages(messages, merged_tags)
 
     if thinking_effort:
         extra_body = {"thinking": {"effort": thinking_effort}}
@@ -262,12 +283,20 @@ def attempt_kimi_vl(
     else:
         console.print(f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds")
 
+    formatted_response_text = format_image_template_display_text(
+        response_text, image_template_id
+    )
     try:
-        console.print(response_text)
+        console.print(formatted_response_text)
     except Exception:
-        console.print(Text(response_text))
+        console.print(Text(formatted_response_text))
 
-    display_response_text = raw_response_text.replace("[green]", "<font color='green'>").replace("[/green]", "</font>")
+    display_response_text = format_image_template_display_text(
+        raw_response_text, image_template_id
+    )
+    display_response_text = display_response_text.replace(
+        "[green]", "<font color='green'>"
+    ).replace("[/green]", "</font>")
 
     tag_description, short_desc, long_desc, rating, average_score = _parse_kimi_response(display_response_text, mode="all")
 
@@ -327,6 +356,7 @@ class KimiVLProvider(CloudVLMProvider):
 
         base_url = getattr(self.ctx.args, "kimi_base_url", "https://api.moonshot.cn/v1")
         client = OpenAI(api_key=self.ctx.args.kimi_api_key, base_url=base_url)
+        image_template_id = ""
 
         pair_pixels = None
         image_pixels = None
@@ -355,8 +385,17 @@ class KimiVLProvider(CloudVLMProvider):
             pair_dir = getattr(self.ctx.args, "pair_dir", "")
             if pair_dir and (not media.pair_blob):
                 return CaptionResult(raw="")
+            image_template_id = configured_image_template_id(
+                self.ctx.config.get("prompts", {}),
+                self.ctx.args,
+                pair_mode=bool(pair_dir),
+            )
 
-            system_prompt = ensure_kimi_dual_caption_prompt(prompts.system)
+            system_prompt = prepare_kimi_image_system_prompt(
+                prompts.system,
+                template_id=image_template_id,
+                pair_mode=bool(pair_dir),
+            )
             messages = build_vision_messages(
                 system_prompt, prompts.user, media.blob, pair_blob=media.pair_blob if pair_dir else None, text_first=False
             )
@@ -368,6 +407,9 @@ class KimiVLProvider(CloudVLMProvider):
         # 读取 thinking 配置
         kimi_vl_config = self.ctx.config.get("kimi_vl", {})
         thinking = kimi_vl_config.get("thinking", "enabled") if kimi_vl_config else "enabled"
+        use_existing_tags = image_template_uses_existing_tags(
+            self.ctx.config.get("prompts", {}), image_template_id
+        )
 
         timing_metadata: dict[str, Any] = {}
         result = attempt_kimi_vl(
@@ -383,6 +425,8 @@ class KimiVLProvider(CloudVLMProvider):
             thinking=thinking,
             mode=getattr(self.ctx.args, "mode", "all"),
             timing_metadata=timing_metadata,
+            use_existing_tags=use_existing_tags,
+            image_template_id=image_template_id,
         )
         if "duration_seconds" in timing_metadata:
             timing_metadata["duration_log_label"] = f"Kimi VL caption completed: {Path(media.uri).name}"

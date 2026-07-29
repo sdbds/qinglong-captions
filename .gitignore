@@ -181,6 +181,7 @@ vocal_midi/
 .claude/
 .agents/
 .worktrees/
+/workspace/
 
 # windsurf rules
 .windsurfrules

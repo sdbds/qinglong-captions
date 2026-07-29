@@ -22,6 +22,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from config.loader import load_config
+from module.providers.image_template import (
+    configured_image_template_id,
+    format_image_template_display_text,
+    image_template_uses_existing_tags,
+)
 from module.providers.resolver import PromptResolver
 
 
@@ -122,6 +127,107 @@ class TestRatingTemplate:
         assert ctx.system == PROMPTS.get("image_system_prompt")
         assert ctx.user == PROMPTS.get("image_prompt")
 
+    def test_rating_declares_image_only_input(self):
+        assert image_template_uses_existing_tags(PROMPTS, "rating") is False
+
+    def test_kimi_preserves_quality_output_contract_without_short_long(self):
+        from module.providers.cloud_vlm.kimi_vl import (
+            prepare_kimi_image_system_prompt,
+        )
+
+        context = _resolver("kimi_code").resolve(
+            "image/jpeg",
+            _make_args(image_prompt_template="rating"),
+        )
+        prepared = prepare_kimi_image_system_prompt(
+            context.system,
+            template_id="rating",
+            pair_mode=False,
+        )
+
+        assert prepared == context.system
+        assert "###Short:" not in prepared
+        assert "###Long:" not in prepared
+
+    def test_quality_display_removes_only_inline_mask_separators(self):
+        response = (
+            "**Scores:**\n"
+            "**Level of S**e**x**y:** 8/10\n"
+            "The b\\*\\*r\\*\\*e\\*\\*a\\*\\*s\\*\\*t\\*\\*s are partly covered; "
+            "the c\\*r\\*o\\*p is tight."
+        )
+
+        assert format_image_template_display_text(response, "rating") == (
+            "**Scores:**\n"
+            "**Level of Sexy:** 8/10\n"
+            "The breasts are partly covered; the crop is tight."
+        )
+
+    def test_quality_display_preserves_markdown_boundary_markers(self):
+        response = "**Image Description:**\nA **bold phrase** remains Markdown."
+
+        assert format_image_template_display_text(response, "rating") == response
+
+    def test_other_templates_do_not_apply_quality_display_cleanup(self):
+        response = "S**e**x**y"
+
+        assert format_image_template_display_text(response, "danbooru_tags") == response
+
+    def test_quality_processed_caption_removes_inline_masks_and_keeps_markdown(self):
+        from module.caption_pipeline.postprocess import postprocess_caption_content
+        from module.providers.base import CaptionResult
+
+        raw_result = CaptionResult(
+            raw=(
+                "###Short:\nS**e**x**y framing.\n\n"
+                "###Long:\n**Image Description:**\n"
+                "A b\\*\\*r\\*\\*e\\*\\*a\\*\\*s\\*\\*t and a tight c\\*r\\*o\\*p."
+            )
+        )
+
+        result = postprocess_caption_content(
+            raw_result,
+            "test.jpg",
+            _make_args(mode="all", image_prompt_template="rating"),
+            MagicMock(),
+        )
+
+        assert "Sexy framing." in result.raw
+        assert "A breast and a tight crop." in result.raw
+        assert "**Image Description:**" in result.raw
+        assert "S**e" not in result.raw
+        assert "\\*" not in result.raw
+
+    def test_other_template_processed_caption_keeps_inline_asterisks(self):
+        from module.caption_pipeline.postprocess import postprocess_caption_content
+        from module.providers.base import CaptionResult
+
+        result = postprocess_caption_content(
+            CaptionResult(raw="###Short:\nS**e**x**y.\n\n###Long:\nS**e**x**y."),
+            "test.jpg",
+            _make_args(mode="all", image_prompt_template="danbooru_tags"),
+            MagicMock(),
+        )
+
+        assert result.raw == "S**e**x**y.\nS**e**x**y."
+
+    def test_pair_processed_caption_does_not_apply_quality_cleanup(self):
+        from module.caption_pipeline.postprocess import postprocess_caption_content
+        from module.providers.base import CaptionResult
+
+        result = postprocess_caption_content(
+            CaptionResult(raw="Answer format: S**e**x**y."),
+            "test.jpg",
+            _make_args(
+                mode="all",
+                image_prompt_template="rating",
+                pair_dir="pairs",
+            ),
+            MagicMock(),
+        )
+
+        assert result.raw == "Answer format: S**e**x**y."
+
 
 # ---------------------------------------------------------------------------
 # Test 4: bbox_json template content
@@ -138,6 +244,47 @@ class TestBboxJsonTemplate:
     def test_bbox_output_contract_is_json(self):
         templates = PROMPTS.get("image_templates", {})
         assert templates["bbox_json"]["output"] == "json"
+
+    def test_bbox_declares_image_only_input(self):
+        assert image_template_uses_existing_tags(PROMPTS, "bbox_json") is False
+
+
+class TestTemplateInputContract:
+    def test_danbooru_declares_existing_tags_input(self):
+        assert image_template_uses_existing_tags(PROMPTS, "danbooru_tags") is True
+
+    def test_kimi_danbooru_keeps_its_own_short_long_contract(self):
+        from module.providers.cloud_vlm.kimi_vl import (
+            prepare_kimi_image_system_prompt,
+        )
+
+        context = _resolver("kimi_code").resolve(
+            "image/jpeg",
+            _make_args(image_prompt_template="danbooru_tags"),
+        )
+        prepared = prepare_kimi_image_system_prompt(
+            context.system,
+            template_id="danbooru_tags",
+            pair_mode=False,
+        )
+
+        assert prepared == context.system
+        assert "###Short:" in prepared
+        assert "###Long:" in prepared
+
+    @pytest.mark.parametrize("template_id", ["", "custom", "missing"])
+    def test_unspecified_contract_preserves_legacy_tag_input(self, template_id):
+        assert image_template_uses_existing_tags(PROMPTS, template_id) is True
+
+    def test_unknown_template_id_falls_back_to_provider_contract(self):
+        args = _make_args(image_prompt_template="missing")
+
+        assert configured_image_template_id(PROMPTS, args) == ""
+
+    def test_pair_prompt_overrides_selected_image_template_contract(self):
+        args = _make_args(image_prompt_template="rating", pair_dir="pairs")
+
+        assert configured_image_template_id(PROMPTS, args, pair_mode=True) == ""
 
 
 # ---------------------------------------------------------------------------
