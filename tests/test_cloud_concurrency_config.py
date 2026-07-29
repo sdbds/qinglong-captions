@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import toml
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -21,18 +22,29 @@ def test_captioner_parser_accepts_cloud_max_concurrency():
     assert args.cloud_max_concurrency == 3
 
 
-def test_captioner_parser_uses_current_kimi_models_and_k3_effort_mode():
+def test_captioner_parser_uses_current_kimi_models_without_reasoning_cli():
     from module.captioner import setup_parser
 
     parser = setup_parser()
 
     default_args = parser.parse_args(["dataset"])
-    assert default_args.kimi_model_path == "kimi-k2.6"
-    assert default_args.kimi_code_model_path == "k3"
-    assert default_args.kimi_code_thinking == "thinking.effort:max"
+    assert default_args.kimi_model_path == "kimi-k3"
+    assert default_args.kimi_code_model_path == "k3-256k"
+    assert not hasattr(default_args, "kimi_code_thinking")
 
-    args = parser.parse_args(["dataset", "--kimi_code_thinking=reasoning_effort:max"])
-    assert args.kimi_code_thinking == "reasoning_effort:max"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["dataset", "--kimi_code_thinking=max"])
+
+
+def test_shipped_kimi_configs_default_k3_reasoning_effort_to_high():
+    for relative_path in ("config/model.toml", "config/config.toml"):
+        config = toml.load(ROOT / relative_path)
+
+        assert config["kimi_vl"]["reasoning_effort"] == "high"
+        assert config["kimi_code"]["reasoning_effort"] == "high"
+        assert config["kimi_vl"]["thinking"] == "enabled"
+        assert config["kimi_code"]["thinking"] == "enabled"
+        assert "thinking_mode" not in config["kimi_code"]
 
 
 def test_captioner_parser_accepts_grok_build_subscription_options():
@@ -98,14 +110,14 @@ def test_captioner_powershell_passes_cloud_max_concurrency_only_when_gt_one():
     assert '--cloud_max_concurrency=$cloud_max_concurrency' in script
 
 
-def test_captioner_powershell_uses_current_kimi_models_and_k3_effort():
+def test_captioner_powershell_uses_current_kimi_models_without_reasoning_cli():
     script = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
-    assert '$kimi_model_path = "kimi-k2.6"' in script
-    assert '$kimi_code_model_path = "k3"' in script
-    assert '$kimi_code_thinking = "thinking.effort:max"' in script
-    assert "if ($kimi_code_thinking)" in script
-    assert "--kimi_code_thinking=$kimi_code_thinking" in script
+    assert '$kimi_model_path = "kimi-k3"' in script
+    assert '$kimi_code_model_path = "k3-256k"' in script
+    assert '$kimi_code_model_path -ne "k3-256k"' in script
+    assert "$kimi_code_thinking" not in script
+    assert "--kimi_code_thinking" not in script
 
 
 def test_captioner_powershell_passes_grok_build_options_only_when_enabled():

@@ -29,7 +29,8 @@ def test_recent_gui_i18n_keys_are_available_in_all_languages():
         "use_codex_subscription",
         "codex_fast_mode",
         "codex_reasoning_effort",
-        "kimi_code_thinking",
+        "kimi_reasoning_effort",
+        "kimi_thinking",
         "grok_build_reasoning_effort",
         "grok_build_disable_web_search",
         "repo_id_layerdiff",
@@ -68,3 +69,8 @@ def test_sheet_music_translations_describe_omr_not_embeddings():
 def test_removed_grok_build_effort_key_is_not_translated():
     for mapping in TRANSLATIONS.values():
         assert "grok_build_effort" not in _flatten_keys(mapping)
+
+
+def test_removed_kimi_code_thinking_key_is_not_translated():
+    for mapping in TRANSLATIONS.values():
+        assert "kimi_code_thinking" not in _flatten_keys(mapping)

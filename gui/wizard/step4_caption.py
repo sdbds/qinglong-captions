@@ -11,9 +11,20 @@ from nicegui import ui
 
 from gui.theme import COLORS, get_classes
 from gui.utils.i18n import t
+from gui.utils.kimi_reasoning_config import (
+    load_kimi_reasoning_effort,
+    load_kimi_thinking,
+    save_kimi_reasoning_effort,
+    save_kimi_thinking,
+)
 from gui.utils.toml_helpers import assess_current_model_fit as assess_current_model_fit_from_toml
 from gui.utils.toml_helpers import load_current_route_model_ids as load_current_route_model_ids_from_toml
 from module.providers.catalog import route_choices, route_requires_remote_config
+from module.providers.cloud_vlm.kimi_reasoning import (
+    DEFAULT_KIMI_CODE_MODEL_ID,
+    DEFAULT_KIMI_MODEL_ID,
+    is_k3_model,
+)
 
 if TYPE_CHECKING:
     from components.execution_panel import ExecutionPanel
@@ -56,7 +67,7 @@ def _load_current_route_model_ids() -> dict[str, str]:
 def _normalize_kimi_code_model_path(value: str) -> str:
     model = str(value or "").strip()
     if not model:
-        return "k3"
+        return DEFAULT_KIMI_CODE_MODEL_ID
     if model.lower() in {"k2p5", "kimi-code"}:
         return "kimi-for-coding"
     return model
@@ -171,23 +182,25 @@ class CaptionStep:
         "Kimi": {
             "key_name": "kimi_api_key",
             "models": [
+                DEFAULT_KIMI_MODEL_ID,
                 "kimi-k2.7-code",
                 "kimi-k2.7-code-highspeed",
                 "kimi-k2.6",
                 "kimi-k2.5",
             ],
-            "default_model": "kimi-k2.6",
+            "default_model": DEFAULT_KIMI_MODEL_ID,
             "supports_video": True,
             "supports_task": False,
         },
         "Kimi-Code": {
             "key_name": "kimi_code_api_key",
             "models": [
+                DEFAULT_KIMI_CODE_MODEL_ID,
                 "k3",
                 "kimi-for-coding",
                 "kimi-for-coding-highspeed",
             ],
-            "default_model": "k3",
+            "default_model": DEFAULT_KIMI_CODE_MODEL_ID,
             "supports_video": True,
             "supports_task": False,
         },
@@ -309,13 +322,22 @@ class CaptionStep:
         "medium": "medium",
         "high": "high",
     }
-    KIMI_CODE_THINKING_OPTIONS = {
-        "thinking.effort:max": "thinking.effort:max",
-        "reasoning_effort:max": "reasoning_effort:max",
+    KIMI_REASONING_EFFORT_OPTIONS = {
+        "low": "low",
+        "high": "high",
+        "max": "max",
     }
-    KIMI_CODE_LEGACY_THINKING_OPTIONS = {
-        "enabled": "enabled",
-        "disabled": "disabled",
+    KIMI_THINKING_OPTIONS = {
+        "enabled": "on",
+        "disabled": "off",
+    }
+    KIMI_REASONING_CONFIG = {
+        "Kimi": ("kimi_vl", "kimi_reasoning_effort"),
+        "Kimi-Code": ("kimi_code", "kimi_code_reasoning_effort"),
+    }
+    KIMI_THINKING_CONFIG = {
+        "Kimi": ("kimi_vl", "kimi_thinking"),
+        "Kimi-Code": ("kimi_code", "kimi_code_thinking"),
     }
     GROK_BUILD_PERMISSION_MODE_OPTIONS = {
         "dontAsk": "dontAsk",
@@ -475,10 +497,15 @@ class CaptionStep:
             "grok_build_permission_mode": "dontAsk",
             "grok_build_sandbox": "read-only",
             "grok_build_prompt_json_max_chars": 24000,
-            "kimi_code_thinking": "thinking.effort:max",
+            "kimi_reasoning_effort": load_kimi_reasoning_effort("kimi_vl"),
+            "kimi_code_reasoning_effort": load_kimi_reasoning_effort("kimi_code"),
+            "kimi_thinking": load_kimi_thinking("kimi_vl"),
+            "kimi_code_thinking": load_kimi_thinking("kimi_code"),
         }
         self.panel: "ExecutionPanel | None" = None
         self.api_keys = {}
+        self._kimi_reasoning_effort_containers: dict[str, Any] = {}
+        self._kimi_thinking_containers: dict[str, Any] = {}
         self._syncing_segment_time = False
         self.gpu_probe = None
         self._gpu_probe_scheduled = False
@@ -488,20 +515,40 @@ class CaptionStep:
     def _has_text(value: Any) -> bool:
         return value is not None and str(value).strip() != ""
 
-    @classmethod
-    def _kimi_code_thinking_options_for_model(cls, model_path: str) -> tuple[dict[str, str], str]:
-        if _normalize_kimi_code_model_path(model_path).lower() == "k3":
-            return cls.KIMI_CODE_THINKING_OPTIONS, "thinking.effort:max"
-        return cls.KIMI_CODE_LEGACY_THINKING_OPTIONS, "enabled"
+    def _sync_kimi_model_controls(self, api_name: str, model_path: str) -> None:
+        uses_reasoning_effort = is_k3_model(model_path)
+        reasoning_container = self._kimi_reasoning_effort_containers.get(api_name)
+        if reasoning_container is not None:
+            reasoning_container.set_visibility(uses_reasoning_effort)
+        thinking_container = self._kimi_thinking_containers.get(api_name)
+        if thinking_container is not None:
+            thinking_container.set_visibility(not uses_reasoning_effort)
 
-    def _sync_kimi_code_thinking_options(self, model_path: str) -> None:
-        options, default_value = self._kimi_code_thinking_options_for_model(model_path)
-        control = getattr(self, "kimi_code_thinking", None)
-        current_value = str(getattr(control, "value", "") or "").strip()
-        next_value = current_value if current_value in options else default_value
-        self.config["kimi_code_thinking"] = next_value
-        if control is not None:
-            control.set_options(options, value=next_value)
+    def _persist_kimi_reasoning_effort(self, api_name: str, value: object) -> None:
+        section, config_key = self.KIMI_REASONING_CONFIG[api_name]
+        try:
+            effort = save_kimi_reasoning_effort(section, value)
+        except Exception as exc:
+            ui.notify(
+                f"{t('save_failed')}: {exc}",
+                type="negative",
+                position="top",
+            )
+            return
+        self.config[config_key] = effort
+
+    def _persist_kimi_thinking(self, api_name: str, value: object) -> None:
+        section, config_key = self.KIMI_THINKING_CONFIG[api_name]
+        try:
+            thinking = save_kimi_thinking(section, value)
+        except Exception as exc:
+            ui.notify(
+                f"{t('save_failed')}: {exc}",
+                type="negative",
+                position="top",
+            )
+            return
+        self.config[config_key] = thinking
 
     def _local_model_fit_header(self) -> str:
         if self.gpu_probe is None:
@@ -1051,16 +1098,6 @@ class CaptionStep:
                         if self.config["document_image"]:
                             args.append("--document_image")
 
-                    if api_name == "Kimi-Code":
-                        thinking_control = getattr(self, "kimi_code_thinking", None)
-                        kimi_code_thinking = str(
-                            getattr(thinking_control, "value", None)
-                            or self.config.get("kimi_code_thinking", "thinking.effort:max")
-                            or ""
-                        ).strip()
-                        if kimi_code_thinking:
-                            args.append(f"--kimi_code_thinking={kimi_code_thinking}")
-
             if hasattr(self, "openai_base_url") and self.openai_base_url.value:
                 args.append(f"--openai_base_url={self.openai_base_url.value}")
                 openai_key = self.api_keys.get("openai_api_key")
@@ -1562,19 +1599,66 @@ class CaptionStep:
                             icon_color=COLORS["primary"],
                             new_value_mode="add-unique",
                             on_change=(
-                                self._sync_kimi_code_thinking_options if api_name == "Kimi-Code" else None
+                                (
+                                    lambda value, name=api_name: self._sync_kimi_model_controls(
+                                        name, value
+                                    )
+                                )
+                                if api_name in self.KIMI_REASONING_CONFIG
+                                else None
                             ),
                         )
                         setattr(self, f"{config['key_name']}_model", model_select)
 
-                    if api_name == "Kimi-Code":
-                        self.kimi_code_thinking = styled_select(
-                            options=self.KIMI_CODE_THINKING_OPTIONS,
-                            value=self.config["kimi_code_thinking"],
-                            label=t("kimi_code_thinking"),
-                            icon="psychology",
-                            icon_color=COLORS["warning"],
-                            searchable=False,
+                    if api_name in self.KIMI_REASONING_CONFIG:
+                        _, config_key = self.KIMI_REASONING_CONFIG[api_name]
+                        reasoning_container = ui.column().classes("w-full")
+                        self._kimi_reasoning_effort_containers[api_name] = reasoning_container
+                        with reasoning_container:
+                            reasoning_select = styled_select(
+                                options=self.KIMI_REASONING_EFFORT_OPTIONS,
+                                value=self.config[config_key],
+                                label=t("kimi_reasoning_effort"),
+                                icon="psychology",
+                                icon_color=COLORS["warning"],
+                                searchable=False,
+                                on_change=(
+                                    lambda value, name=api_name: self._persist_kimi_reasoning_effort(name, value)
+                                ),
+                            )
+                        setattr(
+                            self,
+                            "kimi_reasoning_effort"
+                            if api_name == "Kimi"
+                            else "kimi_code_reasoning_effort",
+                            reasoning_select,
+                        )
+                        reasoning_container.set_visibility(is_k3_model(config["default_model"]))
+
+                        _, thinking_config_key = self.KIMI_THINKING_CONFIG[api_name]
+                        thinking_container = ui.column().classes("w-full")
+                        self._kimi_thinking_containers[api_name] = thinking_container
+                        with thinking_container:
+                            thinking_select = styled_select(
+                                options=self.KIMI_THINKING_OPTIONS,
+                                value=self.config[thinking_config_key],
+                                label=t("kimi_thinking"),
+                                icon="toggle_on",
+                                icon_color=COLORS["warning"],
+                                searchable=False,
+                                on_change=(
+                                    lambda value, name=api_name: self._persist_kimi_thinking(
+                                        name, value
+                                    )
+                                ),
+                            )
+                        setattr(
+                            self,
+                            "kimi_thinking" if api_name == "Kimi" else "kimi_code_thinking",
+                            thinking_select,
+                        )
+                        thinking_container.set_visibility(
+                            not is_k3_model(config["default_model"])
                         )
 
                     # Gemini 特有：任务名称

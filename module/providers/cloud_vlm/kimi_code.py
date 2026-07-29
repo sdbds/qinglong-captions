@@ -10,6 +10,12 @@
 from pathlib import Path
 
 from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.cloud_vlm.kimi_reasoning import (
+    DEFAULT_KIMI_CODE_MODEL_ID,
+    configured_k3_reasoning_effort,
+    configured_kimi_thinking,
+    is_k3_model,
+)
 from module.providers.cloud_vlm_base import CloudVLMProvider
 from module.providers.image_template import (
     configured_image_template_id,
@@ -28,11 +34,9 @@ class KimiCodeProvider(CloudVLMProvider):
         """kimi_code 优先级高于 kimi_vl"""
         return getattr(args, "kimi_code_api_key", "") != "" and mime.startswith(("image", "video"))
 
-    KIMI_CODE_DEFAULT_MODEL = "k3"
+    KIMI_CODE_DEFAULT_MODEL = DEFAULT_KIMI_CODE_MODEL_ID
     KIMI_CODE_STANDARD_MODEL = "kimi-for-coding"
     KIMI_CODE_LEGACY_MODEL_ALIASES = frozenset({"k2p5", "kimi-code"})
-    K3_THINKING_EFFORT_MODE = "thinking.effort:max"
-    K3_REASONING_EFFORT_MODE = "reasoning_effort:max"
 
     # Kimi Coding API identifies coding agents by User-Agent.
     KIMI_CODE_USER_AGENT = "claude-code/2.1.162"
@@ -112,28 +116,12 @@ class KimiCodeProvider(CloudVLMProvider):
         model_path = self.normalize_model_path(
             getattr(self.ctx.args, "kimi_code_model_path", self.KIMI_CODE_DEFAULT_MODEL)
         )
-        kimi_code_config = self.ctx.config.get("kimi_code", {})
-        configured_mode = kimi_code_config.get("thinking_mode", "") if kimi_code_config else ""
-        thinking_mode = str(
-            getattr(self.ctx.args, "kimi_code_thinking", "")
-            or configured_mode
-            or self.K3_THINKING_EFFORT_MODE
-        ).strip()
-
-        thinking = ""
-        thinking_effort = ""
-        reasoning_effort = ""
-        if model_path.lower() == "k3":
-            if thinking_mode == self.K3_REASONING_EFFORT_MODE:
-                reasoning_effort = "max"
-            elif thinking_mode == self.K3_THINKING_EFFORT_MODE:
-                thinking_effort = "max"
-            elif thinking_mode in ("enabled", "disabled"):
-                thinking = thinking_mode
+        if is_k3_model(model_path):
+            thinking = ""
+            reasoning_effort = configured_k3_reasoning_effort(self.ctx.config, "kimi_code")
         else:
-            if thinking_mode not in ("enabled", "disabled"):
-                thinking_mode = "enabled"
-            thinking = thinking_mode
+            thinking = configured_kimi_thinking(self.ctx.config, "kimi_code")
+            reasoning_effort = ""
         use_existing_tags = image_template_uses_existing_tags(
             self.ctx.config.get("prompts", {}), image_template_id
         )
@@ -150,7 +138,6 @@ class KimiCodeProvider(CloudVLMProvider):
             image_pixels=image_pixels,
             pair_pixels=pair_pixels,
             thinking=thinking,
-            thinking_effort=thinking_effort,
             reasoning_effort=reasoning_effort,
             mode=getattr(self.ctx.args, "mode", "all"),
             timing_metadata=timing_metadata,
@@ -162,9 +149,12 @@ class KimiCodeProvider(CloudVLMProvider):
         metadata = {
             "provider": self.name,
             "model": model_path,
-            "thinking_mode": thinking_mode,
             **timing_metadata,
         }
+        if reasoning_effort:
+            metadata["reasoning_effort"] = reasoning_effort
+        else:
+            metadata["thinking"] = thinking
 
         # 处理 JSON 解析 - 尝试解析为 dict，根据 mode 过滤字段
         import json

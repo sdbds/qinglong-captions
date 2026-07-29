@@ -584,66 +584,144 @@ def test_caption_step_lists_current_kimi_and_kimi_code_models():
     CaptionStep = _load_caption_step("test_step4_caption_current_kimi_models")
 
     assert CaptionStep.API_CONFIGS["Kimi"]["models"] == [
+        "kimi-k3",
         "kimi-k2.7-code",
         "kimi-k2.7-code-highspeed",
         "kimi-k2.6",
         "kimi-k2.5",
     ]
-    assert CaptionStep.API_CONFIGS["Kimi"]["default_model"] == "kimi-k2.6"
+    assert CaptionStep.API_CONFIGS["Kimi"]["default_model"] == "kimi-k3"
     assert CaptionStep.API_CONFIGS["Kimi-Code"]["models"] == [
+        "k3-256k",
         "k3",
         "kimi-for-coding",
         "kimi-for-coding-highspeed",
     ]
-    assert CaptionStep.API_CONFIGS["Kimi-Code"]["default_model"] == "k3"
-    assert CaptionStep.KIMI_CODE_THINKING_OPTIONS == {
-        "thinking.effort:max": "thinking.effort:max",
-        "reasoning_effort:max": "reasoning_effort:max",
+    assert CaptionStep.API_CONFIGS["Kimi-Code"]["default_model"] == "k3-256k"
+    assert CaptionStep.KIMI_REASONING_EFFORT_OPTIONS == {
+        "low": "low",
+        "high": "high",
+        "max": "max",
     }
+    assert CaptionStep.KIMI_THINKING_OPTIONS == {
+        "enabled": "on",
+        "disabled": "off",
+    }
+    assert CaptionStep().config["kimi_reasoning_effort"] == "high"
+    assert CaptionStep().config["kimi_code_reasoning_effort"] == "high"
+    assert CaptionStep().config["kimi_thinking"] == "enabled"
+    assert CaptionStep().config["kimi_code_thinking"] == "enabled"
 
 
-def test_caption_step_switches_kimi_code_thinking_options_with_model():
-    CaptionStep = _load_caption_step("test_step4_caption_kimi_code_thinking_switch")
+def test_caption_step_switches_between_k3_effort_and_legacy_thinking_controls():
+    CaptionStep = _load_caption_step("test_step4_caption_kimi_reasoning_visibility")
 
-    class FakeSelect:
-        def __init__(self, value):
-            self.options = {}
-            self.value = value
+    class FakeContainer:
+        def __init__(self):
+            self.visible = None
 
-        def set_options(self, options, *, value=...):
-            self.options = options
-            if value is not ...:
-                self.value = value
-            return self
+        def set_visibility(self, visible):
+            self.visible = visible
 
     step = CaptionStep()
-    step.kimi_code_thinking = FakeSelect("thinking.effort:max")
-
-    step._sync_kimi_code_thinking_options("kimi-for-coding")
-
-    assert step.kimi_code_thinking.options == {
-        "enabled": "enabled",
-        "disabled": "disabled",
+    kimi_container = FakeContainer()
+    kimi_code_container = FakeContainer()
+    kimi_thinking_container = FakeContainer()
+    kimi_code_thinking_container = FakeContainer()
+    step._kimi_reasoning_effort_containers = {
+        "Kimi": kimi_container,
+        "Kimi-Code": kimi_code_container,
     }
-    assert step.kimi_code_thinking.value == "enabled"
-    assert step.config["kimi_code_thinking"] == "enabled"
+    step._kimi_thinking_containers = {
+        "Kimi": kimi_thinking_container,
+        "Kimi-Code": kimi_code_thinking_container,
+    }
 
-    step.kimi_code_thinking.value = "disabled"
-    step._sync_kimi_code_thinking_options("kimi-for-coding-highspeed")
-    assert step.kimi_code_thinking.value == "disabled"
+    step._sync_kimi_model_controls("Kimi", "kimi-k2.6")
+    step._sync_kimi_model_controls("Kimi-Code", "kimi-for-coding")
 
-    step._sync_kimi_code_thinking_options("k3")
-    assert step.kimi_code_thinking.options == CaptionStep.KIMI_CODE_THINKING_OPTIONS
-    assert step.kimi_code_thinking.value == "thinking.effort:max"
+    assert kimi_container.visible is False
+    assert kimi_code_container.visible is False
+    assert kimi_thinking_container.visible is True
+    assert kimi_code_thinking_container.visible is True
+
+    step._sync_kimi_model_controls("Kimi", "kimi-k3")
+    step._sync_kimi_model_controls("Kimi-Code", " K3 ")
+
+    assert kimi_container.visible is True
+    assert kimi_code_container.visible is True
+    assert kimi_thinking_container.visible is False
+    assert kimi_code_thinking_container.visible is False
 
 
-def test_caption_step_builds_k3_thinking_effort_arg():
-    CaptionStep = _load_caption_step("test_step4_caption_k3_thinking_effort")
+@pytest.mark.parametrize(
+    ("api_name", "expected_section", "expected_config_key"),
+    [
+        ("Kimi", "kimi_vl", "kimi_reasoning_effort"),
+        ("Kimi-Code", "kimi_code", "kimi_code_reasoning_effort"),
+    ],
+)
+def test_caption_step_persists_each_reasoning_effort_to_its_config_section(
+    monkeypatch, api_name, expected_section, expected_config_key
+):
+    CaptionStep = _load_caption_step("test_step4_caption_kimi_reasoning_persistence")
+    saved = {}
+
+    def fake_save(section, value):
+        saved["section"] = section
+        saved["value"] = value
+        return str(value).strip().lower()
+
+    monkeypatch.setitem(
+        CaptionStep._persist_kimi_reasoning_effort.__globals__,
+        "save_kimi_reasoning_effort",
+        fake_save,
+    )
+    step = CaptionStep()
+
+    step._persist_kimi_reasoning_effort(api_name, " HIGH ")
+
+    assert saved == {"section": expected_section, "value": " HIGH "}
+    assert step.config[expected_config_key] == "high"
+
+
+@pytest.mark.parametrize(
+    ("api_name", "expected_section", "expected_config_key"),
+    [
+        ("Kimi", "kimi_vl", "kimi_thinking"),
+        ("Kimi-Code", "kimi_code", "kimi_code_thinking"),
+    ],
+)
+def test_caption_step_persists_each_legacy_thinking_toggle(
+    monkeypatch, api_name, expected_section, expected_config_key
+):
+    CaptionStep = _load_caption_step("test_step4_caption_kimi_thinking_persistence")
+    saved = {}
+
+    def fake_save(section, value):
+        saved["section"] = section
+        saved["value"] = value
+        return str(value).strip().lower()
+
+    monkeypatch.setitem(
+        CaptionStep._persist_kimi_thinking.__globals__,
+        "save_kimi_thinking",
+        fake_save,
+    )
+    step = CaptionStep()
+
+    step._persist_kimi_thinking(api_name, " DISABLED ")
+
+    assert saved == {"section": expected_section, "value": " DISABLED "}
+    assert step.config[expected_config_key] == "disabled"
+
+
+def test_caption_step_builds_k3_args_without_reasoning_cli_override():
+    CaptionStep = _load_caption_step("test_step4_caption_k3_without_reasoning_cli")
 
     step = CaptionStep()
     step.api_keys = {"kimi_code_api_key": SimpleNamespace(value="kc-test")}
-    step.kimi_code_api_key_model = SimpleNamespace(value="k3")
-    step.kimi_code_thinking = SimpleNamespace(value="thinking.effort:max")
+    step.kimi_code_api_key_model = SimpleNamespace(value="k3-256k")
     step.ocr_model = SimpleNamespace(value="")
     step.vlm_image_model = SimpleNamespace(value="kimi_code")
     step.alm_model = SimpleNamespace(value="")
@@ -653,27 +731,9 @@ def test_caption_step_builds_k3_thinking_effort_arg():
     args = step._build_caption_args("demo-dataset")
 
     assert "--kimi_code_api_key=kc-test" in args
-    assert "--kimi_code_model_path=k3" in args
-    assert "--kimi_code_thinking=thinking.effort:max" in args
-
-
-def test_caption_step_can_build_k3_reasoning_effort_arg():
-    CaptionStep = _load_caption_step("test_step4_caption_k3_reasoning_effort")
-
-    step = CaptionStep()
-    step.api_keys = {"kimi_code_api_key": SimpleNamespace(value="kc-test")}
-    step.kimi_code_api_key_model = SimpleNamespace(value="k3")
-    step.kimi_code_thinking = SimpleNamespace(value="reasoning_effort:max")
-    step.ocr_model = SimpleNamespace(value="")
-    step.vlm_image_model = SimpleNamespace(value="kimi_code")
-    step.alm_model = SimpleNamespace(value="")
-    step.mode = SimpleNamespace(value="long")
-    step.pair_dir = SimpleNamespace(value="")
-
-    args = step._build_caption_args("demo-dataset")
-
-    assert "--kimi_code_model_path=k3" in args
-    assert "--kimi_code_thinking=reasoning_effort:max" in args
+    assert "--kimi_code_model_path=k3-256k" in args
+    assert not any("reasoning_effort" in arg for arg in args)
+    assert not any("kimi_code_thinking" in arg for arg in args)
 
 
 def test_caption_step_builds_codex_subscription_args_without_api_key_fallback():

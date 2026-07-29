@@ -821,6 +821,16 @@ class TestKimiCodeUserAgent:
         assert hasattr(cls, "KIMI_CODE_USER_AGENT")
         assert "claude-code" in cls.KIMI_CODE_USER_AGENT
 
+    def test_kimi_code_empty_model_uses_shared_k3_256k_default(self):
+        from module.providers.cloud_vlm.kimi_reasoning import DEFAULT_KIMI_CODE_MODEL_ID
+        from module.providers.registry import get_registry
+
+        cls = get_registry().get_provider("kimi_code")
+
+        assert DEFAULT_KIMI_CODE_MODEL_ID == "k3-256k"
+        assert cls.KIMI_CODE_DEFAULT_MODEL == DEFAULT_KIMI_CODE_MODEL_ID
+        assert cls.normalize_model_path("") == DEFAULT_KIMI_CODE_MODEL_ID
+
     @pytest.mark.parametrize("legacy_model", ["k2p5", "kimi-code"])
     def test_kimi_code_legacy_model_aliases_remain_on_the_standard_model(self, legacy_model):
         from module.providers.registry import get_registry
@@ -930,18 +940,69 @@ class TestKimiCodeUserAgent:
         assert "###Long:" in captured["system_prompt"]
         assert "Do not return only a single long paragraph." in captured["system_prompt"]
 
+    @pytest.mark.parametrize("model_path", ["k3", "k3-256k"])
     @pytest.mark.parametrize(
-        ("thinking_mode", "expected_thinking_effort", "expected_reasoning_effort"),
+        ("configured_effort", "expected_effort"),
         [
-            ("thinking.effort:max", "max", ""),
-            ("reasoning_effort:max", "", "max"),
+            ("low", "low"),
+            ("high", "high"),
+            ("max", "max"),
+            (None, "high"),
         ],
     )
-    def test_k3_effort_mode_maps_to_the_requested_wire_field(
-        self,
-        thinking_mode,
-        expected_thinking_effort,
-        expected_reasoning_effort,
+    def test_k3_reads_reasoning_effort_only_from_kimi_code_config(
+        self, configured_effort, expected_effort, model_path
+    ):
+        from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+        from module.providers.registry import get_registry
+        from rich.console import Console
+        import module.providers.cloud_vlm.kimi_vl as kimi_vl_module
+
+        reg = get_registry()
+        cls = reg.get_provider("kimi_code")
+
+        kimi_code_config = {}
+        if configured_effort is not None:
+            kimi_code_config["reasoning_effort"] = configured_effort
+
+        ctx = ProviderContext(
+            console=Console(file=io.StringIO()),
+            config={"kimi_code": kimi_code_config, "prompts": {}},
+            args=SimpleNamespace(
+                kimi_code_api_key="test-key",
+                kimi_code_base_url="https://api.kimi.com/coding/v1",
+                kimi_code_model_path=model_path,
+                pair_dir="",
+                mode="long",
+                max_retries=1,
+                wait_time=0.01,
+            ),
+        )
+        instance = cls(ctx)
+
+        with (
+            patch("openai.OpenAI", MagicMock(return_value=MagicMock())),
+            patch.object(kimi_vl_module, "attempt_kimi_vl", return_value="{}") as mock_attempt,
+        ):
+            media = MediaContext(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                sha256hash="",
+                modality=MediaModality.IMAGE,
+                blob="base64data",
+                pixels=None,
+            )
+            result = instance.attempt(media, PromptContext(system="sys", user="usr"))
+
+        assert "thinking_effort" not in mock_attempt.call_args.kwargs
+        assert mock_attempt.call_args.kwargs["model_path"] == model_path
+        assert mock_attempt.call_args.kwargs["reasoning_effort"] == expected_effort
+        assert result.metadata["reasoning_effort"] == expected_effort
+
+    @pytest.mark.parametrize("model_path", ["kimi-for-coding", "kimi-for-coding-highspeed"])
+    @pytest.mark.parametrize("configured_thinking", ["enabled", "disabled"])
+    def test_pre_k3_models_keep_thinking_toggle_and_omit_reasoning_effort(
+        self, model_path, configured_thinking
     ):
         from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
         from module.providers.registry import get_registry
@@ -953,64 +1014,17 @@ class TestKimiCodeUserAgent:
 
         ctx = ProviderContext(
             console=Console(file=io.StringIO()),
-            config={"prompts": {}},
-            args=SimpleNamespace(
-                kimi_code_api_key="test-key",
-                kimi_code_base_url="https://api.kimi.com/coding/v1",
-                kimi_code_model_path="k3",
-                kimi_code_thinking=thinking_mode,
-                pair_dir="",
-                mode="long",
-                max_retries=1,
-                wait_time=0.01,
-            ),
-        )
-        instance = cls(ctx)
-
-        with (
-            patch("openai.OpenAI", MagicMock(return_value=MagicMock())),
-            patch.object(kimi_vl_module, "attempt_kimi_vl", return_value="{}") as mock_attempt,
-        ):
-            media = MediaContext(
-                uri="/fake.jpg",
-                mime="image/jpeg",
-                sha256hash="",
-                modality=MediaModality.IMAGE,
-                blob="base64data",
-                pixels=None,
-            )
-            result = instance.attempt(media, PromptContext(system="sys", user="usr"))
-
-        assert mock_attempt.call_args.kwargs["thinking_effort"] == expected_thinking_effort
-        assert mock_attempt.call_args.kwargs["reasoning_effort"] == expected_reasoning_effort
-        assert result.metadata["thinking_mode"] == thinking_mode
-
-    @pytest.mark.parametrize("model_path", ["kimi-for-coding", "kimi-for-coding-highspeed"])
-    @pytest.mark.parametrize(
-        ("thinking_mode", "expected_thinking"),
-        [
-            ("enabled", "enabled"),
-            ("disabled", "disabled"),
-            ("thinking.effort:max", "enabled"),
-        ],
-    )
-    def test_pre_k3_models_use_thinking_type_toggle(self, model_path, thinking_mode, expected_thinking):
-        from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
-        from module.providers.registry import get_registry
-        from rich.console import Console
-        import module.providers.cloud_vlm.kimi_vl as kimi_vl_module
-
-        reg = get_registry()
-        cls = reg.get_provider("kimi_code")
-
-        ctx = ProviderContext(
-            console=Console(file=io.StringIO()),
-            config={"prompts": {}},
+            config={
+                "kimi_code": {
+                    "thinking": configured_thinking,
+                    "reasoning_effort": "max",
+                },
+                "prompts": {},
+            },
             args=SimpleNamespace(
                 kimi_code_api_key="test-key",
                 kimi_code_base_url="https://api.kimi.com/coding/v1",
                 kimi_code_model_path=model_path,
-                kimi_code_thinking=thinking_mode,
                 pair_dir="",
                 mode="long",
                 max_retries=1,
@@ -1033,20 +1047,196 @@ class TestKimiCodeUserAgent:
             )
             result = instance.attempt(media, PromptContext(system="sys", user="usr"))
 
-        assert mock_attempt.call_args.kwargs["thinking"] == expected_thinking
-        assert mock_attempt.call_args.kwargs["thinking_effort"] == ""
+        assert mock_attempt.call_args.kwargs["thinking"] == configured_thinking
+        assert "thinking_effort" not in mock_attempt.call_args.kwargs
         assert mock_attempt.call_args.kwargs["reasoning_effort"] == ""
-        assert result.metadata["thinking_mode"] == expected_thinking
+        assert result.metadata["thinking"] == configured_thinking
+        assert "reasoning_effort" not in result.metadata
 
 
 @pytest.mark.parametrize(
-    ("effort_kwargs", "expected_extra_body"),
-    [
-        ({"thinking_effort": "max"}, {"thinking": {"effort": "max"}}),
-        ({"reasoning_effort": "max"}, {"reasoning_effort": "max"}),
-    ],
+    "model_path",
+    ["kimi-k3", " KIMI-K3 ", "k3", " K3 ", "k3-256k", " K3-256K "],
 )
-def test_attempt_kimi_vl_sends_selected_k3_effort_field(effort_kwargs, expected_extra_body):
+def test_k3_model_family_recognizes_endpoint_specific_model_ids(model_path):
+    from module.providers.cloud_vlm.kimi_reasoning import is_k3_model
+
+    assert is_k3_model(model_path) is True
+
+
+@pytest.mark.parametrize("model_path", ["kimi-k2.6", "kimi-for-coding", "", None])
+def test_k3_model_family_rejects_non_k3_model_ids(model_path):
+    from module.providers.cloud_vlm.kimi_reasoning import is_k3_model
+
+    assert is_k3_model(model_path) is False
+
+
+@pytest.mark.parametrize("raw_value", ["low", "HIGH", " max "])
+def test_k3_reasoning_effort_normalizer_accepts_supported_values(raw_value):
+    from module.providers.cloud_vlm.kimi_reasoning import normalize_k3_reasoning_effort
+
+    assert normalize_k3_reasoning_effort(raw_value) == raw_value.strip().lower()
+
+
+def test_k3_reasoning_effort_normalizer_defaults_missing_value_to_high():
+    from module.providers.cloud_vlm.kimi_reasoning import configured_k3_reasoning_effort
+
+    assert configured_k3_reasoning_effort({}, "kimi_code") == "high"
+    assert configured_k3_reasoning_effort({"kimi_vl": {}}, "kimi_vl") == "high"
+
+
+def test_k3_reasoning_effort_normalizer_rejects_unknown_value():
+    from module.providers.cloud_vlm.kimi_reasoning import normalize_k3_reasoning_effort
+
+    with pytest.raises(ValueError, match="Unsupported K3 reasoning effort"):
+        normalize_k3_reasoning_effort("medium")
+
+
+@pytest.mark.parametrize("invalid_value", [False, 0, ""])
+def test_k3_reasoning_effort_normalizer_rejects_present_falsy_values(invalid_value):
+    from module.providers.cloud_vlm.kimi_reasoning import normalize_k3_reasoning_effort
+
+    with pytest.raises(ValueError, match="Unsupported K3 reasoning effort"):
+        normalize_k3_reasoning_effort(invalid_value)
+
+
+def test_kimi_provider_reads_k3_reasoning_effort_from_kimi_vl_config():
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.registry import get_registry
+    from rich.console import Console
+    import module.providers.cloud_vlm.kimi_vl as kimi_vl_module
+
+    cls = get_registry().get_provider("kimi_vl")
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO()),
+        config={
+            "kimi_vl": {"thinking": "enabled", "reasoning_effort": "high"},
+            "prompts": {},
+        },
+        args=SimpleNamespace(
+            kimi_api_key="test-key",
+            kimi_base_url="https://api.moonshot.cn/v1",
+            kimi_model_path="kimi-k3",
+            pair_dir="",
+            mode="long",
+            max_retries=1,
+            wait_time=0.01,
+        ),
+    )
+    instance = cls(ctx)
+
+    with (
+        patch("openai.OpenAI", MagicMock(return_value=MagicMock())),
+        patch.object(kimi_vl_module, "attempt_kimi_vl", return_value="{}") as mock_attempt,
+    ):
+        result = instance.attempt(
+            MediaContext(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                sha256hash="",
+                modality=MediaModality.IMAGE,
+                blob="base64data",
+                pixels=None,
+            ),
+            PromptContext(system="sys", user="usr"),
+        )
+
+    assert mock_attempt.call_args.kwargs["model_path"] == "kimi-k3"
+    assert mock_attempt.call_args.kwargs["reasoning_effort"] == "high"
+    assert result.metadata["reasoning_effort"] == "high"
+
+
+def test_kimi_provider_missing_model_uses_open_platform_k3_default():
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.registry import get_registry
+    from rich.console import Console
+    import module.providers.cloud_vlm.kimi_vl as kimi_vl_module
+
+    cls = get_registry().get_provider("kimi_vl")
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO()),
+        config={"kimi_vl": {}, "prompts": {}},
+        args=SimpleNamespace(
+            kimi_api_key="test-key",
+            kimi_base_url="https://api.moonshot.cn/v1",
+            pair_dir="",
+            mode="long",
+            max_retries=1,
+            wait_time=0.01,
+        ),
+    )
+    instance = cls(ctx)
+
+    with (
+        patch("openai.OpenAI", MagicMock(return_value=MagicMock())),
+        patch.object(kimi_vl_module, "attempt_kimi_vl", return_value="{}") as mock_attempt,
+    ):
+        result = instance.attempt(
+            MediaContext(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                sha256hash="",
+                modality=MediaModality.IMAGE,
+                blob="base64data",
+                pixels=None,
+            ),
+            PromptContext(system="sys", user="usr"),
+        )
+
+    assert mock_attempt.call_args.kwargs["model_path"] == "kimi-k3"
+    assert mock_attempt.call_args.kwargs["reasoning_effort"] == "high"
+    assert result.metadata["model"] == "kimi-k3"
+
+
+def test_kimi_provider_omits_reasoning_effort_for_non_k3_model():
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.registry import get_registry
+    from rich.console import Console
+    import module.providers.cloud_vlm.kimi_vl as kimi_vl_module
+
+    cls = get_registry().get_provider("kimi_vl")
+    ctx = ProviderContext(
+        console=Console(file=io.StringIO()),
+        config={
+            "kimi_vl": {"thinking": "disabled", "reasoning_effort": "max"},
+            "prompts": {},
+        },
+        args=SimpleNamespace(
+            kimi_api_key="test-key",
+            kimi_base_url="https://api.moonshot.cn/v1",
+            kimi_model_path="kimi-k2.6",
+            pair_dir="",
+            mode="long",
+            max_retries=1,
+            wait_time=0.01,
+        ),
+    )
+    instance = cls(ctx)
+
+    with (
+        patch("openai.OpenAI", MagicMock(return_value=MagicMock())),
+        patch.object(kimi_vl_module, "attempt_kimi_vl", return_value="{}") as mock_attempt,
+    ):
+        result = instance.attempt(
+            MediaContext(
+                uri="/fake.jpg",
+                mime="image/jpeg",
+                sha256hash="",
+                modality=MediaModality.IMAGE,
+                blob="base64data",
+                pixels=None,
+            ),
+            PromptContext(system="sys", user="usr"),
+        )
+
+    assert mock_attempt.call_args.kwargs["thinking"] == "disabled"
+    assert mock_attempt.call_args.kwargs["reasoning_effort"] == ""
+    assert "reasoning_effort" not in result.metadata
+
+
+@pytest.mark.parametrize("model_path", ["kimi-k3", "k3", "k3-256k"])
+@pytest.mark.parametrize("reasoning_effort", ["low", "high", "max"])
+def test_attempt_kimi_vl_sends_k3_reasoning_effort_as_top_level_field(model_path, reasoning_effort):
     from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl
     from rich.console import Console
 
@@ -1056,16 +1246,40 @@ def test_attempt_kimi_vl_sends_selected_k3_effort_field(effort_kwargs, expected_
 
     attempt_kimi_vl(
         client=mock_client,
-        model_path="k3",
+        model_path=model_path,
         messages=[],
         console=Console(file=io.StringIO()),
         progress=None,
         task_id=None,
         uri="/fake.jpg",
-        **effort_kwargs,
+        reasoning_effort=reasoning_effort,
     )
 
-    assert mock_client.chat.completions.create.call_args.kwargs["extra_body"] == expected_extra_body
+    assert mock_client.chat.completions.create.call_args.kwargs["extra_body"] == {
+        "reasoning_effort": reasoning_effort
+    }
+    assert mock_client.chat.completions.create.call_args.kwargs["model"] == model_path
+
+
+def test_attempt_kimi_vl_rejects_invalid_k3_reasoning_effort_before_request():
+    from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl
+    from rich.console import Console
+
+    mock_client = MagicMock()
+
+    with pytest.raises(ValueError, match="Unsupported K3 reasoning effort"):
+        attempt_kimi_vl(
+            client=mock_client,
+            model_path="k3",
+            messages=[],
+            console=Console(file=io.StringIO()),
+            progress=None,
+            task_id=None,
+            uri="/fake.jpg",
+            reasoning_effort="medium",
+        )
+
+    mock_client.chat.completions.create.assert_not_called()
 
 
 @pytest.mark.parametrize("thinking_mode", ["enabled", "disabled"])
@@ -2172,7 +2386,7 @@ def test_attempt_kimi_vl_skips_tag_sources_when_input_contract_disables_them(tmp
             progress=None,
             task_id=None,
             uri=str(image_path),
-            thinking_effort="max",
+            reasoning_effort="max",
             use_existing_tags=False,
         )
 
@@ -2205,7 +2419,7 @@ def test_attempt_kimi_vl_injects_sidecar_tags_when_input_contract_enables_them(t
             progress=None,
             task_id=None,
             uri=str(image_path),
-            thinking_effort="max",
+            reasoning_effort="max",
             use_existing_tags=True,
         )
 
@@ -2239,7 +2453,7 @@ def test_quality_display_cleanup_keeps_raw_response():
         progress=None,
         task_id=None,
         uri="/fake.jpg",
-        thinking_effort="max",
+        reasoning_effort="max",
         image_template_id="rating",
     )
 

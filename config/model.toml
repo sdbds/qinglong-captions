@@ -508,10 +508,12 @@ keep_delta_on_gpu = true
 language = ""
 
 [kimi_vl]
-thinking = "enabled"  # enabled | disabled
+thinking = "enabled"  # non-K3: enabled | disabled
+reasoning_effort = "high"  # low | high | max
 
 [kimi_code]
-thinking_mode = "thinking.effort:max"  # k3: thinking.effort:max | reasoning_effort:max; older: enabled | disabled
+thinking = "enabled"  # non-K3: enabled | disabled
+reasoning_effort = "high"  # low | high | max
 
 [mimo]
 thinking = "disabled"  # enabled | disabled

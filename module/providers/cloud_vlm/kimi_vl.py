@@ -18,16 +18,14 @@ from rich.progress import Progress
 from rich.text import Text
 from rich_pixels import Pixels
 
-from utils.parse_display import (
-    display_caption_and_rate,
-    display_caption_layout,
-    display_pair_image_description,
-    extract_code_block_content,
-    process_llm_response,
-)
-from utils.stream_util import format_description
-
 from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.cloud_vlm.kimi_reasoning import (
+    DEFAULT_KIMI_MODEL_ID,
+    configured_k3_reasoning_effort,
+    configured_kimi_thinking,
+    is_k3_model,
+    normalize_k3_reasoning_effort,
+)
 from module.providers.cloud_vlm_base import CloudVLMProvider
 from module.providers.image_template import (
     configured_image_template_id,
@@ -37,7 +35,14 @@ from module.providers.image_template import (
 from module.providers.registry import register_provider
 from module.providers.utils import build_vision_messages
 from utils.console_util import print_exception
-
+from utils.parse_display import (
+    display_caption_and_rate,
+    display_caption_layout,
+    display_pair_image_description,
+    extract_code_block_content,
+    process_llm_response,
+)
+from utils.stream_util import format_description
 
 # ---------------------------------------------------------------------------
 # Shared helpers – used by both KimiVLProvider and KimiCodeProvider
@@ -199,7 +204,6 @@ def attempt_kimi_vl(
     image_pixels: Optional[Pixels] = None,
     pair_pixels: Optional[Pixels] = None,
     thinking: str = "enabled",
-    thinking_effort: str = "",
     reasoning_effort: str = "",
     mode: str = "all",
     max_tokens: int = 8192,
@@ -230,10 +234,8 @@ def attempt_kimi_vl(
         merged_tags = tags_from_json if tags_from_json else captions
         messages = _inject_tags_into_messages(messages, merged_tags)
 
-    if thinking_effort:
-        extra_body = {"thinking": {"effort": thinking_effort}}
-    elif reasoning_effort:
-        extra_body = {"reasoning_effort": reasoning_effort}
+    if reasoning_effort:
+        extra_body = {"reasoning_effort": normalize_k3_reasoning_effort(reasoning_effort)}
     elif thinking in ("enabled", "disabled"):
         extra_body = {"thinking": {"type": thinking}}
     else:
@@ -404,9 +406,14 @@ class KimiVLProvider(CloudVLMProvider):
         else:
             return CaptionResult(raw="")
 
-        # 读取 thinking 配置
-        kimi_vl_config = self.ctx.config.get("kimi_vl", {})
-        thinking = kimi_vl_config.get("thinking", "enabled") if kimi_vl_config else "enabled"
+        model_path = getattr(self.ctx.args, "kimi_model_path", DEFAULT_KIMI_MODEL_ID)
+
+        if is_k3_model(model_path):
+            thinking = ""
+            reasoning_effort = configured_k3_reasoning_effort(self.ctx.config, "kimi_vl")
+        else:
+            thinking = configured_kimi_thinking(self.ctx.config, "kimi_vl")
+            reasoning_effort = ""
         use_existing_tags = image_template_uses_existing_tags(
             self.ctx.config.get("prompts", {}), image_template_id
         )
@@ -414,7 +421,7 @@ class KimiVLProvider(CloudVLMProvider):
         timing_metadata: dict[str, Any] = {}
         result = attempt_kimi_vl(
             client=client,
-            model_path=getattr(self.ctx.args, "kimi_model_path", "kimi-k2.6"),
+            model_path=model_path,
             messages=messages,
             console=self.ctx.console,
             progress=self.ctx.progress,
@@ -423,6 +430,7 @@ class KimiVLProvider(CloudVLMProvider):
             image_pixels=image_pixels,
             pair_pixels=pair_pixels,
             thinking=thinking,
+            reasoning_effort=reasoning_effort,
             mode=getattr(self.ctx.args, "mode", "all"),
             timing_metadata=timing_metadata,
             use_existing_tags=use_existing_tags,
@@ -430,7 +438,9 @@ class KimiVLProvider(CloudVLMProvider):
         )
         if "duration_seconds" in timing_metadata:
             timing_metadata["duration_log_label"] = f"Kimi VL caption completed: {Path(media.uri).name}"
-        metadata = {"provider": self.name, **timing_metadata}
+        metadata = {"provider": self.name, "model": model_path, **timing_metadata}
+        if reasoning_effort:
+            metadata["reasoning_effort"] = reasoning_effort
 
         # 处理 JSON 解析 - 尝试解析为 dict，根据 mode 过滤字段
         try:

@@ -3,9 +3,14 @@ import sys
 
 from PIL import Image
 from rich.console import Console
+
+from module.api_handler_v2 import api_process_batch as _api_process_batch_v2
 from module.caption_pipeline.orchestrator import process_batch as _pipeline_process_batch
 from module.providers.catalog import normalize_runtime_args, route_choices
-from module.api_handler_v2 import api_process_batch as _api_process_batch_v2
+from module.providers.cloud_vlm.kimi_reasoning import (
+    DEFAULT_KIMI_CODE_MODEL_ID,
+    DEFAULT_KIMI_MODEL_ID,
+)
 
 
 def api_process_batch(uri, mime, config, args, sha256hash, progress=None, task_id=None):
@@ -84,7 +89,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--kimi_model_path",
         type=str,
-        default="kimi-k2.6",
+        default=DEFAULT_KIMI_MODEL_ID,
         help="Model path for Kimi",
     )
 
@@ -105,8 +110,8 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--kimi_code_model_path",
         type=str,
-        default="k3",
-        help="Model name for Kimi-Code (default: k3)",
+        default=DEFAULT_KIMI_CODE_MODEL_ID,
+        help=f"Model name for Kimi-Code (default: {DEFAULT_KIMI_CODE_MODEL_ID})",
     )
     parser.add_argument(
         "--kimi_code_base_url",
@@ -114,17 +119,6 @@ def setup_parser() -> argparse.ArgumentParser:
         default="https://api.kimi.com/coding/v1",
         help="Base URL for Kimi-Code API",
     )
-    parser.add_argument(
-        "--kimi_code_thinking",
-        type=str,
-        default="thinking.effort:max",
-        choices=["thinking.effort:max", "reasoning_effort:max", "enabled", "disabled", ""],
-        help=(
-            "K3 effort field: thinking.effort:max or reasoning_effort:max. "
-            "Kimi for Coding models use enabled/disabled."
-        ),
-    )
-
     # Xiaomi MiMo (OpenAI-compatible API)
     parser.add_argument(
         "--mimo_api_key",
