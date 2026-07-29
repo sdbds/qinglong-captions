@@ -11,84 +11,37 @@ max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
 
-[generation_config.gemini-2_5-pro]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
+[generation_config.gemini-3_6-flash]
 max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
+thinking_level = "medium"
 
-[generation_config.gemini-2_5-flash]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
+[generation_config.gemini-3_5-flash-lite]
 max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
-thinking_budget = 8000
-
-[generation_config.gemini-2_5-flash-lite]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-thinking_budget = 8192
-
-[generation_config.gemini-2_5-flash-image-preview]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 8192
-response_modalities = ["image", "text"]
-response_mime_type = "text/plain"
+thinking_level = "minimal"
 
 [generation_config.gemini-3_1-pro-preview]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
 max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
+thinking_level = "high"
 
 [generation_config.gemini-3_5-flash]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
 max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
-
-[generation_config.gemini-3-flash-preview]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["text"]
-response_mime_type = "text/plain"
-
-[generation_config.gemini-3_1-flash-lite]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
-max_output_tokens = 65536
-response_modalities = ["text"]
-response_mime_type = "text/plain"
+thinking_level = "medium"
 
 [generation_config.gemini-3_1-flash-image]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
 max_output_tokens = 8192
 response_modalities = ["image", "text"]
 response_mime_type = "text/plain"
+thinking_level = "minimal"
 
 [generation_config.gemini-3-pro-image]
-temperature = 1.0
-top_p = 0.95
-top_k = 64
 max_output_tokens = 65536
 response_modalities = ["image", "text"]
 response_mime_type = "text/plain"

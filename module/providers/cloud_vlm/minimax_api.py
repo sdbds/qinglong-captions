@@ -5,6 +5,8 @@ MiniMax 开放平台 API 提供商
 API 文档: https://platform.minimaxi.com/docs/api-reference/api-overview
 
 支持模型:
+- MiniMax-M2.7: 最新旗舰模型
+- MiniMax-M2.7-highspeed: M2.7 极速版
 - MiniMax-M2.5: 顶尖性能与极致性价比 (输出速度约60tps)
 - MiniMax-M2.5-highspeed: M2.5 极速版 (输出速度约100tps)
 - MiniMax-M2.1: 强大多语言编程能力 (输出速度约60tps)
@@ -264,7 +266,7 @@ class MiniMaxAPIProvider(CloudVLMProvider):
         # 获取配置
         api_key = self.ctx.args.minimax_api_key
         base_url = getattr(self.ctx.args, "minimax_api_base_url", "https://api.minimax.io/v1")
-        model_path = getattr(self.ctx.args, "minimax_model_path", "MiniMax-M2.5")
+        model_path = getattr(self.ctx.args, "minimax_model_path", "MiniMax-M2.7")
 
         client = OpenAI(api_key=api_key, base_url=base_url)
 

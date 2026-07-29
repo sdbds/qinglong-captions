@@ -278,7 +278,7 @@ class GeminiProvider(VisionAPIProvider):
         struct_config = self.get_structured_output_config(media, self.ctx.args)
 
         # 构建 GenAI Config
-        genai_config = self._build_genai_config(prompts, generation_config, struct_config)
+        genai_config = self._build_genai_config(prompts, generation_config, struct_config, model_path)
 
         # 准备 pair extras
         pair_blob_list = media.pair_extras if media.pair_extras else None
@@ -334,16 +334,18 @@ class GeminiProvider(VisionAPIProvider):
             return self.ctx.config["generation_config"][model_key]
         return self.ctx.config.get("generation_config", {}).get("default", {})
 
-    def _build_genai_config(self, prompts: PromptContext, gen_cfg: dict, struct: StructuredOutputConfig):
+    def _build_genai_config(
+        self,
+        prompts: PromptContext,
+        gen_cfg: dict,
+        struct: StructuredOutputConfig,
+        model_path: str,
+    ):
         """构建 GenAI Config"""
         from google.genai import types
 
         config_dict = {
             "system_instruction": prompts.system,
-            "temperature": gen_cfg.get("temperature", 0.7),
-            "top_p": gen_cfg.get("top_p", 0.95),
-            "top_k": gen_cfg.get("top_k", 40),
-            "candidate_count": self.ctx.config.get("generation_config", {}).get("candidate_count", 1),
             "max_output_tokens": gen_cfg.get("max_output_tokens", 4096),
             "safety_settings": [
                 types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=types.HarmBlockThreshold.OFF),
@@ -362,25 +364,45 @@ class GeminiProvider(VisionAPIProvider):
             "response_modalities": gen_cfg.get("response_modalities", ["Text"]),
         }
 
+        if not model_path.startswith("gemini-3"):
+            config_dict.update(
+                candidate_count=self.ctx.config.get("generation_config", {}).get("candidate_count", 1),
+                temperature=gen_cfg.get("temperature", 0.7),
+                top_p=gen_cfg.get("top_p", 0.95),
+                top_k=gen_cfg.get("top_k", 40),
+            )
+
         if struct.enabled and struct.schema:
             config_dict["response_schema"] = struct.schema
 
         if not getattr(self.ctx.args, "gemini_task", ""):
-            thinking_config = self._build_thinking_config(types, gen_cfg.get("thinking_budget", -1))
+            thinking_config = self._build_thinking_config(types, model_path, gen_cfg)
             if thinking_config is not None:
                 config_dict["thinking_config"] = thinking_config
 
         return types.GenerateContentConfig(**config_dict)
 
     @staticmethod
-    def _build_thinking_config(types_module, thinking_budget: int):
+    def _build_thinking_config(types_module, model_path: str, gen_cfg: dict):
         """兼容不同版本 google-genai SDK 的 ThinkingConfig 参数。"""
-        for kwargs in (
-            {"thinking_budget": thinking_budget},
-            {"thinkingBudget": thinking_budget},
-            {"include_thoughts": thinking_budget != 0},
-            {"includeThoughts": thinking_budget != 0},
-        ):
+        if model_path.startswith("gemini-3"):
+            thinking_level = gen_cfg.get("thinking_level")
+            if not thinking_level:
+                return None
+            candidates = (
+                {"thinking_level": thinking_level},
+                {"thinkingLevel": thinking_level},
+            )
+        else:
+            thinking_budget = gen_cfg.get("thinking_budget", -1)
+            candidates = (
+                {"thinking_budget": thinking_budget},
+                {"thinkingBudget": thinking_budget},
+                {"include_thoughts": thinking_budget != 0},
+                {"includeThoughts": thinking_budget != 0},
+            )
+
+        for kwargs in candidates:
             try:
                 return types_module.ThinkingConfig(**kwargs)
             except Exception:

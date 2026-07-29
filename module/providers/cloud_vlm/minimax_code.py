@@ -1,7 +1,7 @@
 """MiniMax Code Provider
 
 MiniMax Code 专用 Provider - 针对代码理解和结构化输出优化
-基于 MiniMax M2/M2.1 系列的强大编程能力
+基于 MiniMax M2.7 系列的强大编程能力
 
 特性:
 - 专为代码分析和理解优化
@@ -295,8 +295,8 @@ class MiniMaxCodeProvider(CloudVLMProvider):
         # 获取配置
         api_key = self.ctx.args.minimax_code_api_key
         base_url = getattr(self.ctx.args, "minimax_code_base_url", "https://api.minimax.io/v1")
-        # 默认使用 M2 模型，专为代码和Agent工作流优化
-        model_path = getattr(self.ctx.args, "minimax_code_model_path", "MiniMax-M2")
+        # 默认使用 M2.7 模型，专为代码和 Agent 工作流优化
+        model_path = getattr(self.ctx.args, "minimax_code_model_path", "MiniMax-M2.7")
 
         client = OpenAI(api_key=api_key, base_url=base_url)
 
