@@ -125,17 +125,17 @@ git commit -m "feat: define auto-rig stage manifests"
 - Create: `module/auto_rig/stage_graph.py`
 - Test: `tests/test_auto_rig_stage_graph.py`
 
-- [ ] **Step 1: Write failing DAG tests**
+- [x] **Step 1: Write failing DAG tests**
 
 Build small A, B, C, D, E, G fixtures. Assert that a valid graph is reusable and that validation reports stable issue codes for a missing marker, changed output bytes, expected fingerprint mismatch, upstream marker digest mismatch, undeclared upstream, dependency cycle, output ownership overlap, output path equal to another stage marker, and G completed without both D and E.
 
-- [ ] **Step 2: Run the focused test and confirm import failure**
+- [x] **Step 2: Run the focused test and confirm import failure**
 
 Run: `.venv\Scripts\python.exe -m pytest tests/test_auto_rig_stage_graph.py -q`
 
 Expected: FAIL because `module.auto_rig.stage_graph` does not exist.
 
-- [ ] **Step 3: Implement graph validation**
+- [x] **Step 3: Implement graph validation**
 
 Implement frozen `StageNode`, `StageValidationIssue`, and `StageGraphResult` records plus `StageGraphValidator`.
 
@@ -147,13 +147,13 @@ Rules:
 - G with `status="completed"` requires reusable C, D, and E.
 - Results collect deterministic sorted issues instead of throwing on the first corrupt item; programmer/configuration errors still raise at graph construction.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run: `.venv\Scripts\python.exe -m pytest tests/test_auto_rig_artifacts.py tests/test_auto_rig_manifests.py tests/test_auto_rig_stage_graph.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add module/auto_rig/stage_graph.py tests/test_auto_rig_stage_graph.py
