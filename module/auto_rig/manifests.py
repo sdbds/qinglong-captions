@@ -15,7 +15,6 @@ from .artifacts import (
     normalize_relative_path,
 )
 
-
 STAGE_MANIFEST_SCHEMA_VERSION = 1
 VALID_STAGE_NAMES = frozenset({"A", "B", "C", "D", "E", "F", "G"})
 VALID_STAGE_STATUSES = frozenset({"completed", "failed"})
@@ -169,11 +168,13 @@ class StageManifest:
 
     def __post_init__(self) -> None:
         if self.schema_version != STAGE_MANIFEST_SCHEMA_VERSION:
-            raise StageManifestError(
-                f"schema_version must be {STAGE_MANIFEST_SCHEMA_VERSION}, got {self.schema_version!r}"
-            )
+            raise StageManifestError(f"schema_version must be {STAGE_MANIFEST_SCHEMA_VERSION}, got {self.schema_version!r}")
         stage = _require_stage_name(self.stage_name)
-        if isinstance(self.stage_schema_version, bool) or not isinstance(self.stage_schema_version, int) or self.stage_schema_version < 1:
+        if (
+            isinstance(self.stage_schema_version, bool)
+            or not isinstance(self.stage_schema_version, int)
+            or self.stage_schema_version < 1
+        ):
             raise StageManifestError("stage_schema_version must be a positive integer")
         algorithm = _require_nonempty_string(self.algorithm_version, field="algorithm_version")
         if self.status not in VALID_STAGE_STATUSES:
@@ -239,9 +240,7 @@ class StageManifest:
         if not isinstance(payload, dict) or set(payload) != _MANIFEST_FIELDS:
             raise StageManifestError(f"stage manifest must contain exactly {sorted(_MANIFEST_FIELDS)}")
         if payload["schema_version"] != STAGE_MANIFEST_SCHEMA_VERSION:
-            raise StageManifestError(
-                f"schema_version must be {STAGE_MANIFEST_SCHEMA_VERSION}, got {payload['schema_version']!r}"
-            )
+            raise StageManifestError(f"schema_version must be {STAGE_MANIFEST_SCHEMA_VERSION}, got {payload['schema_version']!r}")
         stage = _require_stage_name(payload["stage_name"])
         if not isinstance(payload["upstream_manifests"], dict):
             raise StageManifestError("upstream_manifests must be an object")
@@ -305,9 +304,7 @@ def build_stage_manifest(
         stage_schema_version=stage_schema_version,
         algorithm_version=algorithm_version,
         stage_fingerprint=fingerprint,
-        upstream_manifests=tuple(
-            upstream_manifests.items() if isinstance(upstream_manifests, Mapping) else upstream_manifests
-        ),
+        upstream_manifests=tuple(upstream_manifests.items() if isinstance(upstream_manifests, Mapping) else upstream_manifests),
         input_file_sha256=inputs,
         relevant_config_fingerprint=relevant_config_fingerprint,
         rig_overrides_sha256=rig_overrides_sha256,
@@ -341,7 +338,5 @@ def read_stage_manifest(root: str | Path, stage_name: str) -> StageManifest:
         raise StageManifestError(f"unable to parse stage manifest {manifest_relative_path(stage)}: {exc}") from exc
     manifest = StageManifest.from_dict(payload)
     if manifest.stage_name != stage:
-        raise StageManifestError(
-            f"stage manifest path is for {stage}, but payload declares {manifest.stage_name}"
-        )
+        raise StageManifestError(f"stage manifest path is for {stage}, but payload declares {manifest.stage_name}")
     return manifest

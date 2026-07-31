@@ -26,7 +26,6 @@ from .manifests import (
 )
 from .stage_graph import StageGraphValidator
 
-
 EXPORT_MANIFEST_PATH = "rig/export_manifest.json"
 ERROR_RECORD_PATH = "rig/error.json"
 TERMINAL_FINALIZER_VERSION = "terminal-finalizer-v1"
@@ -105,9 +104,7 @@ class StageFailureRecord:
             raise TerminalFinalizationError(f"invalid failure record path: {exc}") from exc
         expected_prefix = f"rig/cache/{self.stage_name}/"
         if not record_path.startswith(expected_prefix) or record_path == manifest_relative_path(self.stage_name):
-            raise TerminalFinalizationError(
-                f"failure record for stage {self.stage_name} must be a stage-local cache file"
-            )
+            raise TerminalFinalizationError(f"failure record for stage {self.stage_name} must be a stage-local cache file")
         diagnostics = tuple(self.diagnostics)
         if any(not isinstance(record, Mapping) for record in diagnostics):
             raise TerminalFinalizationError("failure diagnostics must be JSON objects")
@@ -135,20 +132,14 @@ def _validate_preterminal_graph(
     missing_expected = set(_RELEASE_STAGES) - set(expected_stage_fingerprints)
     extra_expected = set(expected_stage_fingerprints) - set(_RELEASE_STAGES)
     if missing_expected or extra_expected:
-        raise TerminalFinalizationError(
-            "expected_stage_fingerprints must contain exactly A, B, C, D, and E"
-        )
+        raise TerminalFinalizationError("expected_stage_fingerprints must contain exactly A, B, C, D, and E")
 
     validator = StageGraphValidator(item_root)
     results = (
         validator.validate(target_stage="D", expected_fingerprints=expected_stage_fingerprints),
         validator.validate(target_stage="E", expected_fingerprints=expected_stage_fingerprints),
     )
-    issues = {
-        (issue.code, issue.stage_name, issue.path, issue.detail)
-        for result in results
-        for issue in result.issues
-    }
+    issues = {(issue.code, issue.stage_name, issue.path, issue.detail) for result in results for issue in result.issues}
     if issues:
         summary = ", ".join(f"{stage}:{code}" for code, stage, _, _ in sorted(issues))
         raise TerminalFinalizationError(f"preterminal stage graph is not reusable: {summary}")
@@ -176,15 +167,11 @@ def _normalize_formats(formats: Iterable[FormatValidation]) -> dict[str, FormatV
         raise TerminalFinalizationError("formats must contain FormatValidation records")
     by_id = {item.format_id: item for item in normalized}
     if len(by_id) != len(normalized) or set(by_id) != set(FORMAL_REQUIRED_FORMATS):
-        raise TerminalFinalizationError(
-            f"formal delivery requires exactly formats {list(FORMAL_REQUIRED_FORMATS)}"
-        )
+        raise TerminalFinalizationError(f"formal delivery requires exactly formats {list(FORMAL_REQUIRED_FORMATS)}")
     for format_id, item in by_id.items():
         expected_stage = _FORMAT_STAGE[format_id]
         if item.stage_name != expected_stage:
-            raise TerminalFinalizationError(
-                f"format {format_id} must be produced by stage {expected_stage}"
-            )
+            raise TerminalFinalizationError(f"format {format_id} must be produced by stage {expected_stage}")
         if item.status != "validated":
             raise TerminalFinalizationError(f"format {format_id} is not validated")
     return by_id
@@ -247,9 +234,7 @@ def finalize_success(
         validation = format_map[format_id]
         stage_outputs = {record.path: record for record in manifests[validation.stage_name].output_file_sha256}
         if set(validation.files) != set(stage_outputs):
-            raise TerminalFinalizationError(
-                f"format {format_id} files must exactly match stage {validation.stage_name} outputs"
-            )
+            raise TerminalFinalizationError(f"format {format_id} files must exactly match stage {validation.stage_name} outputs")
         records = tuple(stage_outputs[path] for path in sorted(validation.files))
         format_payloads[format_id] = {
             "status": "validated",
@@ -262,17 +247,12 @@ def finalize_success(
     if motion_path not in c_outputs:
         raise TerminalFinalizationError("stage C does not own rig/motion_manifest.json")
     canonical_textures = tuple(
-        record
-        for path, record in sorted(c_outputs.items())
-        if path.startswith("rig/shared/textures/") and path.endswith(".png")
+        record for path, record in sorted(c_outputs.items()) if path.startswith("rig/shared/textures/") and path.endswith(".png")
     )
     if not canonical_textures:
         raise TerminalFinalizationError("stage C does not own any canonical texture pages")
 
-    upstream_manifests = {
-        stage: sha256_file(_item_path(root, manifest_relative_path(stage)))
-        for stage in ("C", "D", "E")
-    }
+    upstream_manifests = {stage: sha256_file(_item_path(root, manifest_relative_path(stage))) for stage in ("C", "D", "E")}
     validation_payload = {
         "tier": tier,
         "spine_validator_fingerprint": format_map["spine_4_2"].validator_fingerprint,
@@ -304,9 +284,7 @@ def finalize_success(
     export_path = _item_path(root, EXPORT_MANIFEST_PATH)
     atomic_write_json(export_path, export_payload)
 
-    marker_inputs = tuple(
-        describe_file(root, manifest_relative_path(stage)) for stage in ("C", "D", "E")
-    )
+    marker_inputs = tuple(describe_file(root, manifest_relative_path(stage)) for stage in ("C", "D", "E"))
     g_manifest = build_stage_manifest(
         root,
         stage_name="G",
@@ -398,9 +376,7 @@ def finalize_failure(
         )
         diagnostics.extend(dict(diagnostic) for diagnostic in record.diagnostics)
 
-    failure_set_digest = canonical_json_sha256(
-        {"failure_records": public_records, "diagnostics": diagnostics}
-    )
+    failure_set_digest = canonical_json_sha256({"failure_records": public_records, "diagnostics": diagnostics})
     error_payload: dict[str, Any] = {
         "schema_version": 1,
         "producer_stage": "G",
@@ -507,10 +483,7 @@ def _export_payload_matches_graph(
     if not _SHA256_PATTERN.fullmatch(str(payload.get("global_symbol_table_sha256"))):
         return False
 
-    expected_upstream = {
-        stage: sha256_file(_item_path(root, manifest_relative_path(stage)))
-        for stage in ("C", "D", "E")
-    }
+    expected_upstream = {stage: sha256_file(_item_path(root, manifest_relative_path(stage))) for stage in ("C", "D", "E")}
     if payload.get("upstream_stage_manifests") != expected_upstream:
         return False
 
@@ -541,9 +514,7 @@ def _export_payload_matches_graph(
     if motion is None or payload.get("motion_manifest_sha256") != motion.sha256:
         return False
     canonical_textures = tuple(
-        record
-        for path, record in sorted(c_outputs.items())
-        if path.startswith("rig/shared/textures/") and path.endswith(".png")
+        record for path, record in sorted(c_outputs.items()) if path.startswith("rig/shared/textures/") and path.endswith(".png")
     )
     expected_artifact_sets = {
         "canonical_textures": _artifact_set_digest(canonical_textures),

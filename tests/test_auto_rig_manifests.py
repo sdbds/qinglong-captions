@@ -56,9 +56,7 @@ def test_stage_manifest_round_trips_as_strict_canonical_payload(tmp_path: Path) 
     assert payload["schema_version"] == STAGE_MANIFEST_SCHEMA_VERSION
     assert payload["stage_name"] == "A"
     assert payload["status"] == "completed"
-    assert payload["output_file_sha256"] == [
-        describe_file(tmp_path, "rig/cache/A/geometry_observations.json").to_dict()
-    ]
+    assert payload["output_file_sha256"] == [describe_file(tmp_path, "rig/cache/A/geometry_observations.json").to_dict()]
     assert marker.relative_to(tmp_path).as_posix() == manifest_relative_path("A")
     assert sha256_file(marker).startswith("sha256:")
 
@@ -180,9 +178,7 @@ def test_manifest_write_rejects_output_changed_after_build(tmp_path: Path) -> No
         ("status", "partial", "status"),
     ],
 )
-def test_manifest_parser_rejects_invalid_scalar_contracts(
-    tmp_path: Path, field: str, value: object, match: str
-) -> None:
+def test_manifest_parser_rejects_invalid_scalar_contracts(tmp_path: Path, field: str, value: object, match: str) -> None:
     payload = build_a_manifest(tmp_path).to_dict()
     payload[field] = value
 

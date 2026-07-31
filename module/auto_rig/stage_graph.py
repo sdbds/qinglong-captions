@@ -14,7 +14,6 @@ from .manifests import (
     read_stage_manifest,
 )
 
-
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -88,9 +87,7 @@ class StageGraphValidator:
         for node in normalized_nodes:
             missing = set(node.upstream_stages) - set(self._nodes)
             if missing:
-                raise StageGraphContractError(
-                    f"stage {node.stage_name} references missing graph nodes: {sorted(missing)}"
-                )
+                raise StageGraphContractError(f"stage {node.stage_name} references missing graph nodes: {sorted(missing)}")
         self._topological_order = self._build_topological_order(normalized_nodes)
         self._order_index = {stage: index for index, stage in enumerate(self._topological_order)}
 
@@ -207,9 +204,7 @@ class StageGraphValidator:
                         code="upstream_set_mismatch",
                         stage_name=stage,
                         path=marker_relative,
-                        detail=(
-                            f"expected {sorted(expected_upstreams)}, got {sorted(actual_upstreams)}"
-                        ),
+                        detail=(f"expected {sorted(expected_upstreams)}, got {sorted(actual_upstreams)}"),
                     )
                 )
 
@@ -228,18 +223,12 @@ class StageGraphValidator:
                         code="terminal_dependencies_missing",
                         stage_name="G",
                         path=manifest_relative_path("G"),
-                        detail=(
-                            "completed G must bind exactly the current C, D, and E manifests"
-                        ),
+                        detail=("completed G must bind exactly the current C, D, and E manifests"),
                     )
                 )
 
         sorted_issues = tuple(sorted(issues, key=self._issue_sort_key))
-        loaded = tuple(
-            (stage, manifests[stage])
-            for stage in self._topological_order
-            if stage in required and stage in manifests
-        )
+        loaded = tuple((stage, manifests[stage]) for stage in self._topological_order if stage in required and stage in manifests)
         return StageGraphResult(
             target_stage=target_stage,
             reusable=not sorted_issues,

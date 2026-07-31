@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _WINDOWS_ABSOLUTE_PATTERN = re.compile(r"^[A-Za-z]:[/\\]")
 

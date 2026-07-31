@@ -223,21 +223,21 @@ git commit -m "feat: finalize auto-rig item state"
 - Modify: `docs/superpowers/plans/2026-08-01-auto-rig-foundation-implementation.md`
 - Test: `tests/test_auto_rig_public_api.py`
 
-- [ ] **Step 1: Write the public API smoke test**
+- [x] **Step 1: Write the public API smoke test**
 
 Import only the intentionally supported foundation records and functions from `module.auto_rig`. Confirm importing the package does not import Torch, OpenCV, psd-tools, or Cubism dependencies.
 
-- [ ] **Step 2: Run the smoke test and confirm it fails before exports are added**
+- [x] **Step 2: Run the smoke test and confirm it fails before exports are added**
 
 Run: `.venv\Scripts\python.exe -m pytest tests/test_auto_rig_public_api.py -q`
 
 Expected: FAIL because the public exports are not complete.
 
-- [ ] **Step 3: Export the stable foundation API**
+- [x] **Step 3: Export the stable foundation API**
 
 Keep implementation helpers private and give the package an explicit `__all__`.
 
-- [ ] **Step 4: Run foundation plus existing see-through tests**
+- [x] **Step 4: Run foundation plus existing see-through tests**
 
 Run:
 
@@ -249,7 +249,7 @@ $tests = Get-ChildItem -LiteralPath tests -Filter 'test_see_through_*.py' | Sort
 
 Expected: all pass.
 
-- [ ] **Step 5: Run static checks on changed Python files**
+- [x] **Step 5: Run static checks on changed Python files**
 
 Run:
 
@@ -260,13 +260,13 @@ uvx ruff check module/auto_rig tests/test_auto_rig_*.py
 
 Expected: PASS.
 
-- [ ] **Step 6: Review the complete branch diff**
+- [x] **Step 6: Review the complete branch diff**
 
 Run: `git diff --check` and `git status --short`.
 
 Confirm no main-worktree user files, model revisions, or unrelated metadata were copied into the branch.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add module/auto_rig/__init__.py tests/test_auto_rig_public_api.py docs/superpowers/plans/2026-08-01-auto-rig-foundation-implementation.md

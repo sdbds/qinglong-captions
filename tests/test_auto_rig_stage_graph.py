@@ -18,7 +18,6 @@ from module.auto_rig.stage_graph import (
     StageNode,
 )
 
-
 RELEASE_DEPENDENCIES = {
     "A": (),
     "B": ("A",),

@@ -24,7 +24,6 @@ from module.auto_rig.terminal import (
     is_item_completed,
 )
 
-
 DEPENDENCIES = {
     "A": (),
     "B": ("A",),
@@ -162,9 +161,7 @@ def test_success_finalization_publishes_dual_runtime_terminal_state(tmp_path: Pa
     assert payload["required_formats"] == ["spine_4_2", "live2d_moc3_v4_00"]
     assert payload["formats"]["spine_4_2"]["status"] == "validated"
     assert payload["formats"]["live2d_moc3_v4_00"]["status"] == "validated"
-    assert payload["upstream_stage_manifests"] == {
-        stage: sha256_file(stage_marker(tmp_path, stage)) for stage in ("C", "D", "E")
-    }
+    assert payload["upstream_stage_manifests"] == {stage: sha256_file(stage_marker(tmp_path, stage)) for stage in ("C", "D", "E")}
     assert payload["motion_manifest_sha256"] == sha256_file(item_path(tmp_path, "rig/motion_manifest.json"))
     assert is_item_completed(tmp_path, expected_stage_fingerprints=expected) is True
     assert manifests["C"].output_file_sha256
