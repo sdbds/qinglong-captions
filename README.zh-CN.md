@@ -1,5 +1,7 @@
 # 青龙字幕工具
 
+[![Sponsor sdbds on GitHub](https://img.shields.io/badge/Sponsor-sdbds-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/sdbds)
+
 AI 多模态媒体处理与文档翻译工具，围绕 Lance 数据集提供视频、图像、音频描述、OCR、标签生成、翻译、音频分轨和 Image2PSD 工作流。
 
 当前版本：`4.6.0` · [English README](README.md) · [更新日志](CHANGELOG.md)

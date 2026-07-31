@@ -1,5 +1,7 @@
 # Qinglong Captions
 
+[![Sponsor sdbds on GitHub](https://img.shields.io/badge/Sponsor-sdbds-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/sdbds)
+
 An AI media-processing and document-translation toolkit built around Lance datasets. It covers video and image captioning, OCR, tagging, translation, audio separation, and Image2PSD workflows.
 
 Current version: `4.6.0` · [中文说明](README.zh-CN.md) · [Changelog](CHANGELOG.md)
