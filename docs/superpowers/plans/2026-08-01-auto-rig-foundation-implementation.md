@@ -74,17 +74,17 @@ git commit -m "feat: add deterministic auto-rig artifacts"
 - Create: `module/auto_rig/manifests.py`
 - Test: `tests/test_auto_rig_manifests.py`
 
-- [ ] **Step 1: Write failing manifest-schema tests**
+- [x] **Step 1: Write failing manifest-schema tests**
 
 Cover a valid A manifest and rejection of unknown stages, invalid schema versions, unsorted or duplicate file records, path traversal, a manifest listing its own commit-marker path, malformed fingerprints, unknown payload fields, and output files missing at commit time.
 
-- [ ] **Step 2: Run the focused test and confirm import failure**
+- [x] **Step 2: Run the focused test and confirm import failure**
 
 Run: `.venv\Scripts\python.exe -m pytest tests/test_auto_rig_manifests.py -q`
 
 Expected: FAIL because `module.auto_rig.manifests` does not exist.
 
-- [ ] **Step 3: Implement immutable manifest records**
+- [x] **Step 3: Implement immutable manifest records**
 
 Implement `StageManifest`, `StageManifestError`, `manifest_relative_path(stage)`, `build_stage_fingerprint(...)`, `build_stage_manifest(...)`, `read_stage_manifest(...)`, and `write_stage_manifest(...)`.
 
@@ -106,13 +106,13 @@ status
 
 Lists and maps are canonical and sorted. The commit marker `rig/cache/<stage>/manifest.json` is never included in its own output list. `write_stage_manifest` re-describes every declared output from disk before atomically writing the marker.
 
-- [ ] **Step 4: Run artifact and manifest tests**
+- [x] **Step 4: Run artifact and manifest tests**
 
 Run: `.venv\Scripts\python.exe -m pytest tests/test_auto_rig_artifacts.py tests/test_auto_rig_manifests.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add module/auto_rig/manifests.py tests/test_auto_rig_manifests.py
