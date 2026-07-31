@@ -28,6 +28,7 @@
 # If you find Marigold useful, we kindly ask you to cite our papers.
 # --------------------------------------------------------------------------
 import os.path as osp
+import gc
 import logging
 import numpy as np
 import torch
@@ -464,6 +465,19 @@ class MarigoldDepthPipeline(DiffusionPipeline):
             uncertainty=pred_uncert,
         )
 
+    def cache_tag_embeds(self, unload_textencoders=True):
+        if self.empty_text_embed is None:
+            self.encode_empty_text()
+        else:
+            unload_textencoders = False
+
+        if unload_textencoders:
+            self.text_encoder.cpu()
+            del self.text_encoder
+            self.text_encoder = torch.nn.Identity()
+            gc.collect()
+            torch.cuda.empty_cache()
+
     def _check_inference_step(self, n_step: int) -> None:
         """
         Check if denoising step is reasonable
@@ -519,6 +533,10 @@ class MarigoldDepthPipeline(DiffusionPipeline):
         )
         text_input_ids = text_inputs.input_ids.to(self.text_encoder.device)
         self.empty_text_embed = self.text_encoder(text_input_ids)[0].to(self.dtype)
+
+    @property
+    def device(self) -> torch.device:
+        return self.unet.device
 
     @torch.no_grad()
     def single_infer(

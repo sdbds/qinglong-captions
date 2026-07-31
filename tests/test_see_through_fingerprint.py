@@ -70,3 +70,14 @@ def test_build_config_fingerprint_ignores_group_offload_runtime_only_switch(buil
     changed_group_offload = _make_config(group_offload=True)
 
     assert build_config_fingerprint(baseline) == build_config_fingerprint(changed_group_offload)
+
+
+def test_build_config_fingerprint_uses_current_depth_resolution_when_legacy_config_omits_it(
+    build_config_fingerprint,
+):
+    legacy_config = _make_config()
+    del legacy_config.resolution_depth
+
+    assert build_config_fingerprint(legacy_config) == build_config_fingerprint(
+        _make_config(resolution_depth=768)
+    )

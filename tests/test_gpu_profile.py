@@ -178,7 +178,7 @@ def test_get_cached_gpu_probe_uses_single_refreshable_inventory_cache(monkeypatc
 def test_recommend_see_through_config_uses_conservative_profiles():
     under_8 = recommend_see_through_config(_make_probe(total_vram_gb=6.0))
     assert under_8.resolution == 768
-    assert under_8.resolution_depth == 720
+    assert under_8.resolution_depth == 768
     assert under_8.quant_mode == "nf4"
     assert under_8.group_offload is True
     assert under_8.min_vram_gb == 0.0

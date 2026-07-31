@@ -72,7 +72,7 @@ def test_tools_step_init_keeps_conservative_defaults_before_gpu_probe(monkeypatc
     step = step6_tools.ToolsStep()
 
     assert step.config["see_through_resolution"] == 768
-    assert step.config["see_through_resolution_depth"] == 720
+    assert step.config["see_through_resolution_depth"] == 768
     assert step.config["see_through_dtype"] == "float32"
     assert step.config["see_through_quant_mode"] == "none"
     assert step.config["see_through_group_offload"] is False
@@ -85,7 +85,7 @@ def test_tools_step_applies_low_vram_probe_recommendation():
     step._apply_see_through_recommendation(recommendation)
 
     assert step.config["see_through_resolution"] == 1024
-    assert step.config["see_through_resolution_depth"] == 720
+    assert step.config["see_through_resolution_depth"] == 768
     assert step.config["see_through_dtype"] == "float16"
     assert step.config["see_through_quant_mode"] == "none"
     assert step.config["see_through_group_offload"] is True

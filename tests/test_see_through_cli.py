@@ -16,7 +16,7 @@ def test_see_through_parser_defaults_from_config():
     assert args.repo_id_layerdiff == "layerdifforg/seethroughv0.0.2_layerdiff3d"
     assert args.repo_id_depth == "24yearsold/seethroughv0.0.1_marigold"
     assert args.resolution == 1024
-    assert args.resolution_depth == 720
+    assert args.resolution_depth == 768
     assert args.inference_steps_depth == -1
     assert args.seed == 1026
     assert args.quant_mode == "none"

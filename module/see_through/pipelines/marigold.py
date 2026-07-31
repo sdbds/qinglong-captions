@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..extracted.marigold_core import load_marigold_pipeline as _load_marigold_pipeline
 from ..extracted.marigold_core import run_marigold_phase
+from ..see_through_profile import DEFAULT_DEPTH_RESOLUTION
 
 if TYPE_CHECKING:
     from ..cli import SeeThroughRunConfig
@@ -53,7 +54,7 @@ class MarigoldPhase:
             source_path=source_path,
             output_dir=output_dir,
             pipeline=pipeline,
-            resolution_depth=int(getattr(self.config, "resolution_depth", 720)),
+            resolution_depth=int(getattr(self.config, "resolution_depth", DEFAULT_DEPTH_RESOLUTION)),
             inference_steps_depth=int(getattr(self.config, "inference_steps_depth", -1)),
             seed=int(getattr(self.config, "seed", 1026)),
         )

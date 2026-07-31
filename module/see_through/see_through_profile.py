@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from module.gpu_profile import GPUProbeResult
 
 
-DEFAULT_DEPTH_RESOLUTION = 720
+DEFAULT_DEPTH_RESOLUTION = 768
 DEFAULT_DEPTH_INFERENCE_STEPS = -1
 DEFAULT_SEED = 1026
 DEFAULT_QUANT_MODE = "none"

@@ -94,8 +94,7 @@ def load_marigold_pipeline(
         device=runtime_context.device,
         console=console,
     )
-    if hasattr(pipeline, "cache_tag_embeds"):
-        pipeline.cache_tag_embeds()
+    pipeline.cache_tag_embeds()
     if console is not None:
         console.print(
             f"[green]Marigold pipeline ready:[/green] {repo_id} "

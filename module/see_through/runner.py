@@ -25,6 +25,7 @@ from .pipelines.layerdiff import LayerDiffPhase
 from .pipelines.marigold import MarigoldPhase
 from .postprocess import run_postprocess
 from .runtime import resolve_attention_backend
+from .see_through_profile import DEFAULT_DEPTH_RESOLUTION
 
 if TYPE_CHECKING:
     from .cli import SeeThroughRunConfig
@@ -74,7 +75,7 @@ def build_config_fingerprint(config: "SeeThroughRunConfig") -> str:
         "repo_id_layerdiff": config.repo_id_layerdiff,
         "repo_id_depth": config.repo_id_depth,
         "resolution": int(config.resolution),
-        "resolution_depth": int(getattr(config, "resolution_depth", 720)),
+        "resolution_depth": int(getattr(config, "resolution_depth", DEFAULT_DEPTH_RESOLUTION)),
         "inference_steps_depth": int(getattr(config, "inference_steps_depth", -1)),
         "seed": int(getattr(config, "seed", 1026)),
         "dtype": str(config.dtype),

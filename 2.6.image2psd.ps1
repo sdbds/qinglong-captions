@@ -6,7 +6,7 @@ $Config = @{
     repo_id_layerdiff     = "layerdifforg/seethroughv0.0.2_layerdiff3d"      # LayerDiff model repo
     repo_id_depth         = "24yearsold/seethroughv0.0.1_marigold"           # Marigold model repo
     resolution            = 1024                                             # LayerDiff canvas resolution
-    resolution_depth      = 720                                              # Marigold depth resolution (-1 => follow canvas size)
+    resolution_depth      = 768                                              # Marigold depth resolution (-1 => follow canvas size)
     inference_steps_depth = -1                                               # Marigold denoising steps (-1 => pipeline default)
     seed                  = 1026                                             # Global random seed
     dtype                 = "bfloat16"                                       # bfloat16 | float16 | float32

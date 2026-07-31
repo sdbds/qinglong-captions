@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Union, List, Optional
+import gc
 
 import PIL.Image
 import numpy as np
@@ -132,6 +133,7 @@ class KDiffusionStableDiffusionXLPipeline(StableDiffusionXLImg2ImgPipeline):
             force_zeros_for_empty_prompt=force_zeros_for_empty_prompt, add_watermarker=add_watermarker)
         # self.register_to_config(tag_list=tag_list)
         self.register_modules(trans_vae=trans_vae)
+        self._cached_prompt_embeds = {}
 
     @property
     def do_classifier_free_guidance(self):
@@ -171,7 +173,118 @@ class KDiffusionStableDiffusionXLPipeline(StableDiffusionXLImg2ImgPipeline):
         # prompt_embeds = prompt_embeds.to(dtype=self.unet.dtype, device=device)
 
         return prompt_embeds, pooled_prompt_embeds
-    
+
+    def encode_cropped_prompt_77tokens_cached(self, prompt: Union[str, List]):
+        if isinstance(prompt, str):
+            prompt = [prompt]
+
+        input_prompts = []
+        cached_prompt_embeds = {}
+        for item in prompt:
+            if item not in self._cached_prompt_embeds:
+                input_prompts.append(item)
+            else:
+                cached_prompt_embeds[item] = self._cached_prompt_embeds[item]
+        if input_prompts:
+            prompt_embeds, pooled_prompt_embeds = self.encode_cropped_prompt_77tokens(input_prompts)
+            for index, item in enumerate(input_prompts):
+                cached_prompt_embeds[item] = [
+                    prompt_embeds[[index]].cpu(),
+                    pooled_prompt_embeds[[index]].cpu(),
+                ]
+
+        prompt_embeds_out = []
+        pooled_prompt_embeds_out = []
+        for item in prompt:
+            prompt_embeds, pooled_prompt_embeds = cached_prompt_embeds[item]
+            prompt_embeds_out.append(prompt_embeds)
+            pooled_prompt_embeds_out.append(pooled_prompt_embeds)
+
+        return torch.cat(prompt_embeds_out), torch.cat(pooled_prompt_embeds_out)
+
+    def cache_tag_embeds(self, unload_textencoders=True):
+        tag_version = self.unet.get_tag_version()
+        if tag_version == "v3" and not self._cached_prompt_embeds:
+            body_tag_list = [
+                "front hair",
+                "back hair",
+                "head",
+                "neck",
+                "neckwear",
+                "topwear",
+                "handwear",
+                "bottomwear",
+                "legwear",
+                "footwear",
+                "tail",
+                "wings",
+                "objects",
+            ]
+            head_tag_list = [
+                "headwear",
+                "face",
+                "irides",
+                "eyebrow",
+                "eyewhite",
+                "eyelash",
+                "eyewear",
+                "ears",
+                "earwear",
+                "nose",
+                "mouth",
+            ]
+            prompt_embeds, pooled_prompt_embeds = self.encode_cropped_prompt_77tokens(body_tag_list)
+            for index, item in enumerate(body_tag_list):
+                self._cached_prompt_embeds[item] = [
+                    prompt_embeds[[index]].cpu(),
+                    pooled_prompt_embeds[[index]].cpu(),
+                ]
+            prompt_embeds, pooled_prompt_embeds = self.encode_cropped_prompt_77tokens(head_tag_list)
+            for index, item in enumerate(head_tag_list):
+                self._cached_prompt_embeds[item] = [
+                    prompt_embeds[[index]].cpu(),
+                    pooled_prompt_embeds[[index]].cpu(),
+                ]
+        elif not self._cached_prompt_embeds:
+            body_tag_list = [
+                "hair",
+                "headwear",
+                "face",
+                "eyes",
+                "eyewear",
+                "ears",
+                "earwear",
+                "nose",
+                "mouth",
+                "neck",
+                "neckwear",
+                "topwear",
+                "handwear",
+                "bottomwear",
+                "legwear",
+                "footwear",
+                "tail",
+                "wings",
+                "objects",
+            ]
+            prompt_embeds, pooled_prompt_embeds = self.encode_cropped_prompt_77tokens(body_tag_list)
+            for index, item in enumerate(body_tag_list):
+                self._cached_prompt_embeds[item] = [
+                    prompt_embeds[[index]].cpu(),
+                    pooled_prompt_embeds[[index]].cpu(),
+                ]
+        else:
+            unload_textencoders = False
+
+        if unload_textencoders:
+            self.text_encoder.cpu()
+            self.text_encoder_2.cpu()
+            del self.text_encoder
+            del self.text_encoder_2
+            self.text_encoder = self.text_encoder_2 = torch.nn.Identity()
+            gc.collect()
+            torch.cuda.empty_cache()
+
     def denoise_func(self, latents, add_text_embeds, add_time_ids, prompt_embeds, c_concat, num_inference_steps=50):
 
         # 4. Prepare timesteps
@@ -218,6 +331,10 @@ class KDiffusionStableDiffusionXLPipeline(StableDiffusionXLImg2ImgPipeline):
                     latents = latents.to(latents_dtype)
 
         return latents
+
+    @property
+    def device(self) -> torch.device:
+        return self.unet.device
 
     @torch.inference_mode()
     def __call__(
@@ -274,7 +391,7 @@ class KDiffusionStableDiffusionXLPipeline(StableDiffusionXLImg2ImgPipeline):
             initial_latent = initial_latent[:, None].expand(-1, num_frames, -1, -1, -1)
 
         if prompt is not None:
-            prompt_embeds, pooled_prompt_embeds = self.encode_cropped_prompt_77tokens(prompt)
+            prompt_embeds, pooled_prompt_embeds = self.encode_cropped_prompt_77tokens_cached(prompt)
 
         if negative_prompt is not None and self.do_classifier_free_guidance:
             negative_prompt_embeds, negative_pooled_prompt_embeds = self.encode_cropped_prompt_77tokens(negative_prompt)

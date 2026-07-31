@@ -149,3 +149,71 @@ def test_run_layerdiff_phase_uses_fullpage_padding_for_head_anchor(monkeypatch, 
     )
 
     assert _alpha_bbox(output_dir / "face.png") == (43, 8, 57, 24)
+
+
+def test_load_layerdiff_pipeline_caches_tag_embeddings(monkeypatch):
+    class TrackingPipeline:
+        def __init__(self):
+            self.vae = object()
+            self.trans_vae = object()
+            self.unet = object()
+            self.text_encoder = object()
+            self.text_encoder_2 = object()
+            self.progress_disabled = False
+            self.cache_calls = 0
+
+        def set_progress_bar_config(self, *, disable):
+            self.progress_disabled = bool(disable)
+
+        def cache_tag_embeds(self):
+            self.cache_calls += 1
+
+    fake_pipeline = TrackingPipeline()
+    fake_trans_vae = object()
+    fake_unet = object()
+
+    def fake_load_pretrained_component(component_cls, repo_id, **kwargs):
+        component_name = kwargs["component_name"]
+        if component_name == "LayerDiff transparent VAE":
+            return fake_trans_vae
+        if component_name == "LayerDiff UNet":
+            return fake_unet
+        if component_name == "LayerDiff pipeline":
+            return fake_pipeline
+        raise AssertionError(f"unexpected component: {component_name}")
+
+    fake_pipeline_module = types.ModuleType(
+        f"{VENDOR_PREFIX}.modules.layerdiffuse.diffusers_kdiffusion_sdxl"
+    )
+    fake_pipeline_module.KDiffusionStableDiffusionXLPipeline = type(
+        "KDiffusionStableDiffusionXLPipeline",
+        (),
+        {},
+    )
+    fake_layerdiff_module = types.ModuleType(f"{VENDOR_PREFIX}.modules.layerdiffuse.layerdiff3d")
+    fake_layerdiff_module.UNetFrameConditionModel = type("UNetFrameConditionModel", (), {})
+    fake_vae_module = types.ModuleType(f"{VENDOR_PREFIX}.modules.layerdiffuse.vae")
+    fake_vae_module.TransparentVAE = type("TransparentVAE", (), {})
+
+    monkeypatch.setattr(layerdiff_core, "load_pretrained_component", fake_load_pretrained_component)
+    monkeypatch.setattr(layerdiff_core, "move_pretrained_component", lambda *args, **kwargs: None)
+    monkeypatch.setitem(
+        sys.modules,
+        f"{VENDOR_PREFIX}.modules.layerdiffuse.diffusers_kdiffusion_sdxl",
+        fake_pipeline_module,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        f"{VENDOR_PREFIX}.modules.layerdiffuse.layerdiff3d",
+        fake_layerdiff_module,
+    )
+    monkeypatch.setitem(sys.modules, f"{VENDOR_PREFIX}.modules.layerdiffuse.vae", fake_vae_module)
+
+    pipeline = layerdiff_core.load_layerdiff_pipeline(
+        repo_id="demo/layerdiff",
+        runtime_context=types.SimpleNamespace(device="cpu", dtype="float32"),
+    )
+
+    assert pipeline is fake_pipeline
+    assert fake_pipeline.progress_disabled is True
+    assert fake_pipeline.cache_calls == 1

@@ -10,6 +10,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 
 import module.see_through.extracted.marigold_core as marigold_core
+import module.see_through.pipelines.marigold as marigold_pipeline
 
 
 VENDOR_PREFIX = "module.see_through.vendor"
@@ -183,9 +184,13 @@ class _TrackingPipeline:
         self.vae = vae
         self.text_encoder = text_encoder
         self.progress_disabled = False
+        self.cache_calls = 0
 
     def set_progress_bar_config(self, *, disable):
         self.progress_disabled = bool(disable)
+
+    def cache_tag_embeds(self):
+        self.cache_calls += 1
 
 
 def test_load_marigold_pipeline_nf4_moves_quantized_unet_without_dtype(monkeypatch):
@@ -226,3 +231,29 @@ def test_load_marigold_pipeline_nf4_moves_quantized_unet_without_dtype(monkeypat
     assert fake_vae.calls == [{"args": (), "kwargs": {"device": "cuda", "dtype": "bfloat16"}}]
     assert fake_text_encoder.calls == [{"args": (), "kwargs": {"device": "cuda", "dtype": "bfloat16"}}]
     assert fake_pipeline.progress_disabled is True
+    assert fake_pipeline.cache_calls == 1
+
+
+def test_marigold_phase_uses_current_depth_resolution_when_legacy_config_omits_it(monkeypatch, tmp_path):
+    captured = {}
+    fake_pipeline = object()
+
+    class FakeManager:
+        def get_marigold_pipeline(self, **kwargs):
+            return fake_pipeline
+
+    def fake_run_marigold_phase(**kwargs):
+        captured.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(marigold_pipeline, "run_marigold_phase", fake_run_marigold_phase)
+    phase = marigold_pipeline.MarigoldPhase(
+        model_manager=FakeManager(),
+        config=types.SimpleNamespace(repo_id_depth="demo/marigold"),
+        runtime_context=object(),
+    )
+
+    phase.run_item(tmp_path / "source.png", tmp_path / "output")
+
+    assert captured["pipeline"] is fake_pipeline
+    assert captured["resolution_depth"] == 768

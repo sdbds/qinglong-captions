@@ -148,8 +148,7 @@ def load_layerdiff_pipeline(
         device=runtime_context.device,
         console=console,
     )
-    if hasattr(pipeline, "cache_tag_embeds"):
-        pipeline.cache_tag_embeds()
+    pipeline.cache_tag_embeds()
     if console is not None:
         console.print(
             f"[green]LayerDiff pipeline ready:[/green] {repo_id} "
