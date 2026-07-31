@@ -1,10 +1,46 @@
-# Qinglong Captions
+<h1 align="center">Qinglong Captions</h1>
 
-[![Sponsor sdbds on GitHub](https://img.shields.io/badge/Sponsor-sdbds-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/sdbds)
+<p align="center"><strong>AI multimodal media processing and document translation, built around Lance datasets.</strong></p>
 
-An AI media-processing and document-translation toolkit built around Lance datasets. It covers video and image captioning, OCR, tagging, translation, audio separation, and Image2PSD workflows.
+<p align="center">Video &middot; Image &middot; Audio &middot; OCR &middot; Tagging &middot; Translation &middot; Source Separation &middot; Image2PSD</p>
 
-Current version: `4.6.0` · [中文说明](README.zh-CN.md) · [Changelog](CHANGELOG.md)
+<p align="center">
+  <a href="README.zh-CN.md">中文说明</a> &middot;
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
+
+<p align="center">
+  <a href="CHANGELOG.md"><img alt="Version 4.6.0" src="https://img.shields.io/badge/Version-4.6.0-2563EB?logo=semanticrelease&amp;logoColor=white"></a>
+  <a href="pyproject.toml"><img alt="Python 3.10 to 3.12" src="https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&amp;logoColor=white"></a>
+  <a href="#windows"><img alt="Windows supported" src="https://img.shields.io/badge/Windows-Supported-0078D4?logo=windows11&amp;logoColor=white"></a>
+  <a href="#linux"><img alt="Linux supported" src="https://img.shields.io/badge/Linux-Supported-FCC624?logo=linux&amp;logoColor=111827"></a>
+  <a href="https://github.com/sdbds/qinglong-captions/actions/workflows/test.yml"><img alt="pytest test suite" src="https://img.shields.io/badge/Tests-pytest-0A9EDC?logo=pytest&amp;logoColor=white"></a>
+  <a href="LICENSE"><img alt="AGPL-3.0 license" src="https://img.shields.io/github/license/sdbds/qinglong-captions?label=License&amp;logo=gnu&amp;logoColor=white"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/sdbds/qinglong-captions"><img alt="GitHub stars" src="https://img.shields.io/github/stars/sdbds/qinglong-captions?style=flat&amp;logo=github&amp;label=Stars"></a>
+  <a href="https://github.com/sponsors/sdbds"><img alt="Sponsor sdbds on GitHub" src="https://img.shields.io/badge/Sponsor-sdbds-EA4AAA?logo=githubsponsors&amp;logoColor=white"></a>
+</p>
+
+<p align="center">
+  <a href="#start-here"><img alt="Quick Start" src="https://img.shields.io/badge/-Quick_Start-2563EB?logo=github&amp;logoColor=white"></a>
+  <a href="gui/README.md"><img alt="GUI Guide" src="https://img.shields.io/badge/-GUI_Guide-0F766E?logo=python&amp;logoColor=white"></a>
+  <a href="docs/tools/README.en.md"><img alt="Tools" src="https://img.shields.io/badge/-Tools-334155?logo=powershell&amp;logoColor=white"></a>
+  <a href="docs/configuration.en.md"><img alt="Configuration" src="https://img.shields.io/badge/-Configuration-15803D?logo=toml&amp;logoColor=white"></a>
+  <a href="docs/troubleshooting.en.md"><img alt="Troubleshooting" src="https://img.shields.io/badge/-Troubleshooting-B91C1C?logo=readthedocs&amp;logoColor=white"></a>
+</p>
+
+## At a Glance
+
+Qinglong Captions combines media understanding, batch inference, and versioned Lance data management in one GUI and scriptable toolchain.
+
+| Area | Capabilities | Typical outputs |
+| --- | --- | --- |
+| Video and images | Scene detection, frame extraction, tagging, VLM captions, OCR, watermark detection, and layer decomposition | Lance datasets, media, tags, captions, and PSD files |
+| Audio and music | Source separation, transcription, audio captions, MIDI conversion, and sheet-music OMR | Stems, transcripts, MIDI, MusicXML, and previews |
+| Documents | PDF and image OCR, Markdown normalization, and multilingual translation | Markdown and translated documents |
+| Dataset workflow | Import, versioned Lance updates, batch execution, and sidecar export | Reusable datasets and media-aligned annotations |
 
 ## 4.6.0 Highlights
 

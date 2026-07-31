@@ -1,10 +1,46 @@
-# 青龙字幕工具
+<h1 align="center">青龙字幕工具</h1>
 
-[![Sponsor sdbds on GitHub](https://img.shields.io/badge/Sponsor-sdbds-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/sdbds)
+<p align="center"><strong>围绕 Lance 数据集构建的 AI 多模态媒体处理与文档翻译工具。</strong></p>
 
-AI 多模态媒体处理与文档翻译工具，围绕 Lance 数据集提供视频、图像、音频描述、OCR、标签生成、翻译、音频分轨和 Image2PSD 工作流。
+<p align="center">视频 &middot; 图像 &middot; 音频 &middot; OCR &middot; 标签生成 &middot; 翻译 &middot; 音频分轨 &middot; Image2PSD</p>
 
-当前版本：`4.6.0` · [English README](README.md) · [更新日志](CHANGELOG.md)
+<p align="center">
+  <a href="README.md">English</a> &middot;
+  <a href="CHANGELOG.md">更新日志</a>
+</p>
+
+<p align="center">
+  <a href="CHANGELOG.md"><img alt="版本 4.6.0" src="https://img.shields.io/badge/Version-4.6.0-2563EB?logo=semanticrelease&amp;logoColor=white"></a>
+  <a href="pyproject.toml"><img alt="Python 3.10 至 3.12" src="https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&amp;logoColor=white"></a>
+  <a href="#windows"><img alt="支持 Windows" src="https://img.shields.io/badge/Windows-Supported-0078D4?logo=windows11&amp;logoColor=white"></a>
+  <a href="#linux"><img alt="支持 Linux" src="https://img.shields.io/badge/Linux-Supported-FCC624?logo=linux&amp;logoColor=111827"></a>
+  <a href="https://github.com/sdbds/qinglong-captions/actions/workflows/test.yml"><img alt="pytest 测试套件" src="https://img.shields.io/badge/Tests-pytest-0A9EDC?logo=pytest&amp;logoColor=white"></a>
+  <a href="LICENSE"><img alt="AGPL-3.0 许可证" src="https://img.shields.io/github/license/sdbds/qinglong-captions?label=License&amp;logo=gnu&amp;logoColor=white"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/sdbds/qinglong-captions"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/sdbds/qinglong-captions?style=flat&amp;logo=github&amp;label=Stars"></a>
+  <a href="https://github.com/sponsors/sdbds"><img alt="在 GitHub 上赞助 sdbds" src="https://img.shields.io/badge/Sponsor-sdbds-EA4AAA?logo=githubsponsors&amp;logoColor=white"></a>
+</p>
+
+<p align="center">
+  <a href="#先看这里"><img alt="快速开始" src="https://img.shields.io/badge/-Quick_Start-2563EB?logo=github&amp;logoColor=white"></a>
+  <a href="gui/README.md"><img alt="GUI 使用手册" src="https://img.shields.io/badge/-GUI_Guide-0F766E?logo=python&amp;logoColor=white"></a>
+  <a href="docs/tools/README.md"><img alt="工具文档" src="https://img.shields.io/badge/-Tools-334155?logo=powershell&amp;logoColor=white"></a>
+  <a href="docs/configuration.md"><img alt="配置指南" src="https://img.shields.io/badge/-Configuration-15803D?logo=toml&amp;logoColor=white"></a>
+  <a href="docs/troubleshooting.md"><img alt="故障排查" src="https://img.shields.io/badge/-Troubleshooting-B91C1C?logo=readthedocs&amp;logoColor=white"></a>
+</p>
+
+## 能力概览
+
+青龙字幕工具将媒体理解、批量推理与版本化 Lance 数据管理整合到同一套 GUI 和脚本化工具链中。
+
+| 领域 | 主要能力 | 典型输出 |
+| --- | --- | --- |
+| 视频与图像 | 镜头检测、抽帧、标签生成、VLM 描述、OCR、水印检测与图层分解 | Lance 数据集、媒体文件、标签、字幕和 PSD |
+| 音频与音乐 | 音频分轨、语音转写、音频描述、MIDI 转换与乐谱 OMR | 分轨、转写文本、MIDI、MusicXML 和试听文件 |
+| 文档 | PDF 与图片 OCR、Markdown 规范化及多语言翻译 | Markdown 和翻译文档 |
+| 数据工作流 | 导入、Lance 版本更新、批量任务与 sidecar 导出 | 可复用数据集和媒体对齐标注 |
 
 ## 4.6.0 版本重点
 
