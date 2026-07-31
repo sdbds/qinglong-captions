@@ -59,6 +59,48 @@ class _TrackedTextEncoder:
         return self
 
 
+class _StochasticScheduler:
+    init_noise_sigma = 1.0
+
+    def set_timesteps(self, num_inference_steps, *, device):
+        self.timesteps = torch.arange(num_inference_steps - 1, -1, -1, device=device)
+
+    def scale_model_input(self, sample, timestep):
+        return sample
+
+    def step(self, model_output, timestep, sample, *, generator=None, return_dict=True):
+        variance_noise = torch.randn(
+            sample.shape,
+            generator=generator,
+            device=sample.device,
+            dtype=sample.dtype,
+        )
+        return (sample + variance_noise,)
+
+
+def _make_stochastic_layerdiff_pipeline(module):
+    class ZeroUnet(module.UNetFrameConditionModel):
+        device = torch.device("cpu")
+        dtype = torch.float32
+        config = types.SimpleNamespace(time_cond_proj_dim=None)
+
+        def __call__(self, sample, *args, **kwargs):
+            return (torch.zeros_like(sample.narrow(-3, 0, 4)),)
+
+    pipeline = module.KDiffusionStableDiffusionXLPipeline(
+        vae=object(),
+        text_encoder=object(),
+        tokenizer=object(),
+        text_encoder_2=object(),
+        tokenizer_2=object(),
+        unet=ZeroUnet(),
+        scheduler=_StochasticScheduler(),
+        trans_vae=None,
+    )
+    pipeline.vae_scale_factor = 8
+    return pipeline
+
+
 def _package(name: str) -> types.ModuleType:
     module = types.ModuleType(name)
     module.__path__ = []
@@ -84,11 +126,20 @@ def _load_layerdiff_vendor_module(monkeypatch):
         "StableDiffusionXLImg2ImgPipeline",
         "CLIPVisionModelWithProjection",
         "CLIPImageProcessor",
+        "randn_tensor",
+        "retrieve_timesteps",
     ]
     pipeline_module.torch = torch
     pipeline_module.StableDiffusionXLImg2ImgPipeline = _FakeDiffusionPipeline
     pipeline_module.CLIPVisionModelWithProjection = type("CLIPVisionModelWithProjection", (), {})
     pipeline_module.CLIPImageProcessor = type("CLIPImageProcessor", (), {})
+    pipeline_module.randn_tensor = torch.randn
+
+    def retrieve_timesteps(scheduler, num_inference_steps, device, **kwargs):
+        scheduler.set_timesteps(num_inference_steps, device=device)
+        return scheduler.timesteps, num_inference_steps
+
+    pipeline_module.retrieve_timesteps = retrieve_timesteps
 
     diffusers = _package("diffusers")
     for name in (
@@ -246,6 +297,54 @@ def test_layerdiff_caches_v3_tag_embeddings_before_unloading_text_encoders(monke
     assert isinstance(pipeline.text_encoder_2, torch.nn.Identity)
     assert pipeline.device == torch.device("cpu")
     assert empty_cache_calls == [True]
+
+
+def test_layerdiff_seed_controls_scheduler_variance_noise(monkeypatch):
+    module = _load_layerdiff_vendor_module(monkeypatch)
+
+    def run_with_global_seed(global_seed):
+        torch.manual_seed(global_seed)
+        pipeline = _make_stochastic_layerdiff_pipeline(module)
+        return pipeline(
+            num_inference_steps=3,
+            guidance_scale=1.0,
+            generator=torch.Generator(device="cpu").manual_seed(42),
+            prompt_embeds=torch.zeros((1, 1, 1)),
+            pooled_prompt_embeds=torch.zeros((1, 1)),
+            c_concat=torch.zeros((1, 4, 2, 2)),
+        )
+
+    with torch.random.fork_rng():
+        first = run_with_global_seed(100)
+        second = run_with_global_seed(999)
+
+    assert torch.equal(first, second)
+
+
+def test_layerdiff_denoise_func_seed_controls_scheduler_variance_noise(monkeypatch):
+    module = _load_layerdiff_vendor_module(monkeypatch)
+
+    def run_with_global_seed(global_seed):
+        torch.manual_seed(global_seed)
+        generator = torch.Generator(device="cpu").manual_seed(42)
+        pipeline = _make_stochastic_layerdiff_pipeline(module)
+        pipeline._guidance_scale = 1.0
+        initial_latents = torch.randn((1, 1, 4, 2, 2), generator=generator)
+        return pipeline.denoise_func(
+            initial_latents,
+            add_text_embeds=torch.zeros((1, 1)),
+            add_time_ids=torch.zeros((1, 1)),
+            prompt_embeds=torch.zeros((1, 1, 1)),
+            c_concat=torch.zeros((1, 1, 4, 2, 2)),
+            num_inference_steps=3,
+            generator=generator,
+        )
+
+    with torch.random.fork_rng():
+        first = run_with_global_seed(100)
+        second = run_with_global_seed(999)
+
+    assert torch.equal(first, second)
 
 
 def test_marigold_caches_empty_embedding_before_unloading_text_encoder(monkeypatch):
