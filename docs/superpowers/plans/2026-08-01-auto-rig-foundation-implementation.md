@@ -166,7 +166,7 @@ git commit -m "feat: validate auto-rig stage DAG"
 - Create: `module/auto_rig/terminal.py`
 - Test: `tests/test_auto_rig_terminal.py`
 
-- [ ] **Step 1: Write failing terminal-state tests**
+- [x] **Step 1: Write failing terminal-state tests**
 
 Cover:
 
@@ -178,13 +178,13 @@ Cover:
 - `is_item_completed()` returns true only when the entire A-E/G graph and terminal cross-digests remain valid;
 - modifying a D/E artifact after success makes completion false even while `export_manifest.json` still exists.
 
-- [ ] **Step 2: Run the focused test and confirm import failure**
+- [x] **Step 2: Run the focused test and confirm import failure**
 
 Run: `.venv\Scripts\python.exe -m pytest tests/test_auto_rig_terminal.py -q`
 
 Expected: FAIL because `module.auto_rig.terminal` does not exist.
 
-- [ ] **Step 3: Implement the terminal finalizer**
+- [x] **Step 3: Implement the terminal finalizer**
 
 Implement `StageFailureRecord`, `TerminalFinalizationError`, `finalize_success`, `finalize_failure`, `invalidate_terminal`, and `is_item_completed`.
 
@@ -203,13 +203,13 @@ Failure must:
 - create a failure-set digest;
 - atomically publish `error.json`, then write the G marker as commit marker.
 
-- [ ] **Step 4: Run all foundation tests**
+- [x] **Step 4: Run all foundation tests**
 
 Run: `.venv\Scripts\python.exe -m pytest tests/test_auto_rig_artifacts.py tests/test_auto_rig_manifests.py tests/test_auto_rig_stage_graph.py tests/test_auto_rig_terminal.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add module/auto_rig/terminal.py tests/test_auto_rig_terminal.py
