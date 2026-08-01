@@ -2,7 +2,7 @@
 
 ## Status
 
-**Revision 24，Stage A 关节证据链已冻结：axial/limb 几何、可选 pose batch、authoritative override 与确定性 resolver 现在组成一个可摘要、可复验的 `StageAJointPlan v1`；pose 默认关闭，未通过 anatomy evidence gate 的 pose/override 不得进入 resolver。Live2D frame contract 继续使用 Revision 22 由官方 Cubism SDK for Native 5-r.5、Core 06.00.0001 和 D3D11 WARP 签署的结果。NativeVariant 契约保持 Revision 20。正式交付仍为 Spine 4.2 + Live2D runtime；SDK/Core 不随 Python 包分发，组织是否需要另行取得 Release License 仍是发布前外部合规门。**
+**Revision 25，Stage B 几何事实链已冻结：声明式 `BoneGraphPlan v1`、由 A 阶段 QCL 直接构建的确定性 `MeshBuildPlan v1`、语义约束且按关节弧长/局部半径计算的 `SkinningPlan v1`，以及 component draw rank 现在组成单写者、引用闭合、可摘要复验的 `RigGeometryCache v1`。B 只发布 `rig/cache/B/rig_geometry.json`，不创建或改写公共 `rig/rig.json`；C 仍是完整 `RigDocument v1` 的唯一 writer。Live2D frame contract 继续使用 Revision 22 由官方 Cubism SDK for Native 5-r.5、Core 06.00.0001 和 D3D11 WARP 签署的结果。NativeVariant 契约保持 Revision 20。正式交付仍为 Spine 4.2 + Live2D runtime；SDK/Core 不随 Python 包分发，组织是否需要另行取得 Release License 仍是发布前外部合规门。**
 
 本文覆盖三件事：
 
@@ -586,6 +586,16 @@ capability 和 exporter 执行顺序都不得改变同一 typed key 的 namespac
 | merged limb 的 eligibility 是否可继续引用不存在的 sided mask | **不可以。** 这样 pose/override anatomy gate 永远找不到可验证 support | `merged_limb` 证据改为真实的 `mask/limb/<family>.merged`；它仍不允许 geometry 强拆双侧，但可供显式 pose/override 做 support 校验 |
 | override 与 `missing` eligibility 的优先级 | resolver 层继续兑现“合法 override 无条件优先”；但 Stage A 在进入 resolver 前先校验 target identity、anatomy support 与 `allow_outside`。没有显式 opt-in 的无 support override 直接拒绝 | `observation-anatomy-validator-v1` 固定 evidence-mask 距离门；显式 `allow_outside=true` 的 joint 无论最后是否仍落在 support 内都写入 warning set，避免人工授权在缓存/报告中消失 |
 | pose backend 是否成为默认依赖 | **否。** provider 输出必须封装为 `PoseObservationBatch v1`，携带 provider/preprocess fingerprint、anatomy plan digest 与原始 model score；batch 缺失即生成确定性的 disabled identity | `StageAJointPlan v1` 合并 axial、limb、pose、override 原始 observations 与全部 resolved/unresolved/missing 结果；validator 重算嵌套摘要、source projection 和 resolver 结果，exporter 只消费该计划 |
+
+### Revision 25 Stage B 几何实现复审
+
+| 实现项 | 核对结论 | Revision 25 处理 |
+|---|---|---|
+| 缺失 wrist/ankle 时是否还能机械照抄完整 BoneSpec 树 | **不可以。** 不存在的中间骨既不能伪造零长骨，也不能让真实后代引用断裂 parent | `BoneGraphPlan v1` 只从 `StageAJointPlan.resolutions` 发射可验证骨；缺失节点导致对应骨省略，仍可发射的后代提升到最近已发射祖先。override 产生的零长/超画布骨严格失败，普通几何退化则稳定省略并诊断 |
+| B 是否可从 PNG/alpha 重新阈值或依赖 Qhull 随机 joggle | **不可以。** 这会使 A/B 对 component 身份产生两套真相，并让退化点集跨版本漂移 | `MeshBuildPlan v1` 只消费经过摘要认证的 A 阶段 QCL component；边界/内部采样、`1/256 px` 量化、`<1/4096 px` 符号扰动、轮廓/顶点/三角形排序全部冻结，Qhull 禁用 `QJ`。凹区、孔洞和跨 component 三角形按 alpha support 复验，退化 component 产出具名诊断而非随机网格 |
+| 权重是否可继续使用固定像素宽度和全骨候选 | **不可以。** 固定 `proj/40` 随分辨率改变语义，全骨候选会把脸/头发错误绑定到手臂 | `SkinningPlan v1` 先用 Part semantic registry 限定候选骨，再把 limb 顶点投影到 resolved joint polyline 的累计弧长；transition band 来自 joint eligibility radius，权重定点量化、最多四项、按 bone ID 排序并确定性归一化。候选不足时使用可报告的 rigid fallback，不伪装成完整多骨能力 |
+| B cache 是否可以是以后由 C 补字段的半成品 `rig.json` | **不可以。** C 改写后会永久破坏 B output digest，使昂贵 mesh/weights 每次 resume 都重跑 | `ComponentDrawOrderExpander v1` 冻结 `(part_draw_rank, component_id)` 的 gapless rank；`RigGeometryCache v1` 嵌入经摘要认证的 A/B plan 投影并验证 parent/joint/component/mesh/influence 引用闭包。B manifest 只拥有 `rig/cache/B/rig_geometry.json`，mesh descriptor 改变只使 B 及其下游 C 失效，A 保持可复用 |
+| 实现回归是否覆盖官方 Cubism 环境和上游 see-through 边界 | **是。** 不能只依靠 Stage B focused fixture | 官方 SDK/Core 环境下 auto-rig：`521 passed, 4 skipped`；Stage B focused：`47 passed`；see-through：`54 passed`；dependency/uv：`193 passed`。Ruff、`compileall` 与 `git diff --check` 同时通过 |
 
 ### 决策摘要
 
@@ -1209,6 +1219,12 @@ motion/symbol/validator 摘要。只有 G manifest
 `RigGeometryCache v1` 使用独立 `cache_schema_version` 和 validator；它可以包含下列几何字段，但不能
 伪装成 `schema_version=1` 的公共 Rig，也不能被 D/E 接受。C 是唯一负责把 A/B cache、capability、
 control/binding、motion/expression、format plans、candidate/symbol table 和 texture plan 组装为以下完整结构的阶段。
+
+`RigGeometryCache v1` 为了让 C 在不重开 QCL/PNG 的前提下验证引用闭包，可以嵌入 A/B frozen plan
+的规范化投影；这是一个有意的 v1 空间换确定性选择，不代表存在第二份可独立修改的业务事实。每个嵌套
+plan 的摘要、component/Part、bone parent/joint、mesh topology/UV 和 influence/bone 引用都必须在读取时
+重新校验。C 只消费这些规范化事实，不读取 B 的临时内存对象、A 的 QCL bytes 或源 PSD/PNG，也不得把
+capability/control/clip/expression/format/symbol/texture-page 字段反写进 B cache。
 
 首版至少包含：
 

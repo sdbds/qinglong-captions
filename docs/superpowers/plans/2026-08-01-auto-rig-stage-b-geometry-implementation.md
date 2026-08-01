@@ -137,25 +137,27 @@
 - Produces: `build_rig_geometry_cache(...) -> RigGeometryCache`, `validate_rig_geometry_cache(...)`, and `rig_geometry_cache_bytes(...)` for the B owner to publish at `rig/cache/B/rig_geometry.json`.
 - Cache contains no capability/control/clip/expression/format/symbol/texture-page fields and therefore cannot pass as `RigDocument v1`.
 
-- [ ] **Step 1: Implement `ComponentDrawOrderExpander v1`**
+- [x] **Step 1: Implement `ComponentDrawOrderExpander v1`**
 
   RED fixtures assign ranks by `(part_draw_rank, component_id)`, require `0..N-1` with no gaps, and keep every Part's components contiguous. Reordering mesh construction cannot alter ranks; a mesh for an A-table-external component fails.
 
-- [ ] **Step 2: Assemble the immutable B cache**
+- [x] **Step 2: Assemble the immutable B cache**
 
   Include canvas/target/A-plan digests, normalized Part facts, raw joint observations/resolutions, bones, weighted meshes, component ranks, A/B diagnostics, dependency descriptors, and degradation state. JCS arrays use canonical ID/topological/rank order.
 
-- [ ] **Step 3: Build a reference-closed validator and negative fixtures**
+- [x] **Step 3: Build a reference-closed validator and negative fixtures**
 
   Reject duplicate/unknown IDs, broken parent or joint references, invalid triangles/UVs/influences, non-contiguous ranks, component/Part mismatches, stale nested digests, and every C-owned field. Recompute outer digest in each mutation so inner validation is exercised.
 
-- [ ] **Step 4: Prove ownership and resume boundaries**
+- [x] **Step 4: Prove ownership and resume boundaries**
 
   Serialize only `rig/cache/B/rig_geometry.json`; test that B success never creates or mutates `rig/rig.json`. The B manifest output inventory contains the cache payload and no A/C-owned path. Changing mesh descriptor invalidates B/C but leaves A reusable.
 
-- [ ] **Step 5: Update Revision 25 implementation status and verify**
+- [x] **Step 5: Update Revision 25 implementation status and verify**
 
   Run the SDK-backed auto-rig suite, see-through suite, dependency/uv suite, Ruff, `compileall`, and `git diff --check`; record exact counts in this plan and the spec, then commit the complete Stage B slice.
+
+  Verification: Stage B focused `47 passed`; SDK/Core-backed auto-rig `521 passed, 4 skipped`; see-through `54 passed`; dependency/uv `193 passed`; Ruff, `compileall`, and `git diff --check` passed.
 
 ## Self-Review
 
