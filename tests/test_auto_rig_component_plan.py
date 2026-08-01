@@ -11,10 +11,12 @@ from module.auto_rig.component_plan import (
     MaskComponentPlanError,
     build_mask_component_plan,
     cleanup_area_threshold,
+    extend_mask_component_plan_with_variants,
 )
 from module.auto_rig.contracts import AutoRigPartContract, ValidatedPartSource
 from module.auto_rig.jcs import jcs_sha256
 from module.auto_rig.mask_sources import LoadedPartAlpha
+from module.auto_rig.native_variants import NativeVariantCandidate, NativeVariantSet
 from module.auto_rig.qcl import decode_qcl
 
 _SHA256_ZERO = "sha256:" + "0" * 64
@@ -67,6 +69,58 @@ def _loaded_part(
 
 def _qcl_bytes(item_root: Path, relative_path: str) -> bytes:
     return (item_root / Path(*relative_path.split("/"))).read_bytes()
+
+
+def _variant(
+    variant_id: str,
+    *,
+    role: str = "mouth_open",
+    xyxy: tuple[int, int, int, int] = (20, 30, 24, 34),
+    points: set[tuple[int, int]] | None = None,
+) -> NativeVariantCandidate:
+    width = xyxy[2] - xyxy[0]
+    height = xyxy[3] - xyxy[1]
+    alpha = _alpha(
+        width,
+        height,
+        points if points is not None else {(x, y) for y in range(height) for x in range(width)},
+    )
+    return NativeVariantCandidate(
+        variant_id=variant_id,
+        part_id=f"part/native.{variant_id}",
+        semantic_role=role,
+        composite_mode="occluding_overlay_v1",
+        base_part_ids=("part/mouth",),
+        draw_anchor_part_id="part/mouth",
+        anchor_base_tag="mouth",
+        anchor_depth_median=0.5,
+        xyxy=xyxy,
+        relative_path=f"{variant_id}.png",
+        png_path=Path(f"{variant_id}.png"),
+        file_sha256=_SHA256_ZERO,
+        rgba_mode="RGBA",
+        alpha_mode="straight",
+        color_space="sRGB",
+        alpha_mass_u8_sum=sum(alpha),
+        alpha_u8=alpha,
+    )
+
+
+def _variant_set(*entries: NativeVariantCandidate) -> NativeVariantSet:
+    provisional = NativeVariantSet(
+        schema_version="native-variant-set-v1",
+        present=bool(entries),
+        manifest_path=None,
+        entries=tuple(sorted(entries, key=lambda entry: entry.variant_id)),
+        native_variant_set_sha256="",
+    )
+    return NativeVariantSet(
+        schema_version=provisional.schema_version,
+        present=provisional.present,
+        manifest_path=None,
+        entries=provisional.entries,
+        native_variant_set_sha256=jcs_sha256(provisional.semantic_payload()),
+    )
 
 
 def test_component_plan_cleans_tiny_noise_fills_holes_and_tightens_crop(
@@ -331,3 +385,229 @@ def test_component_plan_is_independent_of_source_and_library_label_order(
 )
 def test_cleanup_area_threshold_is_resolution_scaled(edge: int, expected: int) -> None:
     assert cleanup_area_threshold(edge) == expected
+
+
+def test_component_plan_extension_binds_an_empty_native_variant_set(tmp_path: Path) -> None:
+    base = build_mask_component_plan(
+        (
+            _loaded_part(
+                source_tag="mouth",
+                base_tag="mouth",
+                semantic_slug="mouth",
+                part_id="part/mouth",
+                side=None,
+                xyxy=(0, 0, 4, 4),
+                points={(x, y) for y in range(4) for x in range(4)},
+            ),
+        ),
+        canvas_edge=768,
+        item_root=tmp_path,
+    )
+    variant_set = _variant_set()
+
+    combined = extend_mask_component_plan_with_variants(base, variant_set, tmp_path)
+
+    assert combined.parts == base.parts
+    assert combined.native_variant_set_sha256 == variant_set.native_variant_set_sha256
+    assert combined.base_projected_component_count == 1
+    assert combined.native_variant_projected_component_count == 0
+    assert combined.projected_component_count == 1
+    assert combined.variant_partitions == ()
+    assert combined.plan_sha256 == jcs_sha256(combined.semantic_payload())
+
+
+def test_component_plan_extension_materializes_candidate_qcl_without_repartitioning_base(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = build_mask_component_plan(
+        (
+            _loaded_part(
+                source_tag="mouth",
+                base_tag="mouth",
+                semantic_slug="mouth",
+                part_id="part/mouth",
+                side=None,
+                xyxy=(0, 0, 4, 4),
+                points={(x, y) for y in range(4) for x in range(4)},
+            ),
+        ),
+        canvas_edge=1024,
+        item_root=tmp_path,
+    )
+    variant_set = _variant_set(_variant("mouth-open"))
+    original_cleanup = component_plan_module._clean_binary_mask
+    cleaned_part_ids: list[str] = []
+
+    def record_cleanup(loaded, descriptor):
+        cleaned_part_ids.append(loaded.part.part_id)
+        return original_cleanup(loaded, descriptor)
+
+    monkeypatch.setattr(component_plan_module, "_clean_binary_mask", record_cleanup)
+
+    combined = extend_mask_component_plan_with_variants(base, variant_set, tmp_path)
+
+    assert cleaned_part_ids == ["part/native.mouth-open"]
+    assert combined.base_projected_component_count == 1
+    assert combined.native_variant_projected_component_count == 1
+    assert combined.projected_component_count == 2
+    partition = combined.variant_partitions[0]
+    assert partition.variant_id == "mouth-open"
+    assert partition.part_id == "part/native.mouth-open"
+    assert partition.status == "ready"
+    assert partition.source_xyxy == (20, 30, 24, 34)
+    assert partition.xyxy == (20, 30, 24, 34)
+    assert partition.qcl_file is not None
+    assert partition.components[0].part_id == "part/native.mouth-open"
+    labels = decode_qcl(_qcl_bytes(tmp_path, partition.qcl_file.path))
+    assert labels.labels == (1,) * 16
+
+
+def test_component_plan_extension_records_cleanup_empty_candidate_without_fake_qcl(
+    tmp_path: Path,
+) -> None:
+    base = build_mask_component_plan(
+        (
+            _loaded_part(
+                source_tag="mouth",
+                base_tag="mouth",
+                semantic_slug="mouth",
+                part_id="part/mouth",
+                side=None,
+                xyxy=(0, 0, 4, 4),
+                points={(x, y) for y in range(4) for x in range(4)},
+            ),
+        ),
+        canvas_edge=768,
+        item_root=tmp_path,
+    )
+    variant_set = _variant_set(
+        _variant("mouth-open", points={(0, 0)}),
+    )
+
+    combined = extend_mask_component_plan_with_variants(base, variant_set, tmp_path)
+
+    partition = combined.variant_partitions[0]
+    assert partition.status == "empty_after_cleanup"
+    assert partition.xyxy is None
+    assert partition.qcl_file is None
+    assert partition.components == ()
+    assert combined.native_variant_projected_component_count == 0
+
+
+def test_native_variant_single_eye_role_assigns_component_sides_without_splitting_part(
+    tmp_path: Path,
+) -> None:
+    base = build_mask_component_plan(
+        (
+            _loaded_part(
+                source_tag="mouth",
+                base_tag="mouth",
+                semantic_slug="mouth",
+                part_id="part/mouth",
+                side=None,
+                xyxy=(0, 0, 4, 4),
+                points={(x, y) for y in range(4) for x in range(4)},
+            ),
+        ),
+        canvas_edge=1024,
+        item_root=tmp_path,
+    )
+    candidate = _variant(
+        "blink-left",
+        role="eye_closed.xmin",
+        xyxy=(10, 20, 22, 24),
+        points={
+            (0, 0), (1, 0), (0, 1), (1, 1),
+            (9, 1), (10, 1), (9, 2), (10, 2),
+        },
+    )
+
+    partition = extend_mask_component_plan_with_variants(
+        base,
+        _variant_set(candidate),
+        tmp_path,
+    ).variant_partitions[0]
+
+    assert partition.part_id == "part/native.blink-left"
+    assert partition.side_provenance == "role_single"
+    assert {component.part_id for component in partition.components} == {
+        "part/native.blink-left"
+    }
+    assert {component.side for component in partition.components} == {"xmin"}
+
+
+def test_native_variant_coupled_eye_assigns_two_reliable_components_by_centroid(
+    tmp_path: Path,
+) -> None:
+    base = build_mask_component_plan(
+        (
+            _loaded_part(
+                source_tag="mouth",
+                base_tag="mouth",
+                semantic_slug="mouth",
+                part_id="part/mouth",
+                side=None,
+                xyxy=(0, 0, 4, 4),
+                points={(x, y) for y in range(4) for x in range(4)},
+            ),
+        ),
+        canvas_edge=1024,
+        item_root=tmp_path,
+    )
+    candidate = _variant(
+        "blink-both",
+        role="eye_closed.coupled",
+        xyxy=(10, 20, 22, 24),
+        points={
+            (0, 0), (1, 0), (0, 1), (1, 1),
+            (9, 1), (10, 1), (9, 2), (10, 2),
+        },
+    )
+
+    partition = extend_mask_component_plan_with_variants(
+        base,
+        _variant_set(candidate),
+        tmp_path,
+    ).variant_partitions[0]
+
+    assert partition.side_provenance == "role_component_pair"
+    by_side = {component.side: component for component in partition.components}
+    assert by_side["xmin"].bbox == (10, 20, 12, 22)
+    assert by_side["xmax"].bbox == (19, 21, 21, 23)
+
+
+def test_native_variant_coupled_eye_does_not_promote_unreliable_pair(
+    tmp_path: Path,
+) -> None:
+    base = build_mask_component_plan(
+        (
+            _loaded_part(
+                source_tag="mouth",
+                base_tag="mouth",
+                semantic_slug="mouth",
+                part_id="part/mouth",
+                side=None,
+                xyxy=(0, 0, 4, 4),
+                points={(x, y) for y in range(4) for x in range(4)},
+            ),
+        ),
+        canvas_edge=1024,
+        item_root=tmp_path,
+    )
+    dominant = {(x, y) for y in range(10) for x in range(10)}
+    candidate = _variant(
+        "blink-both",
+        role="eye_closed.coupled",
+        xyxy=(10, 20, 30, 30),
+        points=dominant | {(18, 0), (19, 0), (18, 1), (19, 1)},
+    )
+
+    partition = extend_mask_component_plan_with_variants(
+        base,
+        _variant_set(candidate),
+        tmp_path,
+    ).variant_partitions[0]
+
+    assert partition.side_provenance == "none"
+    assert {component.side for component in partition.components} == {None}

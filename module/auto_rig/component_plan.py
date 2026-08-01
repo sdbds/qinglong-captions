@@ -5,7 +5,7 @@ import numbers
 from dataclasses import dataclass
 from importlib.metadata import version as distribution_version
 from pathlib import Path
-from typing import Any, Iterable, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Literal
 
 from .artifacts import FileDigest
 from .contracts import AutoRigInputContract
@@ -14,10 +14,14 @@ from .mask_sources import LoadedPartAlpha, load_validated_part_alphas
 from .qcl import QCL_CODEC_VERSION, encode_qcl, materialize_qcl
 from .tag_registry import V3_SPLIT_FAMILIES
 
+if TYPE_CHECKING:
+    from .native_variants import NativeVariantCandidate, NativeVariantSet
+
 MASK_COMPONENT_PLAN_VERSION = "mask-component-plan-v1"
 MASK_COMPONENT_ID_SCHEMA = "mask-component-id-v1"
 MASK_CLEANUP_SCHEMA = "mask-cleanup-v1"
 MASK_SIDE_CLASSIFIER_VERSION = "mask-side-classifier-v1"
+NATIVE_VARIANT_PARTITION_VERSION = "native-variant-partition-v1"
 SIDE_MIN_COMPONENT_FRACTION_NUMERATOR = 1
 SIDE_MIN_COMPONENT_FRACTION_DENOMINATOR = 20
 
@@ -121,11 +125,49 @@ class NormalizedMaskPart:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeVariantPartitionRecord:
+    schema_version: str
+    variant_id: str
+    part_id: str
+    semantic_role: str
+    status: Literal["ready", "empty_after_cleanup"]
+    side_provenance: Literal["role_single", "role_component_pair", "none"]
+    source_xyxy: tuple[int, int, int, int]
+    xyxy: tuple[int, int, int, int] | None
+    cleaned_binary_mask_sha256: str | None
+    qcl_file: FileDigest | None
+    components: tuple[MaskComponentRecord, ...]
+    partition_sha256: str
+
+    def content_payload(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "variant_id": self.variant_id,
+            "part_id": self.part_id,
+            "semantic_role": self.semantic_role,
+            "status": self.status,
+            "side_provenance": self.side_provenance,
+            "source_xyxy": list(self.source_xyxy),
+            "xyxy": list(self.xyxy) if self.xyxy is not None else None,
+            "cleaned_binary_mask_sha256": self.cleaned_binary_mask_sha256,
+            "qcl_file": self.qcl_file.to_dict() if self.qcl_file is not None else None,
+            "components": [component.to_dict() for component in self.components],
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {**self.content_payload(), "partition_sha256": self.partition_sha256}
+
+
+@dataclass(frozen=True, slots=True)
 class MaskComponentPlan:
     schema_version: str
     canvas_edge: int
     cleanup: MaskCleanupDescriptor
     parts: tuple[NormalizedMaskPart, ...]
+    native_variant_set_sha256: str | None
+    variant_partitions: tuple[NativeVariantPartitionRecord, ...]
+    base_projected_component_count: int
+    native_variant_projected_component_count: int
     projected_component_count: int
     plan_sha256: str
 
@@ -135,6 +177,10 @@ class MaskComponentPlan:
             "canvas_edge": self.canvas_edge,
             "cleanup": self.cleanup.to_dict(),
             "parts": [part.to_dict() for part in self.parts],
+            "native_variant_set_sha256": self.native_variant_set_sha256,
+            "variant_partitions": [partition.to_dict() for partition in self.variant_partitions],
+            "base_projected_component_count": self.base_projected_component_count,
+            "native_variant_projected_component_count": self.native_variant_projected_component_count,
             "projected_component_count": self.projected_component_count,
         }
 
@@ -147,6 +193,20 @@ class _ComponentCandidate:
     centroid_x_sum: int
     tight_mask: Any
     side: Literal["xmin", "xmax"] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _VariantPartAdapter:
+    part_id: str
+    xyxy: tuple[int, int, int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class _LoadedVariantAlpha:
+    part: _VariantPartAdapter
+    width: int
+    height: int
+    alpha_u8: bytes
 
 
 def _error(code: str, message: str) -> MaskComponentPlanError:
@@ -437,6 +497,10 @@ def build_mask_component_plan(
         "canvas_edge": int(canvas_edge),
         "cleanup": descriptor.to_dict(),
         "parts": [part.to_dict() for part in parts],
+        "native_variant_set_sha256": None,
+        "variant_partitions": [],
+        "base_projected_component_count": projected_count,
+        "native_variant_projected_component_count": 0,
         "projected_component_count": projected_count,
     }
     return MaskComponentPlan(
@@ -444,6 +508,10 @@ def build_mask_component_plan(
         canvas_edge=int(canvas_edge),
         cleanup=descriptor,
         parts=parts,
+        native_variant_set_sha256=None,
+        variant_partitions=(),
+        base_projected_component_count=projected_count,
+        native_variant_projected_component_count=0,
         projected_component_count=projected_count,
         plan_sha256=jcs_sha256(semantic_payload),
     )
@@ -459,11 +527,196 @@ def build_base_mask_component_plan(contract: AutoRigInputContract) -> MaskCompon
     )
 
 
+def _variant_partition_record(
+    candidate: NativeVariantCandidate,
+    *,
+    descriptor: MaskCleanupDescriptor,
+    item_root: Path,
+) -> NativeVariantPartitionRecord:
+    import numpy as np
+
+    x1, y1, x2, y2 = candidate.xyxy
+    loaded = _LoadedVariantAlpha(
+        part=_VariantPartAdapter(part_id=candidate.part_id, xyxy=candidate.xyxy),
+        width=x2 - x1,
+        height=y2 - y1,
+        alpha_u8=candidate.alpha_u8,
+    )
+    labels = _label_components(_clean_binary_mask(loaded, descriptor))
+    candidates = _extract_candidates(loaded, labels)
+    if not candidates:
+        content = {
+            "schema_version": NATIVE_VARIANT_PARTITION_VERSION,
+            "variant_id": candidate.variant_id,
+            "part_id": candidate.part_id,
+            "semantic_role": candidate.semantic_role,
+            "status": "empty_after_cleanup",
+            "side_provenance": "none",
+            "source_xyxy": list(candidate.xyxy),
+            "xyxy": None,
+            "cleaned_binary_mask_sha256": None,
+            "qcl_file": None,
+            "components": [],
+        }
+        return NativeVariantPartitionRecord(
+            schema_version=NATIVE_VARIANT_PARTITION_VERSION,
+            variant_id=candidate.variant_id,
+            part_id=candidate.part_id,
+            semantic_role=candidate.semantic_role,
+            status="empty_after_cleanup",
+            side_provenance="none",
+            source_xyxy=candidate.xyxy,
+            xyxy=None,
+            cleaned_binary_mask_sha256=None,
+            qcl_file=None,
+            components=(),
+            partition_sha256=jcs_sha256(content),
+        )
+
+    side_provenance: Literal["role_single", "role_component_pair", "none"] = "none"
+    if candidate.semantic_role in {"eye_closed.xmin", "eye_closed.xmax"}:
+        side = candidate.semantic_role.rsplit(".", 1)[1]
+        for component in candidates:
+            component.side = side
+        side_provenance = "role_single"
+    elif candidate.semantic_role == "eye_closed.coupled" and len(candidates) == 2:
+        total_pixels = sum(component.pixel_count for component in candidates)
+        reliable = all(
+            component.pixel_count * descriptor.side_min_component_fraction_denominator
+            >= total_pixels * descriptor.side_min_component_fraction_numerator
+            for component in candidates
+        )
+        first, second = candidates
+        comparison = (
+            first.centroid_x_sum * second.pixel_count
+            - second.centroid_x_sum * first.pixel_count
+        )
+        if reliable and comparison != 0:
+            xmin, xmax = (first, second) if comparison < 0 else (second, first)
+            xmin.side = "xmin"
+            xmax.side = "xmax"
+            side_provenance = "role_component_pair"
+
+    candidates.sort(key=lambda item: (item.bbox[1], item.bbox[0], item.mask_sha256))
+    crop_x1 = min(item.bbox[0] for item in candidates)
+    crop_y1 = min(item.bbox[1] for item in candidates)
+    crop_x2 = max(item.bbox[2] for item in candidates)
+    crop_y2 = max(item.bbox[3] for item in candidates)
+    canonical_labels = np.zeros((crop_y2 - crop_y1, crop_x2 - crop_x1), dtype=np.uint32)
+    components: list[MaskComponentRecord] = []
+    for label_value, component in enumerate(candidates, start=1):
+        cx1, cy1, cx2, cy2 = component.bbox
+        target = canonical_labels[
+            cy1 - crop_y1 : cy2 - crop_y1,
+            cx1 - crop_x1 : cx2 - crop_x1,
+        ]
+        target[component.tight_mask] = label_value
+        _, component_id = _component_identity(
+            part_id=candidate.part_id,
+            bbox=component.bbox,
+            mask_sha256=component.mask_sha256,
+        )
+        components.append(
+            MaskComponentRecord(
+                component_id=component_id,
+                label=label_value,
+                part_id=candidate.part_id,
+                side=component.side,
+                bbox=component.bbox,
+                cleaned_binary_mask_sha256=component.mask_sha256,
+                pixel_count=component.pixel_count,
+            )
+        )
+    cleaned_mask_sha256 = _sha256_bytes(
+        (canonical_labels > 0).astype(np.uint8).tobytes(order="C")
+    )
+    qcl_file = materialize_qcl(
+        item_root,
+        encode_qcl(
+            canonical_labels.ravel(order="C"),
+            width=canonical_labels.shape[1],
+            height=canonical_labels.shape[0],
+        ),
+    )
+    content = {
+        "schema_version": NATIVE_VARIANT_PARTITION_VERSION,
+        "variant_id": candidate.variant_id,
+        "part_id": candidate.part_id,
+        "semantic_role": candidate.semantic_role,
+        "status": "ready",
+        "side_provenance": side_provenance,
+        "source_xyxy": list(candidate.xyxy),
+        "xyxy": [crop_x1, crop_y1, crop_x2, crop_y2],
+        "cleaned_binary_mask_sha256": cleaned_mask_sha256,
+        "qcl_file": qcl_file.to_dict(),
+        "components": [component.to_dict() for component in components],
+    }
+    return NativeVariantPartitionRecord(
+        schema_version=NATIVE_VARIANT_PARTITION_VERSION,
+        variant_id=candidate.variant_id,
+        part_id=candidate.part_id,
+        semantic_role=candidate.semantic_role,
+        status="ready",
+        side_provenance=side_provenance,
+        source_xyxy=candidate.xyxy,
+        xyxy=(crop_x1, crop_y1, crop_x2, crop_y2),
+        cleaned_binary_mask_sha256=cleaned_mask_sha256,
+        qcl_file=qcl_file,
+        components=tuple(components),
+        partition_sha256=jcs_sha256(content),
+    )
+
+
+def extend_mask_component_plan_with_variants(
+    base_plan: MaskComponentPlan,
+    variant_set: NativeVariantSet,
+    item_root: str | Path,
+) -> MaskComponentPlan:
+    """Append candidate partitions without thresholding ordinary masks again."""
+
+    if jcs_sha256(base_plan.semantic_payload()) != base_plan.plan_sha256:
+        raise _error("invalid_component_plan", "base component-plan digest is invalid")
+    if base_plan.native_variant_set_sha256 is not None or base_plan.variant_partitions:
+        raise _error("invalid_component_plan", "component plan already contains NativeVariants")
+    if jcs_sha256(variant_set.semantic_payload()) != variant_set.native_variant_set_sha256:
+        raise _error("invalid_component_plan", "NativeVariant set digest is invalid")
+    root = Path(item_root).resolve(strict=True)
+    partitions = tuple(
+        _variant_partition_record(entry, descriptor=base_plan.cleanup, item_root=root)
+        for entry in sorted(variant_set.entries, key=lambda item: item.variant_id)
+    )
+    native_count = sum(len(partition.components) for partition in partitions)
+    semantic_payload = {
+        "schema_version": base_plan.schema_version,
+        "canvas_edge": base_plan.canvas_edge,
+        "cleanup": base_plan.cleanup.to_dict(),
+        "parts": [part.to_dict() for part in base_plan.parts],
+        "native_variant_set_sha256": variant_set.native_variant_set_sha256,
+        "variant_partitions": [partition.to_dict() for partition in partitions],
+        "base_projected_component_count": base_plan.base_projected_component_count,
+        "native_variant_projected_component_count": native_count,
+        "projected_component_count": base_plan.base_projected_component_count + native_count,
+    }
+    return MaskComponentPlan(
+        schema_version=base_plan.schema_version,
+        canvas_edge=base_plan.canvas_edge,
+        cleanup=base_plan.cleanup,
+        parts=base_plan.parts,
+        native_variant_set_sha256=variant_set.native_variant_set_sha256,
+        variant_partitions=partitions,
+        base_projected_component_count=base_plan.base_projected_component_count,
+        native_variant_projected_component_count=native_count,
+        projected_component_count=base_plan.base_projected_component_count + native_count,
+        plan_sha256=jcs_sha256(semantic_payload),
+    )
+
+
 __all__ = [
     "MASK_CLEANUP_SCHEMA",
     "MASK_COMPONENT_ID_SCHEMA",
     "MASK_COMPONENT_PLAN_VERSION",
     "MASK_SIDE_CLASSIFIER_VERSION",
+    "NATIVE_VARIANT_PARTITION_VERSION",
     "SIDE_MIN_COMPONENT_FRACTION_DENOMINATOR",
     "SIDE_MIN_COMPONENT_FRACTION_NUMERATOR",
     "MaskCleanupDescriptor",
@@ -471,7 +724,9 @@ __all__ = [
     "MaskComponentPlanError",
     "MaskComponentRecord",
     "NormalizedMaskPart",
+    "NativeVariantPartitionRecord",
     "build_base_mask_component_plan",
     "build_mask_component_plan",
     "cleanup_area_threshold",
+    "extend_mask_component_plan_with_variants",
 ]
