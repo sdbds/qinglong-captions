@@ -70,23 +70,23 @@
 - Produces: `load_mesh_component_sources(...) -> tuple[MeshComponentSource, ...]`, `build_mesh_plan(...) -> MeshBuildPlan`, and `validate_mesh_plan(...)`.
 - Each `MeshRecord` owns exactly one A component ID and stores canonical vertices, boundary flags/order, flat triangles, part-local UVs, component mask digest, source kind, and build descriptor digest.
 
-- [ ] **Step 1: Extend authenticated component loading to admitted variants**
+- [x] **Step 1: Extend authenticated component loading to admitted variants**
 
   Write RED fixtures for a ready admitted variant, a rejected variant, a mutated variant QCL, and an unknown render ID. Reuse QCL authentication and component-record verification; do not reopen variant PNG or run cleanup.
 
-- [ ] **Step 2: Freeze sampling, quantization, and identity records**
+- [x] **Step 2: Freeze sampling, quantization, and identity records**
 
   Define `MESH_BUILD_PLAN_VERSION="mesh-build-plan-v1"`, quantization denominator `256`, perturbation denominator `4096`, canonical contour winding/start, scale-relative boundary/interior spacing, and dependency/options fingerprints. Stable mesh IDs derive from the full typed record `{schema, component_id, component_mask_sha256, mesh_plan_version}`.
 
-- [ ] **Step 3: Implement RED/green contour and topology fixtures**
+- [x] **Step 3: Implement RED/green contour and topology fixtures**
 
   Cover rectangle, concave C, hole, two components, duplicate/near-collinear/cocircular points, and a degenerate component. Assert positive signed area, in-range flat indices, no accepted centroid or edge quarter sample in alpha zero, no cross-component edge, canonical vertex/triangle order, and `degenerate_mesh` instead of a random joggle.
 
-- [ ] **Step 4: Prove deterministic topology under input/library ordering changes**
+- [x] **Step 4: Prove deterministic topology under input/library ordering changes**
 
   Mutation fixtures shuffle source/component/contour/sample/simplex order and monkeypatch a reversed Delaunay simplex array. The final `MeshBuildPlan` must remain equal and byte-stable. A spy must prove threshold and connected-component APIs are never called in B.
 
-- [ ] **Step 5: Export and run mesh golden/regression gates**
+- [x] **Step 5: Export and run mesh golden/regression gates**
 
   Run mesh/component/public API tests, Ruff, `compileall`, and the full auto-rig suite before committing.
 
