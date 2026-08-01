@@ -49,6 +49,16 @@ from .manifests import (
     write_stage_manifest,
 )
 from .mask_sources import LoadedPartAlpha, load_validated_part_alphas
+from .native_variants import (
+    NATIVE_VARIANT_COMPOSITE_MODE,
+    NATIVE_VARIANT_MANIFEST_VERSION,
+    NATIVE_VARIANT_ROLES,
+    NATIVE_VARIANT_SET_VERSION,
+    NativeVariantCandidate,
+    NativeVariantContractError,
+    NativeVariantSet,
+    load_native_variant_set,
+)
 from .qcl import (
     QCL_CODEC_VERSION,
     CanonicalLabelMap,
@@ -100,11 +110,18 @@ __all__ = [
     "LoadedPartAlpha",
     "MASK_COMPONENT_ID_SCHEMA",
     "MASK_COMPONENT_PLAN_VERSION",
+    "NATIVE_VARIANT_COMPOSITE_MODE",
+    "NATIVE_VARIANT_MANIFEST_VERSION",
+    "NATIVE_VARIANT_ROLES",
+    "NATIVE_VARIANT_SET_VERSION",
     "MaskCleanupDescriptor",
     "MaskComponentPlan",
     "MaskComponentPlanError",
     "MaskComponentRecord",
     "NormalizedMaskPart",
+    "NativeVariantCandidate",
+    "NativeVariantContractError",
+    "NativeVariantSet",
     "OrdinaryDrawOrderPlan",
     "PartDrawOrderRecord",
     "QCL_CODEC_VERSION",
@@ -137,6 +154,7 @@ __all__ = [
     "invalidate_terminal",
     "is_item_completed",
     "load_auto_rig_input_contract",
+    "load_native_variant_set",
     "load_validated_part_alphas",
     "manifest_relative_path",
     "normalize_relative_path",
