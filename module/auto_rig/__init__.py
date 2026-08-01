@@ -11,6 +11,16 @@ from .artifacts import (
     normalize_relative_path,
     sha256_file,
 )
+from .contracts import (
+    AUTO_RIG_INPUT_CONTRACT_VERSION,
+    SUPPORTED_CANVAS_EDGES,
+    AutoRigCanvasContract,
+    AutoRigContractError,
+    AutoRigInputContract,
+    AutoRigPartContract,
+    ValidatedPartSource,
+    load_auto_rig_input_contract,
+)
 from .manifests import (
     StageManifest,
     StageManifestError,
@@ -27,6 +37,11 @@ from .stage_graph import (
     StageNode,
     StageValidationIssue,
 )
+from .tag_registry import (
+    AutoRigTagContractError,
+    CanonicalPartTag,
+    validate_v3_final_tag_set,
+)
 from .terminal import (
     ERROR_RECORD_PATH,
     EXPORT_MANIFEST_PATH,
@@ -41,7 +56,14 @@ from .terminal import (
 )
 
 __all__ = [
+    "AUTO_RIG_INPUT_CONTRACT_VERSION",
     "ArtifactContractError",
+    "AutoRigCanvasContract",
+    "AutoRigContractError",
+    "AutoRigInputContract",
+    "AutoRigPartContract",
+    "AutoRigTagContractError",
+    "CanonicalPartTag",
     "ERROR_RECORD_PATH",
     "EXPORT_MANIFEST_PATH",
     "FileDigest",
@@ -54,8 +76,10 @@ __all__ = [
     "StageManifestError",
     "StageNode",
     "StageValidationIssue",
+    "SUPPORTED_CANVAS_EDGES",
     "TerminalFinalizationError",
     "TerminalFinalizationResult",
+    "ValidatedPartSource",
     "atomic_write_bytes",
     "atomic_write_json",
     "build_stage_fingerprint",
@@ -67,9 +91,11 @@ __all__ = [
     "finalize_success",
     "invalidate_terminal",
     "is_item_completed",
+    "load_auto_rig_input_contract",
     "manifest_relative_path",
     "normalize_relative_path",
     "read_stage_manifest",
     "sha256_file",
+    "validate_v3_final_tag_set",
     "write_stage_manifest",
 ]

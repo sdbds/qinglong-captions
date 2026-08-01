@@ -7,7 +7,14 @@ import module.auto_rig as auto_rig
 ROOT = Path(__file__).resolve().parent.parent
 
 EXPECTED_PUBLIC_API = {
+    "AUTO_RIG_INPUT_CONTRACT_VERSION",
     "ArtifactContractError",
+    "AutoRigCanvasContract",
+    "AutoRigContractError",
+    "AutoRigInputContract",
+    "AutoRigPartContract",
+    "AutoRigTagContractError",
+    "CanonicalPartTag",
     "ERROR_RECORD_PATH",
     "EXPORT_MANIFEST_PATH",
     "FileDigest",
@@ -20,8 +27,10 @@ EXPECTED_PUBLIC_API = {
     "StageManifestError",
     "StageNode",
     "StageValidationIssue",
+    "SUPPORTED_CANVAS_EDGES",
     "TerminalFinalizationError",
     "TerminalFinalizationResult",
+    "ValidatedPartSource",
     "atomic_write_bytes",
     "atomic_write_json",
     "build_stage_fingerprint",
@@ -33,10 +42,12 @@ EXPECTED_PUBLIC_API = {
     "finalize_success",
     "invalidate_terminal",
     "is_item_completed",
+    "load_auto_rig_input_contract",
     "manifest_relative_path",
     "normalize_relative_path",
     "read_stage_manifest",
     "sha256_file",
+    "validate_v3_final_tag_set",
     "write_stage_manifest",
 }
 

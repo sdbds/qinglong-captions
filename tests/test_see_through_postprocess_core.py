@@ -1,13 +1,14 @@
 import importlib
+import json
 import sys
 import types
 from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent
-
 import module.see_through.extracted.postprocess_core as postprocess_core
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 VENDOR_PREFIX = "module.see_through.vendor"
@@ -102,3 +103,24 @@ def test_run_postprocess_core_leaves_vendor_modules_unchanged_after_failure(monk
 
     assert fake_torchcv.cluster_inpaint_part is original_cluster_inpaint_part
     assert fake_inference_utils.cluster_inpaint_part is original_cluster_inpaint_part
+
+
+def test_run_postprocess_core_excludes_previous_manifest_from_generated_files(
+    monkeypatch,
+    tmp_path,
+):
+    _install_fake_vendor_modules(monkeypatch)
+    output_dir = tmp_path / "outputs"
+    optimized_dir = output_dir / "optimized"
+    optimized_dir.mkdir(parents=True)
+    (optimized_dir / "manifest.json").write_text("stale", encoding="utf-8")
+
+    result = postprocess_core.run_postprocess_core(
+        source_path=tmp_path / "source.png",
+        output_dir=output_dir,
+        save_to_psd=False,
+        tblr_split=False,
+    )
+
+    manifest = json.loads(result["manifest"].read_text(encoding="utf-8"))
+    assert manifest["generated_files"] == []

@@ -10,7 +10,14 @@ import json
 import shutil
 from pathlib import Path
 
-def run_postprocess_core(*, source_path: Path, output_dir: Path, save_to_psd: bool, tblr_split: bool) -> dict[str, Path]:
+
+def run_postprocess_core(
+    *,
+    source_path: Path,
+    output_dir: Path,
+    save_to_psd: bool,
+    tblr_split: bool,
+) -> dict[str, Path]:
     import module.see_through.vendor.utils.inference_utils as vendor_inference_utils
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -58,7 +65,9 @@ def run_postprocess_core(*, source_path: Path, output_dir: Path, save_to_psd: bo
         "source_path": str(source_path),
         "save_to_psd": bool(save_to_psd),
         "tblr_split": bool(tblr_split),
-        "generated_files": sorted(path.name for path in optimized_dir.glob("*")),
+        "generated_files": sorted(
+            path.name for path in optimized_dir.glob("*") if path.name != "manifest.json"
+        ),
         "final_psd": str(results["psd"]) if "psd" in results else None,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
