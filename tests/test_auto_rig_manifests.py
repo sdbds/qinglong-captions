@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from module.auto_rig.artifacts import FileDigest, describe_file, sha256_file
+from module.auto_rig.artifacts import FileDigest, canonical_json_sha256, describe_file, sha256_file
 from module.auto_rig.manifests import (
     STAGE_MANIFEST_SCHEMA_VERSION,
     StageManifest,
@@ -53,10 +53,11 @@ def test_stage_manifest_round_trips_as_strict_canonical_payload(tmp_path: Path) 
 
     assert loaded == manifest
     assert payload == manifest.to_dict()
-    assert payload["schema_version"] == STAGE_MANIFEST_SCHEMA_VERSION
+    assert payload["schema_version"] == STAGE_MANIFEST_SCHEMA_VERSION == 2
     assert payload["stage_name"] == "A"
     assert payload["status"] == "completed"
     assert payload["output_file_sha256"] == [describe_file(tmp_path, "rig/cache/A/geometry_observations.json").to_dict()]
+    assert payload["output_inventory_sha256"] == canonical_json_sha256(payload["output_file_sha256"])
     assert marker.relative_to(tmp_path).as_posix() == manifest_relative_path("A")
     assert sha256_file(marker).startswith("sha256:")
 
@@ -90,6 +91,14 @@ def test_manifest_parser_rejects_unknown_fields(tmp_path: Path) -> None:
     payload["surprise"] = True
 
     with pytest.raises(StageManifestError, match="exactly"):
+        StageManifest.from_dict(payload)
+
+
+def test_manifest_parser_rejects_tampered_output_inventory_digest(tmp_path: Path) -> None:
+    payload = build_a_manifest(tmp_path).to_dict()
+    payload["output_inventory_sha256"] = digest("not-the-output-inventory")
+
+    with pytest.raises(StageManifestError, match="output_inventory_sha256"):
         StageManifest.from_dict(payload)
 
 
@@ -167,9 +176,46 @@ def test_manifest_write_rejects_output_changed_after_build(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize(
+    "stage,current_path,stale_path",
+    [
+        ("C", "rig/shared/textures/page_0.png", "rig/shared/textures/page_3.png"),
+        ("D", "rig/spine/skeleton.json", "rig/spine/textures/page_3.png"),
+        ("E", "rig/live2d/model.moc3", "rig/live2d/motions/stale.motion3.json"),
+        ("G", "rig/export_manifest.json", "rig/error.json"),
+    ],
+)
+def test_manifest_commit_removes_obsolete_files_from_owner_public_namespace(
+    tmp_path: Path,
+    stage: str,
+    current_path: str,
+    stale_path: str,
+) -> None:
+    current = write_output(tmp_path, current_path, b"current")
+    stale = tmp_path / Path(*stale_path.split("/"))
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_bytes(b"stale")
+    manifest = build_stage_manifest(
+        tmp_path,
+        stage_name=stage,
+        stage_schema_version=1,
+        algorithm_version=f"stage-{stage.lower()}-v1",
+        upstream_manifests={},
+        input_file_sha256=[],
+        relevant_config_fingerprint=digest("config"),
+        rig_overrides_sha256=digest("overrides"),
+        output_paths=[current.path],
+    )
+
+    write_stage_manifest(tmp_path, manifest)
+
+    assert current == describe_file(tmp_path, current.path)
+    assert not stale.exists()
+
+
+@pytest.mark.parametrize(
     "field,value,match",
     [
-        ("schema_version", 2, "schema_version"),
+        ("schema_version", 1, "schema_version"),
         ("stage_schema_version", 0, "stage_schema_version"),
         ("algorithm_version", "", "algorithm_version"),
         ("stage_fingerprint", "not-a-digest", "SHA-256"),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +16,7 @@ from .artifacts import (
     normalize_relative_path,
 )
 
-STAGE_MANIFEST_SCHEMA_VERSION = 1
+STAGE_MANIFEST_SCHEMA_VERSION = 2
 VALID_STAGE_NAMES = frozenset({"A", "B", "C", "D", "E", "F", "G"})
 VALID_STAGE_STATUSES = frozenset({"completed", "failed"})
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -31,9 +32,20 @@ _MANIFEST_FIELDS = frozenset(
         "relevant_config_fingerprint",
         "rig_overrides_sha256",
         "output_file_sha256",
+        "output_inventory_sha256",
         "status",
     }
 )
+
+_PUBLIC_EXACT_PATHS = {
+    "C": frozenset({"rig/rig.json", "rig/report.json", "rig/motion_manifest.json"}),
+    "G": frozenset({"rig/export_manifest.json", "rig/error.json"}),
+}
+_PUBLIC_DIRECTORY_PREFIXES = {
+    "C": ("rig/shared/textures/",),
+    "D": ("rig/spine/",),
+    "E": ("rig/live2d/",),
+}
 
 
 class StageManifestError(ValueError):
@@ -117,6 +129,82 @@ def _parse_file_digests(payload: Any, *, field: str) -> tuple[FileDigest, ...]:
     return parsed
 
 
+def _output_inventory_sha256(outputs: Iterable[FileDigest]) -> str:
+    normalized = _normalize_file_digests(outputs, field="output_file_sha256")
+    return canonical_json_sha256([item.to_dict() for item in normalized])
+
+
+def public_output_owner(relative_path: str | Path) -> str | None:
+    path = normalize_relative_path(relative_path)
+    for stage, exact_paths in _PUBLIC_EXACT_PATHS.items():
+        if path in exact_paths:
+            return stage
+    for stage, prefixes in _PUBLIC_DIRECTORY_PREFIXES.items():
+        if any(path.startswith(prefix) for prefix in prefixes):
+            return stage
+    return None
+
+
+def scan_stage_public_output_paths(root: str | Path, stage_name: str) -> tuple[str, ...]:
+    stage = _require_stage_name(stage_name)
+    item_root = Path(root)
+    found: set[str] = set()
+
+    for relative_path in _PUBLIC_EXACT_PATHS.get(stage, ()):
+        candidate = item_root / Path(*relative_path.split("/"))
+        if os.path.lexists(candidate):
+            found.add(relative_path)
+
+    for prefix in _PUBLIC_DIRECTORY_PREFIXES.get(stage, ()):
+        relative_directory = prefix.rstrip("/")
+        directory = item_root / Path(*relative_directory.split("/"))
+        if not os.path.lexists(directory):
+            continue
+        if directory.is_symlink() or not directory.is_dir():
+            found.add(relative_directory)
+            continue
+        pending = [(directory, relative_directory)]
+        while pending:
+            current, current_relative = pending.pop()
+            try:
+                with os.scandir(current) as iterator:
+                    entries = sorted(iterator, key=lambda entry: entry.name)
+            except OSError as exc:
+                raise StageManifestError(f"unable to scan public output namespace {current_relative}: {exc}") from exc
+            for entry in entries:
+                relative = f"{current_relative}/{entry.name}"
+                if entry.is_symlink():
+                    found.add(relative)
+                elif entry.is_dir(follow_symlinks=False):
+                    pending.append((Path(entry.path), relative))
+                else:
+                    found.add(relative)
+    return tuple(sorted(found))
+
+
+def _remove_obsolete_public_outputs(
+    root: str | Path,
+    stage_name: str,
+    declared_paths: Iterable[str],
+) -> None:
+    stage = _require_stage_name(stage_name)
+    item_root = Path(root)
+    declared_public = {
+        path for path in declared_paths if public_output_owner(path) == stage
+    }
+    obsolete = set(scan_stage_public_output_paths(item_root, stage)) - declared_public
+    for relative_path in sorted(obsolete, reverse=True):
+        candidate = item_root / Path(*relative_path.split("/"))
+        if candidate.is_dir() and not candidate.is_symlink():
+            raise StageManifestError(
+                f"owner public namespace contains an unexpected directory artifact: {relative_path}"
+            )
+        try:
+            candidate.unlink(missing_ok=True)
+        except OSError as exc:
+            raise StageManifestError(f"unable to remove obsolete stage output {relative_path}: {exc}") from exc
+
+
 def build_stage_fingerprint(
     *,
     stage_name: str,
@@ -163,6 +251,7 @@ class StageManifest:
     relevant_config_fingerprint: str
     rig_overrides_sha256: str
     output_file_sha256: tuple[FileDigest, ...]
+    output_inventory_sha256: str
     status: str = "completed"
     schema_version: int = STAGE_MANIFEST_SCHEMA_VERSION
 
@@ -182,6 +271,10 @@ class StageManifest:
         upstream = _normalize_upstream_manifests(stage, self.upstream_manifests)
         inputs = _normalize_file_digests(self.input_file_sha256, field="input_file_sha256")
         outputs = _normalize_file_digests(self.output_file_sha256, field="output_file_sha256")
+        inventory_sha256 = _require_sha256(
+            self.output_inventory_sha256,
+            field="output_inventory_sha256",
+        )
         config_fingerprint = _require_sha256(
             self.relevant_config_fingerprint,
             field="relevant_config_fingerprint",
@@ -197,6 +290,16 @@ class StageManifest:
         marker_path = manifest_relative_path(stage)
         if marker_path in output_paths:
             raise StageManifestError(f"stage output cannot include its own commit marker: {marker_path}")
+        for output_path in output_paths:
+            owner = public_output_owner(output_path)
+            if owner is not None and owner != stage:
+                raise StageManifestError(
+                    f"stage {stage} cannot own {owner}-owned public output: {output_path}"
+                )
+
+        expected_inventory_sha256 = _output_inventory_sha256(outputs)
+        if inventory_sha256 != expected_inventory_sha256:
+            raise StageManifestError("output_inventory_sha256 does not match output_file_sha256")
 
         expected_fingerprint = build_stage_fingerprint(
             stage_name=stage,
@@ -219,6 +322,7 @@ class StageManifest:
         object.__setattr__(self, "relevant_config_fingerprint", config_fingerprint)
         object.__setattr__(self, "rig_overrides_sha256", overrides_sha256)
         object.__setattr__(self, "output_file_sha256", outputs)
+        object.__setattr__(self, "output_inventory_sha256", inventory_sha256)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -232,6 +336,7 @@ class StageManifest:
             "relevant_config_fingerprint": self.relevant_config_fingerprint,
             "rig_overrides_sha256": self.rig_overrides_sha256,
             "output_file_sha256": [item.to_dict() for item in self.output_file_sha256],
+            "output_inventory_sha256": self.output_inventory_sha256,
             "status": self.status,
         }
 
@@ -257,6 +362,7 @@ class StageManifest:
             relevant_config_fingerprint=payload["relevant_config_fingerprint"],
             rig_overrides_sha256=payload["rig_overrides_sha256"],
             output_file_sha256=outputs,
+            output_inventory_sha256=payload["output_inventory_sha256"],
             status=payload["status"],
         )
 
@@ -284,6 +390,10 @@ def build_stage_manifest(
     marker_path = manifest_relative_path(stage)
     if marker_path in normalized_output_paths:
         raise StageManifestError(f"stage output cannot include its own commit marker: {marker_path}")
+    for output_path in normalized_output_paths:
+        owner = public_output_owner(output_path)
+        if owner is not None and owner != stage:
+            raise StageManifestError(f"stage {stage} cannot own {owner}-owned public output: {output_path}")
     try:
         outputs = tuple(describe_file(root, path) for path in sorted(normalized_output_paths))
     except ArtifactContractError as exc:
@@ -309,12 +419,17 @@ def build_stage_manifest(
         relevant_config_fingerprint=relevant_config_fingerprint,
         rig_overrides_sha256=rig_overrides_sha256,
         output_file_sha256=outputs,
+        output_inventory_sha256=_output_inventory_sha256(outputs),
         status=status,
     )
 
 
 def write_stage_manifest(root: str | Path, manifest: StageManifest) -> Path:
     item_root = Path(root)
+    marker = item_root / Path(*manifest_relative_path(manifest.stage_name).split("/"))
+    marker.unlink(missing_ok=True)
+    declared_paths = tuple(item.path for item in manifest.output_file_sha256)
+    _remove_obsolete_public_outputs(item_root, manifest.stage_name, declared_paths)
     for expected in manifest.output_file_sha256:
         try:
             actual = describe_file(item_root, expected.path)
@@ -322,7 +437,12 @@ def write_stage_manifest(root: str | Path, manifest: StageManifest) -> Path:
             raise StageManifestError(str(exc)) from exc
         if actual != expected:
             raise StageManifestError(f"stage output changed before commit: {expected.path}")
-    marker = item_root / Path(*manifest_relative_path(manifest.stage_name).split("/"))
+    actual_public = set(scan_stage_public_output_paths(item_root, manifest.stage_name))
+    declared_public = {
+        path for path in declared_paths if public_output_owner(path) == manifest.stage_name
+    }
+    if actual_public != declared_public:
+        raise StageManifestError("stage public output namespace does not match the declared inventory")
     atomic_write_json(marker, manifest.to_dict())
     return marker
 

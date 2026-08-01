@@ -138,7 +138,6 @@ def finalize_valid_item(root: Path):
         global_symbol_table_sha256=digest("symbols"),
     )
     expected = {stage: manifest.stage_fingerprint for stage, manifest in manifests.items()}
-    expected["G"] = result.g_manifest.stage_fingerprint
     return manifests, result, expected
 
 
@@ -173,6 +172,22 @@ def test_completion_revalidates_exporter_artifacts_not_just_marker_existence(tmp
 
     assert item_path(tmp_path, EXPORT_MANIFEST_PATH).exists()
     assert is_item_completed(tmp_path, expected_stage_fingerprints=expected) is False
+
+
+def test_completion_rejects_undeclared_exporter_artifact(tmp_path: Path) -> None:
+    _, _, expected = finalize_valid_item(tmp_path)
+    stale = item_path(tmp_path, "rig/spine/textures/page_9.png")
+    stale.write_bytes(b"stale")
+
+    assert is_item_completed(tmp_path, expected_stage_fingerprints=expected) is False
+
+
+def test_completion_fingerprint_contract_rejects_terminal_fingerprint(tmp_path: Path) -> None:
+    _, result, expected = finalize_valid_item(tmp_path)
+    expected_with_g = {**expected, "G": result.g_manifest.stage_fingerprint}
+
+    with pytest.raises(TerminalFinalizationError, match="exactly A, B, C, D, and E"):
+        is_item_completed(tmp_path, expected_stage_fingerprints=expected_with_g)
 
 
 def test_completion_rejects_tampered_export_manifest(tmp_path: Path) -> None:

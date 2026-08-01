@@ -4,18 +4,19 @@
 
 **Goal:** Build the deterministic artifact, stage-manifest, resume-validation, and terminal-finalization foundation required by the accepted auto-rig design before geometry or format exporters are allowed to write public outputs.
 
-**Architecture:** Add a dependency-light `module.auto_rig` package. Canonical JSON and hashing form the bottom layer; strict immutable stage manifests sit above it; `StageGraphValidator` validates the A-E/G DAG and output ownership; the G finalizer is the only writer of the mutually exclusive public terminal artifacts. The first slice deliberately does not infer joints, build meshes, or claim Spine/Live2D delivery.
+**Architecture:** Add a dependency-light `module.auto_rig` package. Canonical JSON and hashing form the bottom layer; strict immutable stage manifests and exact owner-public inventories sit above it; `StageGraphValidator` validates the A-E/G DAG, freshness, byte digests, and output ownership; the G finalizer is the only writer of the mutually exclusive public terminal artifacts. The first slice deliberately does not infer joints, build meshes, or claim Spine/Live2D delivery.
 
 **Tech Stack:** Python 3.10 standard library, frozen dataclasses, pathlib, hashlib, pytest.
 
 ## Global Constraints
 
-- Follow `docs/superpowers/specs/2026-07-31-auto-rig-from-see-through-layers-design.md` Revision 13.
+- Follow `docs/superpowers/specs/2026-07-31-auto-rig-from-see-through-layers-design.md` Revision 20. This plan implements only the foundation contracts; later A-E plans remain responsible for their full Revision 20 payload schemas and runtime gates.
 - Keep model revisions and model quantization out of this implementation.
 - Do not add preview, GIF, WebM, interactive editing, or partial-delivery semantics.
 - A-E/G output ownership is strict. A path may be owned by exactly one stage.
 - C remains the only future writer of `rig.json`; G is the only writer of `export_manifest.json` and `error.json`.
 - `skip_completed` must be based on recursive manifest and artifact validation, never file existence.
+- Recovery safety comes from opening and hashing every declared artifact plus scanning exact public inventories on every validation. Do not replace this with mtime/size shortcuts; commit-marker ordering alone is not a durability proof.
 - All JSON fingerprints use canonical ASCII JSON, sorted keys, compact separators, finite numeric values, and `sha256:<hex>` strings.
 - Production code is written only after its focused test has failed for the expected reason.
 - The existing see-through baseline must remain green in the isolated `.venv`.
@@ -272,6 +273,151 @@ Confirm no main-worktree user files, model revisions, or unrelated metadata were
 git add module/auto_rig/__init__.py tests/test_auto_rig_public_api.py docs/superpowers/plans/2026-08-01-auto-rig-foundation-implementation.md
 git commit -m "test: gate auto-rig foundation contracts"
 ```
+
+---
+
+### Task 6: Revision 17 Resume And Inventory Hardening
+
+**Files:**
+- Modify: `module/auto_rig/artifacts.py`
+- Modify: `module/auto_rig/manifests.py`
+- Modify: `module/auto_rig/stage_graph.py`
+- Modify: `module/auto_rig/terminal.py`
+- Modify: `tests/test_auto_rig_manifests.py`
+- Modify: `tests/test_auto_rig_stage_graph.py`
+- Modify: `tests/test_auto_rig_terminal.py`
+- Modify: `docs/superpowers/specs/2026-07-31-auto-rig-from-see-through-layers-design.md`
+
+- [x] **Step 1: Reproduce the A-E/G fingerprint mismatch**
+
+Create a completed fixture, pass the exact A-E mapping accepted by `finalize_success`, and confirm the old
+`is_item_completed` returns false while adding stored G returns true.
+
+- [x] **Step 2: Write failing inventory and terminal regression tests**
+
+Require `output_inventory_sha256`, obsolete owner files to be removed before commit, undeclared C/D/E/G public files
+to invalidate resume, A-E-only completion to succeed, and a caller-supplied G fingerprint to fail as a programmer
+contract error.
+
+- [x] **Step 3: Separate release freshness from terminal integrity**
+
+The scheduler supplies exactly A-E expected fingerprints. `StageGraphValidator` checks that explicit freshness scope;
+G remains fully rehashed and its semantic freshness is independently reconstructed from the terminal payload and
+current C/D/E graph.
+
+- [x] **Step 4: Add exact owner-public inventories**
+
+Bump the strict manifest schema, derive a canonical inventory digest from the sorted file records, centralize C/D/E/G
+public ownership, remove obsolete files before marker commit, and report undeclared public artifacts during recursive
+validation.
+
+- [x] **Step 5: Record the crash-recovery invariant**
+
+Document in code, plan, and spec that `os.replace` ordering is not the correctness boundary: every resume reopens and
+hashes bytes and rescans the owner namespace.
+
+- [x] **Step 6: Run all foundation/regression/static checks**
+
+Run the focused auto-rig suite, the existing see-through suite, `compileall`, Ruff, `git diff --check`, and spec
+structure/encoding checks before marking this task complete.
+
+---
+
+### Task 7: Revision 18 NativeVariant Envelope Correction (Historical)
+
+**Files:**
+- Modify: `docs/superpowers/specs/2026-07-31-auto-rig-from-see-through-layers-design.md`
+- Modify: `docs/superpowers/plans/2026-08-01-auto-rig-foundation-implementation.md`
+
+- [x] **Step 1: Reproduce the mouth-open impossibility algebraically**
+
+With `mass_B=200`, `mass_V=2000`, and legitimate face expansion near 1000 alpha-pixels, confirm the Revision 17
+`min(mass_V,mass_B)` denominator produces a ratio near 5 and can never satisfy `≤0.01`.
+
+- [x] **Step 2: Split scale and intrusion contracts**
+
+Freeze role-aware `alpha_mass_ratio≤k_role` separately from `Σ(a_Va_U)/mass_V≤0.01`; distinguish
+support-preserving eye variants from support-expanding mouth variants.
+
+- [x] **Step 3: Replace canvas-relative preserving-role context radius**
+
+Use a feature-mass square-root scale with deterministic rounding and role-specific clamps for blink. Coupled eyes are
+evaluated per component branch rather than from combined mass. Revision 18's interim `null` context for expanding mouth
+roles was later shown to make face authorization self-referential; Task 8 supersedes its authorization topology, Task 9
+supersedes the scale estimator. Both later tasks together are the implementation source of truth.
+
+- [x] **Step 4: Add fixtures and production calibration gate**
+
+Require thin-line-to-open-mouth, oversized-face, protected-feature intrusion, resolution-independence, and clamp
+mutation fixtures. Keep v1 constants immutable at runtime but require real-data distribution/false-rejection evidence
+before native delivery is claimed.
+
+---
+
+### Task 8: Revision 19 NativeVariant Base-Anchored Authorization (Scale Superseded)
+
+**Files:**
+- Modify: `docs/superpowers/specs/2026-07-31-auto-rig-from-see-through-layers-design.md`
+- Modify: `docs/superpowers/plans/2026-08-01-auto-rig-foundation-implementation.md`
+
+- [x] **Step 1: Prove and remove the self-referential authorization**
+
+Show that authorizing face on `support(a_V)` removes face from an `a_V`-weighted intrusion integral. Require every
+role's authorization mask to depend only on frozen base geometry and registry policy; variant pixels remain measurements,
+never inputs to their own admissible domain.
+
+- [x] **Step 2: Unify authorization topology around the base**
+
+For preserving and expanding roles alike, authorize only base parts plus
+`face ∩ dilate(support(a_B), base_context_radius)`. This authorization topology remains current. Revision 19's
+role-specific scale estimator does not; Task 9 is the implementation source of truth for radius calculation.
+
+- [x] **Step 3: Give thin-line mouth bases a usable independent scale**
+
+Retain `sqrt(mass_B)` for eye roles, but derive mouth-form/open radius from the cleaned base support bbox long-axis span.
+Freeze deterministic rational coefficients and clamps: eye `0.20,2..12 px`, mouth-form `0.25,4..24 px`, mouth-open
+`0.60,8..48 px`. This was the Revision 19 interim estimator and must not be implemented after Task 9. Keep `k_role` as
+an independent mass ceiling rather than treating it as spatial authorization.
+
+- [x] **Step 4: Add adversarial geometry fixtures and calibration gate**
+
+Verify a legitimate `66 px` mouth base yields `17 px` form and `40 px` open envelopes. Reject an `11×mass_B` cheek
+patch whose alpha extends outside the base envelope even when it avoids nose/eyebrow, plus mutations that restore
+`support(a_V)` authorization. Require real-data false-positive/false-negative statistics before these v1 constants can
+gate formal native delivery. The `66/17/40` scale fixture is historical and is replaced by Task 9; only the base-anchored
+authorization and cheek rejection remain current.
+
+---
+
+### Task 9: Revision 20 NativeVariant Common Scale And Intrusion Attribution
+
+**Files:**
+- Modify: `docs/superpowers/specs/2026-07-31-auto-rig-from-see-through-layers-design.md`
+- Modify: `docs/superpowers/plans/2026-08-01-auto-rig-foundation-implementation.md`
+
+- [x] **Step 1: Separate physical units from estimator semantics**
+
+Record that `sqrt(alpha mass)` and bbox span are both pixel lengths but are not comparable statistical scales. Remove the
+mouth-only span estimator so all role multipliers operate on one common base-equivalent length.
+
+- [x] **Step 2: Freeze one scale kernel and recalibrate policy constants**
+
+Use `feature_scale_B=sqrt(mass_B)` for every role. Freeze rational `c_role` values `0.20/1.00/2.00` for eye,
+mouth-form, and mouth-open while retaining their existing pixel clamps and independent `k_role` ceilings. Reject any
+registry row that overrides the common estimator or derives radius from bbox/variant geometry.
+
+- [x] **Step 3: Add scale comparability and robustness fixtures**
+
+For `mass_B=200`, require eye/form/open radii `3/14/28 px`. Require equal alpha mass with different bbox spans to
+produce identical radii, and retain aspect-ratio-bucketed real-data calibration because `r_min` is not a proof for
+arbitrarily long, thin mouth supports.
+
+- [x] **Step 4: Replace the misleading face-only diagnostic**
+
+Remove `face_alpha_outside_envelope`. Persist every ordinary prefix Part, including zero intrusion contributions, in
+stable Part-ID order plus separate face/other aggregate ratios; validators require exact set coverage and both aggregate
+and per-Part sums to close to `occlusion_intrusion`.
+Face-only, nose-only, mixed, reordered-input, and forbidden top-N fixtures cover the reporting contract.
 
 ---
 

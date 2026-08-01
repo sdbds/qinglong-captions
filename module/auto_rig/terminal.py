@@ -125,19 +125,32 @@ class TerminalFinalizationResult:
     payload: Mapping[str, Any]
 
 
-def _validate_preterminal_graph(
-    item_root: Path,
+def _require_release_stage_fingerprints(
     expected_stage_fingerprints: Mapping[str, str],
-) -> dict[str, StageManifest]:
+) -> dict[str, str]:
     missing_expected = set(_RELEASE_STAGES) - set(expected_stage_fingerprints)
     extra_expected = set(expected_stage_fingerprints) - set(_RELEASE_STAGES)
     if missing_expected or extra_expected:
         raise TerminalFinalizationError("expected_stage_fingerprints must contain exactly A, B, C, D, and E")
+    return {
+        stage: _require_digest(
+            expected_stage_fingerprints[stage],
+            field=f"expected_stage_fingerprints.{stage}",
+        )
+        for stage in _RELEASE_STAGES
+    }
+
+
+def _validate_preterminal_graph(
+    item_root: Path,
+    expected_stage_fingerprints: Mapping[str, str],
+) -> dict[str, StageManifest]:
+    expected = _require_release_stage_fingerprints(expected_stage_fingerprints)
 
     validator = StageGraphValidator(item_root)
     results = (
-        validator.validate(target_stage="D", expected_fingerprints=expected_stage_fingerprints),
-        validator.validate(target_stage="E", expected_fingerprints=expected_stage_fingerprints),
+        validator.validate(target_stage="D", expected_fingerprints=expected),
+        validator.validate(target_stage="E", expected_fingerprints=expected),
     )
     issues = {(issue.code, issue.stage_name, issue.path, issue.detail) for result in results for issue in result.issues}
     if issues:
@@ -550,6 +563,7 @@ def is_item_completed(
     expected_stage_fingerprints: Mapping[str, str],
 ) -> bool:
     root = Path(item_root)
+    expected = _require_release_stage_fingerprints(expected_stage_fingerprints)
     if not _item_path(root, EXPORT_MANIFEST_PATH).is_file():
         return False
     if _item_path(root, ERROR_RECORD_PATH).exists():
@@ -557,7 +571,8 @@ def is_item_completed(
     try:
         result = StageGraphValidator(root).validate(
             target_stage="G",
-            expected_fingerprints=expected_stage_fingerprints,
+            expected_fingerprints=expected,
+            required_fingerprint_stages=_RELEASE_STAGES,
         )
     except (OSError, ValueError):
         return False

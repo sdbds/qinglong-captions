@@ -120,6 +120,34 @@ def test_release_graph_reports_changed_output_bytes(tmp_path: Path) -> None:
     assert "output_digest_mismatch" in issue_codes(result)
 
 
+@pytest.mark.parametrize(
+    "owner,relative_path",
+    [
+        ("C", "rig/shared/textures/page_9.png"),
+        ("D", "rig/spine/textures/page_9.png"),
+        ("E", "rig/live2d/motions/stale.motion3.json"),
+        ("G", "rig/error.json"),
+    ],
+)
+def test_release_graph_rejects_undeclared_file_in_owner_public_namespace(
+    tmp_path: Path,
+    owner: str,
+    relative_path: str,
+) -> None:
+    manifests = write_release_graph(tmp_path)
+    stale = tmp_path / Path(*relative_path.split("/"))
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_bytes(b"stale")
+
+    result = StageGraphValidator(tmp_path).validate(
+        target_stage="G",
+        expected_fingerprints=expected_fingerprints(manifests),
+    )
+
+    extras = [issue for issue in result.issues if issue.code == "undeclared_public_output"]
+    assert [(issue.stage_name, issue.path) for issue in extras] == [(owner, relative_path)]
+
+
 def test_release_graph_reports_expected_fingerprint_mismatch(tmp_path: Path) -> None:
     manifests = write_release_graph(tmp_path)
     expected = expected_fingerprints(manifests)

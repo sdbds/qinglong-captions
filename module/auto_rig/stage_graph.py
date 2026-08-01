@@ -11,7 +11,9 @@ from .manifests import (
     StageManifest,
     StageManifestError,
     manifest_relative_path,
+    public_output_owner,
     read_stage_manifest,
+    scan_stage_public_output_paths,
 )
 
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -131,9 +133,11 @@ class StageGraphValidator:
         *,
         target_stage: str = "G",
         expected_fingerprints: Mapping[str, str] | None = None,
+        required_fingerprint_stages: Iterable[str] | None = None,
     ) -> StageGraphResult:
         required = self._required_stages(target_stage)
         expected = self._normalize_expected_fingerprints(expected_fingerprints, required)
+        fingerprint_scope = self._normalize_fingerprint_scope(required_fingerprint_stages, required)
         manifests: dict[str, StageManifest] = {}
         issues: list[StageValidationIssue] = []
 
@@ -167,7 +171,7 @@ class StageGraphValidator:
             manifests[stage] = manifest
 
             expected_fingerprint = expected.get(stage)
-            if expected_fingerprint is None:
+            if stage in fingerprint_scope and expected_fingerprint is None:
                 issues.append(
                     StageValidationIssue(
                         code="expected_fingerprint_missing",
@@ -176,7 +180,7 @@ class StageGraphValidator:
                         detail="current code/config did not provide a stage fingerprint",
                     )
                 )
-            elif manifest.stage_fingerprint != expected_fingerprint:
+            elif stage in fingerprint_scope and manifest.stage_fingerprint != expected_fingerprint:
                 issues.append(
                     StageValidationIssue(
                         code="stage_fingerprint_mismatch",
@@ -254,12 +258,46 @@ class StageGraphValidator:
                 normalized[stage] = str(value)
         return normalized
 
+    def _normalize_fingerprint_scope(
+        self,
+        stages: Iterable[str] | None,
+        required: frozenset[str],
+    ) -> frozenset[str]:
+        if stages is None:
+            return required
+        try:
+            normalized = frozenset(stages)
+        except TypeError as exc:
+            raise StageGraphContractError("required_fingerprint_stages must be an iterable of stage names") from exc
+        unknown = normalized - set(self._nodes)
+        if unknown:
+            raise StageGraphContractError(f"fingerprint scope contains unknown stages: {sorted(unknown)}")
+        outside_graph = normalized - required
+        if outside_graph:
+            raise StageGraphContractError(
+                f"fingerprint scope contains stages outside the target graph: {sorted(outside_graph)}"
+            )
+        return normalized
+
     def _validate_outputs(
         self,
         manifest: StageManifest,
         issues: list[StageValidationIssue],
     ) -> None:
+        declared_public: set[str] = set()
         for expected in manifest.output_file_sha256:
+            owner = public_output_owner(expected.path)
+            if owner is not None and owner != manifest.stage_name:
+                issues.append(
+                    StageValidationIssue(
+                        code="public_output_owner_mismatch",
+                        stage_name=manifest.stage_name,
+                        path=expected.path,
+                        detail=f"path belongs to stage {owner}'s public namespace",
+                    )
+                )
+            elif owner == manifest.stage_name:
+                declared_public.add(expected.path)
             try:
                 actual = describe_file(self.item_root, expected.path)
             except ArtifactContractError as exc:
@@ -281,6 +319,27 @@ class StageGraphValidator:
                         detail="declared output size or SHA-256 differs from disk",
                     )
                 )
+
+        try:
+            actual_public = set(scan_stage_public_output_paths(self.item_root, manifest.stage_name))
+        except StageManifestError as exc:
+            issues.append(
+                StageValidationIssue(
+                    code="public_output_inventory_unreadable",
+                    stage_name=manifest.stage_name,
+                    detail=str(exc),
+                )
+            )
+            return
+        for path in sorted(actual_public - declared_public):
+            issues.append(
+                StageValidationIssue(
+                    code="undeclared_public_output",
+                    stage_name=manifest.stage_name,
+                    path=path,
+                    detail="owner public namespace contains a file absent from output_file_sha256",
+                )
+            )
 
     def _validate_upstream_marker_digests(
         self,
