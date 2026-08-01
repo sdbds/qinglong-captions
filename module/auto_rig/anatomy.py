@@ -163,6 +163,69 @@ class AnatomyMaskGeometry:
         raise KeyError(metric_id)
 
 
+def validate_anatomy_mask_geometry(
+    anatomy: AnatomyMaskGeometry,
+) -> AnatomyMaskGeometry:
+    """Validate the semantic plan and its in-memory tight binary masks."""
+
+    import numpy as np
+
+    if not isinstance(anatomy, AnatomyMaskGeometry):
+        raise _error("anatomy geometry must use AnatomyMaskGeometry")
+    plan = anatomy.plan
+    if plan.schema_version != ANATOMY_MASK_PLAN_VERSION:
+        raise _error("unsupported anatomy mask plan version")
+    if plan.registry != _registry():
+        raise _error("anatomy mask registry differs from the built-in contract")
+    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
+        raise _error("anatomy mask plan digest mismatch")
+    metric_ids = tuple(metric.metric_id for metric in plan.metrics)
+    mask_ids = tuple(mask.metric_id for mask in anatomy.masks)
+    if metric_ids != mask_ids or len(metric_ids) != len(set(metric_ids)):
+        raise _error("anatomy metric and runtime mask inventories differ")
+    for metric, mask in zip(plan.metrics, anatomy.masks, strict=True):
+        if metric.status == "missing":
+            if (
+                metric.bbox is not None
+                or metric.pixel_count != 0
+                or metric.x_sum != 0
+                or metric.y_sum != 0
+                or metric.cleaned_binary_mask_sha256 is not None
+                or mask.bbox is not None
+                or mask.width != 0
+                or mask.height != 0
+                or mask.binary_mask_u8
+            ):
+                raise _error(f"missing anatomy metric has pixels: {metric.metric_id}")
+            continue
+        if metric.status != "available" or metric.bbox is None:
+            raise _error(f"anatomy metric status is invalid: {metric.metric_id}")
+        if mask.bbox != metric.bbox or (mask.width, mask.height) != (
+            metric.width,
+            metric.height,
+        ):
+            raise _error(f"anatomy metric geometry differs from pixels: {metric.metric_id}")
+        if len(mask.binary_mask_u8) != mask.width * mask.height:
+            raise _error(f"anatomy metric pixel count is malformed: {metric.metric_id}")
+        values = np.frombuffer(mask.binary_mask_u8, dtype=np.uint8).reshape(
+            mask.height,
+            mask.width,
+        )
+        if not np.all((values == 0) | (values == 1)):
+            raise _error(f"anatomy metric pixels are not binary: {metric.metric_id}")
+        digest = f"sha256:{hashlib.sha256(mask.binary_mask_u8).hexdigest()}"
+        ys, xs = np.nonzero(values)
+        x1, y1 = metric.bbox[:2]
+        if (
+            digest != metric.cleaned_binary_mask_sha256
+            or int(values.sum()) != metric.pixel_count
+            or int(xs.sum()) + x1 * metric.pixel_count != metric.x_sum
+            or int(ys.sum()) + y1 * metric.pixel_count != metric.y_sum
+        ):
+            raise _error(f"anatomy metric pixels disagree with plan: {metric.metric_id}")
+    return anatomy
+
+
 def _error(message: str) -> AnatomyMaskError:
     return AnatomyMaskError("invalid_anatomy_mask_plan", message)
 
@@ -380,4 +443,5 @@ __all__ = [
     "AnatomyMaskRegistry",
     "LimbStateRecord",
     "build_anatomy_mask_geometry",
+    "validate_anatomy_mask_geometry",
 ]

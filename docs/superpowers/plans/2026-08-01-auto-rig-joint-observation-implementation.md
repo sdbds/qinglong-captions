@@ -28,9 +28,9 @@
 
 ### Task 2: Torso And Head Geometry Observations
 
-- [ ] Freeze cross-section/contact/geodesic-axis constants and dependency versions.
-- [ ] Generate pelvis/spine/neck/shoulder/hip plus head-base/head-top evidence without bbox-center shortcuts.
-- [ ] Add rotated, gapped-contact, hair-exclusion, missing-mask, and fragmented-head fixtures.
+- [x] Freeze cross-section/contact/geodesic-axis constants and dependency versions.
+- [x] Generate pelvis/spine/neck/shoulder/hip plus head-base/head-top evidence without bbox-center shortcuts.
+- [x] Add rotated, gapped-contact, hair-exclusion, missing-mask, and fragmented-head fixtures.
 
 ### Task 3: Limb Skeleton And Contact Observations
 

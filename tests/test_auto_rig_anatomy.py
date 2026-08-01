@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from module.auto_rig.anatomy import (
     ANATOMY_MASK_REGISTRY_VERSION,
     AnatomyMaskError,
     build_anatomy_mask_geometry,
+    validate_anatomy_mask_geometry,
 )
 from module.auto_rig.component_geometry import load_component_geometry
 from module.auto_rig.component_plan import (
@@ -216,3 +218,34 @@ def test_anatomy_rejects_duplicate_loaded_part_ids(tmp_path: Path) -> None:
 def test_anatomy_rejects_untrusted_geometry_records() -> None:
     with pytest.raises(AnatomyMaskError, match="authenticated"):
         build_anatomy_mask_geometry((object(),), canvas_edge=768)
+
+
+def test_anatomy_validator_rejects_plan_or_runtime_mask_mutation(tmp_path: Path) -> None:
+    anatomy = _geometry(
+        tmp_path,
+        _part(
+            "face",
+            xyxy=(10, 10, 14, 14),
+            points=_rectangle(4, 4),
+        ),
+    )
+    validate_anatomy_mask_geometry(anatomy)
+
+    with pytest.raises(AnatomyMaskError, match="digest"):
+        validate_anatomy_mask_geometry(
+            replace(
+                anatomy,
+                plan=replace(anatomy.plan, plan_sha256="sha256:" + "0" * 64),
+            )
+        )
+
+    masks = list(anatomy.masks)
+    head_index = next(
+        index for index, mask in enumerate(masks) if mask.metric_id == "mask/head_core"
+    )
+    masks[head_index] = replace(
+        masks[head_index],
+        binary_mask_u8=b"\x00" + masks[head_index].binary_mask_u8[1:],
+    )
+    with pytest.raises(AnatomyMaskError, match="pixels"):
+        validate_anatomy_mask_geometry(replace(anatomy, masks=tuple(masks)))

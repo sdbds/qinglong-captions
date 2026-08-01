@@ -11,6 +11,7 @@ from .anatomy import (
     AnatomyMaskRegistry,
     LimbStateRecord,
     build_anatomy_mask_geometry,
+    validate_anatomy_mask_geometry,
 )
 from .artifacts import (
     ArtifactContractError,
@@ -22,6 +23,15 @@ from .artifacts import (
     describe_file,
     normalize_relative_path,
     sha256_file,
+)
+from .axial_geometry import (
+    AXIAL_JOINT_GEOMETRY_VERSION,
+    GEOMETRY_EVIDENCE_BATCH_VERSION,
+    AxialGeometryDescriptor,
+    AxialGeometryError,
+    GeometryEvidenceBatch,
+    GeometryEvidenceDiagnostic,
+    build_axial_joint_evidence,
 )
 from .component_geometry import (
     COMPONENT_GEOMETRY_LOADER_VERSION,
@@ -394,4 +404,12 @@ __all__ = [
     "build_override_joint_observations",
     "make_joint_observation",
     "resolve_joint_observations",
+    "AXIAL_JOINT_GEOMETRY_VERSION",
+    "GEOMETRY_EVIDENCE_BATCH_VERSION",
+    "AxialGeometryDescriptor",
+    "AxialGeometryError",
+    "GeometryEvidenceBatch",
+    "GeometryEvidenceDiagnostic",
+    "build_axial_joint_evidence",
+    "validate_anatomy_mask_geometry",
 ]
