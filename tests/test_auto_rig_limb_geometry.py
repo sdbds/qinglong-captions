@@ -219,3 +219,4 @@ def test_limb_geometry_does_not_split_a_merged_ambiguous_arm(tmp_path: Path) -> 
             record = eligibility[f"joint/{joint}.{side}"]
             assert record.status == "ambiguous"
             assert record.reason == "merged_limb"
+            assert "mask/limb/handwear.merged" in record.evidence_ids

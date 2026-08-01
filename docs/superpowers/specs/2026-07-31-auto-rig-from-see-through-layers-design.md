@@ -2,7 +2,7 @@
 
 ## Status
 
-**Revision 23，Stage A 左右可观测性契约已修正：上游允许 `-r/-l` 后缀的 tag 集合与 A 可从可靠双组件推导 image-side 的 family 集合不再混用；Live2D frame contract 继续使用 Revision 22 由官方 Cubism SDK for Native 5-r.5、Core 06.00.0001 和 D3D11 WARP 签署的结果。NativeVariant 契约保持 Revision 20。正式交付仍为 Spine 4.2 + Live2D runtime；SDK/Core 不随 Python 包分发，组织是否需要另行取得 Release License 仍是发布前外部合规门。**
+**Revision 24，Stage A 关节证据链已冻结：axial/limb 几何、可选 pose batch、authoritative override 与确定性 resolver 现在组成一个可摘要、可复验的 `StageAJointPlan v1`；pose 默认关闭，未通过 anatomy evidence gate 的 pose/override 不得进入 resolver。Live2D frame contract 继续使用 Revision 22 由官方 Cubism SDK for Native 5-r.5、Core 06.00.0001 和 D3D11 WARP 签署的结果。NativeVariant 契约保持 Revision 20。正式交付仍为 Spine 4.2 + Live2D runtime；SDK/Core 不随 Python 包分发，组织是否需要另行取得 Release License 仍是发布前外部合规门。**
 
 本文覆盖三件事：
 
@@ -577,6 +577,15 @@ capability 和 exporter 执行顺序都不得改变同一 typed key 的 namespac
 | 审查项 | 核对结论 | Revision 23 处理 |
 |---|---|---|
 | A 复用上游 `V3_SPLIT_FAMILIES` 决定哪些 mask 可按可靠双组件推导左右 | **错误。** `legwear/footwear` 在 v3 不能带 `-r/-l` 后缀，但这不代表其两个可靠连通域没有 image-side 证据；直接复用会让腿、脚永远不可能成为 `merged-separable` | 拆成两个 registry：canonical tag registry 继续只约束合法上游 suffix；`MaskSideClassifier v2` 的 geometry-side family 为 `V3_SPLIT_FAMILIES ∪ {legwear, footwear}`。只有恰好两个通过面积门且质心 x 可严格排序的组件才生成 `.xmin/.xmax`，否则保持 `merged-ambiguous` |
+
+### Revision 24 Stage A 关节证据实现复审
+
+| 实现项 | 核对结论 | Revision 24 处理 |
+|---|---|---|
+| geometry factor 的 `branch_ratio` 是否可反向写成“无支路置信度” | **不可以。** 字段名表达的是次长/最长 geodesic endpoint path 的原始比值；反写 `1-ratio` 会让阈值、报告与字段语义互相矛盾 | `limb-joint-geometry-v1` 保存原始 `[0,1]` 比值，值越高表示端点竞争越强；是否通过 hand-tip/toe gate 由 descriptor 阈值单独决定，不把它伪装成总置信度 |
+| merged limb 的 eligibility 是否可继续引用不存在的 sided mask | **不可以。** 这样 pose/override anatomy gate 永远找不到可验证 support | `merged_limb` 证据改为真实的 `mask/limb/<family>.merged`；它仍不允许 geometry 强拆双侧，但可供显式 pose/override 做 support 校验 |
+| override 与 `missing` eligibility 的优先级 | resolver 层继续兑现“合法 override 无条件优先”；但 Stage A 在进入 resolver 前先校验 target identity、anatomy support 与 `allow_outside`。没有显式 opt-in 的无 support override 直接拒绝 | `observation-anatomy-validator-v1` 固定 evidence-mask 距离门；显式 `allow_outside=true` 的 joint 无论最后是否仍落在 support 内都写入 warning set，避免人工授权在缓存/报告中消失 |
+| pose backend 是否成为默认依赖 | **否。** provider 输出必须封装为 `PoseObservationBatch v1`，携带 provider/preprocess fingerprint、anatomy plan digest 与原始 model score；batch 缺失即生成确定性的 disabled identity | `StageAJointPlan v1` 合并 axial、limb、pose、override 原始 observations 与全部 resolved/unresolved/missing 结果；validator 重算嵌套摘要、source projection 和 resolver 结果，exporter 只消费该计划 |
 
 ### 决策摘要
 
@@ -1693,13 +1702,17 @@ mask 内距和左右一致性。每个因素单独记录，避免一个神秘总
 
 SimCC raw score 与 geometry confidence 不在同一标度，禁止直接加权平均。首版用确定性决策表：
 
-1. override 合法时无条件优先；
+1. target-bound override 先通过 `observation-anatomy-validator-v1`；在 anatomy support 外的坐标只有显式
+   `allow_outside=true` 才合法，合法后无条件优先，且授权 ID 必须进入 warning set；
 2. geometry 高置信度时采用 geometry；
 3. geometry 低置信度、pose 通过自身阈值和 mask/骨长校验时，采用 pose 并投影到合法区域；
 4. 两者都有效但差异超过局部肢体宽度阈值时，标记 `unresolved/pose_disagreement`；
-5. 部件不存在时不创建相关 joint/bone；存在但求解失败时保留 unresolved，绝不填画布中心。
+5. 部件不存在时 geometry/pose 不创建相关 joint/bone；存在但求解失败时保留 unresolved，绝不填画布中心。
+   唯一例外是通过 target/anatomy gate 的显式 override，它可以补齐缺失关节，但不能由 resolver 自己猜出。
 
-固定“膨胀 8px”也与分辨率绑定，改成 `max(2px, k × local_limb_radius)` 并设置相对上限。
+固定“膨胀 8px”也与分辨率绑定。`observation-anatomy-validator-v1` 固定使用
+`min(max(2px, 1.0 × local_limb_radius), 0.05 × canvas_edge)`；没有局部半径时只给 2px 数值余量，
+没有任何可用 evidence mask 时视为在 support 外。该门同时用于 pose 与 override，不能由 provider 名称绕过。
 
 ### 姿态后端：可插拔，SDPose-OOD 优先评测，RTMW-l 备选
 
@@ -1975,7 +1988,9 @@ target fingerprint 不匹配默认拒绝应用，防止把 A 图的 override 套
 `RigDocument.input_fingerprint` 与成功 `export_manifest.input_fingerprint` 使用同一个 target-input 定义；
 失败 terminal 改用 nullable `target_input_fingerprint` 加必填 `observed_input_set_sha256`，因为 early-A 错误可能
 根本无法形成 canonical target。native variants、config 与 override 摘要始终放在各自字段，不能悄悄并入后还保留同名字段。
-override 后重新做 mask/骨长校验；确需放在 mask 外必须显式 `allow_outside=true`，并写 warning。
+override 后分两层复核：A 的 `observation-anatomy-validator-v1` 先做 mask-support 距离校验；B 在
+`BoneSpec` 拓扑和相邻 resolved joint 已形成后再做骨长/零长度校验。确需放在 mask 外必须显式
+`allow_outside=true` 并写 warning；该标志只授权 mask 外坐标，不跳过 B 的骨长门。
 文件摘要变化使 joints 及之后阶段失效。
 
 NativeVariant 的 role/base/draw 关系只来自上一节的独立 manifest，不放进 override 形成第二套映射。

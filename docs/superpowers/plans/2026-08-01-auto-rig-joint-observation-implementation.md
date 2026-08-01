@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Follow design spec Revision 23.
+- Follow design spec Revision 24.
 - `xmin/xmax` are image-side labels, never anatomical left/right.
 - Override > high-confidence geometry > validated pose > weak length prior. Geometry factors and pose scores remain separate fields.
 - Missing parts produce `missing`; present but ambiguous/unsolved evidence produces `unresolved`; neither may become canvas-center coordinates.
@@ -40,6 +40,12 @@
 
 ### Task 4: Stage A Joint Plan Integration
 
-- [ ] Convert validated overrides to authoritative observations and reserve pose-provider injection without enabling a default model.
-- [ ] Build the complete joint plan from anatomy + optional pose + overrides; persist all unresolved reasons.
-- [ ] Export public records/builders and run SDK-backed regressions before committing.
+- [x] Convert validated overrides to authoritative observations and reserve pose-provider injection without enabling a default model.
+- [x] Build the complete joint plan from anatomy + optional pose + overrides; persist all unresolved reasons.
+- [x] Export public records/builders and run SDK-backed regressions before committing.
+
+## Verification
+
+- Focused joint resolver/axial/limb/pipeline/public API suites: passed.
+- Official SDK-backed auto-rig suite with Cubism Native 5-r.5 Core and E0 renderer: `480 passed, 4 skipped`.
+- Ruff, `compileall`, and `git diff --check`: passed.

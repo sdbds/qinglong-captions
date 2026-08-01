@@ -220,6 +220,33 @@ def test_override_observation_is_authoritative_over_geometry_and_pose(tmp_path: 
     assert (resolved.x, resolved.y) == (300.0, 310.0)
 
 
+def test_override_observation_precedes_missing_geometry_eligibility(
+    tmp_path: Path,
+) -> None:
+    target = _target(tmp_path)
+    payload = _payload(target.target_input_fingerprint)
+    payload["joints"] = {"joint/elbow.xmin": {"x": 300, "y": 310}}
+    _write_override(tmp_path, payload)
+    overrides = validate_rig_override_source(load_rig_override_source(tmp_path), target)
+    override = build_override_joint_observations(
+        overrides,
+        canvas_width=768,
+        canvas_height=768,
+    )[0]
+
+    plan = resolve_joint_observations(
+        _eligibilities(),
+        (override,),
+        canvas_width=768,
+        canvas_height=768,
+    )
+    resolved = next(item for item in plan.resolutions if item.joint_id == "joint/elbow.xmin")
+
+    assert resolved.status == "resolved"
+    assert resolved.source == "override"
+    assert resolved.reason == "override_applied"
+
+
 def test_high_geometry_wins_without_mixing_pose_score_into_geometry_factors() -> None:
     geometry = _observation(
         "joint/knee.xmin", "geometry", 100, 100, confidence_class="high"

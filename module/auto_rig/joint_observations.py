@@ -386,13 +386,6 @@ def _resolve_one(
     eligibility: JointEligibility,
     candidates: tuple[JointObservation, ...],
 ) -> JointResolution:
-    if eligibility.status == "missing":
-        return _unresolved(
-            eligibility,
-            candidates,
-            status="missing",
-            reason=eligibility.reason,
-        )
     by_source = {item.source: item for item in candidates}
     override = by_source.get("override")
     if override is not None:
@@ -401,6 +394,13 @@ def _resolve_one(
             candidates=candidates,
             quality="authoritative",
             reason="override_applied",
+        )
+    if eligibility.status == "missing":
+        return _unresolved(
+            eligibility,
+            candidates,
+            status="missing",
+            reason=eligibility.reason,
         )
     geometry = by_source.get("geometry")
     pose = by_source.get("pose")

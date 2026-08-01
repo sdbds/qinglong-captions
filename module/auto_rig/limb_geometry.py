@@ -472,12 +472,16 @@ def build_limb_joint_evidence(
         arm_state = state_by_family["handwear"]
         shoulder = axial_observations.get(f"joint/shoulder.{side}")
         if arm_state.state == "merged-ambiguous":
+            merged_arm_evidence = (
+                "mask/limb/handwear.merged",
+                f"joint/shoulder.{side}",
+            )
             for joint_id in arm_ids:
                 unavailable(
                     joint_id,
                     status="ambiguous",
                     reason="merged_limb",
-                    evidence_ids=arm_evidence,
+                    evidence_ids=merged_arm_evidence,
                 )
         elif metric_by_id[arm_metric_id].status == "missing":
             for joint_id in arm_ids:
@@ -629,12 +633,16 @@ def build_limb_joint_evidence(
         leg_state = state_by_family["legwear"]
         hip = axial_observations.get(f"joint/hip.{side}")
         if leg_state.state == "merged-ambiguous":
+            merged_leg_evidence = (
+                "mask/limb/legwear.merged",
+                f"joint/hip.{side}",
+            )
             for joint_id in leg_ids:
                 unavailable(
                     joint_id,
                     status="ambiguous",
                     reason="merged_limb",
-                    evidence_ids=leg_evidence,
+                    evidence_ids=merged_leg_evidence,
                 )
             continue
         if metric_by_id[leg_metric_id].status == "missing":
