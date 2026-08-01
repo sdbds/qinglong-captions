@@ -1481,6 +1481,10 @@ digest 或 `upstream_manifests` 已传递覆盖的文件同理不重复列；`in
 
 对 A-F，只有 status 为 `stage_validated*`、manifest 匹配、所有输出存在且摘要/结构校验通过才可复用；
 G 只有 `completed*` 且整条 upstream DAG 同样有效时才可触发 completed skip，`failed` 终态从不复用为成功。
+`status` 是 stage 执行后的结果字段，由 manifest/graph validator 单独校验，**不进入**调用方在执行前计算的
+`stage_fingerprint`；否则 `stage_validated` 与 `stage_validated_with_degradation` 会让同一输入产生两个无法预先
+推导的 expected fingerprint。degradation 仍进入 G 的 terminal payload/fingerprint，并决定最终
+`completed` 或 `completed_with_degradation`，只是不能反向污染 A-E 的 resume key。
 任一 A-F stage 失败时必须先移除自己的旧 success manifest，再以 `StageFailureRecord v1` schema 原子写
 `rig/cache/<stage>/failure.json`；该文件不进入成功 manifest、不能命中 resume；A-E record 由 G 发布 error 后仍可删除重算，F record 不触发 G。
 上游 stage、配置、算法版本

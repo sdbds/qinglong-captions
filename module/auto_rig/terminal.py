@@ -17,6 +17,7 @@ from .artifacts import (
     sha256_file,
 )
 from .manifests import (
+    VALID_PRODUCTION_STAGE_STATUSES,
     StageManifest,
     StageManifestError,
     build_stage_manifest,
@@ -29,6 +30,7 @@ from .stage_graph import StageGraphValidator
 EXPORT_MANIFEST_PATH = "rig/export_manifest.json"
 ERROR_RECORD_PATH = "rig/error.json"
 TERMINAL_FINALIZER_VERSION = "terminal-finalizer-v1"
+TEXTURE_RUNTIME_CONTRACT_VERSION = "shared-texture-v1"
 FORMAL_REQUIRED_FORMATS = ("spine_4_2", "live2d_moc3_v4_00")
 _FORMAT_STAGE = {"spine_4_2": "D", "live2d_moc3_v4_00": "E"}
 _RELEASE_STAGES = ("A", "B", "C", "D", "E")
@@ -45,6 +47,10 @@ def _require_digest(value: Any, *, field: str) -> str:
     if not _SHA256_PATTERN.fullmatch(normalized):
         raise TerminalFinalizationError(f"{field} must be a lowercase sha256:<hex> digest")
     return normalized
+
+
+def _require_optional_digest(value: Any, *, field: str) -> str | None:
+    return None if value is None else _require_digest(value, field=field)
 
 
 def _require_nonempty(value: Any, *, field: str) -> str:
@@ -86,6 +92,73 @@ class FormatValidation:
         object.__setattr__(self, "status", status)
         object.__setattr__(self, "files", files)
         object.__setattr__(self, "validator_fingerprint", validator_fingerprint)
+
+
+@dataclass(frozen=True)
+class TextureRuntimeContract:
+    schema_version: str
+    canonical_uv_space: str
+    alpha_mode: str
+    color_space: str
+    spine_uv_adapter: str
+    spine_atlas_pma: bool
+    live2d_uv_adapter: str
+    live2d_runtime_loader_contract: str
+
+    def __post_init__(self) -> None:
+        expected = {
+            "schema_version": TEXTURE_RUNTIME_CONTRACT_VERSION,
+            "canonical_uv_space": "page_top_left_v_down",
+            "alpha_mode": "straight",
+            "color_space": "srgb_bytes",
+            "spine_uv_adapter": "spine-4.2-uv-v1",
+            "live2d_uv_adapter": "cubism-v4.00-uv-v1",
+        }
+        for field, value in expected.items():
+            if getattr(self, field) != value:
+                raise TerminalFinalizationError(
+                    f"texture contract {field} must be {value!r}"
+                )
+        if self.spine_atlas_pma is not False:
+            raise TerminalFinalizationError("texture contract spine_atlas_pma must be false")
+        object.__setattr__(
+            self,
+            "live2d_runtime_loader_contract",
+            _require_digest(
+                self.live2d_runtime_loader_contract,
+                field="live2d_runtime_loader_contract",
+            ),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "canonical_uv_space": self.canonical_uv_space,
+            "alpha_mode": self.alpha_mode,
+            "color_space": self.color_space,
+            "spine_uv_adapter": self.spine_uv_adapter,
+            "spine_atlas_pma": self.spine_atlas_pma,
+            "live2d_uv_adapter": self.live2d_uv_adapter,
+            "live2d_runtime_loader_contract": self.live2d_runtime_loader_contract,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Any) -> "TextureRuntimeContract":
+        fields = {
+            "schema_version",
+            "canonical_uv_space",
+            "alpha_mode",
+            "color_space",
+            "spine_uv_adapter",
+            "spine_atlas_pma",
+            "live2d_uv_adapter",
+            "live2d_runtime_loader_contract",
+        }
+        if not isinstance(payload, dict) or set(payload) != fields:
+            raise TerminalFinalizationError(
+                f"texture contract must contain exactly {sorted(fields)}"
+            )
+        return cls(**payload)
 
 
 @dataclass(frozen=True)
@@ -174,6 +247,28 @@ def _validate_preterminal_graph(
     return manifests
 
 
+def _require_manifest_identities(
+    manifests: Mapping[str, StageManifest],
+    *,
+    target_input_fingerprint: str,
+    native_variant_set_sha256: str,
+    native_variant_eligibility_sha256: str,
+    rig_overrides_sha256: str,
+) -> None:
+    expected = {
+        "target_input_fingerprint": target_input_fingerprint,
+        "native_variant_set_sha256": native_variant_set_sha256,
+        "native_variant_eligibility_sha256": native_variant_eligibility_sha256,
+        "rig_overrides_sha256": rig_overrides_sha256,
+    }
+    for stage, manifest in manifests.items():
+        for field, value in expected.items():
+            if getattr(manifest, field) != value:
+                raise TerminalFinalizationError(
+                    f"stage {stage} {field} differs from terminal input"
+                )
+
+
 def _normalize_formats(formats: Iterable[FormatValidation]) -> dict[str, FormatValidation]:
     normalized = tuple(formats)
     if any(not isinstance(item, FormatValidation) for item in normalized):
@@ -200,13 +295,23 @@ def _terminal_config_fingerprint(payload: Mapping[str, Any]) -> str:
         {
             "finalizer_version": payload["finalizer_version"],
             "input_fingerprint": payload["input_fingerprint"],
+            "native_variant_set_sha256": payload["native_variant_set_sha256"],
+            "native_variant_eligibility_sha256": payload[
+                "native_variant_eligibility_sha256"
+            ],
+            "config_fingerprint": payload["config_fingerprint"],
+            "rig_overrides_sha256": payload["rig_overrides_sha256"],
             "profile": payload["profile"],
             "profile_fingerprint": payload["profile_fingerprint"],
             "required_formats": payload["required_formats"],
             "upstream_stage_manifests": payload["upstream_stage_manifests"],
             "upstream_artifact_sets": payload["upstream_artifact_sets"],
             "motion_manifest_sha256": payload["motion_manifest_sha256"],
+            "motion_runtime_contract_sha256": payload[
+                "motion_runtime_contract_sha256"
+            ],
             "global_symbol_table_sha256": payload["global_symbol_table_sha256"],
+            "texture_contract": payload["texture_contract"],
             "validation": payload["validation"],
             "formats": payload["formats"],
             "status": payload["status"],
@@ -218,16 +323,30 @@ def finalize_success(
     item_root: str | Path,
     *,
     input_fingerprint: str,
+    native_variant_set_sha256: str,
+    native_variant_eligibility_sha256: str,
+    config_fingerprint: str,
     profile: str,
     profile_fingerprint: str,
     rig_overrides_sha256: str,
     expected_stage_fingerprints: Mapping[str, str],
     formats: Iterable[FormatValidation],
     validation_tier: str,
+    motion_runtime_contract_sha256: str,
     global_symbol_table_sha256: str,
+    texture_contract: TextureRuntimeContract,
 ) -> TerminalFinalizationResult:
     root = Path(item_root)
     input_digest = _require_digest(input_fingerprint, field="input_fingerprint")
+    native_set_digest = _require_digest(
+        native_variant_set_sha256,
+        field="native_variant_set_sha256",
+    )
+    native_eligibility_digest = _require_digest(
+        native_variant_eligibility_sha256,
+        field="native_variant_eligibility_sha256",
+    )
+    config_digest = _require_digest(config_fingerprint, field="config_fingerprint")
     profile_name = _require_nonempty(profile, field="profile")
     profile_digest = _require_digest(profile_fingerprint, field="profile_fingerprint")
     overrides_digest = _require_digest(rig_overrides_sha256, field="rig_overrides_sha256")
@@ -235,11 +354,26 @@ def finalize_success(
         global_symbol_table_sha256,
         field="global_symbol_table_sha256",
     )
+    motion_runtime_digest = _require_digest(
+        motion_runtime_contract_sha256,
+        field="motion_runtime_contract_sha256",
+    )
+    if not isinstance(texture_contract, TextureRuntimeContract):
+        raise TerminalFinalizationError(
+            "texture_contract must use TextureRuntimeContract"
+        )
     tier = _require_nonempty(validation_tier, field="validation_tier")
     if tier != "release":
         raise TerminalFinalizationError("formal dual-runtime completion requires validation_tier='release'")
 
     manifests = _validate_preterminal_graph(root, expected_stage_fingerprints)
+    _require_manifest_identities(
+        manifests,
+        target_input_fingerprint=input_digest,
+        native_variant_set_sha256=native_set_digest,
+        native_variant_eligibility_sha256=native_eligibility_digest,
+        rig_overrides_sha256=overrides_digest,
+    )
     format_map = _normalize_formats(formats)
     format_payloads: dict[str, dict[str, Any]] = {}
     artifact_sets: dict[str, str] = {}
@@ -271,11 +405,23 @@ def finalize_success(
         "spine_validator_fingerprint": format_map["spine_4_2"].validator_fingerprint,
         "live2d_validator_fingerprint": format_map["live2d_moc3_v4_00"].validator_fingerprint,
     }
+    terminal_status = (
+        "completed_with_degradation"
+        if any(
+            manifest.status == "stage_validated_with_degradation"
+            for manifest in manifests.values()
+        )
+        else "completed"
+    )
     export_payload: dict[str, Any] = {
         "schema_version": 1,
         "producer_stage": "G",
         "finalizer_version": TERMINAL_FINALIZER_VERSION,
         "input_fingerprint": input_digest,
+        "native_variant_set_sha256": native_set_digest,
+        "native_variant_eligibility_sha256": native_eligibility_digest,
+        "config_fingerprint": config_digest,
+        "rig_overrides_sha256": overrides_digest,
         "profile": profile_name,
         "profile_fingerprint": profile_digest,
         "required_formats": list(FORMAL_REQUIRED_FORMATS),
@@ -285,10 +431,12 @@ def finalize_success(
             **artifact_sets,
         },
         "motion_manifest_sha256": c_outputs[motion_path].sha256,
+        "motion_runtime_contract_sha256": motion_runtime_digest,
         "global_symbol_table_sha256": symbols_digest,
+        "texture_contract": texture_contract.to_dict(),
         "validation": validation_payload,
         "formats": format_payloads,
-        "status": "completed",
+        "status": terminal_status,
     }
 
     g_marker = _item_path(root, manifest_relative_path("G"))
@@ -297,18 +445,20 @@ def finalize_success(
     export_path = _item_path(root, EXPORT_MANIFEST_PATH)
     atomic_write_json(export_path, export_payload)
 
-    marker_inputs = tuple(describe_file(root, manifest_relative_path(stage)) for stage in ("C", "D", "E"))
     g_manifest = build_stage_manifest(
         root,
         stage_name="G",
         stage_schema_version=1,
         algorithm_version=TERMINAL_FINALIZER_VERSION,
         upstream_manifests=upstream_manifests,
-        input_file_sha256=marker_inputs,
+        input_file_sha256=(),
+        target_input_fingerprint=input_digest,
+        native_variant_set_sha256=native_set_digest,
+        native_variant_eligibility_sha256=native_eligibility_digest,
         relevant_config_fingerprint=_terminal_config_fingerprint(export_payload),
         rig_overrides_sha256=overrides_digest,
         output_paths=[EXPORT_MANIFEST_PATH],
-        status="completed",
+        status=terminal_status,
     )
     write_stage_manifest(root, g_manifest)
     return TerminalFinalizationResult(
@@ -321,19 +471,21 @@ def finalize_success(
 def _completed_upstream_manifests(
     root: Path,
     completed_stage_names: Iterable[str],
-) -> tuple[dict[str, str], tuple[FileDigest, ...]]:
+) -> tuple[dict[str, str], dict[str, StageManifest]]:
     names = tuple(sorted(set(completed_stage_names), key=lambda stage: _STAGE_ORDER.get(stage, 999)))
     if any(stage not in _RELEASE_STAGES for stage in names):
         raise TerminalFinalizationError("completed_stage_names may contain only A-E")
     upstream: dict[str, str] = {}
-    inputs: list[FileDigest] = []
+    manifests: dict[str, StageManifest] = {}
     for stage in names:
         try:
             manifest = read_stage_manifest(root, stage)
         except StageManifestError as exc:
             raise TerminalFinalizationError(f"completed stage {stage} has no valid manifest: {exc}") from exc
-        if manifest.status != "completed":
-            raise TerminalFinalizationError(f"completed stage {stage} manifest is not completed")
+        if manifest.status not in VALID_PRODUCTION_STAGE_STATUSES:
+            raise TerminalFinalizationError(
+                f"completed stage {stage} manifest is not stage-validated"
+            )
         for expected in manifest.output_file_sha256:
             try:
                 actual = describe_file(root, expected.path)
@@ -343,25 +495,49 @@ def _completed_upstream_manifests(
                 raise TerminalFinalizationError(f"completed stage {stage} output changed: {expected.path}")
         relative = manifest_relative_path(stage)
         upstream[stage] = sha256_file(_item_path(root, relative))
-        inputs.append(describe_file(root, relative))
-    return upstream, tuple(inputs)
+        manifests[stage] = manifest
+    return upstream, manifests
 
 
 def finalize_failure(
     item_root: str | Path,
     *,
     item_id: str,
-    input_fingerprint: str,
+    target_input_fingerprint: str | None,
+    observed_input_set_sha256: str,
+    native_variant_set_sha256: str | None,
+    native_variant_eligibility_sha256: str | None,
     config_fingerprint: str,
     rig_overrides_sha256: str,
+    profile: str,
+    profile_fingerprint: str,
+    validation_tier: str,
     failure_records: Iterable[StageFailureRecord],
     completed_stage_names: Iterable[str] = (),
 ) -> TerminalFinalizationResult:
     root = Path(item_root)
     normalized_item_id = _require_nonempty(item_id, field="item_id")
-    input_digest = _require_digest(input_fingerprint, field="input_fingerprint")
+    target_digest = _require_optional_digest(
+        target_input_fingerprint,
+        field="target_input_fingerprint",
+    )
+    observed_digest = _require_digest(
+        observed_input_set_sha256,
+        field="observed_input_set_sha256",
+    )
+    native_set_digest = _require_optional_digest(
+        native_variant_set_sha256,
+        field="native_variant_set_sha256",
+    )
+    native_eligibility_digest = _require_optional_digest(
+        native_variant_eligibility_sha256,
+        field="native_variant_eligibility_sha256",
+    )
     config_digest = _require_digest(config_fingerprint, field="config_fingerprint")
     overrides_digest = _require_digest(rig_overrides_sha256, field="rig_overrides_sha256")
+    profile_name = _require_nonempty(profile, field="profile")
+    profile_digest = _require_digest(profile_fingerprint, field="profile_fingerprint")
+    tier = _require_nonempty(validation_tier, field="validation_tier")
     records = tuple(failure_records)
     if not records or any(not isinstance(record, StageFailureRecord) for record in records):
         raise TerminalFinalizationError("failure_records must contain at least one StageFailureRecord")
@@ -393,18 +569,44 @@ def finalize_failure(
     error_payload: dict[str, Any] = {
         "schema_version": 1,
         "producer_stage": "G",
+        "finalizer_version": TERMINAL_FINALIZER_VERSION,
         "terminal_state": "failed",
         "item_id": normalized_item_id,
-        "input_fingerprint": input_digest,
+        "target_input_fingerprint": target_digest,
+        "observed_input_set_sha256": observed_digest,
+        "native_variant_set_sha256": native_set_digest,
+        "native_variant_eligibility_sha256": native_eligibility_digest,
         "config_fingerprint": config_digest,
         "rig_overrides_sha256": overrides_digest,
+        "profile": profile_name,
+        "profile_fingerprint": profile_digest,
+        "validation_tier": tier,
         "failed_stages": [record.stage_name for record in ordered],
         "failure_records": public_records,
         "failure_set_sha256": failure_set_digest,
         "diagnostics": diagnostics,
         "retryable": all(record.retryable for record in ordered),
     }
-    completed_upstream, completed_inputs = _completed_upstream_manifests(root, completed_stage_names)
+    completed_upstream, completed_manifests = _completed_upstream_manifests(
+        root,
+        completed_stage_names,
+    )
+    if completed_manifests:
+        if (
+            target_digest is None
+            or native_set_digest is None
+            or native_eligibility_digest is None
+        ):
+            raise TerminalFinalizationError(
+                "completed upstream stages require resolved semantic identities"
+            )
+        _require_manifest_identities(
+            completed_manifests,
+            target_input_fingerprint=target_digest,
+            native_variant_set_sha256=native_set_digest,
+            native_variant_eligibility_sha256=native_eligibility_digest,
+            rig_overrides_sha256=overrides_digest,
+        )
 
     g_marker = _item_path(root, manifest_relative_path("G"))
     g_marker.unlink(missing_ok=True)
@@ -415,8 +617,14 @@ def finalize_failure(
     g_config_fingerprint = canonical_json_sha256(
         {
             "finalizer_version": TERMINAL_FINALIZER_VERSION,
-            "input_fingerprint": input_digest,
+            "target_input_fingerprint": target_digest,
+            "observed_input_set_sha256": observed_digest,
+            "native_variant_set_sha256": native_set_digest,
+            "native_variant_eligibility_sha256": native_eligibility_digest,
             "config_fingerprint": config_digest,
+            "profile": profile_name,
+            "profile_fingerprint": profile_digest,
+            "validation_tier": tier,
             "failed_stages": error_payload["failed_stages"],
             "failure_set_sha256": failure_set_digest,
             "completed_upstream_manifests": completed_upstream,
@@ -429,7 +637,10 @@ def finalize_failure(
         stage_schema_version=1,
         algorithm_version=TERMINAL_FINALIZER_VERSION,
         upstream_manifests=completed_upstream,
-        input_file_sha256=(*completed_inputs, *failure_inputs),
+        input_file_sha256=failure_inputs,
+        target_input_fingerprint=target_digest,
+        native_variant_set_sha256=native_set_digest,
+        native_variant_eligibility_sha256=native_eligibility_digest,
         relevant_config_fingerprint=g_config_fingerprint,
         rig_overrides_sha256=overrides_digest,
         output_paths=[ERROR_RECORD_PATH],
@@ -468,13 +679,19 @@ def _export_payload_matches_graph(
         "producer_stage",
         "finalizer_version",
         "input_fingerprint",
+        "native_variant_set_sha256",
+        "native_variant_eligibility_sha256",
+        "config_fingerprint",
+        "rig_overrides_sha256",
         "profile",
         "profile_fingerprint",
         "required_formats",
         "upstream_stage_manifests",
         "upstream_artifact_sets",
         "motion_manifest_sha256",
+        "motion_runtime_contract_sha256",
         "global_symbol_table_sha256",
+        "texture_contract",
         "validation",
         "formats",
         "status",
@@ -486,14 +703,29 @@ def _export_payload_matches_graph(
         or payload.get("producer_stage") != "G"
         or payload.get("finalizer_version") != TERMINAL_FINALIZER_VERSION
         or payload.get("required_formats") != list(FORMAL_REQUIRED_FORMATS)
-        or payload.get("status") != "completed"
+        or payload.get("status") not in {
+            "completed",
+            "completed_with_degradation",
+        }
     ):
         return False
-    if not _SHA256_PATTERN.fullmatch(str(payload.get("input_fingerprint"))):
+    digest_fields = (
+        "input_fingerprint",
+        "native_variant_set_sha256",
+        "native_variant_eligibility_sha256",
+        "config_fingerprint",
+        "rig_overrides_sha256",
+        "profile_fingerprint",
+        "motion_runtime_contract_sha256",
+        "global_symbol_table_sha256",
+    )
+    if not all(
+        _SHA256_PATTERN.fullmatch(str(payload.get(field))) for field in digest_fields
+    ):
         return False
-    if not _SHA256_PATTERN.fullmatch(str(payload.get("profile_fingerprint"))):
-        return False
-    if not _SHA256_PATTERN.fullmatch(str(payload.get("global_symbol_table_sha256"))):
+    try:
+        TextureRuntimeContract.from_dict(payload.get("texture_contract"))
+    except TerminalFinalizationError:
         return False
 
     expected_upstream = {stage: sha256_file(_item_path(root, manifest_relative_path(stage))) for stage in ("C", "D", "E")}
@@ -553,6 +785,28 @@ def _export_payload_matches_graph(
 
     g_manifest = manifests.get("G")
     if g_manifest is None:
+        return False
+    expected_terminal_status = (
+        "completed_with_degradation"
+        if any(
+            manifests[stage].status == "stage_validated_with_degradation"
+            for stage in _RELEASE_STAGES
+        )
+        else "completed"
+    )
+    if payload.get("status") != expected_terminal_status:
+        return False
+    if g_manifest.status != payload.get("status"):
+        return False
+    identity_pairs = {
+        "target_input_fingerprint": payload.get("input_fingerprint"),
+        "native_variant_set_sha256": payload.get("native_variant_set_sha256"),
+        "native_variant_eligibility_sha256": payload.get(
+            "native_variant_eligibility_sha256"
+        ),
+        "rig_overrides_sha256": payload.get("rig_overrides_sha256"),
+    }
+    if any(getattr(g_manifest, field) != value for field, value in identity_pairs.items()):
         return False
     return g_manifest.relevant_config_fingerprint == _terminal_config_fingerprint(payload)
 

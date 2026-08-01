@@ -42,7 +42,11 @@ def write_stage(
     *,
     upstream: tuple[str, ...] | None = None,
     output_path: str | None = None,
-    status: str = "completed",
+    status: str | None = None,
+    target_input_fingerprint: str | None = None,
+    native_variant_set_sha256: str | None = None,
+    native_variant_eligibility_sha256: str | None = None,
+    rig_overrides_sha256: str | None = None,
 ) -> StageManifest:
     dependencies = RELEASE_DEPENDENCIES[stage] if upstream is None else upstream
     output = output_path or f"rig/cache/{stage}/payload.bin"
@@ -57,10 +61,15 @@ def write_stage(
         algorithm_version=f"stage-{stage.lower()}-v1",
         upstream_manifests=upstream_manifests,
         input_file_sha256=[],
+        target_input_fingerprint=target_input_fingerprint or digest("target-input"),
+        native_variant_set_sha256=native_variant_set_sha256 or digest("native-set"),
+        native_variant_eligibility_sha256=(
+            native_variant_eligibility_sha256 or digest("native-eligibility")
+        ),
         relevant_config_fingerprint=digest("config"),
-        rig_overrides_sha256=digest("overrides"),
+        rig_overrides_sha256=rig_overrides_sha256 or digest("overrides"),
         output_paths=[output],
-        status=status,
+        status=status or ("completed" if stage == "G" else "stage_validated"),
     )
     write_stage_manifest(root, manifest)
     return manifest
@@ -246,6 +255,57 @@ def test_failed_stage_is_not_reusable(tmp_path: Path) -> None:
     )
 
     assert "stage_status_not_completed" in issue_codes(result)
+
+
+def test_degraded_success_statuses_remain_reusable(tmp_path: Path) -> None:
+    manifests: dict[str, StageManifest] = {}
+    manifests["A"] = write_stage(
+        tmp_path,
+        "A",
+        status="stage_validated_with_degradation",
+    )
+    for stage in ("B", "C", "D", "E"):
+        manifests[stage] = write_stage(tmp_path, stage)
+    manifests["G"] = write_stage(
+        tmp_path,
+        "G",
+        status="completed_with_degradation",
+    )
+
+    result = StageGraphValidator(tmp_path).validate(
+        target_stage="G",
+        expected_fingerprints=expected_fingerprints(manifests),
+    )
+
+    assert result.reusable is True
+
+
+@pytest.mark.parametrize(
+    "field,changed",
+    (
+        ("target_input_fingerprint", "other-target"),
+        ("native_variant_set_sha256", "other-native-set"),
+        ("native_variant_eligibility_sha256", "other-native-eligibility"),
+        ("rig_overrides_sha256", "other-overrides"),
+    ),
+)
+def test_release_graph_rejects_cross_stage_identity_drift(
+    tmp_path: Path,
+    field: str,
+    changed: str,
+) -> None:
+    manifests: dict[str, StageManifest] = {"A": write_stage(tmp_path, "A")}
+    manifests["B"] = write_stage(tmp_path, "B", **{field: digest(changed)})
+    for stage in ("C", "D", "E", "G"):
+        manifests[stage] = write_stage(tmp_path, stage)
+
+    result = StageGraphValidator(tmp_path).validate(
+        target_stage="G",
+        expected_fingerprints=expected_fingerprints(manifests),
+    )
+
+    issues = [issue for issue in result.issues if issue.code == "stage_identity_mismatch"]
+    assert any(issue.stage_name == "B" and field in issue.detail for issue in issues)
 
 
 def test_invalid_manifest_is_reported_without_raising(tmp_path: Path) -> None:

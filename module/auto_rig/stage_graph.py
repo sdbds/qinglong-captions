@@ -7,7 +7,9 @@ from typing import Iterable, Mapping
 
 from .artifacts import ArtifactContractError, describe_file, sha256_file
 from .manifests import (
+    VALID_PRODUCTION_STAGE_STATUSES,
     VALID_STAGE_NAMES,
+    VALID_TERMINAL_STAGE_STATUSES,
     StageManifest,
     StageManifestError,
     manifest_relative_path,
@@ -190,7 +192,12 @@ class StageGraphValidator:
                     )
                 )
 
-            if manifest.status != "completed":
+            reusable_statuses = (
+                VALID_TERMINAL_STAGE_STATUSES - {"failed"}
+                if stage == "G"
+                else VALID_PRODUCTION_STAGE_STATUSES
+            )
+            if manifest.status not in reusable_statuses:
                 issues.append(
                     StageValidationIssue(
                         code="stage_status_not_completed",
@@ -215,10 +222,14 @@ class StageGraphValidator:
             self._validate_outputs(manifest, issues)
 
         self._validate_upstream_marker_digests(required, manifests, issues)
+        self._validate_cross_stage_identities(required, manifests, issues)
         self._validate_output_ownership(manifests, issues)
 
         terminal = manifests.get("G") if target_stage == "G" else None
-        if terminal is not None and terminal.status == "completed":
+        if terminal is not None and terminal.status in {
+            "completed",
+            "completed_with_degradation",
+        }:
             terminal_dependencies = frozenset(dict(terminal.upstream_manifests))
             required_terminal_dependencies = frozenset({"C", "D", "E"})
             if terminal_dependencies != required_terminal_dependencies:
@@ -232,13 +243,53 @@ class StageGraphValidator:
                 )
 
         sorted_issues = tuple(sorted(issues, key=self._issue_sort_key))
-        loaded = tuple((stage, manifests[stage]) for stage in self._topological_order if stage in required and stage in manifests)
+        loaded = tuple(
+            (stage, manifests[stage])
+            for stage in self._topological_order
+            if stage in required and stage in manifests
+        )
         return StageGraphResult(
             target_stage=target_stage,
             reusable=not sorted_issues,
             issues=sorted_issues,
             manifests=loaded,
         )
+
+    def _validate_cross_stage_identities(
+        self,
+        required: frozenset[str],
+        manifests: Mapping[str, StageManifest],
+        issues: list[StageValidationIssue],
+    ) -> None:
+        ordered = tuple(
+            stage
+            for stage in self._topological_order
+            if stage in required and stage in manifests
+        )
+        if not ordered:
+            return
+        reference_stage = ordered[0]
+        reference = manifests[reference_stage]
+        fields = (
+            "target_input_fingerprint",
+            "native_variant_set_sha256",
+            "native_variant_eligibility_sha256",
+            "rig_overrides_sha256",
+        )
+        for stage in ordered[1:]:
+            manifest = manifests[stage]
+            if stage == "G" and manifest.status == "failed":
+                continue
+            for field in fields:
+                if getattr(manifest, field) != getattr(reference, field):
+                    issues.append(
+                        StageValidationIssue(
+                            code="stage_identity_mismatch",
+                            stage_name=stage,
+                            path=manifest_relative_path(stage),
+                            detail=f"{field} differs from stage {reference_stage}",
+                        )
+                    )
 
     def _normalize_expected_fingerprints(
         self,

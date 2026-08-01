@@ -16,9 +16,14 @@ from .artifacts import (
     normalize_relative_path,
 )
 
-STAGE_MANIFEST_SCHEMA_VERSION = 2
+STAGE_MANIFEST_SCHEMA_VERSION = 3
 VALID_STAGE_NAMES = frozenset({"A", "B", "C", "D", "E", "F", "G"})
-VALID_STAGE_STATUSES = frozenset({"completed", "failed"})
+VALID_PRODUCTION_STAGE_STATUSES = frozenset(
+    {"stage_validated", "stage_validated_with_degradation"}
+)
+VALID_TERMINAL_STAGE_STATUSES = frozenset(
+    {"completed", "completed_with_degradation", "failed"}
+)
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _MANIFEST_FIELDS = frozenset(
     {
@@ -29,6 +34,9 @@ _MANIFEST_FIELDS = frozenset(
         "stage_fingerprint",
         "upstream_manifests",
         "input_file_sha256",
+        "target_input_fingerprint",
+        "native_variant_set_sha256",
+        "native_variant_eligibility_sha256",
         "relevant_config_fingerprint",
         "rig_overrides_sha256",
         "output_file_sha256",
@@ -70,6 +78,62 @@ def _require_nonempty_string(value: Any, *, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise StageManifestError(f"{field} must be a non-empty string")
     return value.strip()
+
+
+def _require_optional_sha256(value: Any, *, field: str) -> str | None:
+    return None if value is None else _require_sha256(value, field=field)
+
+
+def _require_stage_status(stage_name: str, status: Any) -> str:
+    if not isinstance(status, str):
+        raise StageManifestError("stage status must be a string")
+    allowed = (
+        VALID_TERMINAL_STAGE_STATUSES
+        if stage_name == "G"
+        else VALID_PRODUCTION_STAGE_STATUSES
+    )
+    if status not in allowed:
+        raise StageManifestError(
+            f"unsupported status for stage {stage_name}: {status!r}"
+        )
+    return status
+
+
+def _normalize_semantic_identities(
+    *,
+    stage_name: str,
+    status: str,
+    target_input_fingerprint: Any,
+    native_variant_set_sha256: Any,
+    native_variant_eligibility_sha256: Any,
+) -> tuple[str | None, str | None, str | None]:
+    target = _require_optional_sha256(
+        target_input_fingerprint,
+        field="target_input_fingerprint",
+    )
+    native_set = _require_optional_sha256(
+        native_variant_set_sha256,
+        field="native_variant_set_sha256",
+    )
+    native_eligibility = _require_optional_sha256(
+        native_variant_eligibility_sha256,
+        field="native_variant_eligibility_sha256",
+    )
+    if stage_name != "G" or status != "failed":
+        missing = [
+            name
+            for name, value in (
+                ("target_input_fingerprint", target),
+                ("native_variant_set_sha256", native_set),
+                ("native_variant_eligibility_sha256", native_eligibility),
+            )
+            if value is None
+        ]
+        if missing:
+            raise StageManifestError(
+                f"successful stage manifest requires {', '.join(missing)}"
+            )
+    return target, native_set, native_eligibility
 
 
 def manifest_relative_path(stage_name: str) -> str:
@@ -212,20 +276,30 @@ def build_stage_fingerprint(
     algorithm_version: str,
     upstream_manifests: Mapping[str, str] | Iterable[tuple[str, str]],
     input_file_sha256: Iterable[FileDigest],
+    target_input_fingerprint: str | None,
+    native_variant_set_sha256: str | None,
+    native_variant_eligibility_sha256: str | None,
     relevant_config_fingerprint: str,
     rig_overrides_sha256: str,
-    status: str = "completed",
+    status: str,
 ) -> str:
     stage = _require_stage_name(stage_name)
     if isinstance(stage_schema_version, bool) or not isinstance(stage_schema_version, int) or stage_schema_version < 1:
         raise StageManifestError("stage_schema_version must be a positive integer")
     algorithm = _require_nonempty_string(algorithm_version, field="algorithm_version")
-    if status not in VALID_STAGE_STATUSES:
-        raise StageManifestError(f"unsupported stage manifest status: {status!r}")
+    normalized_status = _require_stage_status(stage, status)
+    target, native_set, native_eligibility = _normalize_semantic_identities(
+        stage_name=stage,
+        status=normalized_status,
+        target_input_fingerprint=target_input_fingerprint,
+        native_variant_set_sha256=native_variant_set_sha256,
+        native_variant_eligibility_sha256=native_variant_eligibility_sha256,
+    )
     upstream = _normalize_upstream_manifests(stage, upstream_manifests)
     inputs = _normalize_file_digests(input_file_sha256, field="input_file_sha256")
     config_fingerprint = _require_sha256(relevant_config_fingerprint, field="relevant_config_fingerprint")
     overrides_sha256 = _require_sha256(rig_overrides_sha256, field="rig_overrides_sha256")
+    # Resume fingerprints must be derivable before the stage decides whether it degraded.
     payload = {
         "schema_version": STAGE_MANIFEST_SCHEMA_VERSION,
         "stage_name": stage,
@@ -233,9 +307,11 @@ def build_stage_fingerprint(
         "algorithm_version": algorithm,
         "upstream_manifests": dict(upstream),
         "input_file_sha256": [item.to_dict() for item in inputs],
+        "target_input_fingerprint": target,
+        "native_variant_set_sha256": native_set,
+        "native_variant_eligibility_sha256": native_eligibility,
         "relevant_config_fingerprint": config_fingerprint,
         "rig_overrides_sha256": overrides_sha256,
-        "status": status,
     }
     return canonical_json_sha256(payload)
 
@@ -248,11 +324,14 @@ class StageManifest:
     stage_fingerprint: str
     upstream_manifests: tuple[tuple[str, str], ...]
     input_file_sha256: tuple[FileDigest, ...]
+    target_input_fingerprint: str | None
+    native_variant_set_sha256: str | None
+    native_variant_eligibility_sha256: str | None
     relevant_config_fingerprint: str
     rig_overrides_sha256: str
     output_file_sha256: tuple[FileDigest, ...]
     output_inventory_sha256: str
-    status: str = "completed"
+    status: str = "stage_validated"
     schema_version: int = STAGE_MANIFEST_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -266,8 +345,14 @@ class StageManifest:
         ):
             raise StageManifestError("stage_schema_version must be a positive integer")
         algorithm = _require_nonempty_string(self.algorithm_version, field="algorithm_version")
-        if self.status not in VALID_STAGE_STATUSES:
-            raise StageManifestError(f"unsupported stage manifest status: {self.status!r}")
+        status = _require_stage_status(stage, self.status)
+        target, native_set, native_eligibility = _normalize_semantic_identities(
+            stage_name=stage,
+            status=status,
+            target_input_fingerprint=self.target_input_fingerprint,
+            native_variant_set_sha256=self.native_variant_set_sha256,
+            native_variant_eligibility_sha256=self.native_variant_eligibility_sha256,
+        )
         upstream = _normalize_upstream_manifests(stage, self.upstream_manifests)
         inputs = _normalize_file_digests(self.input_file_sha256, field="input_file_sha256")
         outputs = _normalize_file_digests(self.output_file_sha256, field="output_file_sha256")
@@ -307,9 +392,12 @@ class StageManifest:
             algorithm_version=algorithm,
             upstream_manifests=upstream,
             input_file_sha256=inputs,
+            target_input_fingerprint=target,
+            native_variant_set_sha256=native_set,
+            native_variant_eligibility_sha256=native_eligibility,
             relevant_config_fingerprint=config_fingerprint,
             rig_overrides_sha256=overrides_sha256,
-            status=self.status,
+            status=status,
         )
         if fingerprint != expected_fingerprint:
             raise StageManifestError("stage_fingerprint does not match the manifest inputs")
@@ -319,6 +407,9 @@ class StageManifest:
         object.__setattr__(self, "stage_fingerprint", fingerprint)
         object.__setattr__(self, "upstream_manifests", upstream)
         object.__setattr__(self, "input_file_sha256", inputs)
+        object.__setattr__(self, "target_input_fingerprint", target)
+        object.__setattr__(self, "native_variant_set_sha256", native_set)
+        object.__setattr__(self, "native_variant_eligibility_sha256", native_eligibility)
         object.__setattr__(self, "relevant_config_fingerprint", config_fingerprint)
         object.__setattr__(self, "rig_overrides_sha256", overrides_sha256)
         object.__setattr__(self, "output_file_sha256", outputs)
@@ -333,6 +424,9 @@ class StageManifest:
             "stage_fingerprint": self.stage_fingerprint,
             "upstream_manifests": dict(self.upstream_manifests),
             "input_file_sha256": [item.to_dict() for item in self.input_file_sha256],
+            "target_input_fingerprint": self.target_input_fingerprint,
+            "native_variant_set_sha256": self.native_variant_set_sha256,
+            "native_variant_eligibility_sha256": self.native_variant_eligibility_sha256,
             "relevant_config_fingerprint": self.relevant_config_fingerprint,
             "rig_overrides_sha256": self.rig_overrides_sha256,
             "output_file_sha256": [item.to_dict() for item in self.output_file_sha256],
@@ -359,6 +453,11 @@ class StageManifest:
             stage_fingerprint=payload["stage_fingerprint"],
             upstream_manifests=tuple(payload["upstream_manifests"].items()),
             input_file_sha256=inputs,
+            target_input_fingerprint=payload["target_input_fingerprint"],
+            native_variant_set_sha256=payload["native_variant_set_sha256"],
+            native_variant_eligibility_sha256=payload[
+                "native_variant_eligibility_sha256"
+            ],
             relevant_config_fingerprint=payload["relevant_config_fingerprint"],
             rig_overrides_sha256=payload["rig_overrides_sha256"],
             output_file_sha256=outputs,
@@ -375,12 +474,16 @@ def build_stage_manifest(
     algorithm_version: str,
     upstream_manifests: Mapping[str, str] | Iterable[tuple[str, str]],
     input_file_sha256: Iterable[FileDigest],
+    target_input_fingerprint: str | None,
+    native_variant_set_sha256: str | None,
+    native_variant_eligibility_sha256: str | None,
     relevant_config_fingerprint: str,
     rig_overrides_sha256: str,
     output_paths: Iterable[str | Path],
-    status: str = "completed",
+    status: str | None = None,
 ) -> StageManifest:
     stage = _require_stage_name(stage_name)
+    normalized_status = status or ("completed" if stage == "G" else "stage_validated")
     try:
         normalized_output_paths = [normalize_relative_path(path) for path in output_paths]
     except (ArtifactContractError, TypeError) as exc:
@@ -405,9 +508,12 @@ def build_stage_manifest(
         algorithm_version=algorithm_version,
         upstream_manifests=upstream_manifests,
         input_file_sha256=inputs,
+        target_input_fingerprint=target_input_fingerprint,
+        native_variant_set_sha256=native_variant_set_sha256,
+        native_variant_eligibility_sha256=native_variant_eligibility_sha256,
         relevant_config_fingerprint=relevant_config_fingerprint,
         rig_overrides_sha256=rig_overrides_sha256,
-        status=status,
+        status=normalized_status,
     )
     return StageManifest(
         stage_name=stage,
@@ -416,11 +522,14 @@ def build_stage_manifest(
         stage_fingerprint=fingerprint,
         upstream_manifests=tuple(upstream_manifests.items() if isinstance(upstream_manifests, Mapping) else upstream_manifests),
         input_file_sha256=inputs,
+        target_input_fingerprint=target_input_fingerprint,
+        native_variant_set_sha256=native_variant_set_sha256,
+        native_variant_eligibility_sha256=native_variant_eligibility_sha256,
         relevant_config_fingerprint=relevant_config_fingerprint,
         rig_overrides_sha256=rig_overrides_sha256,
         output_file_sha256=outputs,
         output_inventory_sha256=_output_inventory_sha256(outputs),
-        status=status,
+        status=normalized_status,
     )
 
 
