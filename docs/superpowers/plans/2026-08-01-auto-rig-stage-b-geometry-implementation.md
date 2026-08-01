@@ -103,23 +103,23 @@
 - Produces: `build_skinning_plan(...) -> SkinningPlan` and `validate_skinning_plan(...)`.
 - `WeightedMeshRecord` retains Task 2 topology and adds one canonical influence tuple per vertex plus allowed-bone registry evidence and `dynamic_candidate`.
 
-- [ ] **Step 1: Freeze semantic Part-to-bone candidate registry**
+- [x] **Step 1: Freeze semantic Part-to-bone candidate registry**
 
   RED fixtures prove face/hair/eyes cannot receive arm weights, `handwear.xmin/xmax` only sees its own emitted chain, `legwear/footwear` use the matching image-side leg chain, variants inherit their admitted base/anchor candidates, and `tail/wings/objects` remain rigid root/torso dynamic candidates.
 
-- [ ] **Step 2: Implement rigid fallback without hiding degradation**
+- [x] **Step 2: Implement rigid fallback without hiding degradation**
 
   Non-limb Parts and limb Parts with fewer than two usable chain bones receive exactly one weight `1.0`. Missing semantic targets fall back through the frozen ancestor order and emit `rigid_fallback_applied`; an unknown tag/Part is diagnosed rather than silently attached and removed from reports.
 
-- [ ] **Step 3: Implement polyline arc projection and radius-scaled transitions**
+- [x] **Step 3: Implement polyline arc projection and radius-scaled transitions**
 
   Project each limb vertex to the resolved shoulder/elbow/wrist/hand-tip or hip/knee/ankle/toe polyline, use cumulative chain arc as the longitudinal coordinate, and blend only adjacent emitted bones inside a half-width derived from the joint eligibility radius. Prune sub-threshold influences, sort by bone ID, cap at four, and renormalize with a deterministic remainder rule.
 
-- [ ] **Step 4: Add invariance and false-influence fixtures**
+- [x] **Step 4: Add invariance and false-influence fixtures**
 
   Scale the same mask/joints from 768 to 1280 coordinates and assert normalized weight profiles remain within the frozen tolerance. Cover bent limbs, missing wrists, crossing image-side limbs, vertices exactly on transition boundaries, influence pruning, finite/sum-to-one validation, and unknown bone references.
 
-- [ ] **Step 5: Export and run focused/full regression gates**
+- [x] **Step 5: Export and run focused/full regression gates**
 
   Run skinning/bone/mesh/public API, Ruff, `compileall`, and SDK-backed auto-rig tests before committing.
 
