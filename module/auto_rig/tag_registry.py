@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+CANONICAL_TAG_REGISTRY_VERSION = "canonical-tag-registry-v3"
 V3_RAW_TAGS = (
     "front hair",
     "back hair",
@@ -121,6 +122,7 @@ def validate_v3_layerdiff_part_files(files: Iterable[str]) -> tuple[str, ...]:
 
 
 __all__ = [
+    "CANONICAL_TAG_REGISTRY_VERSION",
     "AutoRigTagContractError",
     "CanonicalPartTag",
     "V3_BASE_TAGS",

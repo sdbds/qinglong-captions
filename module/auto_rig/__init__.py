@@ -42,6 +42,13 @@ from .draw_order import (
     build_ordinary_draw_order,
     validate_draw_order_registry,
 )
+from .input_identity import (
+    TARGET_INPUT_IDENTITY_VERSION,
+    AutoRigInputIdentityError,
+    TargetInputIdentity,
+    TargetInputPartIdentity,
+    build_target_input_identity,
+)
 from .manifests import (
     STAGE_MANIFEST_SCHEMA_VERSION,
     VALID_PRODUCTION_STAGE_STATUSES,
@@ -96,6 +103,19 @@ from .native_variants import (
     NativeVariantSet,
     load_native_variant_set,
 )
+from .overrides import (
+    OVERRIDE_INPUT_IDENTITY_VERSION,
+    RIG_OVERRIDES_PATH,
+    RIG_OVERRIDES_SCHEMA_VERSION,
+    JointOverride,
+    OverrideInputIdentity,
+    RigOverrideContractError,
+    RigOverrideSource,
+    ValidatedRigOverrides,
+    identify_rig_override_input,
+    load_rig_override_source,
+    validate_rig_override_source,
+)
 from .qcl import (
     QCL_CODEC_VERSION,
     CanonicalLabelMap,
@@ -111,6 +131,7 @@ from .stage_graph import (
     StageValidationIssue,
 )
 from .tag_registry import (
+    CANONICAL_TAG_REGISTRY_VERSION,
     AutoRigTagContractError,
     CanonicalPartTag,
     validate_v3_final_tag_set,
@@ -293,4 +314,21 @@ __all__ = [
     "load_native_texture_regions",
     "materialize_canonical_texture_pages",
     "texture_region_input",
+    "AutoRigInputIdentityError",
+    "CANONICAL_TAG_REGISTRY_VERSION",
+    "JointOverride",
+    "OVERRIDE_INPUT_IDENTITY_VERSION",
+    "OverrideInputIdentity",
+    "RIG_OVERRIDES_PATH",
+    "RIG_OVERRIDES_SCHEMA_VERSION",
+    "RigOverrideContractError",
+    "RigOverrideSource",
+    "TARGET_INPUT_IDENTITY_VERSION",
+    "TargetInputIdentity",
+    "TargetInputPartIdentity",
+    "ValidatedRigOverrides",
+    "build_target_input_identity",
+    "identify_rig_override_input",
+    "load_rig_override_source",
+    "validate_rig_override_source",
 ]

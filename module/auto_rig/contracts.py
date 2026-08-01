@@ -7,12 +7,13 @@ import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 from PIL import Image, UnidentifiedImageError
 
 from .tag_registry import (
     AutoRigTagContractError,
+    CanonicalPartTag,
     validate_v3_final_tag_set,
     validate_v3_layerdiff_part_files,
 )
@@ -74,6 +75,9 @@ class AutoRigInputContract:
     optimized_manifest_path: Path
     optimized_info_path: Path
     parts: tuple[AutoRigPartContract, ...]
+    layerdiff_manifest_sha256: str | None = None
+    optimized_manifest_sha256: str | None = None
+    optimized_info_sha256: str | None = None
 
 
 def _error(message: str, *, code: str = "input_contract_mismatch") -> AutoRigContractError:
@@ -266,7 +270,12 @@ def _validate_info(
     path: Path,
     *,
     tblr_split: bool,
-) -> tuple[int, int, tuple[tuple[Any, tuple[int, int, int, int], float], ...]]:
+    tag_aliases: Mapping[str, str] | None,
+) -> tuple[
+    int,
+    int,
+    tuple[tuple[str, CanonicalPartTag, tuple[int, int, int, int], float], ...],
+]:
     payload = _load_json_object(path, relative_path="optimized/info.json")
     _require_exact_fields(payload, {"parts", "frame_size"}, field="optimized info")
     frame_size = payload["frame_size"]
@@ -285,38 +294,80 @@ def _validate_info(
     if type(raw_parts) is not dict or not raw_parts:
         raise _error("optimized.parts must be a non-empty object")
     source_tags = tuple(raw_parts)
+    aliases = _validate_tag_aliases(tag_aliases)
+    unused_aliases = sorted(set(aliases) - set(source_tags))
+    if unused_aliases:
+        raise _error(f"unused tag aliases: {unused_aliases}")
+    for source_tag in source_tags:
+        _validate_raw_tag(source_tag)
+    canonical_source_tags = tuple(aliases.get(tag, tag) for tag in source_tags)
     try:
-        canonical_tags = validate_v3_final_tag_set(source_tags, tblr_split=tblr_split)
+        canonical_tags = validate_v3_final_tag_set(
+            canonical_source_tags,
+            tblr_split=tblr_split,
+        )
     except AutoRigTagContractError as exc:
         raise _error(str(exc)) from exc
-    normalized: list[tuple[Any, tuple[int, int, int, int], float]] = []
+    raw_by_canonical = dict(zip(canonical_source_tags, source_tags, strict=True))
+    normalized: list[
+        tuple[str, CanonicalPartTag, tuple[int, int, int, int], float]
+    ] = []
     for canonical in canonical_tags:
-        raw = raw_parts[canonical.source_tag]
+        source_tag = raw_by_canonical[canonical.source_tag]
+        raw = raw_parts[source_tag]
         if type(raw) is not dict:
-            raise _error(f"optimized.parts[{canonical.source_tag!r}] must be an object")
+            raise _error(f"optimized.parts[{source_tag!r}] must be an object")
         for required in ("tag", "xyxy", "depth_median"):
             if required not in raw:
-                raise _error(f"optimized.parts[{canonical.source_tag!r}] is missing {required}")
-        if raw["tag"] != canonical.source_tag:
-            raise _error(f"optimized part key/tag mismatch: {canonical.source_tag}")
+                raise _error(f"optimized.parts[{source_tag!r}] is missing {required}")
+        if raw["tag"] != source_tag:
+            raise _error(f"optimized part key/tag mismatch: {source_tag}")
         xyxy = raw["xyxy"]
         if type(xyxy) is not list or len(xyxy) != 4:
-            raise _error(f"optimized part xyxy must have four integers: {canonical.source_tag}")
+            raise _error(f"optimized part xyxy must have four integers: {source_tag}")
         bbox = tuple(
-            _require_int(value, field=f"optimized.parts[{canonical.source_tag!r}].xyxy")
+            _require_int(value, field=f"optimized.parts[{source_tag!r}].xyxy")
             for value in xyxy
         )
         x1, y1, x2, y2 = bbox
         if not (0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height):
-            raise _error(f"optimized part xyxy is outside the canvas: {canonical.source_tag}")
+            raise _error(f"optimized part xyxy is outside the canvas: {source_tag}")
         depth = raw["depth_median"]
         if isinstance(depth, bool) or not isinstance(depth, (int, float)):
-            raise _error(f"optimized part depth_median must be numeric: {canonical.source_tag}")
+            raise _error(f"optimized part depth_median must be numeric: {source_tag}")
         depth_value = float(depth)
         if not math.isfinite(depth_value):
-            raise _error(f"optimized part depth_median must be finite: {canonical.source_tag}")
-        normalized.append((canonical, bbox, depth_value))
+            raise _error(f"optimized part depth_median must be finite: {source_tag}")
+        normalized.append((source_tag, canonical, bbox, depth_value))
     return width, height, tuple(normalized)
+
+
+def _validate_raw_tag(source_tag: Any) -> str:
+    if (
+        not isinstance(source_tag, str)
+        or not source_tag
+        or len(source_tag) > 128
+        or source_tag in {".", ".."}
+        or source_tag[-1:] in {" ", "."}
+        or any(character in source_tag for character in '/\\:*?"<>|')
+        or any(ord(character) < 32 or ord(character) == 127 for character in source_tag)
+    ):
+        raise _error(f"unsafe raw tag for fixed PartSource paths: {source_tag!r}")
+    return source_tag
+
+
+def _validate_tag_aliases(tag_aliases: Mapping[str, str] | None) -> dict[str, str]:
+    if tag_aliases is None:
+        return {}
+    if not isinstance(tag_aliases, Mapping):
+        raise _error("tag_aliases must be a mapping")
+    aliases: dict[str, str] = {}
+    for source_tag, canonical_tag in tag_aliases.items():
+        raw = _validate_raw_tag(source_tag)
+        if not isinstance(canonical_tag, str) or not canonical_tag:
+            raise _error(f"tag alias target must be a non-empty string: {raw}")
+        aliases[raw] = canonical_tag
+    return aliases
 
 
 def _actual_optimized_inventory(item_root: Path) -> tuple[str, ...]:
@@ -338,14 +389,16 @@ def _actual_optimized_inventory(item_root: Path) -> tuple[str, ...]:
 
 def _validate_png_sources(
     item_root: Path,
-    part_rows: tuple[tuple[Any, tuple[int, int, int, int], float], ...],
+    part_rows: tuple[
+        tuple[str, CanonicalPartTag, tuple[int, int, int, int], float], ...
+    ],
     generated_files: tuple[str, ...],
 ) -> tuple[AutoRigPartContract, ...]:
     expected_inventory = {"info.json"}
     parts: list[AutoRigPartContract] = []
-    for canonical, bbox, depth in part_rows:
-        color_name = f"{canonical.source_tag}.png"
-        depth_name = f"{canonical.source_tag}_depth.png"
+    for source_tag, canonical, bbox, depth in part_rows:
+        color_name = f"{source_tag}.png"
+        depth_name = f"{source_tag}_depth.png"
         color_path = _require_regular_file(item_root, f"optimized/{color_name}")
         depth_path = _require_regular_file(item_root, f"optimized/{depth_name}")
         expected_size = (bbox[2] - bbox[0], bbox[3] - bbox[1])
@@ -364,7 +417,7 @@ def _validate_png_sources(
         expected_inventory.update((color_name, depth_name))
         parts.append(
             AutoRigPartContract(
-                source_tag=canonical.source_tag,
+                source_tag=source_tag,
                 base_tag=canonical.base_tag,
                 semantic_slug=canonical.semantic_slug,
                 side=canonical.side,
@@ -406,7 +459,9 @@ def _validate_psd_sources(
     item_root: Path,
     width: int,
     height: int,
-    part_rows: tuple[tuple[Any, tuple[int, int, int, int], float], ...],
+    part_rows: tuple[
+        tuple[str, CanonicalPartTag, tuple[int, int, int, int], float], ...
+    ],
     generated_files: tuple[str, ...],
 ) -> tuple[AutoRigPartContract, ...]:
     try:
@@ -427,23 +482,23 @@ def _validate_psd_sources(
         raise _error("final PSD canvas size differs from optimized.frame_size")
     color_layers = _psd_layer_map(color_psd, field="final.psd")
     depth_layers = _psd_layer_map(depth_psd, field="final_depth.psd")
-    expected_tags = {canonical.source_tag for canonical, _, _ in part_rows}
+    expected_tags = {source_tag for source_tag, _, _, _ in part_rows}
     if set(color_layers) != expected_tags or set(depth_layers) != expected_tags:
         raise _error("final PSD layer names must exactly equal optimized.parts tags")
     color_sha256 = _sha256_file(color_path)
     depth_sha256 = _sha256_file(depth_path)
     parts: list[AutoRigPartContract] = []
-    for canonical, bbox, depth in part_rows:
-        color_bbox = tuple(color_layers[canonical.source_tag].bbox)
-        depth_bbox = tuple(depth_layers[canonical.source_tag].bbox)
+    for source_tag, canonical, bbox, depth in part_rows:
+        color_bbox = tuple(color_layers[source_tag].bbox)
+        depth_bbox = tuple(depth_layers[source_tag].bbox)
         if color_bbox != bbox or depth_bbox != bbox:
             raise _error(
-                f"PSD stored layer rectangle differs from xyxy: {canonical.source_tag}",
+                f"PSD stored layer rectangle differs from xyxy: {source_tag}",
                 code="psd_bbox_mismatch",
             )
         parts.append(
             AutoRigPartContract(
-                source_tag=canonical.source_tag,
+                source_tag=source_tag,
                 base_tag=canonical.base_tag,
                 semantic_slug=canonical.semantic_slug,
                 side=canonical.side,
@@ -456,7 +511,7 @@ def _validate_psd_sources(
                     depth_path=depth_path,
                     color_sha256=color_sha256,
                     depth_sha256=depth_sha256,
-                    layer_name=canonical.source_tag,
+                    layer_name=source_tag,
                 ),
             )
         )
@@ -469,7 +524,11 @@ def _validate_psd_sources(
     return tuple(parts)
 
 
-def load_auto_rig_input_contract(item_root: str | Path) -> AutoRigInputContract:
+def load_auto_rig_input_contract(
+    item_root: str | Path,
+    *,
+    tag_aliases: Mapping[str, str] | None = None,
+) -> AutoRigInputContract:
     """Validate a completed see-through item through fixed Stage A paths only."""
 
     root = _validated_item_root(item_root)
@@ -485,6 +544,7 @@ def load_auto_rig_input_contract(item_root: str | Path) -> AutoRigInputContract:
     width, height, part_rows = _validate_info(
         optimized_info_path,
         tblr_split=tblr_split,
+        tag_aliases=tag_aliases,
     )
     if resolution not in SUPPORTED_CANVAS_EDGES:
         raise _error(
@@ -523,6 +583,9 @@ def load_auto_rig_input_contract(item_root: str | Path) -> AutoRigInputContract:
         optimized_manifest_path=optimized_manifest_path,
         optimized_info_path=optimized_info_path,
         parts=parts,
+        layerdiff_manifest_sha256=_sha256_file(layerdiff_manifest_path),
+        optimized_manifest_sha256=_sha256_file(optimized_manifest_path),
+        optimized_info_sha256=_sha256_file(optimized_info_path),
     )
 
 

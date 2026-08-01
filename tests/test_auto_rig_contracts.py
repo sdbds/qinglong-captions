@@ -170,6 +170,73 @@ def test_load_psd_contract_validates_canvas_layer_names_and_stored_rectangles(tm
     assert all(part.source.depth_path == tmp_path / "final_depth.psd" for part in contract.parts)
 
 
+@pytest.mark.parametrize("mode", ("png", "psd"))
+def test_load_contract_applies_aliases_without_renaming_raw_payloads(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    _write_item(
+        tmp_path,
+        edge=768,
+        tags=("face", "objects_2", "handwear-l"),
+        tblr_split=True,
+        mode=mode,
+    )
+
+    contract = load_auto_rig_input_contract(
+        tmp_path,
+        tag_aliases={"objects_2": "handwear-r"},
+    )
+
+    aliased = next(part for part in contract.parts if part.source_tag == "objects_2")
+    assert aliased.part_id == "part/handwear.xmin"
+    assert aliased.base_tag == "handwear"
+    if mode == "png":
+        assert aliased.source.color_path.name == "objects_2.png"
+        assert aliased.source.depth_path.name == "objects_2_depth.png"
+        assert aliased.source.layer_name is None
+    else:
+        assert aliased.source.layer_name == "objects_2"
+
+
+def test_load_contract_rejects_unused_tag_alias(tmp_path: Path) -> None:
+    _write_item(tmp_path, tags=("face",))
+
+    with pytest.raises(AutoRigContractError, match="unused tag aliases"):
+        load_auto_rig_input_contract(tmp_path, tag_aliases={"objects_2": "mouth"})
+
+
+def test_load_contract_rejects_aliases_that_collide_after_canonicalization(
+    tmp_path: Path,
+) -> None:
+    _write_item(tmp_path, tags=("objects_1", "objects_2"))
+
+    with pytest.raises(AutoRigContractError, match="duplicate source tags"):
+        load_auto_rig_input_contract(
+            tmp_path,
+            tag_aliases={"objects_1": "face", "objects_2": "face"},
+        )
+
+
+def test_load_contract_rejects_split_alias_when_tblr_split_is_disabled(
+    tmp_path: Path,
+) -> None:
+    _write_item(tmp_path, tags=("objects_2",), tblr_split=False)
+
+    with pytest.raises(AutoRigContractError, match="tblr_split=true"):
+        load_auto_rig_input_contract(
+            tmp_path,
+            tag_aliases={"objects_2": "handwear-r"},
+        )
+
+
+def test_load_contract_rejects_path_unsafe_raw_alias_key(tmp_path: Path) -> None:
+    _write_item(tmp_path, tags=("face",))
+
+    with pytest.raises(AutoRigContractError, match="unsafe raw tag"):
+        load_auto_rig_input_contract(tmp_path, tag_aliases={"../face": "face"})
+
+
 @pytest.mark.parametrize(
     "edge,frame_size,code",
     (
