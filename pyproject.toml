@@ -109,6 +109,8 @@ auto-rig = [
     "scipy==1.15.3",
     "scikit-image==0.25.2",
     "psd-tools[composite]==1.17.4",
+    "pillow==12.3.0",
+    "rectpack==0.2.2",
 ]
 music-export = [
     "mido>=1.3.0",

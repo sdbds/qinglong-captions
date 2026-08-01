@@ -9,6 +9,7 @@ from PIL import Image
 from module.auto_rig.contracts import AutoRigContractError, load_auto_rig_input_contract
 from module.auto_rig.mask_sources import load_validated_part_alphas
 from module.auto_rig.tag_registry import V3_RAW_TAGS
+from module.auto_rig.texture_sources import load_base_texture_regions
 
 
 def _rgba_with_alpha(size: tuple[int, int], alpha: bytes) -> Image.Image:
@@ -153,3 +154,19 @@ def test_alpha_decoder_rejects_payload_changed_after_contract_validation(
 
     with pytest.raises(AutoRigContractError, match="changed after validation"):
         load_validated_part_alphas(contract)
+
+
+@pytest.mark.parametrize("mode", ("png", "psd"))
+def test_validated_png_and_psd_sources_decode_identical_straight_rgba(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    alpha_by_tag = _write_item(tmp_path, mode=mode)
+    contract = load_auto_rig_input_contract(tmp_path)
+
+    regions = load_base_texture_regions(contract)
+
+    by_tag = {region.part_id.removeprefix("part/"): region for region in regions}
+    for tag, alpha in alpha_by_tag.items():
+        expected = _rgba_with_alpha((4, 3), alpha).tobytes()
+        assert by_tag[tag.replace(" ", "-")].rgba_u8 == expected

@@ -18,5 +18,7 @@ def test_auto_rig_extra_pins_the_geometry_and_psd_runtime() -> None:
         "scipy==1.15.3",
         "scikit-image==0.25.2",
         "psd-tools[composite]==1.17.4",
+        "pillow==12.3.0",
+        "rectpack==0.2.2",
     ]
     assert not any("opencv-contrib" in dependency for dependency in dependencies)
