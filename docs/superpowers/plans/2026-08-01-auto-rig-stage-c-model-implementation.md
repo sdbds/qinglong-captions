@@ -28,23 +28,23 @@
 - `build_control_registry_plan()`, `validate_control_registry_plan(...)`
 - `build_preset_library_plan()`, `validate_preset_library_plan(...)`
 
-- [ ] **Step 1: Write RED registry/golden tests**
+- [x] **Step 1: Write RED registry/golden tests**
 
   Freeze every Revision 25 control row, exact internal parameter ID, exact Live2D reserved export name, domain/default/unit, and null Spine-only wave binding. Reject duplicate control/parameter IDs, non-finite or invalid domains, illegal xmin/xmax-to-anatomical-L/R aliases, and registry digest mutation.
 
-- [ ] **Step 2: Implement immutable ControlRegistry v1**
+- [x] **Step 2: Implement immutable ControlRegistry v1**
 
   Materialize the complete registry independent of profile and liveness. Keep internal IDs distinct from export names. Validate ASCII IDs, global parameter uniqueness, domain invariants, and stable JCS order.
 
-- [ ] **Step 3: Write RED preset descriptor tests**
+- [x] **Step 3: Write RED preset descriptor tests**
 
   Freeze the exact 30 Hz curves, duration, loop, kind, expression values, runtime application descriptor, and optional selection order. Reject repeated controls, out-of-domain values, non-increasing frames, missing loop endpoints, non-rest loop closure, expression transfer fields, unknown controls, and optional-priority omissions/duplicates.
 
-- [ ] **Step 4: Implement PresetLibrary motion-core-v1**
+- [x] **Step 4: Implement PresetLibrary motion-core-v1**
 
   Blink/talk are MotionClips; happy/sad/surprised are ExpressionPresets; wave sides are separate Spine-capable templates. Every template and the full library carry semantic digests. Registry load errors remain job-startup errors, not item diagnostics.
 
-- [ ] **Step 5: Export the lightweight API and verify**
+- [x] **Step 5: Export the lightweight API and verify**
 
   Public import must still avoid NumPy/SciPy/OpenCV/Torch. Run focused tests, Ruff, compileall, and public API coverage before committing.
 
