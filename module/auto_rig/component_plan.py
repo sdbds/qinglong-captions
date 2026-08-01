@@ -20,8 +20,11 @@ if TYPE_CHECKING:
 MASK_COMPONENT_PLAN_VERSION = "mask-component-plan-v1"
 MASK_COMPONENT_ID_SCHEMA = "mask-component-id-v1"
 MASK_CLEANUP_SCHEMA = "mask-cleanup-v1"
-MASK_SIDE_CLASSIFIER_VERSION = "mask-side-classifier-v1"
+MASK_SIDE_CLASSIFIER_VERSION = "mask-side-classifier-v2"
 NATIVE_VARIANT_PARTITION_VERSION = "native-variant-partition-v1"
+MASK_SIDE_CLASSIFIABLE_FAMILIES = V3_SPLIT_FAMILIES | frozenset(
+    {"legwear", "footwear"}
+)
 SIDE_MIN_COMPONENT_FRACTION_NUMERATOR = 1
 SIDE_MIN_COMPONENT_FRACTION_DENOMINATOR = 20
 
@@ -315,7 +318,7 @@ def _assign_sides(
         for candidate in candidates:
             candidate.side = loaded.part.side
         return "source_tag"
-    if loaded.part.base_tag not in V3_SPLIT_FAMILIES or len(candidates) != 2:
+    if loaded.part.base_tag not in MASK_SIDE_CLASSIFIABLE_FAMILIES or len(candidates) != 2:
         return "none"
     total_pixels = sum(candidate.pixel_count for candidate in candidates)
     if any(

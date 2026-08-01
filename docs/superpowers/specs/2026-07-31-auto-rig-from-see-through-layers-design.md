@@ -2,7 +2,7 @@
 
 ## Status
 
-**Revision 22，规范设计与首个 Live2D frame contract 已冻结：NativeVariant 契约保持 Revision 20；使用官方 Cubism SDK for Native 5-r.5、Core 06.00.0001 和 D3D11 WARP 完成项目自身 V4.00 writer 的 consistency、default-rest、嵌套 warp/rotation、UV/straight-alpha、motion3 与 exp3 E0 矩阵，并生成可复现的 `live2d-frames-v1.json`。正式交付仍为 Spine 4.2 + Live2D runtime；SDK/Core 不随 Python 包分发，组织是否需要另行取得 Release License 仍是发布前外部合规门。**
+**Revision 23，Stage A 左右可观测性契约已修正：上游允许 `-r/-l` 后缀的 tag 集合与 A 可从可靠双组件推导 image-side 的 family 集合不再混用；Live2D frame contract 继续使用 Revision 22 由官方 Cubism SDK for Native 5-r.5、Core 06.00.0001 和 D3D11 WARP 签署的结果。NativeVariant 契约保持 Revision 20。正式交付仍为 Spine 4.2 + Live2D runtime；SDK/Core 不随 Python 包分发，组织是否需要另行取得 Release License 仍是发布前外部合规门。**
 
 本文覆盖三件事：
 
@@ -571,6 +571,12 @@ capability 和 exporter 执行顺序都不得改变同一 typed key 的 namespac
 | motion3/exp3 能否按既定顺序生效 | **通过**。base parameters 后先把 motion 采到 1 秒，再应用 zero-fade exp3；Add/Multiply/Overwrite 分别得到 `0.75/15/-8`，且离屏像素摘要变化 | D3D11 WARP harness 报告 observed parameter values 与 raw RGBA；exp3 不在默认 fade 第一帧盲断言，正式 dual-runtime 表情能力仍只采用 Overwrite，Add/Multiply 只作 Live2D writer conformance |
 | 官方 Framework 是否接受 JCS/minified motion JSON | **不可靠**。5-r.5 Framework numeric parser 只把逗号或换行识别为数字终止符，合法的 `10.0]`/`3}` 紧凑 JSON 会被拒绝 | JCS 只用于摘要/attestation；`.motion3.json`、`.exp3.json` 固定使用 ASCII、`indent=2`、stable key order 和末尾换行的 `cubism_runtime_json_bytes()`。禁止为了体积复用 JCS bytes 作为 runtime 文件 |
 | 技术 attestation 是否等于商业发布许可 | **不是**。Framework 受 Open Software License，Core 仍受专有条款和收入/用途条件约束 | generator 只在显式确认“不随包分发 SDK/Core，组织许可判断是外部门”后写技术 attestation；正式发行前仍需由发布主体完成许可证判断，本规范不提供法律结论 |
+
+### Revision 23 Stage A 左右状态实现复审
+
+| 审查项 | 核对结论 | Revision 23 处理 |
+|---|---|---|
+| A 复用上游 `V3_SPLIT_FAMILIES` 决定哪些 mask 可按可靠双组件推导左右 | **错误。** `legwear/footwear` 在 v3 不能带 `-r/-l` 后缀，但这不代表其两个可靠连通域没有 image-side 证据；直接复用会让腿、脚永远不可能成为 `merged-separable` | 拆成两个 registry：canonical tag registry 继续只约束合法上游 suffix；`MaskSideClassifier v2` 的 geometry-side family 为 `V3_SPLIT_FAMILIES ∪ {legwear, footwear}`。只有恰好两个通过面积门且质心 x 可严格排序的组件才生成 `.xmin/.xmax`，否则保持 `merged-ambiguous` |
 
 ### 决策摘要
 
@@ -1569,6 +1575,12 @@ draw anchor 的 `base_tag/depth_bucket/bone eligibility`。`base_part_ids` 只�
 - `merged-separable`：merged mask 有两个可靠连通域；
 - `merged-ambiguous`：粘连或组件质量不足；
 - `missing`：部件不存在。
+
+这里必须区分两个概念：上游 canonical tag 的 suffix registry 只回答输入是否可以合法出现 `-r/-l`；
+A 的 geometry-side registry 回答一个**无 suffix** 的 cleaned mask 能否从两个可靠组件推导 image-side。
+`MaskSideClassifier v2` 后者固定为 `V3_SPLIT_FAMILIES ∪ {legwear, footwear}`，因此 v3 中只能以 merged tag
+出现的 `legwear/footwear` 仍可成为 `merged-separable`。它们若不是恰好两个通过面积占比门、且质心 x
+可严格排序的组件，就必须保持 `merged-ambiguous`，不能因“通常有两条腿”强拆。
 
 `merged-ambiguous` 首版刚性挂到 torso/root，并产生 error 级诊断；只有显式
 `--allow-partial` 才允许继续双格式导出。深度用于 draw order、遮挡诊断和 merged 候选排序，

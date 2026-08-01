@@ -1,5 +1,17 @@
 """Deterministic contracts for the see-through auto-rig pipeline."""
 
+from .anatomy import (
+    ANATOMY_MASK_PLAN_VERSION,
+    ANATOMY_MASK_REGISTRY_VERSION,
+    AnatomyMaskError,
+    AnatomyMaskGeometry,
+    AnatomyMaskMetric,
+    AnatomyMaskPixels,
+    AnatomyMaskPlan,
+    AnatomyMaskRegistry,
+    LimbStateRecord,
+    build_anatomy_mask_geometry,
+)
 from .artifacts import (
     ArtifactContractError,
     FileDigest,
@@ -10,6 +22,12 @@ from .artifacts import (
     describe_file,
     normalize_relative_path,
     sha256_file,
+)
+from .component_geometry import (
+    COMPONENT_GEOMETRY_LOADER_VERSION,
+    ComponentGeometryError,
+    LoadedComponentGeometry,
+    load_component_geometry,
 )
 from .component_plan import (
     MASK_COMPONENT_ID_SCHEMA,
@@ -331,4 +349,18 @@ __all__ = [
     "identify_rig_override_input",
     "load_rig_override_source",
     "validate_rig_override_source",
+    "ANATOMY_MASK_PLAN_VERSION",
+    "ANATOMY_MASK_REGISTRY_VERSION",
+    "AnatomyMaskError",
+    "AnatomyMaskGeometry",
+    "AnatomyMaskMetric",
+    "AnatomyMaskPixels",
+    "AnatomyMaskPlan",
+    "AnatomyMaskRegistry",
+    "COMPONENT_GEOMETRY_LOADER_VERSION",
+    "ComponentGeometryError",
+    "LimbStateRecord",
+    "LoadedComponentGeometry",
+    "build_anatomy_mask_geometry",
+    "load_component_geometry",
 ]

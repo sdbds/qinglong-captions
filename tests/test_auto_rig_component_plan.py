@@ -228,6 +228,30 @@ def test_component_plan_promotes_exactly_two_unsplit_family_components_to_image_
     assert by_side["xmax"].components[0].side == "xmax"
 
 
+@pytest.mark.parametrize("base_tag", ("legwear", "footwear"))
+def test_component_plan_derives_leg_and_foot_sides_from_reliable_components(
+    tmp_path: Path,
+    base_tag: str,
+) -> None:
+    loaded = _loaded_part(
+        source_tag=base_tag,
+        base_tag=base_tag,
+        semantic_slug=base_tag,
+        part_id=f"part/{base_tag}",
+        side=None,
+        xyxy=(10, 20, 22, 24),
+        points={(0, 0), (1, 0), (0, 1), (1, 1), (9, 1), (10, 1), (9, 2), (10, 2)},
+    )
+
+    plan = build_mask_component_plan((loaded,), canvas_edge=1024, item_root=tmp_path)
+
+    assert tuple(part.part_id for part in plan.parts) == (
+        f"part/{base_tag}.xmax",
+        f"part/{base_tag}.xmin",
+    )
+    assert {part.side_provenance for part in plan.parts} == {"component_pair"}
+
+
 def test_component_plan_preserves_source_side_for_every_component(tmp_path: Path) -> None:
     loaded = _loaded_part(
         source_tag="handwear-r",
