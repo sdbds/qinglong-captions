@@ -13,6 +13,7 @@ from typing import Any
 from .artifacts import ArtifactContractError, sha256_file
 from .input_identity import TargetInputIdentity
 from .jcs import jcs_sha256
+from .joint_registry import JOINT_ID_SET
 from .tag_registry import AutoRigTagContractError, decode_v3_source_tag
 
 RIG_OVERRIDES_PATH = "rig_overrides.json"
@@ -21,31 +22,6 @@ RIG_OVERRIDES_SCHEMA_VERSION = 1
 
 _REPARSE_POINT_ATTRIBUTE = 0x400
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
-_JOINT_IDS = frozenset(
-    {
-        "joint/pelvis",
-        "joint/spine",
-        "joint/neck",
-        "joint/head_base",
-        "joint/head_top",
-        "joint/shoulder.xmin",
-        "joint/shoulder.xmax",
-        "joint/elbow.xmin",
-        "joint/elbow.xmax",
-        "joint/wrist.xmin",
-        "joint/wrist.xmax",
-        "joint/hand_tip.xmin",
-        "joint/hand_tip.xmax",
-        "joint/hip.xmin",
-        "joint/hip.xmax",
-        "joint/knee.xmin",
-        "joint/knee.xmax",
-        "joint/ankle.xmin",
-        "joint/ankle.xmax",
-        "joint/toe.xmin",
-        "joint/toe.xmax",
-    }
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,7 +169,7 @@ def _parse_joint_overrides(payload: Any) -> tuple[JointOverride, ...]:
         raise ValueError("joints must be an object")
     joints: list[JointOverride] = []
     for joint_id in sorted(payload):
-        if joint_id not in _JOINT_IDS:
+        if joint_id not in JOINT_ID_SET:
             raise ValueError(f"unknown joint override ID: {joint_id}")
         record = payload[joint_id]
         if type(record) is not dict:

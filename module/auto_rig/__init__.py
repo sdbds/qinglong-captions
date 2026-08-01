@@ -67,6 +67,22 @@ from .input_identity import (
     TargetInputPartIdentity,
     build_target_input_identity,
 )
+from .joint_observations import (
+    JOINT_OBSERVATION_PLAN_VERSION,
+    JOINT_OBSERVATION_SCHEMA_VERSION,
+    JOINT_RESOLVER_VERSION,
+    GeometryConfidenceFactors,
+    JointEligibility,
+    JointObservation,
+    JointObservationContractError,
+    JointObservationPlan,
+    JointResolution,
+    JointResolverDescriptor,
+    build_override_joint_observations,
+    make_joint_observation,
+    resolve_joint_observations,
+)
+from .joint_registry import JOINT_IDS, JOINT_REGISTRY_VERSION
 from .manifests import (
     STAGE_MANIFEST_SCHEMA_VERSION,
     VALID_PRODUCTION_STAGE_STATUSES,
@@ -363,4 +379,19 @@ __all__ = [
     "LoadedComponentGeometry",
     "build_anatomy_mask_geometry",
     "load_component_geometry",
+    "JOINT_IDS",
+    "JOINT_OBSERVATION_PLAN_VERSION",
+    "JOINT_OBSERVATION_SCHEMA_VERSION",
+    "JOINT_REGISTRY_VERSION",
+    "JOINT_RESOLVER_VERSION",
+    "GeometryConfidenceFactors",
+    "JointEligibility",
+    "JointObservation",
+    "JointObservationContractError",
+    "JointObservationPlan",
+    "JointResolution",
+    "JointResolverDescriptor",
+    "build_override_joint_observations",
+    "make_joint_observation",
+    "resolve_joint_observations",
 ]
