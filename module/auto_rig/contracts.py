@@ -42,6 +42,8 @@ class ValidatedPartSource:
     mode: Literal["png", "psd"]
     color_path: Path
     depth_path: Path
+    color_sha256: str
+    depth_sha256: str
     layer_name: str | None
 
 
@@ -373,6 +375,8 @@ def _validate_png_sources(
                     mode="png",
                     color_path=color_path,
                     depth_path=depth_path,
+                    color_sha256=_sha256_file(color_path),
+                    depth_sha256=_sha256_file(depth_path),
                     layer_name=None,
                 ),
             )
@@ -426,6 +430,8 @@ def _validate_psd_sources(
     expected_tags = {canonical.source_tag for canonical, _, _ in part_rows}
     if set(color_layers) != expected_tags or set(depth_layers) != expected_tags:
         raise _error("final PSD layer names must exactly equal optimized.parts tags")
+    color_sha256 = _sha256_file(color_path)
+    depth_sha256 = _sha256_file(depth_path)
     parts: list[AutoRigPartContract] = []
     for canonical, bbox, depth in part_rows:
         color_bbox = tuple(color_layers[canonical.source_tag].bbox)
@@ -448,6 +454,8 @@ def _validate_psd_sources(
                     mode="psd",
                     color_path=color_path,
                     depth_path=depth_path,
+                    color_sha256=color_sha256,
+                    depth_sha256=depth_sha256,
                     layer_name=canonical.source_tag,
                 ),
             )

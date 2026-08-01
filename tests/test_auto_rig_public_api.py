@@ -15,10 +15,25 @@ EXPECTED_PUBLIC_API = {
     "AutoRigPartContract",
     "AutoRigTagContractError",
     "CanonicalPartTag",
+    "CanonicalLabelMap",
+    "DRAW_ORDER_POLICY_VERSION",
+    "DrawOrderPolicyError",
     "ERROR_RECORD_PATH",
     "EXPORT_MANIFEST_PATH",
     "FileDigest",
     "FormatValidation",
+    "LoadedPartAlpha",
+    "MASK_COMPONENT_ID_SCHEMA",
+    "MASK_COMPONENT_PLAN_VERSION",
+    "MaskCleanupDescriptor",
+    "MaskComponentPlan",
+    "MaskComponentPlanError",
+    "MaskComponentRecord",
+    "NormalizedMaskPart",
+    "OrdinaryDrawOrderPlan",
+    "PartDrawOrderRecord",
+    "QCL_CODEC_VERSION",
+    "QclContractError",
     "StageFailureRecord",
     "StageGraphContractError",
     "StageGraphResult",
@@ -35,18 +50,24 @@ EXPECTED_PUBLIC_API = {
     "atomic_write_json",
     "build_stage_fingerprint",
     "build_stage_manifest",
+    "build_base_mask_component_plan",
+    "build_ordinary_draw_order",
     "canonical_json_bytes",
     "canonical_json_sha256",
     "describe_file",
+    "decode_qcl",
+    "encode_qcl",
     "finalize_failure",
     "finalize_success",
     "invalidate_terminal",
     "is_item_completed",
     "load_auto_rig_input_contract",
+    "load_validated_part_alphas",
     "manifest_relative_path",
     "normalize_relative_path",
     "read_stage_manifest",
     "sha256_file",
+    "validate_draw_order_registry",
     "validate_v3_final_tag_set",
     "write_stage_manifest",
 }
@@ -61,7 +82,11 @@ def test_auto_rig_import_has_no_heavy_runtime_dependencies() -> None:
     script = """
 import sys
 import module.auto_rig
-heavy = sorted(name for name in ('torch', 'cv2', 'psd_tools', 'numpy') if name in sys.modules)
+heavy = sorted(
+    name
+    for name in ('torch', 'cv2', 'psd_tools', 'numpy', 'scipy', 'skimage')
+    if name in sys.modules
+)
 print(','.join(heavy))
 """
 
