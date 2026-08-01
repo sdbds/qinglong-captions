@@ -34,9 +34,9 @@
 
 ### Task 3: Limb Skeleton And Contact Observations
 
-- [ ] Build deterministic medial-axis graphs from authenticated anatomy masks.
-- [ ] Generate elbow/knee curvature, wrist bottleneck, hand-tip, ankle contact, and toe evidence with explicit eligibility and factors.
-- [ ] Add bent/straight/branched/merged/missing-foot fixtures and false-resolve guards.
+- [x] Build deterministic medial-axis graphs from authenticated anatomy masks.
+- [x] Generate elbow/knee curvature, wrist bottleneck, hand-tip, ankle contact, and toe evidence with explicit eligibility and factors.
+- [x] Add bent/straight/branched/merged/missing-foot fixtures and false-resolve guards.
 
 ### Task 4: Stage A Joint Plan Integration
 

@@ -93,6 +93,15 @@ from .joint_observations import (
     resolve_joint_observations,
 )
 from .joint_registry import JOINT_IDS, JOINT_REGISTRY_VERSION
+from .limb_geometry import (
+    LIMB_GEOMETRY_EVIDENCE_VERSION,
+    LIMB_JOINT_GEOMETRY_VERSION,
+    LIMB_JOINT_IDS,
+    LimbGeometryDescriptor,
+    LimbGeometryError,
+    LimbGeometryEvidenceBatch,
+    build_limb_joint_evidence,
+)
 from .manifests import (
     STAGE_MANIFEST_SCHEMA_VERSION,
     VALID_PRODUCTION_STAGE_STATUSES,
@@ -329,6 +338,12 @@ __all__ = [
     "FinalDrawOrderPlan",
     "FinalPartDrawRecord",
     "LIVE2D_PROJECTED_DRAWABLE_LIMIT",
+    "LIMB_GEOMETRY_EVIDENCE_VERSION",
+    "LIMB_JOINT_GEOMETRY_VERSION",
+    "LIMB_JOINT_IDS",
+    "LimbGeometryDescriptor",
+    "LimbGeometryError",
+    "LimbGeometryEvidenceBatch",
     "LoadedTextureRegion",
     "MaterializedTexturePage",
     "NATIVE_VARIANT_ADMISSION_POLICY_VERSION",
@@ -411,5 +426,6 @@ __all__ = [
     "GeometryEvidenceBatch",
     "GeometryEvidenceDiagnostic",
     "build_axial_joint_evidence",
+    "build_limb_joint_evidence",
     "validate_anatomy_mask_geometry",
 ]
