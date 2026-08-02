@@ -45,6 +45,7 @@ _ROOT_FIELDS = frozenset(
         "control_bindings",
         "clips",
         "expressions",
+        "runtime_application",
         "format_plans",
         "primitive_candidates",
         "export_symbols",
@@ -479,6 +480,11 @@ def _validate_motion_and_bindings(
 
     clips = _as_list(payload["clips"], "clips", nonempty=True)
     expressions = _as_list(payload["expressions"], "expressions", nonempty=True)
+    runtime_application = _as_dict(
+        payload["runtime_application"], "runtime_application"
+    )
+    if set(runtime_application) != {"version", "motion", "expression"}:
+        raise _error("motion runtime-application contract is invalid")
     preset_records = []
     for clip in clips:
         record = _as_dict(clip, "clip")
@@ -769,6 +775,13 @@ def validate_rig_document_payload(payload: object) -> RigDocument:
         "canonical_texture_page_set_sha256",
     ):
         _digest(provenance.get(field), f"provenance.{field}")
+    if provenance.get("degradation_state") not in {"clean", "degraded"}:
+        raise _error("provenance degradation state is invalid")
+    degradation_codes = _as_list(
+        provenance.get("degradation_codes"), "provenance.degradation_codes"
+    )
+    if degradation_codes != sorted(set(degradation_codes)):
+        raise _error("provenance degradation codes are not canonical")
     if provenance["format_plan_set_sha256"] != root["format_plans"]["plan_sha256"]:  # type: ignore[index]
         raise _error("format plan provenance mismatch")
     if provenance["primitive_candidate_set_sha256"] != root["primitive_candidates"][  # type: ignore[index]
@@ -892,6 +905,7 @@ def build_rig_document(
         "control_bindings": [binding.to_dict() for binding in bindings.bindings],
         "clips": [clip.to_dict() for clip in presets.clips],
         "expressions": [expression.to_dict() for expression in presets.expressions],
+        "runtime_application": presets.runtime_application.to_dict(),
         "format_plans": _with_plan_digest(formats),
         "primitive_candidates": _with_plan_digest(candidates),
         "export_symbols": _with_table_digest(symbols),
@@ -912,6 +926,8 @@ def build_rig_document(
             "global_export_symbol_table_sha256": symbols.table_sha256,
             "texture_page_plan_sha256": texture_plan.plan_sha256,
             "canonical_texture_page_set_sha256": texture_page_set.set_sha256,
+            "degradation_state": cache.degradation_state,
+            "degradation_codes": list(cache.degradation_codes),
         },
     }
     return validate_rig_document_payload(payload)

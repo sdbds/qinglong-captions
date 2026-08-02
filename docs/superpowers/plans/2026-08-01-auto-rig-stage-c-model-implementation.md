@@ -199,23 +199,23 @@
 - `project_motion_manifest(rig, profile)`, `project_rig_report(rig)`
 - `execute_stage_c(...) -> StageCResult`
 
-- [ ] **Step 1: Recompute A's final TexturePagePlan and materialize once**
+- [x] **Step 1: Recompute A's final TexturePagePlan and materialize once**
 
   Rebuild the final-admitted part-region input from authenticated sources, require the plan to match A exactly, then encode each page once under `rig/shared/textures/page_<index>.png`. Store canonical page paths, RGBA and encoded SHA, encoder fingerprint, UV/rect contract, straight alpha, and sRGB byte semantics in Rig.
 
-- [ ] **Step 2: Implement read-only motion/report projections**
+- [x] **Step 2: Implement read-only motion/report projections**
 
   Projection includes `rig_json_sha256`, motion semantics digest, global symbol digest, profile, required/default/runtime application, and every per-format supported/omitted reason/artifact/incompatibility. Recompute from the just-written Rig and reject any mismatch; D/E never use projection to override Rig.
 
-- [ ] **Step 3: Implement C's staged public transaction**
+- [x] **Step 3: Implement C's staged public transaction**
 
   Build under `rig/cache/C/staging`, validate bytes and schemas, atomically replace canonical textures and `rig.json`, then derive/write report and motion manifest from the on-disk Rig. Remove obsolete C-owned public files before manifest commit. A crash may leave payloads but never a reusable C marker; resume rehashes every byte.
 
-- [ ] **Step 4: Prove exact ownership/inventory/resume behavior**
+- [x] **Step 4: Prove exact ownership/inventory/resume behavior**
 
   C owns exactly `rig/rig.json`, `rig/report.json`, `rig/motion_manifest.json`, and declared shared pages. It never modifies B cache. Changed Rig C-field invalidates C/D/E/G but leaves B reusable; changed PNG encoder invalidates from C; changed TexturePagePlan semantics invalidates from A. Stale pages and hand-edited projections are rejected and removed on the next successful C commit.
 
-- [ ] **Step 5: Failure and degraded-state tests**
+- [x] **Step 5: Failure and degraded-state tests**
 
   C failure removes old C commit marker and never publishes a partial success manifest. Allowed rigid fallback propagates to `stage_validated_with_degradation`; missing required capability or format-plan mismatch is a hard failure and cannot be weakened by `--allow-partial`.
 

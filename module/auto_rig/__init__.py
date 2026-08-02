@@ -316,6 +316,19 @@ from .primitive_candidates import (
     enumerate_primitive_candidates,
     validate_primitive_candidate_set,
 )
+from .projections import (
+    MOTION_MANIFEST_PROJECTOR_VERSION,
+    RIG_REPORT_PROJECTOR_VERSION,
+    MotionManifestProjection,
+    ProjectionError,
+    RigReportProjection,
+    motion_manifest_bytes,
+    project_motion_manifest,
+    project_rig_report,
+    rig_report_bytes,
+    validate_motion_manifest_projection,
+    validate_rig_report_projection,
+)
 from .qcl import (
     QCL_CODEC_VERSION,
     CanonicalLabelMap,
@@ -380,6 +393,14 @@ from .skinning import (
     build_skinning_plan,
     compute_arc_length_influences,
     validate_skinning_plan,
+)
+from .stage_c import (
+    STAGE_C_ALGORITHM_VERSION,
+    STAGE_C_FAILURE_SCHEMA_VERSION,
+    STAGE_C_SCHEMA_VERSION,
+    StageCError,
+    StageCResult,
+    execute_stage_c,
 )
 from .stage_graph import (
     StageGraphContractError,
@@ -812,4 +833,21 @@ __all__ = [
     "rig_document_bytes",
     "validate_rig_document",
     "validate_rig_document_payload",
+    "MOTION_MANIFEST_PROJECTOR_VERSION",
+    "RIG_REPORT_PROJECTOR_VERSION",
+    "MotionManifestProjection",
+    "ProjectionError",
+    "RigReportProjection",
+    "motion_manifest_bytes",
+    "project_motion_manifest",
+    "project_rig_report",
+    "rig_report_bytes",
+    "validate_motion_manifest_projection",
+    "validate_rig_report_projection",
+    "STAGE_C_ALGORITHM_VERSION",
+    "STAGE_C_FAILURE_SCHEMA_VERSION",
+    "STAGE_C_SCHEMA_VERSION",
+    "StageCError",
+    "StageCResult",
+    "execute_stage_c",
 ]
