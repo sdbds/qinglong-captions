@@ -98,23 +98,23 @@
 - `build_format_plan_set(...)`
 - `validate_format_plan_set(...)`
 
-- [ ] **Step 1: Freeze the three profile registries**
+- [x] **Step 1: Freeze the three profile registries**
 
   `dual_runtime_core_v1` requires Spine/Live2D and idle/breath/head_nod/head_shake; avatar additionally requires blink/talk/happy/sad/surprised; `spine_4_2_dev` is non-terminal. Formal profiles cannot weaken required presets with `strict_capabilities=false`. Optional parity is `per_format`.
 
-- [ ] **Step 2: RED static model feasibility tests**
+- [x] **Step 2: RED static model feasibility tests**
 
   Spine validates root/topology/components/weights/texture references. Live2D validates texture indices, section/reference bounds, and `component_count <= 1001` with exact rank mapping. Model failure is an item failure for a required format and cannot be deferred to D/E.
 
-- [ ] **Step 3: RED per-preset/bundle selector tests**
+- [x] **Step 3: RED per-preset/bundle selector tests**
 
   Choose one complete implementation per semantic group by stable rank. Live2D wave is always omitted with `live2d_joint_bend_requires_glue`; Spine wave remains supported when geometry exists. Unsupported controls, missing targets, incomplete bundles, and non-rigid target conflicts carry stable reasons.
 
-- [ ] **Step 4: Implement required-first preset-set selection**
+- [x] **Step 4: Implement required-first preset-set selection**
 
   Add all required presets atomically, then optional order `body_sway, blink, talk, surprised, happy, sad, wave.xmin, wave.xmax`, with no backtracking. Required conflicts fail; optional conflicts omit with `conflicts_with` and failed primitive keys. Persist input/output/set digests for D/E recomputation.
 
-- [ ] **Step 5: Generated superset/property tests**
+- [x] **Step 5: Generated superset/property tests**
 
   Across generated Rig shapes, every profile, and every preset, prove selected bindings are a subset of the later primitive candidate universe. Unknown selector keys must fail before writer entry.
 
@@ -134,23 +134,23 @@
 - `enumerate_primitive_candidates(...)`
 - `build_global_export_symbol_table(...)`
 
-- [ ] **Step 1: Freeze capability-independent candidate enumeration**
+- [x] **Step 1: Freeze capability-independent candidate enumeration**
 
   Enumerate from complete Rig/control/binding/preset registries without profile pruning. Include Spine bone/slot/attachment/animation and Live2D Part/ArtMesh/Parameter/rotation/warp/motion/expression candidates only when the corresponding format binding exists. Stable IDs derive from complete typed records, never concatenated strings.
 
-- [ ] **Step 2: Implement InternalId/ExportName/SymbolKind codecs**
+- [x] **Step 2: Implement InternalId/ExportName/SymbolKind codecs**
 
   Enforce grammar, 63-byte limit, namespace-scoped uniqueness, reserved parameter names, all-member collision suffixing, stable component token, and exact golden names from the spec. Different namespaces may reuse a naked name; each namespace collision class is resolved as a unit.
 
-- [ ] **Step 3: Build the profile/pruning-independent universe**
+- [x] **Step 3: Build the profile/pruning-independent universe**
 
   Generate once from the complete Rig and both exporter families. Same typed key always resolves identically across profiles and exporter order. Every artifact path fragment must resolve through the table; exporters cannot sanitize again.
 
-- [ ] **Step 4: Add collision and mutation fixtures**
+- [x] **Step 4: Add collision and mutation fixtures**
 
   Cover `a-b` versus `a.b`, 63/64 byte boundary, reserved parameter collision, multi-component token, digest collision injection, missing candidate, changed namespace, survival-set renaming, and re-sanitization attempts.
 
-- [ ] **Step 5: Prove binding-plan subset invariants**
+- [x] **Step 5: Prove binding-plan subset invariants**
 
   Generated matrices assert both candidate IDs and typed keys selected by all format plans are subsets of C's immutable candidate set and have symbol mappings.
 
