@@ -60,27 +60,27 @@
 - Create: `tests/test_auto_rig_live2d_artmesh.py`
 - Create: `tests/test_auto_rig_live2d_keyforms.py`
 
-- [ ] **Step 1: Write failing coordinate/liveness reconstruction tests**
+- [x] **Step 1: Write failing coordinate/liveness reconstruction tests**
 
   Freeze the attested canvas-to-root transform, root RotationDeformer scale `1/PPU`, nested same/descendant-bone authoring-local pivots, lower-rank-outer ordering, and direct-parent ArtMesh local points. Reconstruct every setup vertex through the emitted stack within `0.1 px`; reversing two non-commuting instances or retaining a dead limb node must fail.
 
-- [ ] **Step 2: Implement `Live2DCoordinatePlan v1`**
+- [x] **Step 2: Implement `Live2DCoordinatePlan v1`**
 
   Consume the packaged frame attestation at structural startup, record every node/frame/parent and round-trip sample, and expose only attested root/rotation/ArtMesh conversions. Do not introduce a production WarpDeformer path without a new E0 signature.
 
-- [ ] **Step 3: Write failing ArtMesh/UV tests**
+- [x] **Step 3: Write failing ArtMesh/UV tests**
 
   Map one Rig component to one ArtMesh, preserve canonical draw rank and triangle winding, enforce signed-int16 vertex indices, convert canonical top-left UV through `CubismV400UvAdapter`, assign texture indices from C pages, and reject missing/duplicate placements, out-of-range indices, changed topology, or UV/page mismatches.
 
-- [ ] **Step 4: Implement static ArtMesh plans**
+- [x] **Step 4: Implement static ArtMesh plans**
 
   Encode setup positions in the direct-parent local frame, setup opacity from Part visibility, one texture region per Part, and exact Part/ArtMesh IDs from the global symbols.
 
-- [ ] **Step 5: Write failing non-rigid keyform tests**
+- [x] **Step 5: Write failing non-rigid keyform tests**
 
   Compile C’s exact sampled stop values into single-parameter ArtMesh position/opacity keyforms, require a rest-equivalent default key, enforce at most 17 stops, no topology change/NaN/triangle flip, scalar residual `<=1/255`, vertex residual `<=0.1 px` at stored stops and nine interval samples, and the one-million-position/64-MiB capacity guards.
 
-- [ ] **Step 6: Implement `Live2DKeyformPlan v1`**
+- [x] **Step 6: Implement `Live2DKeyformPlan v1`**
 
   Merge deform and opacity properties targeting the same ArtMesh/parameter, transform every absolute canvas sample into the ArtMesh parent-local frame, preserve all piecewise-linear knots, and leave static objects with a one-key zero-band binding.
 
