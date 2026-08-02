@@ -2,7 +2,7 @@
 
 ## Status
 
-**Revision 25，Stage B 几何事实链已冻结：声明式 `BoneGraphPlan v1`、由 A 阶段 QCL 直接构建的确定性 `MeshBuildPlan v1`、语义约束且按关节弧长/局部半径计算的 `SkinningPlan v1`，以及 component draw rank 现在组成单写者、引用闭合、可摘要复验的 `RigGeometryCache v1`。B 只发布 `rig/cache/B/rig_geometry.json`，不创建或改写公共 `rig/rig.json`；C 仍是完整 `RigDocument v1` 的唯一 writer。Live2D frame contract 继续使用 Revision 22 由官方 Cubism SDK for Native 5-r.5、Core 06.00.0001 和 D3D11 WARP 签署的结果。NativeVariant 契约保持 Revision 20。正式交付仍为 Spine 4.2 + Live2D runtime；SDK/Core 不随 Python 包分发，组织是否需要另行取得 Release License 仍是发布前外部合规门。**
+**Revision 26，Stage C exporter-neutral 事实链已冻结并实现：版本化 control/preset registry、能力与 binding 决议、逐格式 feasibility、完整 primitive/symbol universe、共享 canonical texture pages、引用闭合的 `RigDocument v1` 及只读 projections 现在由 C 单次组装和事务发布。A/B 私有缓存保持不可变，C 是公共 `rig.json`、`report.json`、motion/expression manifest、全局符号表和 canonical page PNG 的唯一 writer；D/E 只能消费这些事实，尚未在本 revision 宣称 Spine 4.2 或 Live2D runtime exporter 完成。Live2D frame contract 继续使用 Revision 22 由官方 Cubism SDK for Native 5-r.5、Core 06.00.0001 和 D3D11 WARP 签署的结果。NativeVariant 契约保持 Revision 20。正式交付仍为 Spine 4.2 + Live2D runtime；SDK/Core 不随 Python 包分发，组织是否需要另行取得 Release License 仍是发布前外部合规门。**
 
 本文覆盖三件事：
 
@@ -596,6 +596,17 @@ capability 和 exporter 执行顺序都不得改变同一 typed key 的 namespac
 | 权重是否可继续使用固定像素宽度和全骨候选 | **不可以。** 固定 `proj/40` 随分辨率改变语义，全骨候选会把脸/头发错误绑定到手臂 | `SkinningPlan v1` 先用 Part semantic registry 限定候选骨，再把 limb 顶点投影到 resolved joint polyline 的累计弧长；transition band 来自 joint eligibility radius，权重定点量化、最多四项、按 bone ID 排序并确定性归一化。候选不足时使用可报告的 rigid fallback，不伪装成完整多骨能力 |
 | B cache 是否可以是以后由 C 补字段的半成品 `rig.json` | **不可以。** C 改写后会永久破坏 B output digest，使昂贵 mesh/weights 每次 resume 都重跑 | `ComponentDrawOrderExpander v1` 冻结 `(part_draw_rank, component_id)` 的 gapless rank；`RigGeometryCache v1` 嵌入经摘要认证的 A/B plan 投影并验证 parent/joint/component/mesh/influence 引用闭包。B manifest 只拥有 `rig/cache/B/rig_geometry.json`，mesh descriptor 改变只使 B 及其下游 C 失效，A 保持可复用 |
 | 实现回归是否覆盖官方 Cubism 环境和上游 see-through 边界 | **是。** 不能只依靠 Stage B focused fixture | 官方 SDK/Core 环境下 auto-rig：`521 passed, 4 skipped`；Stage B focused：`47 passed`；see-through：`54 passed`；dependency/uv：`193 passed`。Ruff、`compileall` 与 `git diff --check` 同时通过 |
+
+### Revision 26 Stage C 模型与事务实现复审
+
+| 实现项 | 核对结论 | Revision 26 处理 |
+|---|---|---|
+| C 是否可在 capability 过滤后再枚举 primitive/symbol，或让两个 exporter 各自命名 | **不可以。** 这会让罕见 binding 到生产批次才暴露 `missing_export_symbol`，也会使同一 internal identity 随格式和剪枝结果漂移 | `PrimitiveCandidateEnumerator v1` 先按完整 Rig 与 registry 枚举 profile-independent typed-key 超集；`GlobalExportSymbolTable v1` 从该超集单次生成，按 `(format, namespace)` 消解名称。属性测试覆盖全部 profile/preset 的 `binding_plan_keys ⊆ candidate_universe`，exporter 内二次 sanitize 被拒绝 |
+| 公共 `rig.json` 是否可由 B 写半成品、再由 C 补字段 | **不可以。** 共享路径会破坏 B manifest 摘要并废掉昂贵 mesh/weight resume | B 只拥有 `RigGeometryCache v1`；C 从经摘要复验的 A/B cache 一次组装完整、引用闭合且 canonical-JCS 的 `RigDocument v1`。capabilities、bindings、clips、expressions、texture pages、primitive candidates 与 export symbols 均在同一事务中冻结 |
+| Spine/Live2D feasibility 是否可以埋进 writer，失败后再回改公共 Rig | **不可以。** writer 才发现 required capability 缺失会制造格式间能力漂移和部分发布 | C 在写任何格式产物前生成纯 `FormatPlan`：required preset 双格式严格对称，optional preset 按 `supported_formats/omitted/reason` 明示；Live2D v1 的无 Glue joint bend 固定 omit，Spine 可保留 wave。D/E 只能执行已冻结决定，不能反推或改写 |
+| canonical texture page 是否仍由 D/E 各自编码 | **不可以。** 相同像素经两个 PNG encoder 仍可能因 filter/zlib/chunk 变化而字节不同 | C 复算 A 的 pack plan 并要求逐字段一致，再单次编码 `rig/shared/textures/page_<index>.png`；D/E 后续只能字节复制。C manifest 拥有精确 public inventory，失败先移除旧 commit marker，禁止部分公共成功态 |
+| Stage C 是否已经等于双格式正式交付完成 | **否。** C 只冻结 exporter 的全部输入与判决，不生成目标 runtime 包 | D 的 Spine 4.2 encoder/runtime validation、E 的 MOC3/model3/motion3/exp3 compiler/runtime validation，以及 G 终态发布仍是后续实现 gate；Revision 26 不写虚假 `completed` marker |
+| 实现回归是否覆盖官方 Cubism 环境和上游边界 | **是。** SDK 路径必须实际进入 Core/E0 测试，而不是只检查文件存在 | 官方 SDK/Core 环境下 auto-rig：`579 passed, 4 skipped`；Stage C focused：`60 passed`；see-through：`54 passed`；dependency/uv：`197 passed, 1 skipped`。auto-rig Ruff、`compileall` 与 `git diff --check` 同时通过 |
 
 ### 决策摘要
 

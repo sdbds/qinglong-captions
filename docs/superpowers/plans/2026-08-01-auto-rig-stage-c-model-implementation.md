@@ -225,21 +225,23 @@
 - Modify: `docs/superpowers/specs/2026-07-31-auto-rig-from-see-through-layers-design.md`
 - Modify: this plan
 
-- [ ] **Step 1: Run focused Stage C suites**
+- [x] **Step 1: Run focused Stage C suites**
 
   Run each new module suite plus Stage B, texture, manifest, stage graph, terminal, and public API regressions.
 
-- [ ] **Step 2: Run official SDK-backed auto-rig regression**
+- [x] **Step 2: Run official SDK-backed auto-rig regression**
 
   Use `E:\CubismSdkForNative-5-r.5`, the official Core DLL, and the built D3D11 WARP harness. Record exact pass/skip counts.
 
-- [ ] **Step 3: Run upstream boundary suites**
+- [x] **Step 3: Run upstream boundary suites**
 
   Run see-through and dependency/uv suites, Ruff, compileall, and `git diff --check`.
 
-- [ ] **Step 4: Update Revision 26 status and commit**
+- [x] **Step 4: Update Revision 26 status and commit**
 
   Record exact implementation facts and counts. Do not claim D/E export completion; Stage C only freezes the complete inputs and decisions those writers must consume.
+
+  Recorded verification: Stage C focused `60 passed`; official SDK/Core-backed auto-rig `579 passed, 4 skipped`; see-through `54 passed`; dependency/uv `197 passed, 1 skipped`; relevant Ruff, `compileall`, and `git diff --check` passed.
 
 ## Self-Review
 
