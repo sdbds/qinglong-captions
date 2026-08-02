@@ -44,19 +44,19 @@
 - Create: `tests/test_auto_rig_spine_symbols.py`
 - Create: `tests/test_auto_rig_spine_atlas.py`
 
-- [ ] **Step 1: Write failing symbol-subset tests**
+- [x] **Step 1: Write failing symbol-subset tests**
 
   Resolve every Spine bone/slot/attachment/region/animation/page only by the Stage C typed key and symbol table. Missing, duplicate, renamed, or exporter-sanitized keys must fail.
 
-- [ ] **Step 2: Implement immutable Spine symbol lookup**
+- [x] **Step 2: Implement immutable Spine symbol lookup**
 
   Expose exact typed-key and internal-identity lookups without a naming fallback. Preserve attachment-key scope separately from actual attachment object and atlas region names.
 
-- [ ] **Step 3: Write failing UV/atlas tests**
+- [x] **Step 3: Write failing UV/atlas tests**
 
   Use a non-square region and asymmetric vertices. Assert canonical page-top-left coordinates become Spine attachment-local UVs once, region offsets/sizes match the C placement, pages are ordered `page_0..N-1`, atlas uses ASCII/LF, and every page says `pma: false`.
 
-- [ ] **Step 4: Implement `Spine42UvAdapter v1` and atlas writer/parser**
+- [x] **Step 4: Implement `Spine42UvAdapter v1` and atlas writer/parser**
 
   Derive local region UV from each canvas vertex and the part content rect, serialize deterministic multi-page atlas grammar, validate unique effective attachment paths, and never decode/re-encode or repack page pixels.
 
