@@ -34,19 +34,19 @@
 - Create: `tests/test_auto_rig_live2d_symbols.py`
 - Create: `tests/test_auto_rig_live2d_binding_plan.py`
 
-- [ ] **Step 1: Write failing symbol and registry tests**
+- [x] **Step 1: Write failing symbol and registry tests**
 
   Resolve Part/ArtMesh/RotationDeformer/Parameter/motion/expression IDs only from the Stage C typed symbol table. Freeze globally unique ranks `body_sway=100`, `idle=200`, `head_shake=300`, `head_nod=400`; duplicate rank, unknown control, exporter-side sanitize, missing symbol, or string-split identity recovery must fail before item staging.
 
-- [ ] **Step 2: Implement `Live2DSymbolView v1` and `RigidDriverRegistry v1`**
+- [x] **Step 2: Implement `Live2DSymbolView v1` and `RigidDriverRegistry v1`**
 
   Materialize immutable typed maps plus independent digests. Keep registry rows out of the attested frame-contract digest but include them in the Stage E fingerprint/report.
 
-- [ ] **Step 3: Write failing binding/liveness tests**
+- [x] **Step 3: Write failing binding/liveness tests**
 
   Select exactly the C-supported Live2D decisions, merge multiple properties for the same `(parameter, primitive)` pair, reject two parameters on one non-rigid ArtMesh, reject duplicate parameter curves, and prove all emitted deformer/ArtMesh bindings are bidirectionally reachable. Spine-only wave candidates must remain dead and absent.
 
-- [ ] **Step 4: Implement `Live2DBindingPlan v1` and `Live2DDriverLiveness v1`**
+- [x] **Step 4: Implement `Live2DBindingPlan v1` and `Live2DDriverLiveness v1`**
 
   Emit only used parameters and `(bone_id, parameter_id)` rigid instances. Order same-bone instances by rank, find the nearest live ancestor through the Rig bone tree, fold pruned rest transforms into children/ArtMeshes, and record emitted/pruned/reparent evidence without deriving liveness from writer sections.
 
