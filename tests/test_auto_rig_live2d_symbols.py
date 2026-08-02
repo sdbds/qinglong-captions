@@ -107,4 +107,3 @@ def test_rigid_driver_registry_freezes_globally_unique_production_order(
     assert validate_rigid_driver_registry(
         registry, rig.to_dict()["control_specs"]
     ) is registry
-

@@ -62,4 +62,3 @@ def test_artmesh_plan_uses_global_symbols_for_part_and_component_ids(
     assert all(mesh.export_name.isascii() for mesh in plan.artmeshes)
     assert len({part.export_name for part in plan.parts}) == len(plan.parts)
     assert len({mesh.export_name for mesh in plan.artmeshes}) == len(plan.artmeshes)
-

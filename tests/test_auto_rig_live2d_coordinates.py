@@ -64,4 +64,3 @@ def test_coordinate_helpers_reject_unknown_parent_instances(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="unknown"):
         canvas_to_artmesh_local(plan, "primitive/not-present", (100.0, 100.0))
-

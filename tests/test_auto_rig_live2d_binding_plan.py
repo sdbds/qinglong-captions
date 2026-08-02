@@ -101,4 +101,3 @@ def test_rotation_liveness_freezes_same_bone_stack_and_prunes_limb_nodes(
     assert {attachment.mesh_id for attachment in plan.artmesh_attachments} == {
         mesh["mesh_id"] for mesh in rig.to_dict()["meshes"]
     }
-

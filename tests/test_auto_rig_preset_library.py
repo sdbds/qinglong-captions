@@ -212,4 +212,3 @@ def test_preset_library_rejects_rehashed_registry_mutations(mutation: str) -> No
         validate_preset_library_plan(_rehash(plan, **changes), controls)
 
     assert exc_info.value.code == "invalid_preset_registry"
-
