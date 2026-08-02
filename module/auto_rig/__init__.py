@@ -507,6 +507,11 @@ from .stage_e import (
     StageEResult,
     execute_stage_e,
 )
+from .stage_g import (
+    STAGE_G_INTEGRATION_VERSION,
+    StageGError,
+    execute_stage_g_success,
+)
 from .stage_graph import (
     StageGraphContractError,
     StageGraphResult,
@@ -1001,6 +1006,7 @@ __all__ = [
     "STAGE_E_ALGORITHM_VERSION",
     "STAGE_E_FAILURE_SCHEMA_VERSION",
     "STAGE_E_SCHEMA_VERSION",
+    "STAGE_G_INTEGRATION_VERSION",
     "Live2DAnimationPlan",
     "Live2DArtMeshPlan",
     "Live2DBindingPlan",
@@ -1014,6 +1020,7 @@ __all__ = [
     "RigidDriverRegistry",
     "StageEError",
     "StageEResult",
+    "StageGError",
     "build_live2d_animation_plan",
     "build_live2d_artmesh_plan",
     "build_live2d_binding_plan",
@@ -1024,6 +1031,7 @@ __all__ = [
     "build_live2d_symbol_view",
     "build_rigid_driver_registry",
     "execute_stage_e",
+    "execute_stage_g_success",
     "validate_live2d_animation_plan",
     "validate_live2d_artmesh_plan",
     "validate_live2d_binding_plan",

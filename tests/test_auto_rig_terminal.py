@@ -46,9 +46,9 @@ D_OUTPUTS = (
     "rig/spine/export_report.json",
 )
 E_OUTPUTS = (
-    "rig/live2d/avatar.moc3",
-    "rig/live2d/avatar.model3.json",
-    "rig/live2d/avatar.cdi3.json",
+    "rig/live2d/model.moc3",
+    "rig/live2d/model.model3.json",
+    "rig/live2d/model.cdi3.json",
     "rig/live2d/textures/page_0.png",
     "rig/live2d/motions/idle.motion3.json",
     "rig/live2d/export_report.json",
