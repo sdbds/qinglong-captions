@@ -116,19 +116,19 @@
 - Create: `tests/test_auto_rig_live2d_runtime_assets.py`
 - Create: `tests/test_auto_rig_live2d_animations.py`
 
-- [ ] **Step 1: Write failing model3/cdi3 tests**
+- [x] **Step 1: Write failing model3/cdi3 tests**
 
   Freeze basename `model`, Version 3, contiguous `textures/page_0.png...`, exact supported motion/expression references, no empty sections, no physics/pose/PMA extension, parameter/Part IDs from symbols, and EyeBlink/LipSync groups only when their used parameters exist. Missing/stale references or JCS/minified runtime JSON must fail.
 
-- [ ] **Step 2: Implement deterministic runtime JSON encoders**
+- [x] **Step 2: Implement deterministic runtime JSON encoders**
 
   Reuse `cubism_runtime_json_bytes()` (ASCII, sorted keys, indent 2, terminal newline) so Framework 5-r.5 sees numeric terminators. Keep reports/JCS separate from runtime JSON.
 
-- [ ] **Step 3: Write failing motion/expression tests**
+- [x] **Step 3: Write failing motion/expression tests**
 
   Convert each C-supported MotionClip curve exactly at `frame/30`, encode only linear segment type 0, one curve per parameter, zero fade, exact duration/loop/count metadata, and no resampling. Encode each supported ExpressionPreset as full-weight `Overwrite`, zero fade, with no pseudo-time axis. Reject duplicate parameters, unsupported blend, stale artifacts, or missing parameter keyforms.
 
-- [ ] **Step 4: Implement motion3/exp3 compilation**
+- [x] **Step 4: Implement motion3/exp3 compilation**
 
   Preserve C artifact names and runtime application ordering. Blink/talk remain motions; happy/sad/surprised remain expressions. Optional format asymmetry stays explicit in the C motion manifest rather than being guessed from the output directory.
 
