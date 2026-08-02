@@ -13,7 +13,7 @@ from .preset_library import PresetLibraryPlan, validate_preset_library_plan
 from .rig_geometry import RigGeometryCache, validate_rig_geometry_cache
 
 PRIMITIVE_CANDIDATE_SET_VERSION = "primitive-candidate-set-v1"
-PRIMITIVE_CANDIDATE_ENUMERATOR_VERSION = "primitive-candidate-enumerator-v1"
+PRIMITIVE_CANDIDATE_ENUMERATOR_VERSION = "primitive-candidate-enumerator-v2"
 TYPED_PRIMITIVE_KEY_VERSION = "typed-primitive-key-v1"
 
 _INTERNAL_ID_RE = re.compile(
@@ -558,18 +558,6 @@ def _enumerate(
                 derivation_tokens=("rot", _id_token(parameter_id)),
                 parameter_id=parameter_id,
                 control_id=binding.control_id,
-            )
-        elif binding.property == "deform":
-            assert target_mesh is not None
-            live_key = _key(
-                "live2d_moc3_v4_00",
-                "live2d_warp_deformer",
-                (target_mesh.part_id, target_mesh.component_id, binding.control_id),
-                target_mesh.part_id,
-                derivation_tokens=("warp", _id_token(binding.control_id)),
-                parameter_id=parameter_id,
-                control_id=binding.control_id,
-                component_id=target_mesh.component_id,
             )
         else:
             assert target_mesh is not None

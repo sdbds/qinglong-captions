@@ -62,7 +62,6 @@ def test_candidate_universe_is_profile_independent_and_reference_closed(
         "live2d_artmesh",
         "live2d_parameter",
         "live2d_rotation_deformer",
-        "live2d_warp_deformer",
         "live2d_motion",
         "live2d_expression",
         "live2d_binding",
@@ -96,6 +95,43 @@ def test_candidate_universe_is_profile_independent_and_reference_closed(
         candidate.format_id == "live2d_moc3_v4_00"
         and candidate.binding_template is not None
         and candidate.binding_template.control_id.startswith("control/wave_")
+        for candidate in candidates.candidates
+    )
+
+
+def test_sampled_mesh_deform_reuses_the_static_artmesh_primitive(
+    tmp_path: Path,
+) -> None:
+    _cache, _controls, _presets, _bindings, candidates = _enumerate(tmp_path)
+    model_artmeshes = {
+        (
+            candidate.typed_primitive_key.base_source_internal_id,
+            candidate.typed_primitive_key.component_id,
+        ): candidate.primitive_target_id
+        for candidate in candidates.candidates
+        if candidate.candidate_kind == "live2d_artmesh"
+        and candidate.binding_template is None
+    }
+    sampled_deforms = [
+        candidate
+        for candidate in candidates.candidates
+        if candidate.candidate_kind == "live2d_binding"
+        and candidate.binding_template is not None
+        and candidate.binding_template.property == "deform"
+    ]
+
+    assert sampled_deforms
+    for candidate in sampled_deforms:
+        key = candidate.typed_primitive_key
+        assert key.kind == "live2d_artmesh"
+        assert key.control_id is None
+        assert key.parameter_id is None
+        assert key.derivation_tokens == ()
+        assert candidate.primitive_target_id == model_artmeshes[
+            (key.base_source_internal_id, key.component_id)
+        ]
+    assert not any(
+        candidate.typed_primitive_key.kind == "live2d_warp_deformer"
         for candidate in candidates.candidates
     )
 

@@ -17,11 +17,11 @@
 - Modify: `tests/test_auto_rig_primitive_candidates.py`
 - Modify: `tests/test_auto_rig_format_plans.py`
 
-- [ ] **Step 1: Write the failing primitive-identity regression**
+- [x] **Step 1: Write the failing primitive-identity regression**
 
   Assert that a sampled per-mesh `deform` binding selects the existing `live2d_artmesh` typed target, while only an explicit future `structural_warp` property may allocate `live2d_warp_deformer`. Assert blink deform and opacity rows merge on the same ArtMesh target, mouth-open uses its mouth ArtMesh, and no selected production binding asks Stage E for rotation-under-warp or warp-under-rotation semantics absent from the signed frame contract.
 
-- [ ] **Step 2: Implement and version the correction**
+- [x] **Step 2: Implement and version the correction**
 
   Bump the primitive enumerator version, reuse the static ArtMesh typed key for sampled deform/opacity bindings, preserve candidate/symbol superset invariants, and rerun Stage C/D regressions because candidate IDs and the global symbol-table digest intentionally change.
 
