@@ -90,21 +90,21 @@
 - Create: `module/auto_rig/export/live2d/document.py`
 - Create: `module/auto_rig/export/live2d/validator.py`
 - Create: `tests/test_auto_rig_live2d_document.py`
-- Create: `tests/test_auto_rig_live2d_validator.py`
+- Test (consolidated with the shared expensive fixture): `tests/test_auto_rig_live2d_document.py`
 
-- [ ] **Step 1: Write failing section-layout compiler tests**
+- [x] **Step 1: Write failing section-layout compiler tests**
 
   Assert all 23 count entries, Parts/RotationDeformers/ArtMeshes/Parameters, keyform bands/bindings/keys, UV/index/draw-order groups, parent/specific indices, default/rest values, zero runtime sections, `reflect=false`, and header version 3. Require decode/encode byte identity and deterministic bytes across input ordering.
 
-- [ ] **Step 2: Implement `CubismDocument v1` to `Moc3V400Document` compilation**
+- [x] **Step 2: Implement `CubismDocument v1` to `Moc3V400Document` compilation**
 
   Build section offsets from typed plans only. Rotation keyforms use min/default/max (deduplicated only when values coincide), `T(origin)*R(angle)*S(scale)`, opacity 1 and no reflection. ArtMesh bindings serialize exact per-parameter keys. Reject more than 32767 vertices/indices, more than four pages, non-finite data, dead parameters/deformers, or file size above 64 MiB.
 
-- [ ] **Step 3: Write failing parser/reconstruction/mutation tests**
+- [x] **Step 3: Write failing parser/reconstruction/mutation tests**
 
   Reload the binary and reconstruct default/non-default model state from section data. Mutate parent indices, binding bands, parameter defaults, draw order, texture index, UV orientation, keyform positions, reflection flags, counts, or padding and require a specific structural error. Default parameter state must reproduce setup vertices/opacities/draw order within `0.1 px`.
 
-- [ ] **Step 4: Implement `Live2DStructureValidator v1`**
+- [x] **Step 4: Implement `Live2DStructureValidator v1`**
 
   Validate the binary against the immutable plans and Rig, not against self-described report claims. Report exact artifact/plan digests, capacity guards, round-trip residuals, emitted/pruned identities, and parameter-to-visible-target closure.
 
