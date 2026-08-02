@@ -164,15 +164,15 @@
 - Create: `tests/test_auto_rig_stage_e.py`
 - Modify: `tests/test_auto_rig_public_api.py`
 
-- [ ] **Step 1: Write failing E transaction tests**
+- [x] **Step 1: Write failing E transaction tests**
 
   Require exactly the current C manifest, validate `rig.json` and shared page hashes, stage the whole bundle privately, run structural plus release validators, copy pages byte-for-byte, publish exact E-owned inventory, remove obsolete files, write the E marker last, and write only private failure evidence on error. D outputs and terminal markers must remain untouched.
 
-- [ ] **Step 2: Implement `execute_stage_e`**
+- [x] **Step 2: Implement `execute_stage_e`**
 
   Expose explicit structural/release tiers. Formal batch uses release tier and cannot commit E without Core/SDK evidence; ordinary CI may compile/validate a structural result but its report/status cannot be mistaken for formal release completion.
 
-- [ ] **Step 3: Expose only reviewed public entry points**
+- [x] **Step 3: Expose only reviewed public entry points**
 
   Export stable plans, validators and `execute_stage_e`; keep section assembly and transaction helpers private.
 

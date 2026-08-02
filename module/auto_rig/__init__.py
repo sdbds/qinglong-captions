@@ -120,6 +120,69 @@ from .draw_order import (
     build_ordinary_draw_order,
     validate_draw_order_registry,
 )
+from .export.live2d.animations import (
+    LIVE2D_ANIMATION_PLAN_VERSION,
+    Live2DAnimationPlan,
+    build_live2d_animation_plan,
+    validate_live2d_animation_plan,
+)
+from .export.live2d.artmesh import (
+    LIVE2D_ARTMESH_PLAN_VERSION,
+    Live2DArtMeshPlan,
+    build_live2d_artmesh_plan,
+    validate_live2d_artmesh_plan,
+)
+from .export.live2d.binding_plan import (
+    LIVE2D_BINDING_PLAN_VERSION,
+    LIVE2D_DRIVER_LIVENESS_VERSION,
+    Live2DBindingPlan,
+    build_live2d_binding_plan,
+    validate_live2d_binding_plan,
+)
+from .export.live2d.coordinates import (
+    LIVE2D_COORDINATE_PLAN_VERSION,
+    Live2DCoordinatePlan,
+    build_live2d_coordinate_plan,
+    validate_live2d_coordinate_plan,
+)
+from .export.live2d.keyforms import (
+    LIVE2D_KEYFORM_PLAN_VERSION,
+    Live2DKeyformPlan,
+    build_live2d_keyform_plan,
+    validate_live2d_keyform_plan,
+)
+from .export.live2d.release_validator import (
+    LIVE2D_RELEASE_REPORT_VERSION,
+    LIVE2D_RELEASE_VALIDATOR_VERSION,
+    Live2DReleaseGateError,
+    Live2DReleaseValidationReport,
+    validate_live2d_release_bundle,
+)
+from .export.live2d.rigid_drivers import (
+    RIGID_DRIVER_REGISTRY_VERSION,
+    RigidDriverRegistry,
+    build_rigid_driver_registry,
+    validate_rigid_driver_registry,
+)
+from .export.live2d.runtime_assets import (
+    LIVE2D_RUNTIME_ASSET_PLAN_VERSION,
+    Live2DRuntimeAssetPlan,
+    build_live2d_runtime_asset_plan,
+    validate_live2d_runtime_asset_plan,
+)
+from .export.live2d.symbols import (
+    LIVE2D_SYMBOL_VIEW_VERSION,
+    Live2DSymbolView,
+    build_live2d_symbol_view,
+    validate_live2d_symbol_view,
+)
+from .export.live2d.validator import (
+    LIVE2D_MOC3_VALIDATOR_VERSION,
+    LIVE2D_STRUCTURE_REPORT_VERSION,
+    Live2DStructureValidationReport,
+    build_live2d_structure_validation_report,
+    validate_live2d_moc3_payload,
+)
 from .export.spine import (
     SPINE_ANIMATION_PLAN_VERSION,
     SPINE_ATLAS_PLAN_VERSION,
@@ -433,6 +496,16 @@ from .stage_d import (
     StageDError,
     StageDResult,
     execute_stage_d,
+)
+from .stage_e import (
+    LIVE2D_EXPORT_REPORT_VERSION,
+    LIVE2D_VALIDATION_TIERS,
+    STAGE_E_ALGORITHM_VERSION,
+    STAGE_E_FAILURE_SCHEMA_VERSION,
+    STAGE_E_SCHEMA_VERSION,
+    StageEError,
+    StageEResult,
+    execute_stage_e,
 )
 from .stage_graph import (
     StageGraphContractError,
@@ -910,4 +983,55 @@ __all__ = [
     "StageDResult",
     "execute_stage_c",
     "execute_stage_d",
+    "LIVE2D_ANIMATION_PLAN_VERSION",
+    "LIVE2D_ARTMESH_PLAN_VERSION",
+    "LIVE2D_BINDING_PLAN_VERSION",
+    "LIVE2D_COORDINATE_PLAN_VERSION",
+    "LIVE2D_DRIVER_LIVENESS_VERSION",
+    "LIVE2D_EXPORT_REPORT_VERSION",
+    "LIVE2D_KEYFORM_PLAN_VERSION",
+    "LIVE2D_MOC3_VALIDATOR_VERSION",
+    "LIVE2D_RELEASE_REPORT_VERSION",
+    "LIVE2D_RELEASE_VALIDATOR_VERSION",
+    "LIVE2D_RUNTIME_ASSET_PLAN_VERSION",
+    "LIVE2D_STRUCTURE_REPORT_VERSION",
+    "LIVE2D_SYMBOL_VIEW_VERSION",
+    "LIVE2D_VALIDATION_TIERS",
+    "RIGID_DRIVER_REGISTRY_VERSION",
+    "STAGE_E_ALGORITHM_VERSION",
+    "STAGE_E_FAILURE_SCHEMA_VERSION",
+    "STAGE_E_SCHEMA_VERSION",
+    "Live2DAnimationPlan",
+    "Live2DArtMeshPlan",
+    "Live2DBindingPlan",
+    "Live2DCoordinatePlan",
+    "Live2DKeyformPlan",
+    "Live2DReleaseGateError",
+    "Live2DReleaseValidationReport",
+    "Live2DRuntimeAssetPlan",
+    "Live2DStructureValidationReport",
+    "Live2DSymbolView",
+    "RigidDriverRegistry",
+    "StageEError",
+    "StageEResult",
+    "build_live2d_animation_plan",
+    "build_live2d_artmesh_plan",
+    "build_live2d_binding_plan",
+    "build_live2d_coordinate_plan",
+    "build_live2d_keyform_plan",
+    "build_live2d_runtime_asset_plan",
+    "build_live2d_structure_validation_report",
+    "build_live2d_symbol_view",
+    "build_rigid_driver_registry",
+    "execute_stage_e",
+    "validate_live2d_animation_plan",
+    "validate_live2d_artmesh_plan",
+    "validate_live2d_binding_plan",
+    "validate_live2d_coordinate_plan",
+    "validate_live2d_keyform_plan",
+    "validate_live2d_moc3_payload",
+    "validate_live2d_release_bundle",
+    "validate_live2d_runtime_asset_plan",
+    "validate_live2d_symbol_view",
+    "validate_rigid_driver_registry",
 ]
