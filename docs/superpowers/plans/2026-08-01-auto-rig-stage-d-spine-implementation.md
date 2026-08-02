@@ -68,19 +68,19 @@
 - Create: `tests/test_auto_rig_spine_mesh_encoder.py`
 - Create: `tests/test_auto_rig_spine_model.py`
 
-- [ ] **Step 1: Write failing weighted/unweighted mesh tests**
+- [x] **Step 1: Write failing weighted/unweighted mesh tests**
 
   Assert flat triangles/UV arrays and official variable-length weighted vertices `[boneCount,boneIndex,x,y,weight,...]`. Bone indices follow skeleton order, weights preserve normalized Rig values, and rigid meshes use plain local `x,y` pairs.
 
-- [ ] **Step 2: Implement `SpineMeshEncoder`**
+- [x] **Step 2: Implement `SpineMeshEncoder`**
 
   Consume BindPlan influence records and convert canonical absolute sampled vertices to setup-relative offsets only where required. Reject non-finite values, topology mismatch, unknown bones, invalid triangles, non-positive/unnormalized weights, and reconstructed setup error above `0.1 px`.
 
-- [ ] **Step 3: Write failing setup-document tests**
+- [x] **Step 3: Write failing setup-document tests**
 
   Assert Spine metadata version `4.2`, parent-topological bones, canonical draw-order slots, one visible setup attachment per component, shared part region for sibling components, setup alpha 0 only for native variants, and complete default skin maps.
 
-- [ ] **Step 4: Implement disposable `SpineDocument` builder**
+- [x] **Step 4: Implement disposable `SpineDocument` builder**
 
   Build setup bones/slots/skins from Rig, BindPlan, atlas and global symbols without mutating the Rig. Slot owner is the influence NCA; weighted vertices retain their real bone indices.
 

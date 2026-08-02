@@ -67,7 +67,7 @@ def _meshes():
             "vertices": [
                 {
                     "position": [235.0, 120.0],
-                    "uv": [0.25, 0.75],
+                    "uv": [0.7, 0.42857142857142855],
                     "influences": [
                         {"bone_id": "bone/a", "weight": 0.25},
                         {"bone_id": "bone/b", "weight": 0.75},
@@ -75,14 +75,21 @@ def _meshes():
                 },
                 {
                     "position": [225.0, 100.0],
-                    "uv": [0.75, 0.25],
+                    "uv": [0.5, 0.14285714285714285],
                     "influences": [
                         {"bone_id": "bone/b", "weight": 0.5},
                         {"bone_id": "bone/c", "weight": 0.5},
                     ],
                 },
+                {
+                    "position": [210.0, 130.0],
+                    "uv": [0.2, 0.5714285714285714],
+                    "influences": [
+                        {"bone_id": "bone/a", "weight": 1.0},
+                    ],
+                },
             ],
-            "triangles": [0, 1, 0],
+            "triangles": [0, 1, 2],
         },
     )
 
