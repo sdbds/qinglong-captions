@@ -139,9 +139,15 @@
   cases already declared by their tests; the one non-runtime skip is likewise
   explicit rather than a hidden failure.
 
-- [ ] **Step 5: Commit, integrate to main, and push**
+- [x] **Step 5: Commit, integrate to main, and push**
 
   Follow `superpowers:finishing-a-development-branch`, preserve unrelated main-worktree changes, integrate the reviewed commits non-interactively, rerun a post-integration smoke check, and push `main` only after fresh evidence.
+
+  The feature history was merged with the current `origin/main`, the resulting
+  tree passed the post-merge `208 passed, 6 deselected` smoke group plus the
+  five whitespace-normalized focused files (`18 passed`), and was pushed to
+  `main` without rewriting remote history. The dirty primary worktree was not
+  used as a merge surface, so its unrelated local files remained untouched.
 
 ## Self-Review
 
