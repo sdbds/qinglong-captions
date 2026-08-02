@@ -48,6 +48,14 @@ from .bone_graph import (
     build_bone_graph,
     validate_bone_graph,
 )
+from .capabilities import (
+    CAPABILITY_PLAN_VERSION,
+    CapabilityPlan,
+    CapabilityPlanError,
+    RigCapability,
+    derive_capabilities,
+    validate_capability_plan,
+)
 from .component_geometry import (
     COMPONENT_GEOMETRY_LOADER_VERSION,
     MESH_COMPONENT_SOURCE_VERSION,
@@ -79,6 +87,20 @@ from .contracts import (
     AutoRigPartContract,
     ValidatedPartSource,
     load_auto_rig_input_contract,
+)
+from .control_bindings import (
+    CONTROL_BINDING_ID_VERSION,
+    CONTROL_BINDING_PLAN_VERSION,
+    RIG_TRANSFORM_SEMANTICS_VERSION,
+    TARGET_TRANSFER_VERSION,
+    ControlBinding,
+    ControlBindingPlan,
+    ControlBindingPlanError,
+    TargetTransfer,
+    TransferMetricInput,
+    TransferSample,
+    build_control_binding_plan,
+    validate_control_binding_plan,
 )
 from .control_registry import (
     CONTROL_REGISTRY_PLAN_VERSION,
@@ -666,4 +688,22 @@ __all__ = [
     "PresetLibraryPlan",
     "build_preset_library_plan",
     "validate_preset_library_plan",
+    "CAPABILITY_PLAN_VERSION",
+    "CapabilityPlan",
+    "CapabilityPlanError",
+    "RigCapability",
+    "derive_capabilities",
+    "validate_capability_plan",
+    "CONTROL_BINDING_ID_VERSION",
+    "CONTROL_BINDING_PLAN_VERSION",
+    "RIG_TRANSFORM_SEMANTICS_VERSION",
+    "TARGET_TRANSFER_VERSION",
+    "ControlBinding",
+    "ControlBindingPlan",
+    "ControlBindingPlanError",
+    "TargetTransfer",
+    "TransferMetricInput",
+    "TransferSample",
+    "build_control_binding_plan",
+    "validate_control_binding_plan",
 ]

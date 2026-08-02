@@ -61,26 +61,26 @@
 **Interfaces:**
 - `RigCapability`, `CapabilityPlan`
 - `TargetTransfer`, `ControlBinding`, `ControlBindingPlan`
-- `derive_capabilities(cache, native_variant_set) -> CapabilityPlan`
-- `build_control_binding_plan(cache, controls, capabilities, native_variant_set) -> ControlBindingPlan`
+- `derive_capabilities(cache, anatomy_plan, presets, native_variant_set) -> CapabilityPlan`
+- `build_control_binding_plan(cache, anatomy_plan, controls, presets, capabilities, native_variant_set) -> ControlBindingPlan`
 
-- [ ] **Step 1: RED geometry capability matrix**
+- [x] **Step 1: RED geometry capability matrix**
 
   Cover full-body, half-body, head-only, missing wrist, merged limb, missing eye layers, mouth-only, admitted native eye/mouth bundles, and degenerate mesh. Synthetic root alone never satisfies motion capability. Wave requires upper-arm/forearm/hand and mesh for the exact image side.
 
-- [ ] **Step 2: Implement reference-derived capability facts**
+- [x] **Step 2: Implement reference-derived capability facts**
 
-  Derive only from frozen Part/joint/bone/weighted-mesh/native-admission facts. Record capability kind, quality tier (`native`, `procedural`, `procedural_silhouette`, `unavailable`), evidence IDs, and deterministic reason codes. Never invent joints or reopen masks/QCL.
+  Derive only from frozen Part/joint/bone/weighted-mesh/native-admission facts plus the A-owned `AnatomyMaskPlan` whose digest is already bound by `StageAJointPlan`. Record capability kind, quality tier (`native`, `procedural`, `procedural_silhouette`, `unavailable`), evidence IDs, and deterministic reason codes. Never invent joints, recompute a bbox, or reopen masks/QCL.
 
-- [ ] **Step 3: RED canonical binding and transfer tests**
+- [x] **Step 3: RED canonical binding and transfer tests**
 
   Freeze idle, breath, head nod/shake, body sway, both wave sides, native overlay opacity, and supported procedural bindings. Verify default-rest identity, visual clockwise/canvas-down semantics, geometry-normalized metric inputs, unique typed binding IDs, atomic bundle completeness, rank uniqueness, and no preset ID inside a binding.
 
-- [ ] **Step 4: Implement atomic implementation selection inputs**
+- [x] **Step 4: Implement atomic implementation selection inputs**
 
   Materialize only complete item-eligible bundles. Use `canonical=0`, `native=10`, `procedural=100`; preserve all eligible alternatives for format preflight, but never mix records across an implementation. Sampled property/deform records carry evaluator/topology/input/output digests and bounded values, not Python callbacks.
 
-- [ ] **Step 5: Mutation-safe reference closure**
+- [x] **Step 5: Mutation-safe reference closure**
 
   Rehash the outer plan after deleting one binding, changing a target, changing default output, or cross-linking a native visibility branch. Validators must reject the structure rather than only noticing a stale outer digest.
 
