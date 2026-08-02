@@ -119,17 +119,25 @@
 
   Keep report parser helpers private. Expose only the stable exception and success transaction entry point.
 
-- [ ] **Step 2: Update Revision 28 Stage E facts**
+- [x] **Step 2: Update Revision 28 Stage E facts**
 
   Record the MOC binding correction, exact SDK/Core versions and hashes without machine paths, focused release evidence, and the remaining external Spine runtime gate honestly.
 
-- [ ] **Step 3: Update Revision 29 Stage G facts**
+- [x] **Step 3: Update Revision 29 Stage G facts**
 
   Record that terminal facts are report-derived, structural E is rejected, G resume uses A-E expected fingerprints only, and formal dual artifact inventories are atomic. Do not claim the external Spine Editor/runtime gate ran when it did not.
 
-- [ ] **Step 4: Run complete verification**
+- [x] **Step 4: Run complete verification**
 
   Run all auto-rig tests with official SDK variables, relevant see-through tests, full Ruff for changed modules/tests, `compileall`, `git diff --check`, and a final clean-status/diff review. Record exact counts and any intentional optional skips.
+
+  Final split evidence covers the same 660 auto-rig cases without a single
+  opaque one-hour process: non-runtime groups total `626 passed, 1 skipped`;
+  official-runtime is `29 passed, 4 skipped`; combined `655 passed, 5 skipped`.
+  Upstream guards add `54 passed` for see-through and `193 passed` for
+  dependency/UV. The four optional-runtime skips are environment/capability
+  cases already declared by their tests; the one non-runtime skip is likewise
+  explicit rather than a hidden failure.
 
 - [ ] **Step 5: Commit, integrate to main, and push**
 

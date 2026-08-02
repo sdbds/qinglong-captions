@@ -2,7 +2,7 @@
 
 ## Status
 
-**Revision 27，Stage D 的 Spine 4.2 结构导出链已实现：它只读 Stage C 的完整 `RigDocument v1` 与 canonical texture pages，冻结画布/骨骼局部坐标、加权 mesh、slot/attachment、线性动作、两键 expression hold 和 `pma:false` 多页 atlas，并以私有 staging、完整 bundle validator、精确 owner inventory 和 commit-marker-last 事务发布 `rig/spine/**`。D 不回写公共 Rig，page PNG 只做 C 产物的逐字节复制。当前验证覆盖官方 Spine 4.2 JSON/atlas 结构语义、setup/world 重建误差和故障注入，但尚未运行官方 Spine Editor/runtime 实载，因此 `export_report.json` 必须诚实记录该外部门为 `not_run`，不能把结构完成冒充 runtime 证明。Live2D frame contract 继续使用 Revision 22 由官方 Cubism SDK for Native 5-r.5、Core 06.00.0001 和 D3D11 WARP 签署的结果；Stage E 与终态 Stage G 仍未完成，正式双格式交付尚不可发布。NativeVariant 契约保持 Revision 20。SDK/Core 不随 Python 包分发，组织是否需要另行取得 Release License 仍是发布前外部合规门。**
+**Revision 29，A-E/G 双格式产物流水线已实现。Stage E 从完整 `RigDocument v1` 编译固定 basename 的 MOC3 V4.00、model3/cdi3、motion3/exp3 与 canonical page byte copies；普通 CI 运行独立结构 validator，release tier 还逐 item 调用官方 Cubism Core/SDK D3D11 WARP，验证 consistency、默认姿态、每个参数、动作、表情和多页纹理。Stage G 不接受调用方自报格式成功，而是重新散列当前 A-E DAG、Rig、D/E canonical report、精确 artifact inventory、motion/symbol/texture/runtime contract 后才原子发布双格式 `export_manifest.json`，structural E 明确不能进入成功终态。当前官方证据为 SDK for Native 5-r.5、Core 06.00.0001（SHA-256 `d883c00d114fdf6cef61f439feb23e02d000fdf683e092803010470b80dfaf09`）、D3D11 harness（SHA-256 `823b03ea43e77da5f9238ad55e2c9c23fa54a34e7d4d0dade04973bee589778a`）与 protocol digest `51e77ee76d08072db76e1ccef0638e8c706ccba7bae5ea2ae8e19b71269283a3`。回归分组覆盖 `655 passed, 5 skipped` 的 auto-rig、`54 passed` 的 see-through 和 `193 passed` 的 dependency/UV。Spine 4.2 结构包是正式必需输出，但官方 Spine Editor/runtime 实载仍未在本机执行，因此仓库内 `completed` 表示双 artifact pipeline 完成，不等于组织已经通过外部 Spine runtime 与许可证发布门。NativeVariant 契约保持 Revision 20；Cubism SDK/Core 不随 Python 包或 item 分发。**
 
 本文覆盖三件事：
 
@@ -618,6 +618,30 @@ capability 和 exporter 执行顺序都不得改变同一 typed key 的 namespac
 | 当前结果是否已经证明官方 Spine 4.2 runtime 可加载 | **否。** 本机只有官方 Cubism SDK，不存在可声称运行过的 Spine 4.2 Editor/runtime gate | `export_report.json` 把 official runtime gate 固定记录为 `not_run`；Revision 27 只宣称结构导出完成，正式 release 仍必须补真实 Spine 4.2 实载验证或在外部交付系统执行该门 |
 | Stage D 是否等于正式双格式交付完成 | **否。** Live2D E 与 terminal G 尚未实现 | D manifest 不是 item 完成标记，不能写 `export_manifest.json`；只有 E 和 G 也通过后才能发布双格式 `completed` 终态 |
 | 实现回归是否保护 C、官方 Cubism E0 和上游边界 | **是。** D 的新增实现不能破坏已有 Live2D frame attestation 或 see-through/dependency 行为 | Stage C/D focused：`39 passed`；官方 SDK/Core 环境下 auto-rig：`613 passed, 4 skipped`；see-through：`54 passed`；dependency/uv：`197 passed`。相关 Ruff、`compileall` 与 `git diff --check` 同时通过 |
+
+### Revision 28 Stage E Live2D runtime 导出实现复审
+
+| 实现项 | 核对结论 | Revision 28 处理 |
+|---|---|---|
+| sampled deform 是否应继续分配一个结构 WarpDeformer | **不应该。** C 的 transfer 已经是逐 ArtMesh 顶点样本；强行映射为 warp 会引入未经 attestation 签署的坐标拓扑和额外拟合误差 | `PrimitiveCandidateEnumerator` 把 sampled deform/opacity 合并到既有 `live2d_artmesh` typed target；只有未来显式 `structural_warp` 才能分配 WarpDeformer |
+| MOC3 keyform binding 的 parameter/object 索引是否可按同一套间接表解释 | **不可以。** object band 先经 `keyform_binding_index.indices` 映射到 binding，而 parameter begin/count 直接覆盖连续 binding 表；混用会得到结构看似完整、Core 中参数却不驱动目标的模型 | compiler 先按 parameter 排序形成连续 owner span，再为 object band 写 association；结构 evaluator、mutation test 与官方 Core 参数可见性 gate 使用同一语义 |
+| 标准参数名是否免除 keyform/deformer 编译 | **不免除。** `ParamAngleX/Y` 只是 runtime 语义 ID，不带任何内建几何行为 | 所有可见效果都必须绑定非空 RotationDeformer/ArtMesh/opacity target；同 bone 多参数使用版本化 `(bone_id, parameter_id)` deformer instance 和全局唯一 rank，死 deformer 在 writer 前剪枝 |
+| runtime JSON 是否可直接复用 JCS bytes | **不可以。** 官方 Framework 5-r.5 的该解析路径要求数字在闭合 token 前遇到分隔符；JCS 的 minified JSON 会触发兼容问题 | model3/cdi3/motion3/exp3 使用独立、确定性的 ASCII + two-space indent + terminal newline encoder；report/manifest 继续使用 JCS，两种编码契约不混用 |
+| structural tier 是否足以写 E release 结果 | **不够。** parser/golden 不能证明 Core 复活、参数实际驱动、纹理页绑定和 motion/expression runtime 行为 | release tier 强制匹配 attested Core，执行 `csmHasMocConsistency`、默认/参数状态 parity 和 SDK D3D11 WARP setup/motion/expression render gate；缺 Core/harness 时 E 不提交 release marker |
+| 多页 renderer 改造后旧 attestation 是否仍可沿用 | **不能机械沿用。** frame/protocol 语义未变，但 harness source provenance 已变化 | 用官方 SDK/Core 重新生成 attestation；frame-contract digest 保持 `44e64e97c6a88a353afb99a8a47644b4203c1a1aa87aa38adea0fb39ab936b8b`，renderer source SHA 更新为 `f053f89ad3133db2eb866799e7fdddaa9dcf3e0fd8e2f4732b5f18587677eed1`，fresh regeneration test 逐字节通过 |
+| E 是否会回写公共 Rig、重打包纹理或制造 terminal marker | **不会。** 这些行为分别属于 C/G | E 私有 staging 后只发布精确 `rig/live2d/**` inventory，page 从 C 逐字节复制，marker last；failure 只写 E 私有证据，D/G 路径不动 |
+
+### Revision 29 Stage G terminal integration 复审
+
+| 实现项 | 核对结论 | Revision 29 处理 |
+|---|---|---|
+| G 是否可以接受调用方传入 `FormatValidation`、validator fingerprint、profile 和 symbol digest | **不可以。** 这让盖章者与事实提供者变成同一调用方，终态没有独立证据价值 | `execute_stage_g_success()` 只接受 G config fingerprint 与当前 A-E expected fingerprints；其余字段全部从 Rig、manifest 和 exporter report 重新派生 |
+| structural E 或伪造一个 `release_validation.status=passed` 是否能进入 completed | **不能。** release 必须包含 digest 闭合的结构报告、Core version/hash、renderer hash、attested protocol、consistency 与 evidence arrays | G 校验 outer/nested report JCS 与 digest、固定 schema/version、MOC/Rig identity和 runtime evidence；structural tier 返回 `live2d_release_validation_missing`，缺字段或不一致返回具名错误 |
+| report 里列出的文件是否可以只是 manifest 的子集 | **不可以。** 否则 exporter 可漏报旧 motion/page，终态仍把整目录带走 | D/E report artifact rows 必须精确等于 owner manifest 去掉 report 自身后的集合；manifest 又由 StageGraphValidator 逐文件重散列并扫描 exact owner namespace |
+| G 的 resume 是否还要求调用方提供无法独立推导的 G fingerprint | **不要求。** 这会重现 Y1 的“合法完成永远 miss”或从旧 marker 自比恒真的假检查 | scheduler 只提供 A-E；G freshness 从 export payload、当前 C/D/E marker、artifact sets、motion/symbol/validator/texture contract 复算。真实 SDK-backed fixture 完成后 `is_item_completed(A-E)` 为 true，任一文件篡改则为 false |
+| shared page parity 是否只是比较路径名 | **不是。** 三份路径必须对应同一 Rig page index 和同一 encoded SHA | G 同时核对 Rig `texture_pages`、C canonical output、D Spine copy 与 E Live2D copy；任一缺失、稀疏 index 或 SHA 分叉都拒绝终态 |
+| 当前 `completed` 是否等于官方 Spine runtime 已验证 | **不等于。** D 的 `official_spine_runtime_gate` 仍诚实为 `not_run` | G 保留 D report 在正式 artifact set 中，不篡改该事实；批处理可完成双格式物化，但对外宣称 Spine runtime 支持前仍必须执行本 spec 第 14 条的外部门 |
+| 完整回归如何避免昂贵 SDK 测试把结果吞进单一超时 | 按覆盖集合拆组，而不是删测试 | non-runtime 三组共 `626 passed, 1 skipped`；official-runtime 组 `29 passed, 4 skipped`；合计 `655 passed, 5 skipped`。另有 see-through `54 passed`、dependency/UV `193 passed` |
 
 ### 决策摘要
 

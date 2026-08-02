@@ -182,12 +182,24 @@
 - Modify: `docs/superpowers/specs/2026-07-31-auto-rig-from-see-through-layers-design.md`
 - Modify: this plan
 
-- [ ] **Step 1: Run focused Stage E, Stage D and Stage C suites**
-- [ ] **Step 2: Run the complete official SDK/Core-backed auto-rig suite**
-- [ ] **Step 3: Run see-through, dependency/uv, relevant Ruff, `compileall`, and `git diff --check`**
-- [ ] **Step 4: Record exact Revision 28 facts and commit**
+- [x] **Step 1: Run focused Stage E, Stage D and Stage C suites**
+- [x] **Step 2: Run the complete official SDK/Core-backed auto-rig suite**
+- [x] **Step 3: Run see-through, dependency/uv, relevant Ruff, `compileall`, and `git diff --check`**
+- [x] **Step 4: Record exact Revision 28 facts and commit**
 
   Record the Stage C primitive correction explicitly, the exact Core/SDK paths and binary versions/hashes as evidence (never as machine-specific public paths), structural and release validation counts, and the remaining Stage G boundary. Do not claim dual-format item completion before G is implemented and verified.
+
+  Final evidence: official SDK for Native 5-r.5 with Core 06.00.0001
+  (`d883c00d114fdf6cef61f439feb23e02d000fdf683e092803010470b80dfaf09`),
+  D3D11 harness
+  (`823b03ea43e77da5f9238ad55e2c9c23fa54a34e7d4d0dade04973bee589778a`),
+  and protocol
+  `51e77ee76d08072db76e1ccef0638e8c706ccba7bae5ea2ae8e19b71269283a3`.
+  The later Stage G integration run extended the final split auto-rig total to
+  `655 passed, 5 skipped`; see-through is `54 passed`, dependency/UV is
+  `193 passed`. The regenerated E0 attestation changed only renderer source
+  provenance after the reviewed multipage harness edit; the signed frame
+  contract digest remained unchanged.
 
 ## Self-Review
 
