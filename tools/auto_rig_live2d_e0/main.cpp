@@ -68,7 +68,7 @@ Csm::CubismFramework::Option FrameworkOptions = {};
 struct Options
 {
     fs::path MocPath;
-    fs::path TexturePath;
+    std::vector<fs::path> TexturePaths;
     fs::path MotionPath;
     fs::path ExpressionPath;
     fs::path OutputPath;
@@ -192,7 +192,7 @@ Options ParseOptions(const int argc, char** argv)
         }
         else if (argument == "--texture")
         {
-            options.TexturePath = fs::u8path(value);
+            options.TexturePaths.push_back(fs::u8path(value));
         }
         else if (argument == "--motion")
         {
@@ -262,10 +262,14 @@ Options ParseOptions(const int argc, char** argv)
             throw std::runtime_error("unknown argument: " + argument);
         }
     }
-    if (options.MocPath.empty() || options.TexturePath.empty() || options.OutputPath.empty() ||
+    if (options.MocPath.empty() || options.TexturePaths.empty() || options.OutputPath.empty() ||
         options.ReportPath.empty() || options.Width == 0 || options.Height == 0)
     {
         throw std::runtime_error("moc, texture, output, report, width, and height are required");
+    }
+    if (options.TexturePaths.size() > 4)
+    {
+        throw std::runtime_error("at most four ordered texture pages are supported");
     }
     std::sort(options.ObservedParameters.begin(), options.ObservedParameters.end());
     return options;
@@ -415,7 +419,9 @@ void WriteReport(
     }
     stream << '}'
            << ",\"premultiplied_alpha_input\":false"
-           << ",\"schema_version\":\"auto-rig-live2d-render-v1\",\"width\":" << width << '}';
+           << ",\"schema_version\":\"auto-rig-live2d-render-v1\""
+           << ",\"validator_protocol_digest\":\"sha256:51e77ee76d08072db76e1ccef0638e8c706ccba7bae5ea2ae8e19b71269283a3\""
+           << ",\"width\":" << width << '}';
     if (!stream)
     {
         throw std::runtime_error("failed to write render report");
@@ -498,8 +504,12 @@ RenderResult Render(const Options& options)
     {
         throw std::runtime_error("WIC factory creation failed");
     }
-    ComPtr<ID3D11ShaderResourceView> textureView =
-        LoadTexture(device.Get(), imagingFactory.Get(), options.TexturePath);
+    std::vector<ComPtr<ID3D11ShaderResourceView>> textureViews;
+    textureViews.reserve(options.TexturePaths.size());
+    for (const fs::path& texturePath : options.TexturePaths)
+    {
+        textureViews.push_back(LoadTexture(device.Get(), imagingFactory.Get(), texturePath));
+    }
 
     FrameworkOptions.LogFunction = CoreLog;
     FrameworkOptions.LoggingLevel = Csm::CubismFramework::Option::LogLevel_Info;
@@ -528,6 +538,21 @@ RenderResult Render(const Options& options)
         Csm::CubismMoc::Delete(moc);
         Csm::CubismFramework::Dispose();
         throw std::runtime_error("Cubism Framework could not create the model");
+    }
+    int maximumTextureIndex = -1;
+    for (Csm::csmInt32 drawableIndex = 0; drawableIndex < model->GetDrawableCount(); ++drawableIndex)
+    {
+        const int textureIndex = model->GetDrawableTextureIndex(drawableIndex);
+        if (textureIndex < 0)
+        {
+            throw std::runtime_error("MOC3 contains a negative drawable texture index");
+        }
+        maximumTextureIndex = std::max(maximumTextureIndex, textureIndex);
+    }
+    const std::size_t expectedTextureCount = static_cast<std::size_t>(maximumTextureIndex + 1);
+    if (expectedTextureCount != textureViews.size())
+    {
+        throw std::runtime_error("ordered texture page count does not match MOC3 texture indices");
     }
     for (const auto& parameter : options.Parameters)
     {
@@ -589,7 +614,11 @@ RenderResult Render(const Options& options)
     }
     auto* renderer = static_cast<Csm::Rendering::CubismRenderer_D3D11*>(rendererBase);
     renderer->Initialize(model);
-    renderer->BindTexture(0, textureView.Get());
+    for (std::size_t textureIndex = 0; textureIndex < textureViews.size(); ++textureIndex)
+    {
+        renderer->BindTexture(
+            static_cast<Csm::csmUint32>(textureIndex), textureViews[textureIndex].Get());
+    }
     renderer->IsPremultipliedAlpha(false);
     renderer->IsCulling(false);
     Csm::CubismMatrix44 matrix;
@@ -637,7 +666,10 @@ RenderResult Render(const Options& options)
     Csm::Rendering::CubismRenderer::StaticRelease();
     context->ClearState();
     context->Flush();
-    textureView.Reset();
+    for (auto& textureView : textureViews)
+    {
+        textureView.Reset();
+    }
     imagingFactory.Reset();
     staging.Reset();
     targetView.Reset();

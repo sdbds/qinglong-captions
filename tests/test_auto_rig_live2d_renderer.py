@@ -16,7 +16,12 @@ from module.auto_rig.export.live2d.e0_assets import (
 from module.auto_rig.export.live2d.e0_fixture import (
     STATIC_E0_ROOT_VERTICES,
     build_deformer_e0_moc,
+    build_static_e0_document,
     build_static_e0_moc,
+)
+from module.auto_rig.export.live2d.moc3_codec import (
+    Moc3V400Document,
+    encode_moc3_v400,
 )
 
 
@@ -60,6 +65,9 @@ def test_offscreen_harness_renders_uv_orientation_and_straight_alpha(tmp_path: P
 
     assert evidence.width == 512
     assert evidence.height == 512
+    assert evidence.validator_protocol_digest == (
+        "sha256:51e77ee76d08072db76e1ccef0638e8c706ccba7bae5ea2ae8e19b71269283a3"
+    )
     assert evidence.nonzero_alpha_pixels > 1000
     assert evidence.alpha_bbox is not None
     samples = tuple(
@@ -108,3 +116,33 @@ def test_offscreen_harness_applies_motion_then_full_weight_expression(tmp_path: 
     assert evidence.parameter_values == pytest.approx(E0_EXPECTED_PARAMETER_VALUES, abs=1e-6)
     assert evidence.rgba_sha256 != baseline.rgba_sha256
     assert evidence.nonzero_alpha_pixels > 1000
+
+
+@pytest.mark.optional_runtime
+def test_offscreen_harness_binds_ordered_multiple_texture_pages(
+    tmp_path: Path,
+) -> None:
+    executable = os.environ.get("LIVE2D_E0_RENDERER_PATH")
+    if not executable:
+        pytest.skip("LIVE2D_E0_RENDERER_PATH is required")
+    document = build_static_e0_document()
+    sections = dict(document.sections)
+    sections["art_mesh.texture_indices"] = (1,)
+    two_page_document = Moc3V400Document(
+        counts=document.counts,
+        canvas=document.canvas,
+        sections=sections,
+    )
+    moc_path = tmp_path / "two-page.moc3"
+    texture_0 = tmp_path / "page_0.png"
+    texture_1 = tmp_path / "page_1.png"
+    moc_path.write_bytes(encode_moc3_v400(two_page_document))
+    write_e0_orientation_texture(texture_0)
+    write_e0_orientation_texture(texture_1)
+
+    evidence = render_moc_with_offscreen_harness(
+        executable, moc_path, (texture_0, texture_1)
+    )
+    assert evidence.nonzero_alpha_pixels > 1000
+    with pytest.raises(RuntimeError, match="texture.*count|failed"):
+        render_moc_with_offscreen_harness(executable, moc_path, texture_0)

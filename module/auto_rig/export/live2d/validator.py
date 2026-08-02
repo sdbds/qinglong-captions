@@ -110,12 +110,14 @@ def _selected_keyform(
     for index, (begin, count) in enumerate(
         zip(parameter_begins, parameter_counts, strict=True)
     ):
-        if begin <= association_begin < begin + count:
+        if begin < 0 or begin + count > len(key_begins):
+            raise _error("parameter binding span is out of range")
+        if begin <= binding_index < begin + count:
             if parameter_index is not None:
-                raise _error("binding association belongs to multiple parameters")
+                raise _error("binding belongs to multiple parameters")
             parameter_index = index
     if parameter_index is None or parameter_index >= len(parameter_values):
-        raise _error("binding association has no parameter owner")
+        raise _error("binding has no parameter owner")
     value = parameter_values[parameter_index]
     binding_keys = keys[key_begin : key_begin + key_count]
     if any(right <= left for left, right in zip(binding_keys, binding_keys[1:])):

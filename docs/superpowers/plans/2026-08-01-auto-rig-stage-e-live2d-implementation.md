@@ -140,19 +140,19 @@
 - Create: `module/auto_rig/export/live2d/release_validator.py`
 - Create: `tests/test_auto_rig_live2d_release_validator.py`
 
-- [ ] **Step 1: Write failing Core gate tests**
+- [x] **Step 1: Write failing Core gate tests**
 
   Require the configured Core binary to match the packaged attestation allowlist, `csmHasMocConsistency` to pass, the model to revive/update with finite vertices, all IDs/counts/defaults to match the structural plan, and at least one nonzero drawable. Missing/unattested Core must be a release-gate error, not a structural-test skip.
 
-- [ ] **Step 2: Implement Core consistency/model-state validation**
+- [x] **Step 2: Implement Core consistency/model-state validation**
 
   Use the existing crash-isolated worker and capture model state at default plus every parameter test point. Prove each declared visible parameter changes at least one expected deformer result, vertex, or opacity and that resetting defaults restores the setup state.
 
-- [ ] **Step 3: Extend the SDK renderer to multiple texture pages**
+- [x] **Step 3: Extend the SDK renderer to multiple texture pages**
 
   Accept ordered repeated `--texture` arguments, create/bind one D3D11 view per MOC texture index, and reject count/order mismatch. Keep the existing one-page CLI path compatible and rebuild with `E:\CubismSdkForNative-5-r.5`.
 
-- [ ] **Step 4: Write and implement motion/expression render gates**
+- [x] **Step 4: Write and implement motion/expression render gates**
 
   Render setup, midpoint/end samples for every required motion, every supported optional motion, and expression apply/clear states. Require nonempty alpha, observed parameter values equal canonical evaluation, visible pixel/vertex changes for declared effects, and restoration after clear. Record renderer/Core binary hashes and evidence digests without redistributing either binary.
 

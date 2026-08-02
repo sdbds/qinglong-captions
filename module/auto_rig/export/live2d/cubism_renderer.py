@@ -6,6 +6,7 @@ import math
 import re
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -14,6 +15,11 @@ from typing import Mapping
 
 class CubismRendererError(RuntimeError):
     """Raised when the opt-in official SDK render harness rejects a request."""
+
+
+LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST = (
+    "sha256:51e77ee76d08072db76e1ccef0638e8c706ccba7bae5ea2ae8e19b71269283a3"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +32,7 @@ class CubismRenderEvidence:
     alpha_bbox: tuple[int, int, int, int] | None
     driver_type: str
     premultiplied_alpha_input: bool
+    validator_protocol_digest: str
     parameter_values: Mapping[str, float]
 
 
@@ -71,6 +78,27 @@ def _validate_parameters(parameter_values: Mapping[str, float] | None) -> tuple[
     return tuple(arguments)
 
 
+def _validate_texture_paths(
+    value: str | Path | Sequence[str | Path],
+) -> tuple[Path, ...]:
+    raw_values: tuple[str | Path, ...]
+    if isinstance(value, (str, Path)):
+        raw_values = (value,)
+    elif isinstance(value, Sequence):
+        raw_values = tuple(value)
+    else:
+        raise CubismRendererError("texture_path must be a path or ordered path sequence")
+    if not 1 <= len(raw_values) <= 4:
+        raise CubismRendererError("texture_path must contain one to four ordered pages")
+    paths = tuple(
+        _validated_path(item, field=f"texture_path[{index}]")
+        for index, item in enumerate(raw_values)
+    )
+    if len(set(paths)) != len(paths):
+        raise CubismRendererError("texture_path must not contain duplicate pages")
+    return paths
+
+
 def _validate_observed_parameters(parameter_ids: tuple[str, ...]) -> tuple[str, ...]:
     if not isinstance(parameter_ids, tuple):
         raise CubismRendererError("observe_parameter_ids must be a tuple")
@@ -107,7 +135,7 @@ def _alpha_summary(rgba: bytes, width: int, height: int) -> tuple[int, tuple[int
 def render_moc_with_offscreen_harness(
     executable: str | Path,
     moc_path: str | Path,
-    texture_path: str | Path,
+    texture_path: str | Path | Sequence[str | Path],
     *,
     width: int = 512,
     height: int = 512,
@@ -120,7 +148,7 @@ def render_moc_with_offscreen_harness(
 ) -> CubismRenderEvidence:
     executable_file = _validated_path(executable, field="executable")
     moc_file = _validated_path(moc_path, field="moc_path")
-    texture_file = _validated_path(texture_path, field="texture_path")
+    texture_files = _validate_texture_paths(texture_path)
     width = _validate_dimension(width, field="width")
     height = _validate_dimension(height, field="height")
     motion_file = None if motion_path is None else _validated_path(motion_path, field="motion_path")
@@ -150,8 +178,11 @@ def render_moc_with_offscreen_harness(
             str(executable_file),
             "--moc",
             str(moc_file),
-            "--texture",
-            str(texture_file),
+            *(
+                argument
+                for texture_file in texture_files
+                for argument in ("--texture", str(texture_file))
+            ),
             "--output",
             str(rgba_path),
             "--report",
@@ -197,12 +228,17 @@ def render_moc_with_offscreen_harness(
         "parameter_values",
         "premultiplied_alpha_input",
         "schema_version",
+        "validator_protocol_digest",
         "width",
     }
     if type(report) is not dict or set(report) != expected_fields:
         raise CubismRendererError("official SDK render report fields do not match the contract")
     if report["schema_version"] != "auto-rig-live2d-render-v1":
         raise CubismRendererError("official SDK render report schema is unsupported")
+    if report["validator_protocol_digest"] != LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST:
+        raise CubismRendererError(
+            "official SDK render harness protocol is not attested"
+        )
     if report["width"] != width or report["height"] != height:
         raise CubismRendererError("official SDK render dimensions do not match the request")
     if len(rgba) != width * height * 4:
@@ -241,6 +277,7 @@ def render_moc_with_offscreen_harness(
         alpha_bbox=alpha_bbox,
         driver_type=report["driver_type"],
         premultiplied_alpha_input=report["premultiplied_alpha_input"],
+        validator_protocol_digest=report["validator_protocol_digest"],
         parameter_values=MappingProxyType(normalized_parameter_values),
     )
 
@@ -248,5 +285,6 @@ def render_moc_with_offscreen_harness(
 __all__ = [
     "CubismRenderEvidence",
     "CubismRendererError",
+    "LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST",
     "render_moc_with_offscreen_harness",
 ]

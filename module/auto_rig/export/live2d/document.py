@@ -219,15 +219,7 @@ def _build(
             _ObjectBinding("rotation", index, parameter, record.values)
         )
 
-    binding_key_begins = []
-    binding_key_counts = []
-    all_keys: list[float] = []
-    for record in object_bindings:
-        binding_key_begins.append(len(all_keys))
-        binding_key_counts.append(len(record.keys))
-        all_keys.extend(record.keys)
-
-    associations = sorted(
+    binding_order = sorted(
         range(len(object_bindings)),
         key=lambda index: (
             object_bindings[index].parameter_index,
@@ -235,21 +227,31 @@ def _build(
             object_bindings[index].object_index,
         ),
     )
-    association_position = {
-        binding_index: index for index, binding_index in enumerate(associations)
+    binding_index_by_object = {
+        object_index: binding_index
+        for binding_index, object_index in enumerate(binding_order)
     }
+    ordered_bindings = [object_bindings[index] for index in binding_order]
+    binding_key_begins = []
+    binding_key_counts = []
+    all_keys: list[float] = []
+    for record in ordered_bindings:
+        binding_key_begins.append(len(all_keys))
+        binding_key_counts.append(len(record.keys))
+        all_keys.extend(record.keys)
+
     parameter_binding_begins = []
     parameter_binding_counts = []
     cursor = 0
     for index in range(len(bindings.parameters)):
         count = sum(
-            record.parameter_index == index for record in object_bindings
+            record.parameter_index == index for record in ordered_bindings
         )
         parameter_binding_begins.append(cursor)
         parameter_binding_counts.append(count)
         cursor += count
-    if cursor != len(associations):
-        raise _error("parameter binding associations are not closed")
+    if cursor != len(ordered_bindings):
+        raise _error("parameter binding spans are not closed")
     if any(count <= 0 for count in parameter_binding_counts):
         raise _error("MOC3 contains a parameter without a visible target")
 
@@ -276,14 +278,17 @@ def _build(
     band_count = artmesh_count + part_count + deformer_count + rotation_count
     band_begins = [0] * band_count
     band_counts = [0] * band_count
-    for object_index, binding_index_value in artmesh_dynamic_binding.items():
+    associations: list[int] = []
+    for object_index, object_binding_index in artmesh_dynamic_binding.items():
         band_index = artmesh_band_indices[object_index]
-        band_begins[band_index] = association_position[binding_index_value]
+        band_begins[band_index] = len(associations)
         band_counts[band_index] = 1
-    for object_index, binding_index_value in rotation_dynamic_binding.items():
+        associations.append(binding_index_by_object[object_binding_index])
+    for object_index, object_binding_index in rotation_dynamic_binding.items():
         band_index = rotation_band_indices[object_index]
-        band_begins[band_index] = association_position[binding_index_value]
+        band_begins[band_index] = len(associations)
         band_counts[band_index] = 1
+        associations.append(binding_index_by_object[object_binding_index])
 
     sections = empty_v400_sections()
     sections.update(
