@@ -57,6 +57,7 @@ def test_transcribe_help_exposes_model_capabilities_without_custom_sources():
     result = runner.invoke(cli.app, ["transcribe", "--help"])
 
     assert result.exit_code == 0, result.stdout
+    help_text = unstyle(result.stdout)
     for option in (
         "--model",
         "--device",
@@ -70,15 +71,16 @@ def test_transcribe_help_exposes_model_capabilities_without_custom_sources():
         "--preview-mode",
         "--instruments",
     ):
-        assert option in result.stdout
-    assert "--soundfont" not in result.stdout
-    assert "PATH|URL" not in result.stdout
+        assert option in help_text
+    assert "--soundfont" not in help_text
+    assert "PATH|URL" not in help_text
 
 
 def test_batch_help_has_complete_batch_surface():
     result = runner.invoke(cli.app, ["batch", "--help"])
 
     assert result.exit_code == 0, result.stdout
+    help_text = unstyle(result.stdout)
     for option in (
         "--output-dir",
         "--format",
@@ -90,11 +92,11 @@ def test_batch_help_has_complete_batch_surface():
         "--fail-fast",
         "--notes",
     ):
-        assert option in result.stdout
-    assert "--soundfont" not in result.stdout
-    assert "--overwrite" not in result.stdout
-    assert "5-second audio" in result.stdout
-    assert "chunks per" in result.stdout
+        assert option in help_text
+    assert "--soundfont" not in help_text
+    assert "--overwrite" not in help_text
+    assert "5-second audio" in help_text
+    assert "chunks per" in help_text
 
 
 def _install_single_backend(monkeypatch, calls: list[str]) -> None:
