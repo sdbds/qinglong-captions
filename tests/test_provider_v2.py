@@ -1620,7 +1620,7 @@ def test_attempt_kimi_vl_sends_pre_k3_thinking_type(thinking_mode):
 
 class TestKimiStructuredDisplay:
 
-    def test_quality_display_cleanup_keeps_raw_response(self):
+    def test_quality_display_cleanup_removes_markup_and_keeps_raw_response(self):
         from rich.console import Console
         from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl
 
@@ -1649,11 +1649,11 @@ class TestKimiStructuredDisplay:
         )
 
         assert returned == response_text
-        assert "**Scores:**" in output.getvalue()
-        assert "**Level of Sexy:** 8/10" in output.getvalue()
-        assert "Visible breasts." in output.getvalue()
-        assert "S**e" not in output.getvalue()
-        assert "\\*\\*" not in output.getvalue()
+        rendered = output.getvalue()
+        assert "Scores:" in rendered
+        assert "Level of Sexy: 8/10" in rendered
+        assert "Visible breasts." in rendered
+        assert "*" not in rendered
 
     def test_attempt_kimi_vl_keeps_short_for_display_when_mode_long(self):
         from rich.console import Console
@@ -2773,42 +2773,6 @@ def test_attempt_kimi_vl_injects_sidecar_tags_when_input_contract_enables_them(t
     assert sent_messages[0]["content"][0]["text"].endswith(
         "Existing tags: sidecar_tag"
     )
-
-
-def test_quality_display_cleanup_keeps_raw_response():
-    from module.providers.cloud_vlm.kimi_vl import attempt_kimi_vl
-    from rich.console import Console
-
-    response_text = (
-        "**Scores:**\n"
-        "**Level of S**e**x**y:** 8/10\n"
-        "Visible b\\*\\*r\\*\\*e\\*\\*a\\*\\*s\\*\\*t\\*\\*s."
-    )
-    chunk = SimpleNamespace(
-        choices=[SimpleNamespace(delta=SimpleNamespace(content=response_text))]
-    )
-    mock_client = MagicMock()
-    mock_client.chat.completions.create.return_value = [chunk]
-    output = io.StringIO()
-
-    returned = attempt_kimi_vl(
-        client=mock_client,
-        model_path="k3",
-        messages=[],
-        console=Console(file=output, force_terminal=False),
-        progress=None,
-        task_id=None,
-        uri="/fake.jpg",
-        reasoning_effort="max",
-        image_template_id="rating",
-    )
-
-    assert returned == response_text
-    assert "**Scores:**" in output.getvalue()
-    assert "**Level of Sexy:** 8/10" in output.getvalue()
-    assert "Visible breasts." in output.getvalue()
-    assert "S**e" not in output.getvalue()
-    assert "\\*\\*" not in output.getvalue()
 
 
 if __name__ == "__main__":
