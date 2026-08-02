@@ -151,12 +151,14 @@
 - Modify: `docs/superpowers/specs/2026-07-31-auto-rig-from-see-through-layers-design.md`
 - Modify: this plan
 
-- [ ] **Step 1: Run focused Stage D and Stage C regression suites**
-- [ ] **Step 2: Run official Cubism SDK-backed auto-rig regression to protect the existing E0 contract**
-- [ ] **Step 3: Run see-through, dependency/uv, relevant Ruff, `compileall`, and `git diff --check`**
-- [ ] **Step 4: Record exact Revision 27 implementation status and commit**
+- [x] **Step 1: Run focused Stage D and Stage C regression suites**
+- [x] **Step 2: Run official Cubism SDK-backed auto-rig regression to protect the existing E0 contract**
+- [x] **Step 3: Run see-through, dependency/uv, relevant Ruff, `compileall`, and `git diff --check`**
+- [x] **Step 4: Record exact Revision 27 implementation status and commit**
 
   Do not claim official Spine runtime loading unless an actual 4.2 Editor/runtime gate ran. Stage D can be structurally complete while release validation remains an explicit external gate.
+
+  Recorded verification: Stage C/D focused `39 passed`; official SDK/Core-backed auto-rig `613 passed, 4 skipped`; see-through `54 passed`; dependency/uv `197 passed`; relevant Ruff, `compileall`, and `git diff --check` passed. Official Spine 4.2 Editor/runtime loading was not run and remains explicitly reported as `not_run`.
 
 ## Self-Review
 

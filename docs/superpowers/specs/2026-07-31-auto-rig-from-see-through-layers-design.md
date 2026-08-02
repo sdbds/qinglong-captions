@@ -2,7 +2,7 @@
 
 ## Status
 
-**Revision 26，Stage C exporter-neutral 事实链已冻结并实现：版本化 control/preset registry、能力与 binding 决议、逐格式 feasibility、完整 primitive/symbol universe、共享 canonical texture pages、引用闭合的 `RigDocument v1` 及只读 projections 现在由 C 单次组装和事务发布。A/B 私有缓存保持不可变，C 是公共 `rig.json`、`report.json`、motion/expression manifest、全局符号表和 canonical page PNG 的唯一 writer；D/E 只能消费这些事实，尚未在本 revision 宣称 Spine 4.2 或 Live2D runtime exporter 完成。Live2D frame contract 继续使用 Revision 22 由官方 Cubism SDK for Native 5-r.5、Core 06.00.0001 和 D3D11 WARP 签署的结果。NativeVariant 契约保持 Revision 20。正式交付仍为 Spine 4.2 + Live2D runtime；SDK/Core 不随 Python 包分发，组织是否需要另行取得 Release License 仍是发布前外部合规门。**
+**Revision 27，Stage D 的 Spine 4.2 结构导出链已实现：它只读 Stage C 的完整 `RigDocument v1` 与 canonical texture pages，冻结画布/骨骼局部坐标、加权 mesh、slot/attachment、线性动作、两键 expression hold 和 `pma:false` 多页 atlas，并以私有 staging、完整 bundle validator、精确 owner inventory 和 commit-marker-last 事务发布 `rig/spine/**`。D 不回写公共 Rig，page PNG 只做 C 产物的逐字节复制。当前验证覆盖官方 Spine 4.2 JSON/atlas 结构语义、setup/world 重建误差和故障注入，但尚未运行官方 Spine Editor/runtime 实载，因此 `export_report.json` 必须诚实记录该外部门为 `not_run`，不能把结构完成冒充 runtime 证明。Live2D frame contract 继续使用 Revision 22 由官方 Cubism SDK for Native 5-r.5、Core 06.00.0001 和 D3D11 WARP 签署的结果；Stage E 与终态 Stage G 仍未完成，正式双格式交付尚不可发布。NativeVariant 契约保持 Revision 20。SDK/Core 不随 Python 包分发，组织是否需要另行取得 Release License 仍是发布前外部合规门。**
 
 本文覆盖三件事：
 
@@ -607,6 +607,17 @@ capability 和 exporter 执行顺序都不得改变同一 typed key 的 namespac
 | canonical texture page 是否仍由 D/E 各自编码 | **不可以。** 相同像素经两个 PNG encoder 仍可能因 filter/zlib/chunk 变化而字节不同 | C 复算 A 的 pack plan 并要求逐字段一致，再单次编码 `rig/shared/textures/page_<index>.png`；D/E 后续只能字节复制。C manifest 拥有精确 public inventory，失败先移除旧 commit marker，禁止部分公共成功态 |
 | Stage C 是否已经等于双格式正式交付完成 | **否。** C 只冻结 exporter 的全部输入与判决，不生成目标 runtime 包 | D 的 Spine 4.2 encoder/runtime validation、E 的 MOC3/model3/motion3/exp3 compiler/runtime validation，以及 G 终态发布仍是后续实现 gate；Revision 26 不写虚假 `completed` marker |
 | 实现回归是否覆盖官方 Cubism 环境和上游边界 | **是。** SDK 路径必须实际进入 Core/E0 测试，而不是只检查文件存在 | 官方 SDK/Core 环境下 auto-rig：`579 passed, 4 skipped`；Stage C focused：`60 passed`；see-through：`54 passed`；dependency/uv：`197 passed, 1 skipped`。auto-rig Ruff、`compileall` 与 `git diff --check` 同时通过 |
+
+### Revision 27 Stage D Spine 4.2 导出实现复审
+
+| 实现项 | 核对结论 | Revision 27 处理 |
+|---|---|---|
+| D 是否可以重算名称、动作能力或纹理布局 | **不可以。** 这会把 C 的全局身份与逐格式 feasibility 重新分叉 | D 只消费 C 已冻结的 typed symbol、Spine artifact set、mesh/weight 与 texture page records；缺引用或摘要不一致直接失败，不从 writer 输出反推事实 |
+| 加权 mesh 是否只要 JSON 可解析就算正确 | **不可以。** Spine 的 flat weighted-vertex 编码、bone index、setup-local offset 或 UV 任一错位都可能得到结构合法但渲染错误的模型 | validator 重新解析 skeleton/atlas，按 bone world transform 与 influence 重建 setup 顶点并要求 canvas 残差 `<= 0.1 px`；同时校验 slot/skin/attachment、draw order、纹理 region 与 C page byte hash 闭包 |
+| D/E 是否仍可各自编码同一张 PNG | **不可以。** PNG chunk/filter/zlib 差异会破坏逐字节 parity | D 从 `rig/shared/textures/` 逐字节复制 C-owned canonical page；atlas 固定 LF、ASCII、`pma:false`，staging validation 成功后才发布，旧 D-owned 文件按 inventory 清除 |
+| 当前结果是否已经证明官方 Spine 4.2 runtime 可加载 | **否。** 本机只有官方 Cubism SDK，不存在可声称运行过的 Spine 4.2 Editor/runtime gate | `export_report.json` 把 official runtime gate 固定记录为 `not_run`；Revision 27 只宣称结构导出完成，正式 release 仍必须补真实 Spine 4.2 实载验证或在外部交付系统执行该门 |
+| Stage D 是否等于正式双格式交付完成 | **否。** Live2D E 与 terminal G 尚未实现 | D manifest 不是 item 完成标记，不能写 `export_manifest.json`；只有 E 和 G 也通过后才能发布双格式 `completed` 终态 |
+| 实现回归是否保护 C、官方 Cubism E0 和上游边界 | **是。** D 的新增实现不能破坏已有 Live2D frame attestation 或 see-through/dependency 行为 | Stage C/D focused：`39 passed`；官方 SDK/Core 环境下 auto-rig：`613 passed, 4 skipped`；see-through：`54 passed`；dependency/uv：`197 passed`。相关 Ruff、`compileall` 与 `git diff --check` 同时通过 |
 
 ### 决策摘要
 
