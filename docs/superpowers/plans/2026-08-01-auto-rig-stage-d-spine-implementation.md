@@ -19,19 +19,19 @@
 - Create: `tests/test_auto_rig_spine_coordinates.py`
 - Create: `tests/test_auto_rig_spine_bind_plan.py`
 
-- [ ] **Step 1: Write failing coordinate contract tests**
+- [x] **Step 1: Write failing coordinate contract tests**
 
   Freeze `canvas_to_spine(x,y)=(x-W/2,H/2-y)`, the exact inverse, synthetic root identity, finite-value rejection, canonical test-point digest, and `<=1e-6 px` round trip on center/corners/joints/vertices.
 
-- [ ] **Step 2: Implement `SpineCoordinatePlan v1`**
+- [x] **Step 2: Implement `SpineCoordinatePlan v1`**
 
   Keep the pure transform isolated and versioned. Materialize a digest-bearing plan from the Rig canvas and reject non-top-left/down canvas contracts rather than guessing.
 
-- [ ] **Step 3: Write failing hierarchy/bind tests**
+- [x] **Step 3: Write failing hierarchy/bind tests**
 
   Include a three-level non-zero translated/rotated hierarchy. Assert parent-world inverse local heads/angles, reconstructed heads/tails, per-influence bind-local vertices, nearest-common-ancestor slot ownership, and mutations that merely subtract coordinates or reuse the slot-bone point.
 
-- [ ] **Step 4: Implement `SpineBindPlan v1`**
+- [x] **Step 4: Implement `SpineBindPlan v1`**
 
   Build bones in parent topology, emit root identity, compute `W_parent * T(local_head) * R(local_angle)`, normalize angles to `[-180,180)`, transform each weighted influence separately, and record maximum reconstruction residual plus input/output digests.
 
