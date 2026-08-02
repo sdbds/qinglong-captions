@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img alt="Version 4.6.0" src="https://img.shields.io/badge/Version-4.6.0-2563EB?logo=semanticrelease&amp;logoColor=white"></a>
+  <a href="CHANGELOG.md"><img alt="Version 4.7.0" src="https://img.shields.io/badge/Version-4.7.0-2563EB?logo=semanticrelease&amp;logoColor=white"></a>
   <a href="pyproject.toml"><img alt="Python 3.10 to 3.12" src="https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&amp;logoColor=white"></a>
   <a href="#windows"><img alt="Windows supported" src="https://img.shields.io/badge/Windows-Supported-0078D4?logo=windows11&amp;logoColor=white"></a>
   <a href="#linux"><img alt="Linux supported" src="https://img.shields.io/badge/Linux-Supported-FCC624?logo=linux&amp;logoColor=111827"></a>
@@ -42,11 +42,12 @@ Qinglong Captions combines media understanding, batch inference, and versioned L
 | Documents | PDF and image OCR, Markdown normalization, and multilingual translation | Markdown and translated documents |
 | Dataset workflow | Import, versioned Lance updates, batch execution, and sidecar export | Reusable datasets and media-aligned annotations |
 
-## 4.6.0 Highlights
+## 4.7.0 Highlights
 
-- Audio Separation can now send all six primary stems to MuScriptor MIDI from a secondary setting, with fixed instrument families for vocals, drums, bass, guitar, and piano plus automatic or manual choices for `other`.
-- The same setting can produce a pure-MIDI preview or an original-left / synthesized-MIDI-right comparison in MP3 or WAV without running MuScriptor inference twice.
-- The `muscriptor-local` profile includes SOCKS proxy support for the official SoundFont download, and failed preview setup now reports its shared root cause in the final task log.
+- OvisOCR2 now handles images and PDFs through either a direct Transformers runtime or an external OpenAI-compatible vLLM server, with shared bounding-box post-processing and safer generation behavior.
+- MuSViT is now a complete ONNX sheet-music OMR workflow: it streams images and PDF pages and exports page diagnostics plus validated MusicXML and MIDI, including whole-PDF aggregation.
+- Kimi K3 model choices and `low` / `high` / `max` reasoning controls are unified across Kimi VL and Kimi Code; the Gemini and MiniMax catalogs now follow their latest generation APIs.
+- Image prompt templates now preserve their input and output contracts across providers, while Image2PSD / see-through gains upstream-aligned defaults, embedding reuse, and deterministic seeded SDE sampling.
 
 ## Start Here
 

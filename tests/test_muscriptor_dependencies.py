@@ -34,6 +34,14 @@ def test_muscriptor_extra_is_pinned_and_uses_shared_torch_profile():
     assert all(not item.startswith(("mido", "music21")) for item in extras["musvit-onnx"])
 
 
+def test_ci_test_group_includes_music_export_runtime():
+    project = _project()
+    music_export = set(project["project"]["optional-dependencies"]["music-export"])
+    test_dependencies = set(project["dependency-groups"]["test"])
+
+    assert music_export <= test_dependencies
+
+
 def test_muscriptor_extra_conflicts_with_native_paddle_stack():
     conflicts = _project()["tool"]["uv"]["conflicts"]
     conflicting_extras = [

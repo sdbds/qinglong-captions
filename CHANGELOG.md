@@ -2,6 +2,17 @@
 
 版本历史从 README 拆出，避免发行说明和操作手册互相遮挡。当前操作入口请看 [README.md](README.md)。
 
+## 4.7.0 - OvisOCR2、MuSViT 乐谱 OMR 与模型更新
+
+1. 新增 `ovis_ocr2` 图片/PDF OCR Provider：支持 Direct Transformers 与外部 OpenAI-compatible vLLM 双后端，共享逐页容错、重复尾清理、边界框裁剪/移除和 Markdown 写盘逻辑。
+2. 加固 OvisOCR2 的生成终止、GUI 配置与 Windows 启动路径；Hugging Face Xet 下载统一接入 Rich 进度显示。
+3. 将 MuSViT 从乐谱 embedding 工具升级为完整 ONNX OMR：支持图片、PDF 与目录输入，输出 Kern、token 诊断、MusicXML 和 MIDI，并在全部页面成功后生成按页序聚合的整本结果。
+4. 更新 Kimi K3 模型并统一 Kimi VL / Kimi Code 的 `low`、`high`、`max` 推理强度；刷新 Gemini 3.x 与 MiniMax M2.7 模型目录及对应生成参数。
+5. 统一图片提示词模板的输入与输出契约，修复 Kimi、MiMo 等 Provider 对现有标签、文本/JSON 输出和质量模板清理规则处理不一致的问题。
+6. 为 OvisOCR2、Infinity Parser2、Chandra、Qwen VLM 与 Marlin-2B 接入 Qwen3.5 Gated DeltaNet 快速路径，并保留依赖不可用时的 Torch 回退；Music Flamingo 跟踪其最新 Transformers 分支。
+7. Image2PSD / see-through 同步上游 LayerDiff 与 Marigold 行为，将默认深度分辨率调整为 768，复用文本 embedding，并使带种子的 SDE 采样可复现。
+8. 修复 GUI 多选标签间距与 MuScriptor 已选音色显示；补充 GitHub Sponsors 入口并重写中英文 README 的能力概览与导航。
+
 ## 4.6.0 - MuScriptor 全分轨 MIDI 与试听
 
 1. 将 README 的发行说明、配置和故障排查拆分到独立文档，并重写 Windows/Linux、GUI、脚本和 Python CLI 的使用路径。

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img alt="版本 4.6.0" src="https://img.shields.io/badge/Version-4.6.0-2563EB?logo=semanticrelease&amp;logoColor=white"></a>
+  <a href="CHANGELOG.md"><img alt="版本 4.7.0" src="https://img.shields.io/badge/Version-4.7.0-2563EB?logo=semanticrelease&amp;logoColor=white"></a>
   <a href="pyproject.toml"><img alt="Python 3.10 至 3.12" src="https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&amp;logoColor=white"></a>
   <a href="#windows"><img alt="支持 Windows" src="https://img.shields.io/badge/Windows-Supported-0078D4?logo=windows11&amp;logoColor=white"></a>
   <a href="#linux"><img alt="支持 Linux" src="https://img.shields.io/badge/Linux-Supported-FCC624?logo=linux&amp;logoColor=111827"></a>
@@ -42,11 +42,12 @@
 | 文档 | PDF 与图片 OCR、Markdown 规范化及多语言翻译 | Markdown 和翻译文档 |
 | 数据工作流 | 导入、Lance 版本更新、批量任务与 sidecar 导出 | 可复用数据集和媒体对齐标注 |
 
-## 4.6.0 版本重点
+## 4.7.0 版本重点
 
-- 音频分轨页新增“全部分轨转 MIDI”二级选项：人声、鼓、贝斯、吉他和钢琴使用对应音色家族，`other` 支持自动识别或手动指定。
-- 同一设置支持纯 MIDI 试听，或“左原分轨 / 右合成 MIDI”对照试听，格式可选 MP3 或 WAV，且不会重复执行 MuScriptor 推理。
-- `muscriptor-local` profile 补齐 SOCKS 代理支持，官方 SoundFont 下载失败时，任务最终日志会直接显示共同根因。
+- OvisOCR2 现可通过 Direct Transformers 或外部 OpenAI-compatible vLLM 服务处理图片与 PDF，并共享边界框后处理与更稳健的生成保护。
+- MuSViT 已升级为完整的 ONNX 乐谱 OMR 工作流：按页流式处理图片和 PDF，输出分页诊断及经过校验的 MusicXML、MIDI，并支持整本 PDF 聚合。
+- Kimi VL 与 Kimi Code 统一了 Kimi K3 模型选项及 `low` / `high` / `max` 推理强度；Gemini 与 MiniMax 模型目录同步到新一代 API。
+- 图片提示词模板现能跨 Provider 保持输入、输出契约一致；Image2PSD / see-through 同步上游默认值，并支持 embedding 复用与可复现的有种子 SDE 采样。
 
 ## 先看这里
 
