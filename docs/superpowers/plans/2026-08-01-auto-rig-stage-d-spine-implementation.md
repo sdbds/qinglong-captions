@@ -133,15 +133,15 @@
 - Modify: `module/auto_rig/__init__.py`
 - Modify: `tests/test_auto_rig_public_api.py`
 
-- [ ] **Step 1: Write failing publish/failure/resume-boundary tests**
+- [x] **Step 1: Write failing publish/failure/resume-boundary tests**
 
   Require exact D inventory: `rig/spine/skeleton.json`, `skeleton.atlas`, copied `textures/page_<index>.png`, and `export_report.json`. A failure removes the old D commit marker, writes only private failure evidence, and never leaves stale D-owned public files accepted as reusable.
 
-- [ ] **Step 2: Implement `execute_stage_d`**
+- [x] **Step 2: Implement `execute_stage_d`**
 
   Load and validate `rig/rig.json`, recompute the Spine model/preset planners and require digest identity, compile in a private staging directory, byte-copy C pages, validate staged files, publish payloads, remove obsolete D artifacts, then write the D manifest last.
 
-- [ ] **Step 3: Expose the reviewed public API**
+- [x] **Step 3: Expose the reviewed public API**
 
   Export only stable plan/document/validator/execute entry points; keep codecs and transaction helpers module-private.
 
