@@ -1,5 +1,14 @@
 """Deterministic Spine 4.2 export plans and codecs."""
 
+from .animations import (
+    SPINE_ANIMATION_PLAN_VERSION,
+    SPINE_ANIMATION_SAMPLE_RATE_HZ,
+    SPINE_EXPRESSION_HOLD_VERSION,
+    SpineAnimationError,
+    SpineAnimationPlan,
+    build_spine_animation_plan,
+    validate_spine_animation_plan,
+)
 from .atlas import (
     SPINE_ATLAS_PLAN_VERSION,
     SpineAtlasError,
@@ -15,6 +24,8 @@ from .bind_plan import (
     SpineBindPlanError,
     build_spine_bind_plan,
     reconstruct_spine_point,
+    spine_local_point,
+    spine_parent_local_vector,
     validate_spine_bind_plan,
 )
 from .coordinates import (
@@ -58,15 +69,20 @@ from .uv import (
 
 __all__ = [
     "SPINE_42_UV_ADAPTER_VERSION",
+    "SPINE_ANIMATION_PLAN_VERSION",
+    "SPINE_ANIMATION_SAMPLE_RATE_HZ",
     "SPINE_ATLAS_PLAN_VERSION",
     "SPINE_BIND_PLAN_VERSION",
     "SPINE_COORDINATE_PLAN_VERSION",
     "SPINE_DOCUMENT_VERSION",
+    "SPINE_EXPRESSION_HOLD_VERSION",
     "SPINE_JSON_VERSION",
     "SPINE_MESH_ENCODER_VERSION",
     "SPINE_SYMBOL_VIEW_VERSION",
     "SpineAtlasError",
     "SpineAtlasPlan",
+    "SpineAnimationError",
+    "SpineAnimationPlan",
     "SpineBindPlan",
     "SpineBindPlanError",
     "SpineCoordinateError",
@@ -79,6 +95,7 @@ __all__ = [
     "SpineSymbolView",
     "SpineUvError",
     "build_spine_atlas_plan",
+    "build_spine_animation_plan",
     "build_spine_bind_plan",
     "build_spine_coordinate_plan",
     "build_spine_document",
@@ -91,8 +108,11 @@ __all__ = [
     "reconstruct_spine_point",
     "require_spine_symbol",
     "serialize_spine_atlas",
+    "spine_local_point",
+    "spine_parent_local_vector",
     "spine_to_canvas",
     "validate_spine_atlas_plan",
+    "validate_spine_animation_plan",
     "validate_spine_bind_plan",
     "validate_spine_coordinate_plan",
     "validate_spine_document",

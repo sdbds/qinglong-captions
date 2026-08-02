@@ -90,19 +90,19 @@
 - Create: `module/auto_rig/export/spine/animations.py`
 - Create: `tests/test_auto_rig_spine_animations.py`
 
-- [ ] **Step 1: Write failing motion evaluation tests**
+- [x] **Step 1: Write failing motion evaluation tests**
 
   For every Spine-supported C decision, evaluate the selected control curves through selected bindings/transfers. Assert `frame/30` times, canonical `(dx,-dy,-theta)` conversion, setup-relative deform offsets, slot opacity targets, no resampling of affine transfers, and omission of target-format `curve` for linear segments.
 
-- [ ] **Step 2: Implement bone/slot/deform timelines**
+- [x] **Step 2: Implement bone/slot/deform timelines**
 
   Merge property channels deterministically by animation and target, preserve the C-selected binding union, and reject any supported decision whose artifact or visible binding is absent.
 
-- [ ] **Step 3: Write failing expression-hold tests**
+- [x] **Step 3: Write failing expression-hold tests**
 
   Assert each supported expression produces exactly two equal setup-relative keys at `0` and `1/30 s`, while runtime track/loop/replace/full-alpha/zero-mix semantics remain in the public manifest rather than invented Spine JSON fields.
 
-- [ ] **Step 4: Implement expression animations**
+- [x] **Step 4: Implement expression animations**
 
   Apply full-weight overwrite values through the same transfers as motions and encode the frozen `SpineExpressionHold v1` contract. Reject unsupported blend modes and duplicate control ownership.
 

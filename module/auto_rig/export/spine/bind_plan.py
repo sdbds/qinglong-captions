@@ -480,6 +480,48 @@ def reconstruct_spine_point(
     return _apply(bone.world_matrix, _point(local_point, field="local point"))
 
 
+def spine_local_point(
+    plan: SpineBindPlan,
+    bone_id: str,
+    spine_point: tuple[float, float],
+) -> tuple[float, float]:
+    """Map a Spine-world point into one setup bone's local bind frame."""
+
+    bone = next((item for item in plan.bones if item.bone_id == bone_id), None)
+    if bone is None:
+        raise _error(f"unknown bone: {bone_id}")
+    return _apply(
+        _inverse(bone.world_matrix),
+        _point(spine_point, field="Spine-world point"),
+    )
+
+
+def spine_parent_local_vector(
+    plan: SpineBindPlan,
+    bone_id: str,
+    spine_vector: tuple[float, float],
+) -> tuple[float, float]:
+    """Map a Spine-world delta into the target bone parent's local axes."""
+
+    bone_by_id = {item.bone_id: item for item in plan.bones}
+    bone = bone_by_id.get(bone_id)
+    if bone is None:
+        raise _error(f"unknown bone: {bone_id}")
+    parent = None if bone.parent_id is None else bone_by_id.get(bone.parent_id)
+    if bone.parent_id is not None and parent is None:
+        raise _error(f"unknown parent bone: {bone.parent_id}")
+    inverse = _inverse(
+        (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+        if parent is None
+        else parent.world_matrix
+    )
+    x, y = _point(spine_vector, field="Spine-world vector")
+    return (
+        _clean(inverse[0] * x + inverse[2] * y),
+        _clean(inverse[1] * x + inverse[3] * y),
+    )
+
+
 def validate_spine_bind_plan(
     plan: SpineBindPlan,
     bones: Iterable[Mapping[str, object]],
@@ -512,5 +554,7 @@ __all__ = [
     "SpineVertexInfluenceBind",
     "build_spine_bind_plan",
     "reconstruct_spine_point",
+    "spine_local_point",
+    "spine_parent_local_vector",
     "validate_spine_bind_plan",
 ]
