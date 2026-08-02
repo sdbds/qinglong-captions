@@ -167,19 +167,19 @@
 - `build_rig_document(...)`, `rig_document_bytes(...)`
 - `load_rig_document(...)`, `validate_rig_document(...)`, `validate_rig_document_payload(...)`
 
-- [ ] **Step 1: RED complete-schema tests**
+- [x] **Step 1: RED complete-schema tests**
 
   Require all exporter-neutral geometry plus all nine C-owned groups: capabilities, control specs, control bindings, clips, expressions, format plans, primitive candidates, export symbols, and texture pages. Missing or extra fields, C-empty partial documents, or B cache masquerading as Rig must fail.
 
-- [ ] **Step 2: Normalize Stage B geometry into public records**
+- [x] **Step 2: Normalize Stage B geometry into public records**
 
   Preserve target/canvas/Part/native metrics/joint observations/resolutions/bones/weighted meshes/component ranks and diagnostics without QCL paths or A/B implementation-only cache records. Stable IDs and semantic digests remain unchanged.
 
-- [ ] **Step 3: Implement full reference-closed validation**
+- [x] **Step 3: Implement full reference-closed validation**
 
   Revalidate every ID/digest/domain/curve/binding/format decision/candidate/symbol/texture reference. Required decisions must cover profile formats; optional decisions may differ per format only as declared. No exporter may repair a partial document.
 
-- [ ] **Step 4: Disk round-trip and deterministic bytes**
+- [x] **Step 4: Disk round-trip and deterministic bytes**
 
   In-memory Rig to canonical JSON to loader must be semantically equal across shuffled input construction and `PYTHONHASHSEED`. Rehashed broken parent/joint/UV/influence/binding/candidate/symbol/texture mutations must fail.
 

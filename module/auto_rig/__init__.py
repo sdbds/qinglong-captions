@@ -323,6 +323,18 @@ from .qcl import (
     decode_qcl,
     encode_qcl,
 )
+from .rig_document import (
+    RIG_DOCUMENT_ALGORITHM_VERSION,
+    RIG_DOCUMENT_GENERATOR_NAME,
+    RIG_DOCUMENT_SCHEMA_VERSION,
+    RigDocument,
+    RigDocumentError,
+    build_rig_document,
+    load_rig_document,
+    rig_document_bytes,
+    validate_rig_document,
+    validate_rig_document_payload,
+)
 from .rig_geometry import (
     COMPONENT_DRAW_ORDER_EXPANDER_VERSION,
     RIG_GEOMETRY_CACHE_GENERATOR,
@@ -790,4 +802,14 @@ __all__ = [
     "build_format_plan_set",
     "load_capability_profile",
     "validate_format_plan_set",
+    "RIG_DOCUMENT_ALGORITHM_VERSION",
+    "RIG_DOCUMENT_GENERATOR_NAME",
+    "RIG_DOCUMENT_SCHEMA_VERSION",
+    "RigDocument",
+    "RigDocumentError",
+    "build_rig_document",
+    "load_rig_document",
+    "rig_document_bytes",
+    "validate_rig_document",
+    "validate_rig_document_payload",
 ]
