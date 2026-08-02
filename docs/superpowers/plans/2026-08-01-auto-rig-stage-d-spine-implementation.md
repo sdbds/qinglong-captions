@@ -113,15 +113,15 @@
 - Create: `module/auto_rig/export/spine/serializer.py`
 - Create: `tests/test_auto_rig_spine_validator.py`
 
-- [ ] **Step 1: Write failing structural mutation tests**
+- [x] **Step 1: Write failing structural mutation tests**
 
   Cover wrong Spine version, nested arrays, illegal timeline curves, missing setup attachment/region/page, reversed slot rank, bad bone index/weight, mismatched region path, `pma:true`, stale symbol, non-canonical JSON, and changed canonical page bytes.
 
-- [ ] **Step 2: Implement canonical JSON and ASCII atlas serialization**
+- [x] **Step 2: Implement canonical JSON and ASCII atlas serialization**
 
   Encode `skeleton.json` and report as RFC 8785 JCS bytes; encode atlas as printable ASCII with LF, stable page/region order, no trailing metadata, and a versioned encoding descriptor in the D fingerprint.
 
-- [ ] **Step 3: Implement independent parser/validator**
+- [x] **Step 3: Implement independent parser/validator**
 
   Reload public bytes, reconstruct skeleton world transforms and weighted setup vertices, verify every reference and selected animation against Rig/FormatPlan, recompute coordinate/bind/UV/artifact digests, and return a validator fingerprint suitable for G.
 
