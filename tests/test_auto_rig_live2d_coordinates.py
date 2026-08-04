@@ -16,8 +16,8 @@ from module.auto_rig.export.live2d.symbols import build_live2d_symbol_view
 from tests.test_auto_rig_rig_document import _build
 
 
-def _coordinate_plans(tmp_path: Path):
-    *_, rig = _build(tmp_path)
+def _coordinate_plans(tmp_path: Path, **fixture_kwargs):
+    *_, rig = _build(tmp_path, **fixture_kwargs)
     payload = rig.to_dict()
     symbols = build_live2d_symbol_view(payload["export_symbols"])
     registry = build_rigid_driver_registry(payload["control_specs"])
@@ -36,26 +36,20 @@ def test_coordinate_plan_reconstructs_every_setup_vertex_through_live_stack(
     assert plan.maximum_round_trip_error <= 0.1
     frame_by_id = {frame.instance_id: frame for frame in plan.rotation_frames}
     instances = {record.control_id: record for record in bindings.rotation_instances}
-    assert frame_by_id[instances["control/body_sway"].instance_id].scale == pytest.approx(
-        1.0 / plan.ppu
-    )
+    assert frame_by_id[instances["control/body_sway"].instance_id].scale == pytest.approx(1.0 / plan.ppu)
     assert frame_by_id[instances["control/idle"].instance_id].origin == (0.0, 0.0)
     assert frame_by_id[instances["control/head_nod"].instance_id].origin == (
         0.0,
         0.0,
     )
 
-    attachment_by_mesh = {
-        attachment.mesh_id: attachment for attachment in bindings.artmesh_attachments
-    }
+    attachment_by_mesh = {attachment.mesh_id: attachment for attachment in bindings.artmesh_attachments}
     for mesh in rig.to_dict()["meshes"]:
         attachment = attachment_by_mesh[mesh["mesh_id"]]
         for vertex in mesh["vertices"]:
             point = tuple(vertex["position"])
             local = canvas_to_artmesh_local(plan, attachment.parent_instance_id, point)
-            recovered = live2d_local_to_canvas(
-                plan, attachment.parent_instance_id, local
-            )
+            recovered = live2d_local_to_canvas(plan, attachment.parent_instance_id, local)
             assert recovered == pytest.approx(point, abs=0.1)
 
 

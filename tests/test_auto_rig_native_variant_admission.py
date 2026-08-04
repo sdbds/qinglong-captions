@@ -133,9 +133,7 @@ def _component_plan(
                 components=tuple(components),
             )
         )
-    native_counts = native_component_counts or {
-        region.variant_id: 1 for region in native_regions if region.variant_id is not None
-    }
+    native_counts = native_component_counts or {region.variant_id: 1 for region in native_regions if region.variant_id is not None}
     partitions = []
     for region in native_regions:
         assert region.variant_id is not None
@@ -217,15 +215,10 @@ def _bundle(bundle_id: str, results: tuple[NativeVariantQualityResult, ...]):
 
 
 def _quality_plan(*bundles: tuple[str, tuple[tuple[str, str], ...]]) -> NativeVariantQualityPlan:
-    results = tuple(
-        _quality_result(variant_id, role)
-        for _, members in bundles
-        for variant_id, role in members
-    )
+    results = tuple(_quality_result(variant_id, role) for _, members in bundles for variant_id, role in members)
     by_id = {result.variant_id: result for result in results}
     bundle_results = tuple(
-        _bundle(bundle_id, tuple(by_id[variant_id] for variant_id, _ in members))
-        for bundle_id, members in bundles
+        _bundle(bundle_id, tuple(by_id[variant_id] for variant_id, _ in members)) for bundle_id, members in bundles
     )
     provisional = NativeVariantQualityPlan(
         schema_version=NATIVE_VARIANT_QUALITY_PLAN_VERSION,
@@ -283,6 +276,7 @@ def test_base_drawable_overflow_is_reported_but_not_misclassified_as_optional_fa
 def test_native_groups_repack_from_empty_and_continue_after_texture_rejection() -> None:
     assert NATIVE_VARIANT_ADMISSION_PRIORITY == (
         "blink.native",
+        "mouth_crossfade.native",
         "mouth_open.native",
         "mouth_form.native",
     )
@@ -308,7 +302,11 @@ def test_native_groups_repack_from_empty_and_continue_after_texture_rejection() 
 
     eligibility = admit_native_variant_resources(base, native, components, quality)
 
-    assert tuple(attempt.bundle_id for attempt in eligibility.admission_attempts) == NATIVE_VARIANT_ADMISSION_PRIORITY
+    assert tuple(attempt.bundle_id for attempt in eligibility.admission_attempts) == (
+        "blink.native",
+        "mouth_open.native",
+        "mouth_form.native",
+    )
     assert tuple(attempt.status for attempt in eligibility.admission_attempts) == (
         "admitted",
         "rejected_texture_budget",
@@ -391,10 +389,7 @@ def _draw_variant_set(*candidates: NativeVariantCandidate) -> NativeVariantSet:
 
 
 def test_final_draw_order_expands_only_admitted_variants_inside_anchor_bundle() -> None:
-    base = tuple(
-        _texture_region(part_id, 64, 64)
-        for part_id in ("part/back-hair", "part/face", "part/front-hair")
-    )
+    base = tuple(_texture_region(part_id, 64, 64) for part_id in ("part/back-hair", "part/face", "part/front-hair"))
     native = (
         _texture_region("part/native.smile", 32, 32, variant_id="smile"),
         _texture_region("part/native.frown", 32, 32, variant_id="frown"),

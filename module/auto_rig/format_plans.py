@@ -20,13 +20,13 @@ from .primitive_candidates import (
 from .rig_geometry import RigGeometryCache, validate_rig_geometry_cache
 
 CAPABILITY_PROFILE_SCHEMA_VERSION = "capability-profile-v1"
-CAPABILITY_PROFILE_REGISTRY_VERSION = "capability-profile-registry-v1"
+CAPABILITY_PROFILE_REGISTRY_VERSION = "capability-profile-registry-v5"
 FORMAT_MODEL_PLAN_VERSION = "format-model-plan-v1"
 FORMAT_CAPABILITY_PREFLIGHT_VERSION = "format-capability-preflight-v1"
 FORMAT_PRESET_SET_PLAN_VERSION = "format-preset-set-plan-v1"
 FORMAT_PLAN_SET_VERSION = "format-plan-set-v1"
-SPINE_FORMAT_PLANNER_VERSION = "spine-format-planner-v1"
-LIVE2D_FORMAT_PLANNER_VERSION = "live2d-format-planner-v1"
+SPINE_FORMAT_PLANNER_VERSION = "spine-format-planner-v3"
+LIVE2D_FORMAT_PLANNER_VERSION = "live2d-format-planner-v3"
 
 _FORMATS = ("live2d_moc3_v4_00", "spine_4_2")
 _CORE_REQUIRED = ("breath", "head_nod", "head_shake", "idle")
@@ -37,17 +37,25 @@ _AVATAR_REQUIRED = (
     "head_nod",
     "head_shake",
     "idle",
+    "unimpressed",
     "sad",
     "surprised",
     "talk",
+    "wink_screen_right",
+    "wink_screen_left",
 )
 _OPTIONAL_PRIORITY = (
     "body_sway",
+    "arm_sway",
+    "leg_sway",
     "blink",
     "talk",
     "surprised",
     "happy",
     "sad",
+    "unimpressed",
+    "wink_screen_left",
+    "wink_screen_right",
     "wave.xmin",
     "wave.xmax",
 )
@@ -175,9 +183,7 @@ class FormatPresetDecision:
             "selected_implementation_ids": list(self.selected_implementation_ids),
             "selected_binding_ids": list(self.selected_binding_ids),
             "selected_candidate_ids": list(self.selected_candidate_ids),
-            "selected_primitive_key_sha256": list(
-                self.selected_primitive_key_sha256
-            ),
+            "selected_primitive_key_sha256": list(self.selected_primitive_key_sha256),
             "artifact_candidate_id": self.artifact_candidate_id,
             "artifact_symbol_id": self.artifact_symbol_id,
             "artifact_export_name": self.artifact_export_name,
@@ -226,9 +232,7 @@ class FormatPresetSetPlan:
             "decisions": [decision.to_dict() for decision in self.decisions],
             "selected_preset_ids": list(self.selected_preset_ids),
             "selected_candidate_ids": list(self.selected_candidate_ids),
-            "selected_primitive_key_sha256": list(
-                self.selected_primitive_key_sha256
-            ),
+            "selected_primitive_key_sha256": list(self.selected_primitive_key_sha256),
             "primitive_union_sha256": self.primitive_union_sha256,
         }
 
@@ -285,13 +289,15 @@ def _profile(
     *,
     terminal_delivery: bool,
 ) -> CapabilityProfile:
+    required_preset_ids = tuple(sorted(required_presets))
+    required_set = set(required_preset_ids)
     values = {
         "schema_version": CAPABILITY_PROFILE_SCHEMA_VERSION,
         "registry_version": CAPABILITY_PROFILE_REGISTRY_VERSION,
         "profile_id": profile_id,
         "required_formats": tuple(sorted(required_formats)),
-        "required_preset_ids": tuple(sorted(required_presets)),
-        "optional_preset_priority": _OPTIONAL_PRIORITY,
+        "required_preset_ids": required_preset_ids,
+        "optional_preset_priority": tuple(preset_id for preset_id in _OPTIONAL_PRIORITY if preset_id not in required_set),
         "optional_preset_parity": "per_format",
         "strict_capabilities": True,
         "terminal_delivery": terminal_delivery,
@@ -332,9 +338,7 @@ def load_capability_profile(profile_id: str) -> CapabilityProfile:
     try:
         profile = _PROFILES[profile_id]
     except KeyError as exc:
-        raise _error(
-            "invalid_capability_profile", f"unknown capability profile: {profile_id}"
-        ) from exc
+        raise _error("invalid_capability_profile", f"unknown capability profile: {profile_id}") from exc
     if profile.profile_sha256 != jcs_sha256(profile.semantic_payload()):
         raise _error("invalid_capability_profile", "profile registry digest mismatch")
     return profile
@@ -391,30 +395,15 @@ def _model_plan(
     candidates: PrimitiveCandidateSet,
     symbols: GlobalExportSymbolTable,
 ) -> FormatModelPlan:
-    planner_version = (
-        SPINE_FORMAT_PLANNER_VERSION
-        if format_id == "spine_4_2"
-        else LIVE2D_FORMAT_PLANNER_VERSION
-    )
-    format_candidates = tuple(
-        item for item in candidates.candidates if item.format_id == format_id
-    )
-    model_candidates = tuple(
-        item for item in format_candidates if item.binding_template is None
-    )
-    symbol_key_ids = {
-        symbol.typed_primitive_key.key_sha256 for symbol in symbols.symbols
-    }
+    planner_version = SPINE_FORMAT_PLANNER_VERSION if format_id == "spine_4_2" else LIVE2D_FORMAT_PLANNER_VERSION
+    format_candidates = tuple(item for item in candidates.candidates if item.format_id == format_id)
+    model_candidates = tuple(item for item in format_candidates if item.binding_template is None)
+    symbol_key_ids = {symbol.typed_primitive_key.key_sha256 for symbol in symbols.symbols}
     reasons: set[str] = set()
-    if any(
-        candidate.typed_primitive_key.key_sha256 not in symbol_key_ids
-        for candidate in format_candidates
-    ):
+    if any(candidate.typed_primitive_key.key_sha256 not in symbol_key_ids for candidate in format_candidates):
         reasons.add("missing_export_symbol")
     mesh_count = len(cache.skinning_plan.weighted_meshes)
-    ranks = tuple(
-        record.component_draw_rank for record in cache.component_draw_order.records
-    )
+    ranks = tuple(record.component_draw_rank for record in cache.component_draw_order.records)
     if format_id == "spine_4_2":
         required_counts = {
             "spine_bone": len(cache.bone_graph.bones),
@@ -434,16 +423,11 @@ def _model_plan(
             reasons.add(capacity_reason)
     observed_counts: dict[str, int] = {}
     for candidate in model_candidates:
-        observed_counts[candidate.candidate_kind] = (
-            observed_counts.get(candidate.candidate_kind, 0) + 1
-        )
+        observed_counts[candidate.candidate_kind] = observed_counts.get(candidate.candidate_kind, 0) + 1
     for kind, expected_count in required_counts.items():
         if observed_counts.get(kind, 0) != expected_count:
             reasons.add("missing_model_candidate")
-    page_count = sum(
-        candidate.candidate_kind == "texture_page"
-        for candidate in model_candidates
-    )
+    page_count = sum(candidate.candidate_kind == "texture_page" for candidate in model_candidates)
     if page_count != len(candidates.texture_page_ids):
         reasons.add("texture_page_reference_mismatch")
     status: ModelStatus = "unsupported" if reasons else "supported"
@@ -466,9 +450,7 @@ def _model_plan(
         "part_count": len(cache.parts),
         "texture_page_count": page_count,
         "candidate_count": len(format_candidates),
-        "symbol_count": sum(
-            symbol.namespace_key.format_id == format_id for symbol in symbols.symbols
-        ),
+        "symbol_count": sum(symbol.namespace_key.format_id == format_id for symbol in symbols.symbols),
         "planner_input_sha256": jcs_sha256(input_payload),
     }
     provisional_output = FormatModelPlan(
@@ -476,9 +458,7 @@ def _model_plan(
         planner_output_sha256="",
         plan_sha256="",
     )
-    values["planner_output_sha256"] = jcs_sha256(
-        provisional_output.output_payload()
-    )
+    values["planner_output_sha256"] = jcs_sha256(provisional_output.output_payload())
     provisional = FormatModelPlan(**values, plan_sha256="")
     return FormatModelPlan(
         **values,
@@ -487,14 +467,8 @@ def _model_plan(
 
 
 def _preset_maps(presets: PresetLibraryPlan):
-    descriptor_by_id = {
-        clip.preset_id: (clip.clip_id, clip.template_sha256, "motion")
-        for clip in presets.clips
-    }
-    controls_by_id = {
-        clip.preset_id: tuple(curve.control_id for curve in clip.control_curves)
-        for clip in presets.clips
-    }
+    descriptor_by_id = {clip.preset_id: (clip.clip_id, clip.template_sha256, "motion") for clip in presets.clips}
+    controls_by_id = {clip.preset_id: tuple(curve.control_id for curve in clip.control_curves) for clip in presets.clips}
     descriptor_by_id.update(
         {
             expression.preset_id: (
@@ -506,12 +480,7 @@ def _preset_maps(presets: PresetLibraryPlan):
         }
     )
     controls_by_id.update(
-        {
-            expression.preset_id: tuple(
-                value.control_id for value in expression.values
-            )
-            for expression in presets.expressions
-        }
+        {expression.preset_id: tuple(value.control_id for value in expression.values) for expression in presets.expressions}
     )
     return descriptor_by_id, controls_by_id
 
@@ -539,11 +508,6 @@ def _make_decision(
     conflicts_with: tuple[str, ...] = (),
     failed_keys: tuple[str, ...] = (),
 ) -> FormatPresetDecision:
-    incompatible = {
-        "talk": ("happy", "sad"),
-        "happy": ("talk",),
-        "sad": ("talk",),
-    }.get(preset_id, ())
     input_payload = {
         "planner_version": planner_version,
         "format_id": format_id,
@@ -566,25 +530,16 @@ def _make_decision(
         "quality_tier": quality_tier,
         "selected_implementation_ids": tuple(sorted(selected_implementations)),
         "selected_binding_ids": tuple(sorted(selected_bindings)),
-        "selected_candidate_ids": tuple(
-            sorted(candidate.candidate_id for candidate in selected_candidates)
-        ),
+        "selected_candidate_ids": tuple(sorted(candidate.candidate_id for candidate in selected_candidates)),
         "selected_primitive_key_sha256": tuple(
-            sorted(
-                {
-                    candidate.typed_primitive_key.key_sha256
-                    for candidate in selected_candidates
-                }
-            )
+            sorted({candidate.typed_primitive_key.key_sha256 for candidate in selected_candidates})
         ),
-        "artifact_candidate_id": (
-            None if artifact_candidate is None else artifact_candidate.candidate_id
-        ),
+        "artifact_candidate_id": (None if artifact_candidate is None else artifact_candidate.candidate_id),
         "artifact_symbol_id": artifact_symbol_id,
         "artifact_export_name": artifact_export_name,
         "conflicts_with": tuple(sorted(conflicts_with)),
         "failed_primitive_keys": tuple(sorted(set(failed_keys))),
-        "incompatible_with": incompatible,
+        "incompatible_with": (),
         "planner_input_sha256": jcs_sha256(input_payload),
     }
     provisional_output = FormatPresetDecision(
@@ -592,9 +547,7 @@ def _make_decision(
         planner_output_sha256="",
         decision_sha256="",
     )
-    values["planner_output_sha256"] = jcs_sha256(
-        provisional_output.output_payload()
-    )
+    values["planner_output_sha256"] = jcs_sha256(provisional_output.output_payload())
     provisional = FormatPresetDecision(**values, decision_sha256="")
     return FormatPresetDecision(
         **values,
@@ -610,11 +563,7 @@ def _artifact_candidate(
     candidates: PrimitiveCandidateSet,
 ) -> PrimitiveCandidate | None:
     candidate_kind = (
-        "spine_animation"
-        if format_id == "spine_4_2"
-        else "live2d_motion"
-        if descriptor_kind == "motion"
-        else "live2d_expression"
+        "spine_animation" if format_id == "spine_4_2" else "live2d_motion" if descriptor_kind == "motion" else "live2d_expression"
     )
     matches = tuple(
         candidate
@@ -624,9 +573,7 @@ def _artifact_candidate(
         and candidate.typed_primitive_key.preset_id == descriptor_id
     )
     if len(matches) > 1:
-        raise _error(
-            "format_plan_mismatch", f"artifact candidate is ambiguous: {preset_id}"
-        )
+        raise _error("format_plan_mismatch", f"artifact candidate is ambiguous: {preset_id}")
     return matches[0] if matches else None
 
 
@@ -640,23 +587,15 @@ def _individual_decisions(
     candidates: PrimitiveCandidateSet,
     symbols: GlobalExportSymbolTable,
 ) -> tuple[FormatPresetDecision, ...]:
-    planner_version = (
-        SPINE_FORMAT_PLANNER_VERSION
-        if format_id == "spine_4_2"
-        else LIVE2D_FORMAT_PLANNER_VERSION
-    )
+    planner_version = SPINE_FORMAT_PLANNER_VERSION if format_id == "spine_4_2" else LIVE2D_FORMAT_PLANNER_VERSION
     descriptor_by_id, controls_by_preset = _preset_maps(presets)
-    capability_by_id = {
-        capability.preset_id: capability for capability in capabilities.capabilities
-    }
+    capability_by_id = {capability.preset_id: capability for capability in capabilities.capabilities}
     binding_candidates = {
         candidate.binding_template.binding_id: candidate
         for candidate in candidates.candidates
         if candidate.format_id == format_id and candidate.binding_template is not None
     }
-    symbol_by_key = {
-        symbol.typed_primitive_key.key_sha256: symbol for symbol in symbols.symbols
-    }
+    symbol_by_key = {symbol.typed_primitive_key.key_sha256: symbol for symbol in symbols.symbols}
     bindings_by_group: dict[str, list[ControlBinding]] = {}
     for binding in bindings.bindings:
         bindings_by_group.setdefault(binding.binding_group_id, []).append(binding)
@@ -691,11 +630,7 @@ def _individual_decisions(
                 _make_decision(
                     **common,
                     status="omitted",
-                    reason=(
-                        capability.reason_codes[0]
-                        if capability.reason_codes
-                        else "missing_capability"
-                    ),
+                    reason=(capability.reason_codes[0] if capability.reason_codes else "missing_capability"),
                 )
             )
             continue
@@ -714,10 +649,7 @@ def _individual_decisions(
             sorted(
                 group_id
                 for group_id, group_bindings in bindings_by_group.items()
-                if any(
-                    binding.control_id in preset_control_ids
-                    for binding in group_bindings
-                )
+                if any(binding.control_id in preset_control_ids for binding in group_bindings)
             )
         )
         selected_bindings: list[ControlBinding] = []
@@ -752,12 +684,8 @@ def _individual_decisions(
             _rank, implementation_id, rows = eligible[0]
             selected_implementations.append(implementation_id)
             selected_bindings.extend(rows)
-            selected_candidates.extend(
-                binding_candidates[row.binding_id] for row in rows
-            )
-        if not relevant_groups or not preset_control_ids <= {
-            binding.control_id for binding in selected_bindings
-        }:
+            selected_candidates.extend(binding_candidates[row.binding_id] for row in rows)
+        if not relevant_groups or not preset_control_ids <= {binding.control_id for binding in selected_bindings}:
             missing_reason = missing_reason or "unsupported_control_binding"
         artifact = _artifact_candidate(
             preset_id,
@@ -766,11 +694,7 @@ def _individual_decisions(
             format_id,
             candidates,
         )
-        artifact_symbol = (
-            None
-            if artifact is None
-            else symbol_by_key.get(artifact.typed_primitive_key.key_sha256)
-        )
+        artifact_symbol = None if artifact is None else symbol_by_key.get(artifact.typed_primitive_key.key_sha256)
         if artifact is None or artifact_symbol is None:
             missing_reason = missing_reason or "missing_export_symbol"
         if missing_reason is not None:
@@ -788,9 +712,7 @@ def _individual_decisions(
                 status="supported",
                 reason=None,
                 selected_implementations=tuple(selected_implementations),
-                selected_bindings=tuple(
-                    binding.binding_id for binding in selected_bindings
-                ),
+                selected_bindings=tuple(binding.binding_id for binding in selected_bindings),
                 selected_candidates=tuple(selected_candidates),
                 artifact_candidate=artifact,
                 artifact_symbol_id=artifact_symbol.symbol_id,
@@ -814,9 +736,7 @@ def _non_rigid_conflicts(
             template = candidate.binding_template
             if template is None or template.property != "deform":
                 continue
-            target_controls.setdefault(template.target_id, {}).setdefault(
-                template.control_id, set()
-            ).add(preset_id)
+            target_controls.setdefault(template.target_id, {}).setdefault(template.control_id, set()).add(preset_id)
     conflicts: dict[str, set[str]] = {}
     for target_id, controls in target_controls.items():
         if len(controls) <= 1:
@@ -879,11 +799,7 @@ def _preset_set_plan(
     candidates: PrimitiveCandidateSet,
     symbols: GlobalExportSymbolTable,
 ) -> FormatPresetSetPlan:
-    planner_version = (
-        SPINE_FORMAT_PLANNER_VERSION
-        if format_id == "spine_4_2"
-        else LIVE2D_FORMAT_PLANNER_VERSION
-    )
+    planner_version = SPINE_FORMAT_PLANNER_VERSION if format_id == "spine_4_2" else LIVE2D_FORMAT_PLANNER_VERSION
     individual = _individual_decisions(
         format_id,
         profile,
@@ -896,45 +812,28 @@ def _preset_set_plan(
     )
     decisions = {decision.preset_id: decision for decision in individual}
     all_preset_ids = set(decisions)
-    expected_preset_ids = set(profile.required_preset_ids) | set(
-        profile.optional_preset_priority
-    )
+    expected_preset_ids = set(profile.required_preset_ids) | set(profile.optional_preset_priority)
     if all_preset_ids != expected_preset_ids:
         raise _error(
             "invalid_preset_registry",
             "profile required/optional inputs do not cover the preset registry",
         )
-    missing_required = tuple(
-        preset_id
-        for preset_id in profile.required_preset_ids
-        if decisions[preset_id].status != "supported"
-    )
+    missing_required = tuple(preset_id for preset_id in profile.required_preset_ids if decisions[preset_id].status != "supported")
     if missing_required:
-        reasons = ", ".join(
-            f"{preset_id}:{decisions[preset_id].reason}"
-            for preset_id in missing_required
-        )
+        reasons = ", ".join(f"{preset_id}:{decisions[preset_id].reason}" for preset_id in missing_required)
         raise _error(
             "missing_required_capability",
             f"{format_id} required presets are unsupported: {reasons}",
         )
-    candidate_by_id = {
-        candidate.candidate_id: candidate for candidate in candidates.candidates
-    }
+    candidate_by_id = {candidate.candidate_id: candidate for candidate in candidates.candidates}
     selected = list(profile.required_preset_ids)
     if format_id == "live2d_moc3_v4_00":
-        conflicts, failed_keys = _non_rigid_conflicts(
-            tuple(selected), decisions, candidate_by_id
-        )
+        conflicts, failed_keys = _non_rigid_conflicts(tuple(selected), decisions, candidate_by_id)
         if conflicts:
-            details = ", ".join(
-                f"{preset}:{','.join(sorted(values))}"
-                for preset, values in sorted(conflicts.items())
-            )
+            details = ", ".join(f"{preset}:{','.join(sorted(values))}" for preset, values in sorted(conflicts.items()))
             raise _error(
                 "missing_required_capability",
-                f"live2d_parameter_conflict among required presets: {details}; "
-                f"failed={','.join(failed_keys)}",
+                f"live2d_parameter_conflict among required presets: {details}; failed={','.join(failed_keys)}",
             )
     for preset_id in profile.optional_preset_priority:
         decision = decisions[preset_id]
@@ -942,9 +841,7 @@ def _preset_set_plan(
             continue
         tentative = (*selected, preset_id)
         if format_id == "live2d_moc3_v4_00":
-            conflicts, failed_keys = _non_rigid_conflicts(
-                tentative, decisions, candidate_by_id
-            )
+            conflicts, failed_keys = _non_rigid_conflicts(tentative, decisions, candidate_by_id)
             if preset_id in conflicts:
                 decisions[preset_id] = _replace_omitted(
                     decision,
@@ -956,21 +853,10 @@ def _preset_set_plan(
         selected.append(preset_id)
     ordered_decisions = tuple(decisions[preset_id] for preset_id in sorted(decisions))
     selected_candidate_ids = tuple(
-        sorted(
-            {
-                candidate_id
-                for preset_id in selected
-                for candidate_id in decisions[preset_id].selected_candidate_ids
-            }
-        )
+        sorted({candidate_id for preset_id in selected for candidate_id in decisions[preset_id].selected_candidate_ids})
     )
     selected_keys = tuple(
-        sorted(
-            {
-                candidate_by_id[candidate_id].typed_primitive_key.key_sha256
-                for candidate_id in selected_candidate_ids
-            }
-        )
+        sorted({candidate_by_id[candidate_id].typed_primitive_key.key_sha256 for candidate_id in selected_candidate_ids})
     )
     union_payload = {
         "candidate_ids": list(selected_candidate_ids),
@@ -984,9 +870,7 @@ def _preset_set_plan(
         "model_plan_sha256": model_plan.plan_sha256,
         "required_preset_ids": list(profile.required_preset_ids),
         "optional_priority": list(profile.optional_preset_priority),
-        "individual_decision_sha256": [
-            decision.decision_sha256 for decision in individual
-        ],
+        "individual_decision_sha256": [decision.decision_sha256 for decision in individual],
     }
     values = {
         "schema_version": FORMAT_PRESET_SET_PLAN_VERSION,
@@ -1009,9 +893,7 @@ def _preset_set_plan(
         planner_output_sha256="",
         plan_sha256="",
     )
-    values["planner_output_sha256"] = jcs_sha256(
-        provisional_output.output_payload()
-    )
+    values["planner_output_sha256"] = jcs_sha256(provisional_output.output_payload())
     provisional = FormatPresetSetPlan(**values, plan_sha256="")
     return FormatPresetSetPlan(
         **values,
@@ -1031,22 +913,15 @@ def _build_format_plan_set(
     profile_id: str,
 ) -> FormatPlanSet:
     profile = load_capability_profile(profile_id)
-    if presets.optional_priority != profile.optional_preset_priority:
-        raise _error(
-            "invalid_preset_registry", "profile optional priority differs from library"
-        )
-    model_plans = tuple(
-        _model_plan(format_id, cache, candidates, symbols)
-        for format_id in profile.required_formats
+    expected_optional_priority = tuple(
+        preset_id for preset_id in presets.optional_priority if preset_id not in set(profile.required_preset_ids)
     )
-    unsupported_models = tuple(
-        plan for plan in model_plans if plan.status != "supported"
-    )
+    if expected_optional_priority != profile.optional_preset_priority:
+        raise _error("invalid_preset_registry", "profile optional priority differs from library")
+    model_plans = tuple(_model_plan(format_id, cache, candidates, symbols) for format_id in profile.required_formats)
+    unsupported_models = tuple(plan for plan in model_plans if plan.status != "supported")
     if unsupported_models:
-        details = ", ".join(
-            f"{plan.format_id}:{','.join(plan.reason_codes)}"
-            for plan in unsupported_models
-        )
+        details = ", ".join(f"{plan.format_id}:{','.join(plan.reason_codes)}" for plan in unsupported_models)
         raise _error("format_model_unsupported", details)
     preset_sets = tuple(
         _preset_set_plan(
@@ -1091,9 +966,7 @@ def validate_format_plan_set(
 ) -> FormatPlanSet:
     """Re-run all pure format decisions and require exact equality."""
 
-    _validate_inputs(
-        cache, controls, presets, capabilities, bindings, candidates, symbols
-    )
+    _validate_inputs(cache, controls, presets, capabilities, bindings, candidates, symbols)
     if not isinstance(plan, FormatPlanSet) or plan.schema_version != FORMAT_PLAN_SET_VERSION:
         raise _error("format_plan_mismatch", "format plan-set version is unsupported")
     try:
@@ -1131,9 +1004,7 @@ def build_format_plan_set(
 ) -> FormatPlanSet:
     """Build profile decisions without writing target-format artifacts."""
 
-    _validate_inputs(
-        cache, controls, presets, capabilities, bindings, candidates, symbols
-    )
+    _validate_inputs(cache, controls, presets, capabilities, bindings, candidates, symbols)
     plan = _build_format_plan_set(
         cache,
         controls,

@@ -376,11 +376,7 @@ def test_qwen_vl_local_transcodes_unsupported_images_to_temp_jpeg(tmp_path):
     captured = {}
 
     def fake_attempt_qwenvl(**kwargs):
-        image_refs = [
-            item["image"]
-            for item in kwargs["messages"][1]["content"]
-            if isinstance(item, dict) and "image" in item
-        ]
+        image_refs = [item["image"] for item in kwargs["messages"][1]["content"] if isinstance(item, dict) and "image" in item]
         image_paths = [Path(ref.removeprefix("file://")) for ref in image_refs]
         captured["image_paths"] = image_paths
         captured["exists_during_call"] = [path.exists() for path in image_paths]
@@ -1277,6 +1273,43 @@ def test_hf_download_reporting_wraps_xet_progress_factory(monkeypatch):
         progress.close()
 
     assert fake_xet_progress._create_progress_bar is original_xet_progress_factory
+
+
+def test_hf_download_reporting_sanitizes_xet_descriptions_for_gbk_console(monkeypatch):
+    from contextlib import contextmanager
+
+    from utils.transformer_loader import hf_download_reporting
+
+    @contextmanager
+    def original_progress_context(**_kwargs):
+        yield None
+
+    fake_file_download = types.SimpleNamespace(_get_progress_bar_context=original_progress_context)
+    fake_hf = types.ModuleType("huggingface_hub")
+    fake_hf.file_download = fake_file_download
+    fake_utils = types.ModuleType("huggingface_hub.utils")
+    fake_utils.__path__ = []
+    fake_utils.enable_progress_bars = lambda: None
+    fake_xet_progress = types.ModuleType("huggingface_hub.utils._xet_progress_reporting")
+    fake_xet_progress._create_progress_bar = lambda **_kwargs: None
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.utils", fake_utils)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.utils._xet_progress_reporting", fake_xet_progress)
+
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="gbk", errors="strict")
+    console = Console(file=stream, force_terminal=False)
+    with hf_download_reporting(console):
+        progress = fake_xet_progress._create_progress_bar(
+            desc="\u2022 model.safetensors: reconstructing file",
+            total=1,
+            initial=0,
+        )
+        progress._desc.encode("gbk", errors="strict")
+        assert "model.safetensors" in progress._desc
+        progress.update(1)
+        progress.close()
+    stream.flush()
 
 
 def test_snapshot_download_with_reporting_wraps_hf_progress_context(monkeypatch):

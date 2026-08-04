@@ -6,7 +6,7 @@
 
 **Architecture:** Correct the Stage C primitive identity so per-mesh sampled deformation targets ArtMesh keyforms rather than inventing an unverified WarpDeformer. Project the canonical Rig through isolated Live2D symbol, parameter, binding/liveness, coordinate, ArtMesh, animation, and artifact plans into a disposable `Moc3V400Document`. Encode through the attested V4.00 section codec, reload through a strict pure-Python validator, then run Core consistency/model-state and SDK D3D11 WARP render/playback gates. Publish the exact E inventory marker-last. The packaged E0 attestation remains the startup proof for coordinate/section semantics; each item still receives its own runtime proof.
 
-**Frozen scope:** Revision 27 A-D outputs remain immutable. Stage E targets MOC3 V4.00 header version 3 and model3 Version 3, fixed basename `model`, at most four 2048x2048 straight-alpha pages copied byte-for-byte from C, one Part per Rig Part, one ArtMesh per Rig mesh component, single-parameter ArtMesh keyforms for sampled deform/opacity, and nested RotationDeformers keyed by `(bone_id, parameter_id)`. Multi-parameter ArtMesh grids, Glue, physics, pose files, CMO3, and formal Live2D limb bends remain unsupported.
+**Frozen scope:** Follow the Revision 41 public contract. Stage E targets MOC3 V4.00 header version 3 and model3 Version 3, fixed basename `model`, at most four 2048x2048 straight-alpha pages copied byte-for-byte from C, one Part per Rig Part, one ArtMesh per Rig mesh component, single-parameter ArtMesh keyforms for sampled deform/opacity, and nested RotationDeformers keyed by `(bone_id, parameter_id)`. Multi-parameter ArtMesh grids, Glue, physics, pose files, CMO3, and formal Live2D limb bends remain unsupported.
 
 ---
 
@@ -118,7 +118,7 @@
 
 - [x] **Step 1: Write failing model3/cdi3 tests**
 
-  Freeze basename `model`, Version 3, contiguous `textures/page_0.png...`, exact supported motion/expression references, no empty sections, no physics/pose/PMA extension, parameter/Part IDs from symbols, and EyeBlink/LipSync groups only when their used parameters exist. Missing/stale references or JCS/minified runtime JSON must fail.
+  Freeze basename `model`, Version 3, contiguous `textures/page_0.png...`, exact supported motion/expression references, no empty sections, no physics/pose/PMA extension, parameter/Part IDs from symbols, and a LipSync group only when its used parameter exists. Do not emit EyeBlink: blinking is an explicit motion, and a global group lets compatible runtimes inject it into unrelated motions or overwrite wink expressions. Missing/stale references or JCS/minified runtime JSON must fail.
 
 - [x] **Step 2: Implement deterministic runtime JSON encoders**
 
@@ -126,11 +126,11 @@
 
 - [x] **Step 3: Write failing motion/expression tests**
 
-  Convert each C-supported MotionClip curve exactly at `frame/30`, encode only linear segment type 0, one curve per parameter, zero fade, exact duration/loop/count metadata, and no resampling. Encode each supported ExpressionPreset as full-weight `Overwrite`, zero fade, with no pseudo-time axis. Reject duplicate parameters, unsupported blend, stale artifacts, or missing parameter keyforms.
+  Convert each C-supported MotionClip curve exactly at `frame/30`, encode only linear segment type 0, one curve per parameter, and write `Meta.FadeInTime=0.0` plus `Meta.FadeOutTime=0.0` in the motion asset itself. Freeze Blink at `(0,1),(6,0),(9,0),(16,1),(24,1)` so it has both a closed hold and an eight-frame pre-completion rest hold. Encode each supported ExpressionPreset with zero fade and no pseudo-time axis: the two eye-open controls use full-weight `Multiply` so a persistent expression cannot overwrite explicit blink motion; every other target uses full-weight `Overwrite`. Reject duplicate parameters, missing/nonzero motion fade, missing Blink recovery hold, unsupported/per-control blend, stale artifacts, or missing parameter keyforms.
 
 - [x] **Step 4: Implement motion3/exp3 compilation**
 
-  Preserve C artifact names and runtime application ordering. Blink/talk remain motions; happy/sad/surprised remain expressions. Optional format asymmetry stays explicit in the C motion manifest rather than being guessed from the output directory.
+  Preserve C artifact names and runtime application ordering. Blink/talk remain motions; static facial presets remain expressions. Keep `.model3.json` free of `EyeBlink`; verify blink alone and blink while a wink/expression remains active. The SDK harness must consume serialized motion fade and must not call `SetFadeInTime`/`SetFadeOutTime` to repair missing asset fields. Sample Blink at its effect point, exact end, and the frame immediately before completion; the latter two must be rest. Optional format asymmetry stays explicit in the C motion manifest rather than being guessed from the output directory.
 
 ## Task 5: Official Core/SDK per-item release validation
 

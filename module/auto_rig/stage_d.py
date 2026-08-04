@@ -28,6 +28,11 @@ from .export.spine.coordinates import (
     build_spine_coordinate_plan,
 )
 from .export.spine.model import SpineDocument, build_spine_document
+from .export.spine.runtime_validator import (
+    SpineRuntimeValidationError,
+    SpineRuntimeValidationReport,
+    validate_spine_runtime_bundle,
+)
 from .export.spine.serializer import (
     build_spine_encoding_descriptor,
     parse_spine_document,
@@ -50,7 +55,7 @@ from .manifests import (
 from .rig_document import RigDocument, load_rig_document
 
 STAGE_D_SCHEMA_VERSION = 1
-STAGE_D_ALGORITHM_VERSION = "stage-d-spine-4-2-v1"
+STAGE_D_ALGORITHM_VERSION = "stage-d-spine-4-2-v2"
 STAGE_D_FAILURE_SCHEMA_VERSION = "stage-failure-v1"
 SPINE_EXPORT_REPORT_VERSION = "spine-export-report-v1"
 
@@ -73,6 +78,7 @@ class StageDResult:
     animation_plan: SpineAnimationPlan
     document: SpineDocument
     validation: SpineBundleValidationReport
+    runtime_validation: SpineRuntimeValidationReport | None
     report: dict[str, object]
     manifest: StageManifest
     skeleton_bytes: bytes
@@ -152,14 +158,8 @@ def _source_pages(
 ) -> tuple[dict[str, bytes], tuple[FileDigest, ...]]:
     raw_pages = rig_payload.get("texture_pages")
     if not isinstance(raw_pages, list):
-        raise StageDError(
-            "input_contract_mismatch", "RigDocument texture_pages is not a list"
-        )
-    by_index = {
-        raw.get("index"): raw
-        for raw in raw_pages
-        if isinstance(raw, Mapping) and isinstance(raw.get("index"), int)
-    }
+        raise StageDError("input_contract_mismatch", "RigDocument texture_pages is not a list")
+    by_index = {raw.get("index"): raw for raw in raw_pages if isinstance(raw, Mapping) and isinstance(raw.get("index"), int)}
     pages: dict[str, bytes] = {}
     inputs = []
     for page in atlas.pages:
@@ -201,6 +201,7 @@ def _build_export_report(
     atlas: SpineAtlasPlan,
     animations: SpineAnimationPlan,
     validation: SpineBundleValidationReport,
+    runtime_validation: SpineRuntimeValidationReport | None,
     skeleton_bytes: bytes,
     atlas_bytes: bytes,
     pages: Mapping[str, bytes],
@@ -209,11 +210,7 @@ def _build_export_report(
     rig_payload = rig.to_dict()
     format_plans = rig_payload["format_plans"]
     profile = format_plans["profile"]
-    model_plan = next(
-        item
-        for item in format_plans["model_plans"]
-        if item["format_id"] == "spine_4_2"
-    )
+    model_plan = next(item for item in format_plans["model_plans"] if item["format_id"] == "spine_4_2")
     if model_plan["status"] != "supported":
         raise StageDError(
             "spine_model_not_supported",
@@ -261,10 +258,17 @@ def _build_export_report(
         "animations": [record.to_dict() for record in animations.records],
         "artifacts": artifacts,
         "validation": validation.to_dict(),
-        "official_spine_runtime_gate": {
-            "status": "not_run",
-            "reason": "Spine 4.2 Editor/runtime is an external opt-in release gate",
-        },
+        "official_spine_runtime_gate": (
+            {
+                "status": "passed",
+                "validation": runtime_validation.to_dict(),
+            }
+            if runtime_validation is not None
+            else {
+                "status": "not_run",
+                "reason": "optional official Spine 4.2 Runtime validation was not requested",
+            }
+        ),
     }
     return {**base, "report_sha256": jcs_sha256(base)}
 
@@ -274,6 +278,7 @@ def execute_stage_d(
     *,
     upstream_manifests: Mapping[str, str],
     relevant_config_fingerprint: str,
+    spine_runtime_path: str | Path | None = None,
 ) -> StageDResult:
     """Compile, validate, and commit D-owned Spine 4.2 files marker-last."""
 
@@ -287,42 +292,27 @@ def execute_stage_d(
         rig_path = root / "rig" / "rig.json"
         rig = load_rig_document(rig_path)
         payload = rig.to_dict()
-        if (
-            rig.document_sha256
-            != next(
-                item.sha256
-                for item in c_manifest.output_file_sha256
-                if item.path == "rig/rig.json"
-            )
-        ):
+        if rig.document_sha256 != next(item.sha256 for item in c_manifest.output_file_sha256 if item.path == "rig/rig.json"):
             raise StageDError(
                 "input_contract_mismatch",
                 "RigDocument digest differs from the committed C manifest",
             )
         if (
             payload["input_fingerprint"] != c_manifest.target_input_fingerprint
-            or payload["input"]["native_variant_set_sha256"]
-            != c_manifest.native_variant_set_sha256
-            or payload["input"]["native_variant_eligibility_sha256"]
-            != c_manifest.native_variant_eligibility_sha256
+            or payload["input"]["native_variant_set_sha256"] != c_manifest.native_variant_set_sha256
+            or payload["input"]["native_variant_eligibility_sha256"] != c_manifest.native_variant_eligibility_sha256
         ):
             raise StageDError(
                 "input_contract_mismatch",
                 "RigDocument semantic identity differs from Stage C",
             )
 
-        coordinates = build_spine_coordinate_plan(
-            payload["canvas"], input_fingerprint=payload["input_fingerprint"]
-        )
+        coordinates = build_spine_coordinate_plan(payload["canvas"], input_fingerprint=payload["input_fingerprint"])
         bind = build_spine_bind_plan(payload["bones"], payload["meshes"], coordinates)
         symbols = build_spine_symbol_view(payload["export_symbols"])
-        atlas = build_spine_atlas_plan(
-            payload["texture_pages"], payload["parts"], symbols
-        )
+        atlas = build_spine_atlas_plan(payload["texture_pages"], payload["parts"], symbols)
         setup = build_spine_document(rig, coordinates, bind, symbols, atlas)
-        animations = build_spine_animation_plan(
-            rig, coordinates, bind, symbols, setup
-        )
+        animations = build_spine_animation_plan(rig, coordinates, bind, symbols, setup)
         document = build_spine_document(
             rig,
             coordinates,
@@ -345,22 +335,11 @@ def execute_stage_d(
         cache_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="staging-", dir=cache_dir) as temporary:
             staging_root = Path(temporary)
-            atomic_write_bytes(
-                _path(staging_root, "rig/spine/skeleton.json"), skeleton_bytes
-            )
-            atomic_write_bytes(
-                _path(staging_root, "rig/spine/skeleton.atlas"), atlas_bytes
-            )
+            atomic_write_bytes(_path(staging_root, "rig/spine/skeleton.json"), skeleton_bytes)
+            atomic_write_bytes(_path(staging_root, "rig/spine/skeleton.atlas"), atlas_bytes)
             for page_path, page_bytes in source_pages.items():
-                atomic_write_bytes(
-                    _path(staging_root, f"rig/spine/{page_path}"), page_bytes
-                )
-            staged_pages = {
-                page.path: _path(
-                    staging_root, f"rig/spine/{page.path}"
-                ).read_bytes()
-                for page in atlas.pages
-            }
+                atomic_write_bytes(_path(staging_root, f"rig/spine/{page_path}"), page_bytes)
+            staged_pages = {page.path: _path(staging_root, f"rig/spine/{page.path}").read_bytes() for page in atlas.pages}
             validation = validate_spine_bundle(
                 _path(staging_root, "rig/spine/skeleton.json").read_bytes(),
                 _path(staging_root, "rig/spine/skeleton.atlas").read_bytes(),
@@ -372,6 +351,20 @@ def execute_stage_d(
                 atlas,
                 animations,
             )
+            runtime_validation = None
+            if spine_runtime_path is not None:
+                try:
+                    runtime_validation = validate_spine_runtime_bundle(
+                        Path(spine_runtime_path).resolve(strict=True),
+                        _path(staging_root, "rig/spine/skeleton.json"),
+                        _path(staging_root, "rig/spine/skeleton.atlas"),
+                        expected_animation_names=tuple(record.artifact_export_name for record in animations.records),
+                    )
+                except (OSError, SpineRuntimeValidationError) as exc:
+                    raise StageDError(
+                        "spine_runtime_validation_failed",
+                        str(exc),
+                    ) from exc
             report = _build_export_report(
                 rig=rig,
                 coordinates=coordinates,
@@ -380,6 +373,7 @@ def execute_stage_d(
                 atlas=atlas,
                 animations=animations,
                 validation=validation,
+                runtime_validation=runtime_validation,
                 skeleton_bytes=skeleton_bytes,
                 atlas_bytes=atlas_bytes,
                 pages=source_pages,
@@ -391,9 +385,7 @@ def execute_stage_d(
                     "stage_d_transaction_incomplete",
                     "staged export report did not round-trip canonical JCS",
                 )
-            if report["report_sha256"] != jcs_sha256(
-                {key: value for key, value in report.items() if key != "report_sha256"}
-            ):
+            if report["report_sha256"] != jcs_sha256({key: value for key, value in report.items() if key != "report_sha256"}):
                 raise StageDError(
                     "stage_d_transaction_incomplete",
                     "staged export report digest is invalid",
@@ -420,9 +412,7 @@ def execute_stage_d(
             input_file_sha256=input_digests,
             target_input_fingerprint=c_manifest.target_input_fingerprint,
             native_variant_set_sha256=c_manifest.native_variant_set_sha256,
-            native_variant_eligibility_sha256=(
-                c_manifest.native_variant_eligibility_sha256
-            ),
+            native_variant_eligibility_sha256=(c_manifest.native_variant_eligibility_sha256),
             relevant_config_fingerprint=relevant_config_fingerprint,
             rig_overrides_sha256=c_manifest.rig_overrides_sha256,
             output_paths=output_paths,
@@ -439,6 +429,7 @@ def execute_stage_d(
             animation_plan=animations,
             document=document,
             validation=validation,
+            runtime_validation=runtime_validation,
             report=report,
             manifest=manifest,
             skeleton_bytes=skeleton_bytes,

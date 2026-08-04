@@ -159,12 +159,28 @@ def _public_parts(
     native_quality_by_part: dict[str, dict[str, object]],
     native_composite_mode_by_part: dict[str, str],
 ) -> list[dict[str, object]]:
+    drawable_component_ids = {mesh.component_id for mesh in cache.skinning_plan.weighted_meshes}
+    mouth_closed_parts = tuple(
+        part
+        for part in cache.parts
+        if part.source_kind == "native_variant"
+        and part.semantic_role == "mouth_closed"
+        and native_composite_mode_by_part.get(part.part_id) == "crossfade_overlay_v1"
+    )
+    mouth_open_base_ids = {base_part_id for part in mouth_closed_parts for base_part_id in part.base_part_ids}
     result = []
     for part in cache.parts:
         payload = part.to_dict()
+        payload["component_ids"] = [component_id for component_id in part.component_ids if component_id in drawable_component_ids]
         payload.update(
             {
-                "setup_visibility": 0.0 if part.source_kind == "native_variant" else 1.0,
+                "setup_visibility": (
+                    1.0
+                    if part in mouth_closed_parts
+                    else 0.0
+                    if part.part_id in mouth_open_base_ids or part.source_kind == "native_variant"
+                    else 1.0
+                ),
                 "composite_mode": native_composite_mode_by_part.get(part.part_id),
                 "draw_policy_sha256": cache.final_draw_order.plan_sha256,
                 "native_quality": _native_part_quality(
@@ -180,21 +196,15 @@ def _public_parts(
 
 
 def _public_meshes(cache: RigGeometryCache) -> list[dict[str, object]]:
-    rank_by_component = {
-        record.component_id: record.component_draw_rank
-        for record in cache.component_draw_order.records
-    }
-    mesh_by_component = {
-        mesh.component_id: mesh for mesh in cache.skinning_plan.weighted_meshes
-    }
+    mesh_by_component = {mesh.component_id: mesh for mesh in cache.skinning_plan.weighted_meshes}
+    drawable_records = tuple(record for record in cache.component_draw_order.records if record.mesh_id is not None)
     return [
         {
             **mesh_by_component[record.component_id].to_dict(),
-            "component_draw_rank": record.component_draw_rank,
+            "component_draw_rank": drawable_rank,
             "component_draw_order_plan_sha256": cache.component_draw_order.plan_sha256,
         }
-        for record in cache.component_draw_order.records
-        if record.component_id in rank_by_component
+        for drawable_rank, record in enumerate(drawable_records)
     ]
 
 
@@ -209,16 +219,11 @@ def _texture_page_records(
         or plan.unplaced_part_ids
     ):
         raise _error("TexturePagePlan is not a complete fit")
-    if (
-        page_set.set_sha256 != jcs_sha256(page_set.semantic_payload())
-        or page_set.texture_page_plan_sha256 != plan.plan_sha256
-    ):
+    if page_set.set_sha256 != jcs_sha256(page_set.semantic_payload()) or page_set.texture_page_plan_sha256 != plan.plan_sha256:
         raise _error("canonical texture page set differs from TexturePagePlan")
     plan_pages = {page.index: page for page in plan.pages}
     materialized = {page.index: page for page in page_set.pages}
-    if set(plan_pages) != set(materialized) or tuple(sorted(plan_pages)) != tuple(
-        range(len(plan_pages))
-    ):
+    if set(plan_pages) != set(materialized) or tuple(sorted(plan_pages)) != tuple(range(len(plan_pages))):
         raise _error("materialized texture pages differ from the page plan")
     placements: dict[int, list[dict[str, object]]] = {}
     for placement in plan.placements:
@@ -245,9 +250,7 @@ def _texture_page_records(
                 "relative_path": material.relative_path,
                 "region_part_ids": list(page.region_part_ids),
                 "packed_area": page.packed_area,
-                "placements": sorted(
-                    placements.get(index, ()), key=lambda item: item["part_id"]
-                ),
+                "placements": sorted(placements.get(index, ()), key=lambda item: item["part_id"]),
                 "canonical_uv_space": "page_top_left_v_down",
                 "alpha_mode": "straight",
                 "color_space": "srgb_bytes",
@@ -306,11 +309,7 @@ def _verify_removed_digest(
     extra_removed: tuple[str, ...] = (),
 ) -> None:
     observed = _digest(record.get(digest_field), f"{group}.{digest_field}")
-    payload = {
-        key: value
-        for key, value in record.items()
-        if key != digest_field and key not in extra_removed
-    }
+    payload = {key: value for key, value in record.items() if key != digest_field and key not in extra_removed}
     if observed != jcs_sha256(payload):
         raise _error(f"{group} content digest mismatch")
 
@@ -321,9 +320,19 @@ def _validate_geometry(payload: dict[str, object]) -> tuple[set[str], set[str], 
     part_ranks = sorted(int(part["part_draw_rank"]) for part in part_by_id.values())
     if part_ranks != list(range(len(parts))):
         raise _error("Part draw ranks are not gapless")
+    mouth_closed_parts = tuple(
+        part
+        for part in part_by_id.values()
+        if part.get("source_kind") == "native_variant"
+        and part.get("semantic_role") == "mouth_closed"
+        and part.get("composite_mode") == "crossfade_overlay_v1"
+    )
+    mouth_open_base_ids = {
+        base_part_id for part in mouth_closed_parts for base_part_id in _as_list(part.get("base_part_ids"), "part.base_part_ids")
+    }
     component_owner = {}
     for part_id, part in part_by_id.items():
-        components = _as_list(part.get("component_ids"), "part.component_ids", nonempty=True)
+        components = _as_list(part.get("component_ids"), "part.component_ids")
         for component_id in components:
             if not isinstance(component_id, str) or component_id in component_owner:
                 raise _error("component IDs are invalid or duplicated across Parts")
@@ -331,7 +340,9 @@ def _validate_geometry(payload: dict[str, object]) -> tuple[set[str], set[str], 
         source_kind = part.get("source_kind")
         if source_kind not in {"see_through", "native_variant"}:
             raise _error("Part source_kind is invalid")
-        expected_visibility = 0.0 if source_kind == "native_variant" else 1.0
+        expected_visibility = (
+            1.0 if part in mouth_closed_parts else 0.0 if part_id in mouth_open_base_ids or source_kind == "native_variant" else 1.0
+        )
         if part.get("setup_visibility") != expected_visibility:
             raise _error("Part setup visibility differs from its source kind")
 
@@ -341,9 +352,7 @@ def _validate_geometry(payload: dict[str, object]) -> tuple[set[str], set[str], 
     joint_by_id = _ids(joints, "joint_id", group="joint")
     for joint in joint_by_id.values():
         selected = joint.get("selected_observation_id")
-        candidates = _as_list(
-            joint.get("candidate_observation_ids"), "joint.candidate_observation_ids"
-        )
+        candidates = _as_list(joint.get("candidate_observation_ids"), "joint.candidate_observation_ids")
         if selected is not None and selected not in observation_by_id:
             raise _error("joint selects an unknown observation")
         if any(candidate not in observation_by_id for candidate in candidates):
@@ -387,24 +396,17 @@ def _validate_geometry(payload: dict[str, object]) -> tuple[set[str], set[str], 
         observed_components.add(component_id)
         vertices = _as_list(mesh.get("vertices"), "mesh.vertices", nonempty=True)
         triangles = _as_list(mesh.get("triangles"), "mesh.triangles", nonempty=True)
-        if len(triangles) % 3 or any(
-            not isinstance(index, int) or not 0 <= index < len(vertices)
-            for index in triangles
-        ):
+        if len(triangles) % 3 or any(not isinstance(index, int) or not 0 <= index < len(vertices) for index in triangles):
             raise _error("mesh triangle indices are invalid")
         for vertex in vertices:
             vertex_record = _as_dict(vertex, "mesh.vertex")
             uv = _as_list(vertex_record.get("uv"), "mesh.vertex.uv")
             if len(uv) != 2 or any(
-                not isinstance(value, (int, float))
-                or not math.isfinite(float(value))
-                or not 0.0 <= float(value) <= 1.0
+                not isinstance(value, (int, float)) or not math.isfinite(float(value)) or not 0.0 <= float(value) <= 1.0
                 for value in uv
             ):
                 raise _error("mesh UV lies outside canonical top-left space")
-            influences = _as_list(
-                vertex_record.get("influences"), "mesh.vertex.influences", nonempty=True
-            )
+            influences = _as_list(vertex_record.get("influences"), "mesh.vertex.influences", nonempty=True)
             if not 1 <= len(influences) <= 4:
                 raise _error("mesh vertex influence count is invalid")
             total = 0.0
@@ -431,15 +433,10 @@ def _validate_motion_and_bindings(
     capabilities = _as_list(payload["capabilities"], "capabilities", nonempty=True)
     capability_by_preset = _ids(capabilities, "preset_id", group="capability")
     for capability in capability_by_preset.values():
-        _verify_removed_digest(
-            capability, "capability_sha256", group="capability"
-        )
+        _verify_removed_digest(capability, "capability_sha256", group="capability")
     controls = _as_list(payload["control_specs"], "control_specs", nonempty=True)
     control_by_id = _ids(controls, "control_id", group="control")
-    registry_digests = {
-        _digest(control.get("registry_sha256"), "control.registry_sha256")
-        for control in control_by_id.values()
-    }
+    registry_digests = {_digest(control.get("registry_sha256"), "control.registry_sha256") for control in control_by_id.values()}
     if len(registry_digests) != 1:
         raise _error("control specs disagree on registry digest")
     bindings = _as_list(payload["control_bindings"], "control_bindings", nonempty=True)
@@ -480,9 +477,7 @@ def _validate_motion_and_bindings(
 
     clips = _as_list(payload["clips"], "clips", nonempty=True)
     expressions = _as_list(payload["expressions"], "expressions", nonempty=True)
-    runtime_application = _as_dict(
-        payload["runtime_application"], "runtime_application"
-    )
+    runtime_application = _as_dict(payload["runtime_application"], "runtime_application")
     if set(runtime_application) != {"version", "motion", "expression"}:
         raise _error("motion runtime-application contract is invalid")
     preset_records = []
@@ -511,15 +506,9 @@ def _validate_candidates_and_symbols(
     *,
     binding_ids: set[str],
 ) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]]]:
-    candidate_section = _as_dict(
-        payload["primitive_candidates"], "primitive_candidates"
-    )
-    _verify_removed_digest(
-        candidate_section, "plan_sha256", group="primitive_candidates"
-    )
-    candidates = _as_list(
-        candidate_section.get("candidates"), "primitive_candidates.candidates", nonempty=True
-    )
+    candidate_section = _as_dict(payload["primitive_candidates"], "primitive_candidates")
+    _verify_removed_digest(candidate_section, "plan_sha256", group="primitive_candidates")
+    candidates = _as_list(candidate_section.get("candidates"), "primitive_candidates.candidates", nonempty=True)
     candidate_by_id = _ids(candidates, "candidate_id", group="primitive_candidate")
     keys: dict[str, dict[str, object]] = {}
     for candidate in candidate_by_id.values():
@@ -531,9 +520,7 @@ def _validate_candidates_and_symbols(
         if previous is not None and previous != key:
             raise _error("typed primitive key digest collision")
         keys[key_sha] = key
-        if candidate.get("primitive_target_id") != "primitive/p_" + key_sha.removeprefix(
-            "sha256:"
-        ):
+        if candidate.get("primitive_target_id") != "primitive/p_" + key_sha.removeprefix("sha256:"):
             raise _error("primitive target ID differs from typed key")
         template = candidate.get("binding_template")
         if template is not None:
@@ -584,21 +571,13 @@ def _validate_format_plans(
     _verify_removed_digest(section, "plan_sha256", group="format_plans")
     profile = _as_dict(section.get("profile"), "format_plans.profile")
     _verify_removed_digest(profile, "profile_sha256", group="capability_profile")
-    required_formats = set(
-        _as_list(profile.get("required_formats"), "profile.required_formats", nonempty=True)
-    )
-    required_presets = set(
-        _as_list(
-            profile.get("required_preset_ids"), "profile.required_preset_ids", nonempty=True
-        )
-    )
+    required_formats = set(_as_list(profile.get("required_formats"), "profile.required_formats", nonempty=True))
+    required_presets = set(_as_list(profile.get("required_preset_ids"), "profile.required_preset_ids", nonempty=True))
     if not required_presets <= preset_ids:
         raise _error("profile requires an unknown preset")
     model_plans = _as_list(section.get("model_plans"), "format_plans.model_plans", nonempty=True)
     model_by_format = _ids(model_plans, "format_id", group="format_model_plan")
-    set_plans = _as_list(
-        section.get("preset_set_plans"), "format_plans.preset_set_plans", nonempty=True
-    )
+    set_plans = _as_list(section.get("preset_set_plans"), "format_plans.preset_set_plans", nonempty=True)
     sets_by_format = _ids(set_plans, "format_id", group="format_preset_set_plan")
     if set(model_by_format) != required_formats or set(sets_by_format) != required_formats:
         raise _error("format plans do not cover required formats exactly")
@@ -613,16 +592,12 @@ def _validate_format_plans(
             raise _error("required format model plan is unsupported")
         set_plan = sets_by_format[format_id]
         _verify_removed_digest(set_plan, "plan_sha256", group="format_preset_set_plan")
-        decisions = _as_list(
-            set_plan.get("decisions"), "format_preset_set_plan.decisions", nonempty=True
-        )
+        decisions = _as_list(set_plan.get("decisions"), "format_preset_set_plan.decisions", nonempty=True)
         decision_by_preset = _ids(decisions, "preset_id", group="format_preset_decision")
         if set(decision_by_preset) != preset_ids:
             raise _error("format preset decisions do not cover the preset universe")
         for preset_id, decision in decision_by_preset.items():
-            _verify_removed_digest(
-                decision, "decision_sha256", group="format_preset_decision"
-            )
+            _verify_removed_digest(decision, "decision_sha256", group="format_preset_decision")
             required = preset_id in required_presets
             if bool(decision.get("required")) != required:
                 raise _error("format decision required flag differs from profile")
@@ -646,10 +621,7 @@ def _validate_format_plans(
             artifact_symbol_id = decision.get("artifact_symbol_id")
             artifact_name = decision.get("artifact_export_name")
             if decision.get("status") == "supported":
-                if (
-                    artifact_candidate_id not in candidates
-                    or artifact_symbol_id not in symbols
-                ):
+                if artifact_candidate_id not in candidates or artifact_symbol_id not in symbols:
                     raise _error("supported preset lacks an artifact candidate/symbol")
                 artifact_key = candidates[artifact_candidate_id]["typed_primitive_key"][  # type: ignore[index]
                     "key_sha256"
@@ -669,9 +641,7 @@ def _validate_texture_pages(
 ) -> None:
     pages = _as_list(payload["texture_pages"], "texture_pages", nonempty=True)
     page_by_id = _ids(pages, "texture_page_id", group="texture_page")
-    if sorted(int(page["index"]) for page in page_by_id.values()) != list(
-        range(len(pages))
-    ):
+    if sorted(int(page["index"]) for page in page_by_id.values()) != list(range(len(pages))):
         raise _error("texture page indices are not gapless")
     placed_parts = set()
     for page_id, page in page_by_id.items():
@@ -683,10 +653,7 @@ def _validate_texture_pages(
         if page.get("alpha_mode") != "straight" or page.get("color_space") != "srgb_bytes":
             raise _error("texture page pixel contract is invalid")
         file_record = _as_dict(page.get("file"), "texture_page.file")
-        if (
-            file_record.get("path") != expected_path
-            or file_record.get("sha256") != page.get("encoded_png_sha256")
-        ):
+        if file_record.get("path") != expected_path or file_record.get("sha256") != page.get("encoded_png_sha256"):
             raise _error("texture page file digest/path mismatch")
         for placement in _as_list(page.get("placements"), "texture_page.placements"):
             placement_record = _as_dict(placement, "texture_placement")
@@ -698,11 +665,7 @@ def _validate_texture_pages(
             placed_parts.add(part_id)
     if placed_parts != part_ids:
         raise _error("texture placements do not cover every render Part")
-    page_source_ids = {
-        key["base_source_internal_id"]
-        for key in candidate_keys.values()
-        if key.get("kind") == "texture_page"
-    }
+    page_source_ids = {key["base_source_internal_id"] for key in candidate_keys.values() if key.get("kind") == "texture_page"}
     if page_source_ids != set(page_by_id):
         raise _error("texture page candidates differ from materialized pages")
 
@@ -777,20 +740,24 @@ def validate_rig_document_payload(payload: object) -> RigDocument:
         _digest(provenance.get(field), f"provenance.{field}")
     if provenance.get("degradation_state") not in {"clean", "degraded"}:
         raise _error("provenance degradation state is invalid")
-    degradation_codes = _as_list(
-        provenance.get("degradation_codes"), "provenance.degradation_codes"
-    )
+    degradation_codes = _as_list(provenance.get("degradation_codes"), "provenance.degradation_codes")
     if degradation_codes != sorted(set(degradation_codes)):
         raise _error("provenance degradation codes are not canonical")
     if provenance["format_plan_set_sha256"] != root["format_plans"]["plan_sha256"]:  # type: ignore[index]
         raise _error("format plan provenance mismatch")
-    if provenance["primitive_candidate_set_sha256"] != root["primitive_candidates"][  # type: ignore[index]
-        "plan_sha256"
-    ]:
+    if (
+        provenance["primitive_candidate_set_sha256"]
+        != root["primitive_candidates"][  # type: ignore[index]
+            "plan_sha256"
+        ]
+    ):
         raise _error("candidate-set provenance mismatch")
-    if provenance["global_export_symbol_table_sha256"] != root["export_symbols"][  # type: ignore[index]
-        "table_sha256"
-    ]:
+    if (
+        provenance["global_export_symbol_table_sha256"]
+        != root["export_symbols"][  # type: ignore[index]
+            "table_sha256"
+        ]
+    ):
         raise _error("symbol-table provenance mismatch")
     texture_plan_digests = {
         page["texture_page_plan_sha256"]  # type: ignore[index]
@@ -860,9 +827,7 @@ def build_rig_document(
         symbols,
     )
     texture_pages = _texture_page_records(texture_plan, texture_page_set)
-    expected_page_ids = tuple(
-        f"texture-page/page_{page.index}" for page in texture_page_set.pages
-    )
+    expected_page_ids = tuple(f"texture-page/page_{page.index}" for page in texture_page_set.pages)
     if candidates.texture_page_ids != expected_page_ids:
         raise _error("candidate universe differs from canonical texture pages")
     parts = _public_parts(
@@ -891,13 +856,8 @@ def build_rig_document(
             "y_axis": "down",
         },
         "parts": parts,
-        "joint_observations": [
-            observation.to_dict()
-            for observation in cache.joint_plan.joints.observations
-        ],
-        "joints": [
-            resolution.to_dict() for resolution in cache.joint_plan.joints.resolutions
-        ],
+        "joint_observations": [observation.to_dict() for observation in cache.joint_plan.joints.observations],
+        "joints": [resolution.to_dict() for resolution in cache.joint_plan.joints.resolutions],
         "bones": [bone.to_dict() for bone in cache.bone_graph.bones],
         "meshes": meshes,
         "capabilities": [item.to_dict() for item in capabilities.capabilities],

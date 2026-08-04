@@ -23,10 +23,7 @@ def _anatomy(tmp_path: Path, *parts):
 
 
 def _two_leg_points() -> set[tuple[int, int]]:
-    return (
-        {(x, y) for y in range(52) for x in range(12)}
-        | {(x, y) for y in range(52) for x in range(25, 37)}
-    )
+    return {(x, y) for y in range(52) for x in range(12)} | {(x, y) for y in range(52) for x in range(25, 37)}
 
 
 def _rotated_rectangle_points(
@@ -148,11 +145,62 @@ def test_axial_geometry_uses_torso_principal_axis_for_rotated_silhouette(
     direction = (spine.x - pelvis.x, spine.y - pelvis.y)
     magnitude = math.hypot(*direction)
     expected_headward = (math.sin(math.radians(25)), -math.cos(math.radians(25)))
-    alignment = (
-        direction[0] * expected_headward[0] + direction[1] * expected_headward[1]
-    ) / magnitude
+    alignment = (direction[0] * expected_headward[0] + direction[1] * expected_headward[1]) / magnitude
 
     assert alignment > 0.95
+
+
+def test_axial_geometry_keeps_dominant_torso_axis_high_confidence_with_tiny_island(
+    tmp_path: Path,
+) -> None:
+    torso = _rectangle(60, 70)
+    surviving_island = {(x, y) for y in range(72, 74) for x in range(2)}
+    anatomy = _anatomy(
+        tmp_path,
+        _part(
+            "topwear",
+            xyxy=(90, 100, 150, 174),
+            points=torso | surviving_island,
+        ),
+    )
+
+    batch = build_axial_joint_evidence(anatomy)
+    observations = {item.joint_id: item for item in batch.observations}
+
+    assert observations["joint/pelvis"].confidence_class == "high"
+    assert observations["joint/spine"].confidence_class == "high"
+    assert observations["joint/pelvis"].geometry_factors.connectivity == 1.0
+    assert observations["joint/spine"].geometry_factors.connectivity == 1.0
+
+
+def test_axial_geometry_uses_head_anchor_for_a_broad_torso_axis(
+    tmp_path: Path,
+) -> None:
+    anatomy = _anatomy(
+        tmp_path,
+        _part(
+            "face",
+            xyxy=(112, 30, 148, 76),
+            points=_rectangle(36, 46),
+        ),
+        _part(
+            "neck",
+            xyxy=(124, 72, 136, 92),
+            points=_rectangle(12, 20),
+        ),
+        _part(
+            "topwear",
+            xyxy=(85, 88, 175, 168),
+            points=_rectangle(90, 80),
+        ),
+    )
+
+    batch = build_axial_joint_evidence(anatomy)
+    observations = {item.joint_id: item for item in batch.observations}
+
+    assert observations["joint/pelvis"].confidence_class == "high"
+    assert observations["joint/spine"].confidence_class == "high"
+    assert observations["joint/pelvis"].y > observations["joint/spine"].y
 
 
 def test_axial_geometry_rejects_head_neck_gap_over_relative_limit(tmp_path: Path) -> None:
@@ -176,9 +224,7 @@ def test_axial_geometry_rejects_head_neck_gap_over_relative_limit(tmp_path: Path
     assert eligibilities["joint/head_base"].status == "ambiguous"
     assert eligibilities["joint/head_base"].reason == "head_neck_contact_gap"
     assert eligibilities["joint/head_top"].status == "ambiguous"
-    assert {item.joint_id for item in batch.observations}.isdisjoint(
-        {"joint/head_base", "joint/head_top"}
-    )
+    assert {item.joint_id for item in batch.observations}.isdisjoint({"joint/head_base", "joint/head_top"})
 
 
 def test_axial_geometry_marks_fragmented_head_axis_unresolved(tmp_path: Path) -> None:
@@ -198,9 +244,7 @@ def test_axial_geometry_marks_fragmented_head_axis_unresolved(tmp_path: Path) ->
     )
 
     batch = build_axial_joint_evidence(anatomy)
-    eligibility = {
-        item.joint_id: item for item in batch.eligibilities
-    }["joint/head_top"]
+    eligibility = {item.joint_id: item for item in batch.eligibilities}["joint/head_top"]
 
     assert eligibility.status == "ambiguous"
     assert eligibility.reason == "head_core_fragmented"
@@ -225,3 +269,31 @@ def test_axial_geometry_keeps_missing_torso_joints_without_fake_coordinates(
     for joint_id in ("joint/pelvis", "joint/spine", "joint/neck"):
         assert eligibility[joint_id].status == "missing"
         assert joint_id not in observations
+
+
+def test_merged_limb_shoulder_eligibility_references_the_real_merged_mask(
+    tmp_path: Path,
+) -> None:
+    anatomy = _anatomy(
+        tmp_path,
+        _part(
+            "topwear",
+            xyxy=(90, 100, 150, 170),
+            points=_rectangle(60, 70),
+        ),
+        _part(
+            "handwear",
+            xyxy=(55, 105, 185, 145),
+            points=_rectangle(130, 40),
+        ),
+    )
+
+    batch = build_axial_joint_evidence(anatomy)
+    eligibility = {item.joint_id: item for item in batch.eligibilities}
+
+    for side in ("xmin", "xmax"):
+        record = eligibility[f"joint/shoulder.{side}"]
+        assert record.status == "ambiguous"
+        assert record.reason == "merged_limb"
+        assert "mask/limb/handwear.merged" in record.evidence_ids
+        assert f"mask/limb/handwear.{side}" not in record.evidence_ids

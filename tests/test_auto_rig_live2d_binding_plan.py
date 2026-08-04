@@ -27,14 +27,18 @@ def test_binding_plan_uses_exact_supported_artifacts_and_parameter_targets(
 
     assert validate_live2d_binding_plan(plan, rig, symbols, registry) is plan
     assert plan.supported_preset_ids == (
+        "arm_sway",
         "blink",
         "body_sway",
         "breath",
         "head_nod",
         "head_shake",
         "idle",
+        "leg_sway",
         "surprised",
         "talk",
+        "wink_screen_left",
+        "wink_screen_right",
     )
     assert "wave.xmin" not in plan.supported_preset_ids
     assert "wave.xmax" not in plan.supported_preset_ids
@@ -46,19 +50,19 @@ def test_binding_plan_uses_exact_supported_artifacts_and_parameter_targets(
     assert {parameter.export_name for parameter in plan.parameters} >= {
         "ParamAngleX",
         "ParamAngleY",
+        "ParamArmSway",
         "ParamAutoIdle",
         "ParamBodyAngleX",
         "ParamBreath",
+        "ParamLegSway",
         "ParamMouthOpenY",
     }
 
     blink_groups: dict[tuple[str, str], set[str]] = {}
     for record in plan.bindings:
-        if record.preset_ids != ("blink",):
+        if "blink" not in record.preset_ids:
             continue
-        blink_groups.setdefault(
-            (record.parameter_id, record.primitive_target_id), set()
-        ).update(record.properties)
+        blink_groups.setdefault((record.parameter_id, record.primitive_target_id), set()).update(record.properties)
     assert any(properties == {"deform", "opacity"} for properties in blink_groups.values())
 
 
@@ -71,20 +75,11 @@ def test_rotation_liveness_freezes_same_bone_stack_and_prunes_limb_nodes(
     assert instances["control/body_sway"].stack_rank == 100
     assert instances["control/body_sway"].parent_instance_id is None
     assert instances["control/idle"].stack_rank == 200
-    assert (
-        instances["control/idle"].parent_instance_id
-        == instances["control/body_sway"].instance_id
-    )
+    assert instances["control/idle"].parent_instance_id == instances["control/body_sway"].instance_id
     assert instances["control/head_shake"].stack_rank == 300
-    assert (
-        instances["control/head_shake"].parent_instance_id
-        == instances["control/idle"].instance_id
-    )
+    assert instances["control/head_shake"].parent_instance_id == instances["control/idle"].instance_id
     assert instances["control/head_nod"].stack_rank == 400
-    assert (
-        instances["control/head_nod"].parent_instance_id
-        == instances["control/head_shake"].instance_id
-    )
+    assert instances["control/head_nod"].parent_instance_id == instances["control/head_shake"].instance_id
 
     assert {record.bone_id for record in plan.rotation_instances} == {
         "bone/torso",
@@ -94,10 +89,7 @@ def test_rotation_liveness_freezes_same_bone_stack_and_prunes_limb_nodes(
     assert any(bone_id.startswith("bone/hand") for bone_id in plan.pruned_bone_ids)
     assert all(
         attachment.parent_instance_id is None
-        or attachment.parent_instance_id
-        in {instance.instance_id for instance in plan.rotation_instances}
+        or attachment.parent_instance_id in {instance.instance_id for instance in plan.rotation_instances}
         for attachment in plan.artmesh_attachments
     )
-    assert {attachment.mesh_id for attachment in plan.artmesh_attachments} == {
-        mesh["mesh_id"] for mesh in rig.to_dict()["meshes"]
-    }
+    assert {attachment.mesh_id for attachment in plan.artmesh_attachments} == {mesh["mesh_id"] for mesh in rig.to_dict()["meshes"]}

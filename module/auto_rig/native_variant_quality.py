@@ -197,46 +197,58 @@ class NativeVariantQualityPlan:
 _EYE_ROLES = ("eye_closed.xmin", "eye_closed.xmax", "eye_closed.coupled")
 _MOUTH_FORM_ROLES = ("mouth_smile", "mouth_frown")
 
-BUILTIN_NATIVE_VARIANT_ROLE_ENVELOPES = tuple(
-    NativeVariantRoleEnvelope(
-        semantic_role=role,
-        support_mode="support_preserving",
-        k_numerator=3,
-        k_denominator=2,
-        c_numerator=1,
-        c_denominator=5,
-        radius_min_px=2,
-        radius_max_px=12,
+BUILTIN_NATIVE_VARIANT_ROLE_ENVELOPES = (
+    tuple(
+        NativeVariantRoleEnvelope(
+            semantic_role=role,
+            support_mode="support_preserving",
+            k_numerator=3,
+            k_denominator=2,
+            c_numerator=1,
+            c_denominator=5,
+            radius_min_px=2,
+            radius_max_px=12,
+        )
+        for role in _EYE_ROLES
     )
-    for role in _EYE_ROLES
-) + tuple(
-    NativeVariantRoleEnvelope(
-        semantic_role=role,
-        support_mode="support_expanding",
-        k_numerator=4,
-        k_denominator=1,
-        c_numerator=1,
-        c_denominator=1,
-        radius_min_px=4,
-        radius_max_px=24,
+    + tuple(
+        NativeVariantRoleEnvelope(
+            semantic_role=role,
+            support_mode="support_expanding",
+            k_numerator=4,
+            k_denominator=1,
+            c_numerator=1,
+            c_denominator=1,
+            radius_min_px=4,
+            radius_max_px=24,
+        )
+        for role in _MOUTH_FORM_ROLES
     )
-    for role in _MOUTH_FORM_ROLES
-) + (
-    NativeVariantRoleEnvelope(
-        semantic_role="mouth_open",
-        support_mode="support_expanding",
-        k_numerator=12,
-        k_denominator=1,
-        c_numerator=2,
-        c_denominator=1,
-        radius_min_px=8,
-        radius_max_px=48,
-    ),
+    + (
+        NativeVariantRoleEnvelope(
+            semantic_role="mouth_closed",
+            support_mode="support_preserving",
+            k_numerator=3,
+            k_denominator=2,
+            c_numerator=1,
+            c_denominator=1,
+            radius_min_px=2,
+            radius_max_px=16,
+        ),
+        NativeVariantRoleEnvelope(
+            semantic_role="mouth_open",
+            support_mode="support_expanding",
+            k_numerator=12,
+            k_denominator=1,
+            c_numerator=2,
+            c_denominator=1,
+            radius_min_px=8,
+            radius_max_px=48,
+        ),
+    )
 )
 
-_BUILTIN_BY_ROLE = {
-    row.semantic_role: row for row in BUILTIN_NATIVE_VARIANT_ROLE_ENVELOPES
-}
+_BUILTIN_BY_ROLE = {row.semantic_role: row for row in BUILTIN_NATIVE_VARIANT_ROLE_ENVELOPES}
 
 
 def _registry_error(message: str) -> NativeVariantQualityError:
@@ -250,9 +262,7 @@ def native_variant_role_registry_payload(
     return {
         "schema_version": NATIVE_VARIANT_ROLE_ENVELOPE_VERSION,
         "base_feature_scale_kind": BASE_FEATURE_SCALE_KIND,
-        "role_envelopes": [
-            row.to_dict() for row in sorted(normalized, key=lambda row: row.semantic_role)
-        ],
+        "role_envelopes": [row.to_dict() for row in sorted(normalized, key=lambda row: row.semantic_role)],
     }
 
 
@@ -276,10 +286,7 @@ def validate_native_variant_role_registry(
             row.radius_min_px,
             row.radius_max_px,
         )
-        if any(
-            isinstance(value, bool) or not isinstance(value, numbers.Integral) or int(value) <= 0
-            for value in integer_values
-        ):
+        if any(isinstance(value, bool) or not isinstance(value, numbers.Integral) or int(value) <= 0 for value in integer_values):
             raise _registry_error("role-envelope rationals and clamps must be positive integers")
         if row.radius_min_px > row.radius_max_px:
             raise _registry_error("role-envelope radius_min_px exceeds radius_max_px")
@@ -311,11 +318,7 @@ def base_context_radius_px(
     rounded = 0
     for candidate in range(1, envelope.radius_max_px + 1):
         left = 4 * envelope.c_numerator**2 * mass_u8
-        right = (
-            envelope.c_denominator**2
-            * 255
-            * (2 * candidate - 1) ** 2
-        )
+        right = envelope.c_denominator**2 * 255 * (2 * candidate - 1) ** 2
         if left < right:
             break
         rounded = candidate
@@ -432,12 +435,12 @@ def _source_over_alpha(alphas: Iterable[object], *, canvas_edge: int):
 
 def _disk_dilate(mask, radius: int):
     import numpy as np
-    from scipy.ndimage import binary_dilation
+    from scipy.ndimage import distance_transform_edt
 
-    coordinates = np.arange(-radius, radius + 1, dtype=np.int32)
-    yy, xx = np.meshgrid(coordinates, coordinates, indexing="ij")
-    footprint = xx * xx + yy * yy <= radius * radius
-    return binary_dilation(mask, structure=footprint)
+    source = np.asarray(mask, dtype=bool)
+    if not source.any():
+        return np.zeros_like(source)
+    return distance_transform_edt(~source) <= radius
 
 
 def _support_bbox(support) -> tuple[int, int, int, int]:
@@ -504,12 +507,7 @@ def _evaluate_branch(
     variant_mass = int(variant_alpha.sum(dtype=np.uint64))
     if base_mass <= 0 or variant_mass <= 0:
         raise _quality_error("quality branch alpha mass must be positive")
-    coverage_numerator = int(
-        (
-            base_alpha.astype(np.uint64)
-            * (255 - variant_alpha.astype(np.uint64))
-        ).sum(dtype=np.uint64)
-    )
+    coverage_numerator = int((base_alpha.astype(np.uint64) * (255 - variant_alpha.astype(np.uint64))).sum(dtype=np.uint64))
     coverage_denominator = base_mass * 255
     coverage_leak = coverage_numerator / coverage_denominator
     alpha_mass_ratio = variant_mass / base_mass
@@ -562,7 +560,8 @@ def _evaluate_branch(
     spill_support = _disk_dilate(base_support, spill_radius)
     spill_mass = int(variant_alpha[~spill_support].sum(dtype=np.uint64)) / variant_mass
 
-    if coverage_numerator * 100 > coverage_denominator:
+    requires_replacement_coverage = candidate.composite_mode == "occluding_overlay_v1"
+    if requires_replacement_coverage and coverage_numerator * 100 > coverage_denominator:
         reason = "coverage_leak"
     elif variant_mass * envelope.k_denominator > base_mass * envelope.k_numerator:
         reason = "alpha_mass_ratio_exceeded"
@@ -571,11 +570,7 @@ def _evaluate_branch(
     else:
         reason = None
     component_ids = tuple(
-        sorted(
-            component.component_id
-            for component in partition.components
-            if component.label in component_labels
-        )
+        sorted(component.component_id for component in partition.components if component.label in component_labels)
     )
     identity = {
         "schema_version": NATIVE_VARIANT_COMPOSITE_PLAN_VERSION,
@@ -639,14 +634,17 @@ def _candidate_branch_specs(
     candidate: NativeVariantCandidate,
     partition: NativeVariantPartitionRecord,
     ordinary_parts: dict[str, NormalizedMaskPart],
-) -> tuple[
+) -> (
     tuple[
-        Literal["xmin", "xmax"] | None,
-        set[int],
-        tuple[str, ...],
-    ],
-    ...,
-] | None:
+        tuple[
+            Literal["xmin", "xmax"] | None,
+            set[int],
+            tuple[str, ...],
+        ],
+        ...,
+    ]
+    | None
+):
     if partition.status != "ready" or not partition.components:
         return None
     if candidate.semantic_role == "eye_closed.coupled":
@@ -654,16 +652,8 @@ def _candidate_branch_specs(
             return None
         specs = []
         for side in ("xmin", "xmax"):
-            components = tuple(
-                component for component in partition.components if component.side == side
-            )
-            base_ids = tuple(
-                sorted(
-                    part_id
-                    for part_id in candidate.base_part_ids
-                    if ordinary_parts[part_id].side == side
-                )
-            )
+            components = tuple(component for component in partition.components if component.side == side)
+            base_ids = tuple(sorted(part_id for part_id in candidate.base_part_ids if ordinary_parts[part_id].side == side))
             if len(components) != 1 or not base_ids:
                 return None
             specs.append((side, {components[0].label}, base_ids))
@@ -672,9 +662,7 @@ def _candidate_branch_specs(
         return tuple(specs)
     if candidate.semantic_role in {"eye_closed.xmin", "eye_closed.xmax"}:
         side = candidate.semantic_role.rsplit(".", 1)[1]
-        if partition.side_provenance != "role_single" or any(
-            component.side != side for component in partition.components
-        ):
+        if partition.side_provenance != "role_single" or any(component.side != side for component in partition.components):
             return None
         if any(ordinary_parts[part_id].side != side for part_id in candidate.base_part_ids):
             return None
@@ -833,6 +821,14 @@ def _build_bundle_results(
                 complete=True,
             )
         )
+    if "mouth_closed" in by_role:
+        bundles.append(
+            _bundle_result(
+                "mouth_crossfade.native",
+                (by_role["mouth_closed"],),
+                complete=True,
+            )
+        )
     mouth_form_roles = set(by_role) & set(_MOUTH_FORM_ROLES)
     if mouth_form_roles:
         bundles.append(
@@ -844,8 +840,9 @@ def _build_bundle_results(
         )
     priority = {
         "blink.native": 0,
-        "mouth_open.native": 1,
-        "mouth_form.native": 2,
+        "mouth_crossfade.native": 1,
+        "mouth_open.native": 2,
+        "mouth_form.native": 3,
     }
     return tuple(sorted(bundles, key=lambda bundle: priority[bundle.bundle_id]))
 
@@ -874,14 +871,7 @@ def build_native_variant_quality_plan(
     for result in bundle_results:
         if jcs_sha256(result.content_payload()) != result.result_sha256:
             raise _quality_error("bundle quality-result digest is invalid")
-    eligible_ids = tuple(
-        sorted(
-            variant_id
-            for bundle in bundle_results
-            if bundle.eligible
-            for variant_id in bundle.variant_ids
-        )
-    )
+    eligible_ids = tuple(sorted(variant_id for bundle in bundle_results if bundle.eligible for variant_id in bundle.variant_ids))
     role_registry_sha = validate_native_variant_role_registry()
     semantic_payload = {
         "schema_version": NATIVE_VARIANT_QUALITY_PLAN_VERSION,

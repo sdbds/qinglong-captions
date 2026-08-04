@@ -15,6 +15,15 @@ from module.auto_rig.jcs import jcs_sha256
 
 EXPECTED_CONTROLS = (
     (
+        "control/arm_sway",
+        "parameter/arm_sway",
+        "ParamArmSway",
+        -1.0,
+        0.0,
+        1.0,
+        "normalized",
+    ),
+    (
         "control/body_sway",
         "parameter/body_angle_x",
         "ParamBodyAngleX",
@@ -96,6 +105,15 @@ EXPECTED_CONTROLS = (
         "normalized",
     ),
     (
+        "control/leg_sway",
+        "parameter/leg_sway",
+        "ParamLegSway",
+        -1.0,
+        0.0,
+        1.0,
+        "normalized",
+    ),
+    (
         "control/mouth_form",
         "parameter/mouth_form",
         "ParamMouthForm",
@@ -134,18 +152,21 @@ def test_control_registry_freezes_exact_domains_and_parameter_names() -> None:
     assert plan.schema_version == CONTROL_REGISTRY_PLAN_VERSION
     assert plan.registry_version == CONTROL_REGISTRY_VERSION
     assert validate_control_registry_plan(plan) is plan
-    assert tuple(
-        (
-            spec.control_id,
-            None if spec.live2d is None else spec.live2d.parameter_id,
-            None if spec.live2d is None else spec.live2d.export_name,
-            spec.minimum,
-            spec.default,
-            spec.maximum,
-            spec.unit,
+    assert (
+        tuple(
+            (
+                spec.control_id,
+                None if spec.live2d is None else spec.live2d.parameter_id,
+                None if spec.live2d is None else spec.live2d.export_name,
+                spec.minimum,
+                spec.default,
+                spec.maximum,
+                spec.unit,
+            )
+            for spec in plan.controls
         )
-        for spec in plan.controls
-    ) == EXPECTED_CONTROLS
+        == EXPECTED_CONTROLS
+    )
     assert all(spec.registry_sha256 == plan.registry_sha256 for spec in plan.controls)
 
 
@@ -155,11 +176,7 @@ def test_control_registry_is_byte_stable_and_does_not_alias_image_sides_to_lr() 
 
     assert first == second
     assert first.plan_sha256 == second.plan_sha256
-    exported = {
-        spec.live2d.export_name
-        for spec in first.controls
-        if spec.live2d is not None
-    }
+    exported = {spec.live2d.export_name for spec in first.controls if spec.live2d is not None}
     assert "ParamEyeLOpen" not in exported
     assert "ParamEyeROpen" not in exported
     assert "ParamBrowLY" not in exported
@@ -188,21 +205,13 @@ def test_control_registry_rejects_rehashed_semantic_mutations(mutation: str) -> 
     elif mutation == "non_finite":
         controls[1] = replace(controls[1], default=float("inf"))
     else:
-        eye_index = next(
-            index
-            for index, spec in enumerate(controls)
-            if spec.control_id == "control/eye_open.xmin"
-        )
+        eye_index = next(index for index, spec in enumerate(controls) if spec.control_id == "control/eye_open.xmin")
         controls[eye_index] = replace(
             controls[eye_index],
             live2d=replace(controls[eye_index].live2d, export_name="ParamEyeLOpen"),
         )
 
-    tampered = (
-        replace(plan, controls=tuple(controls))
-        if mutation == "non_finite"
-        else _rehash(plan, controls=tuple(controls))
-    )
+    tampered = replace(plan, controls=tuple(controls)) if mutation == "non_finite" else _rehash(plan, controls=tuple(controls))
     with pytest.raises(ControlRegistryError) as exc_info:
         validate_control_registry_plan(tampered)
 

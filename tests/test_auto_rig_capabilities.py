@@ -47,13 +47,14 @@ def _part(
     depth: float,
 ):
     suffix = "" if side is None else f".{side}"
+    token = base_tag.replace(" ", "-")
     width = xyxy[2] - xyxy[0]
     height = xyxy[3] - xyxy[1]
     return _loaded_part(
         source_tag=f"{base_tag}{suffix}",
         base_tag=base_tag,
-        semantic_slug=f"{base_tag}{suffix}",
-        part_id=f"part/{base_tag}{suffix}",
+        semantic_slug=f"{token}{suffix}",
+        part_id=f"part/{token}{suffix}",
         side=side,
         xyxy=xyxy,
         points=_rect(1, 1, max(2, width - 1), max(2, height - 1)),
@@ -67,13 +68,22 @@ def _scenario_parts(
     brows: bool = True,
     mouth: bool = True,
     torso: bool = True,
+    hair: bool = False,
     limb_mode: str = "split",
+    lower_limbs: bool = True,
 ):
     parts = [
         _part("face", xyxy=(80, 40, 120, 100), depth=0.2),
     ]
     if torso:
         parts.append(_part("topwear", xyxy=(60, 110, 140, 230), depth=0.5))
+    if hair:
+        parts.extend(
+            (
+                _part("back hair", xyxy=(72, 32, 128, 108), depth=0.3),
+                _part("front hair", xyxy=(76, 34, 124, 88), depth=0.0),
+            )
+        )
     if mouth:
         parts.append(_part("mouth", xyxy=(92, 80, 108, 89), depth=0.1))
     if eyes:
@@ -101,6 +111,14 @@ def _scenario_parts(
         )
     elif limb_mode == "merged":
         parts.append(_part("handwear", xyxy=(25, 115, 175, 225), depth=0.6))
+    if lower_limbs:
+        parts.extend(
+            (
+                _part("legwear", xyxy=(66, 220, 134, 330), depth=0.7),
+                _part("footwear", side="xmin", xyxy=(48, 315, 82, 345), depth=0.8),
+                _part("footwear", side="xmax", xyxy=(118, 315, 152, 345), depth=0.8),
+            )
+        )
     return tuple(parts)
 
 
@@ -111,7 +129,9 @@ def build_capability_fixture(
     brows: bool = True,
     mouth: bool = True,
     torso: bool = True,
+    hair: bool = False,
     limb_mode: str = "split",
+    lower_limbs: bool = True,
     omitted_joints: tuple[str, ...] = (),
 ):
     target = _target(tmp_path)
@@ -121,7 +141,9 @@ def build_capability_fixture(
             brows=brows,
             mouth=mouth,
             torso=torso,
+            hair=hair,
             limb_mode=limb_mode,
+            lower_limbs=lower_limbs,
         ),
         canvas_edge=768,
         item_root=tmp_path,
@@ -195,24 +217,32 @@ def test_full_geometry_derives_core_facial_and_side_specific_capabilities(
     by_preset = _by_preset(plan)
 
     assert plan.schema_version == CAPABILITY_PLAN_VERSION
-    assert validate_capability_plan(
-        plan,
-        cache,
-        anatomy,
-        presets,
-        native_variant_set=None,
-    ) is plan
+    assert (
+        validate_capability_plan(
+            plan,
+            cache,
+            anatomy,
+            presets,
+            native_variant_set=None,
+        )
+        is plan
+    )
     assert {preset for preset, capability in by_preset.items() if capability.status == "available"} == {
         "idle",
         "breath",
         "head_nod",
         "head_shake",
         "body_sway",
+        "arm_sway",
+        "leg_sway",
         "blink",
         "talk",
         "happy",
+        "unimpressed",
         "sad",
         "surprised",
+        "wink_screen_left",
+        "wink_screen_right",
         "wave.xmin",
         "wave.xmax",
     }
@@ -231,9 +261,7 @@ def test_missing_wrist_only_removes_the_matching_wave_capability(tmp_path: Path)
         omitted_joints=("joint/wrist.xmin",),
     )
 
-    by_preset = _by_preset(
-        derive_capabilities(cache, anatomy, presets, native_variant_set=None)
-    )
+    by_preset = _by_preset(derive_capabilities(cache, anatomy, presets, native_variant_set=None))
 
     assert by_preset["wave.xmin"].status == "unavailable"
     assert "missing_complete_limb_chain" in by_preset["wave.xmin"].reason_codes
@@ -246,22 +274,61 @@ def test_merged_limb_does_not_claim_two_side_specific_waves(tmp_path: Path) -> N
         limb_mode="merged",
     )
 
-    by_preset = _by_preset(
-        derive_capabilities(cache, anatomy, presets, native_variant_set=None)
-    )
+    by_preset = _by_preset(derive_capabilities(cache, anatomy, presets, native_variant_set=None))
 
     assert by_preset["wave.xmin"].status == "unavailable"
     assert by_preset["wave.xmax"].status == "unavailable"
     assert "missing_sided_limb_part" in by_preset["wave.xmin"].reason_codes
+    assert by_preset["arm_sway"].status == "available"
+    assert by_preset["arm_sway"].quality_tier == "procedural_silhouette"
+
+
+def test_coarse_limb_sways_survive_missing_articulated_joint_chains(tmp_path: Path) -> None:
+    omitted = tuple(
+        joint_id
+        for joint_id in _JOINT_COORDINATES
+        if any(
+            token in joint_id
+            for token in (
+                "shoulder",
+                "elbow",
+                "wrist",
+                "hand_tip",
+                "hip.",
+                "knee",
+                "ankle",
+                "toe",
+            )
+        )
+    )
+    cache, anatomy, _controls, presets = build_capability_fixture(
+        tmp_path,
+        limb_mode="merged",
+        omitted_joints=omitted,
+    )
+
+    by_preset = _by_preset(derive_capabilities(cache, anatomy, presets, native_variant_set=None))
+
+    assert by_preset["arm_sway"].status == "available"
+    assert by_preset["arm_sway"].quality_tier == "procedural_silhouette"
+    mesh_part = {mesh.mesh_id: mesh.part_id for mesh in cache.skinning_plan.weighted_meshes}
+    part_base = {part.part_id: part.base_tag for part in cache.parts}
+    assert any(item in mesh_part and part_base[mesh_part[item]] == "handwear" for item in by_preset["arm_sway"].evidence_ids)
+    assert by_preset["leg_sway"].status == "available"
+    assert by_preset["leg_sway"].quality_tier == "procedural_silhouette"
+    assert "joint/pelvis" in by_preset["leg_sway"].evidence_ids
+    assert any(
+        item in mesh_part and part_base[mesh_part[item]] in {"legwear", "footwear"} for item in by_preset["leg_sway"].evidence_ids
+    )
+    assert by_preset["wave.xmin"].status == "unavailable"
+    assert by_preset["wave.xmax"].status == "unavailable"
 
 
 def test_head_only_geometry_never_promotes_synthetic_root_to_torso_capability(
     tmp_path: Path,
 ) -> None:
     omitted = tuple(
-        joint_id
-        for joint_id in _JOINT_COORDINATES
-        if joint_id not in {"joint/neck", "joint/head_base", "joint/head_top"}
+        joint_id for joint_id in _JOINT_COORDINATES if joint_id not in {"joint/neck", "joint/head_base", "joint/head_top"}
     )
     cache, anatomy, _controls, presets = build_capability_fixture(
         tmp_path,
@@ -270,12 +337,11 @@ def test_head_only_geometry_never_promotes_synthetic_root_to_torso_capability(
         mouth=False,
         torso=False,
         limb_mode="missing",
+        lower_limbs=False,
         omitted_joints=omitted,
     )
 
-    by_preset = _by_preset(
-        derive_capabilities(cache, anatomy, presets, native_variant_set=None)
-    )
+    by_preset = _by_preset(derive_capabilities(cache, anatomy, presets, native_variant_set=None))
 
     assert {bone.bone_id for bone in cache.bone_graph.bones} >= {
         "bone/root",
@@ -289,18 +355,19 @@ def test_head_only_geometry_never_promotes_synthetic_root_to_torso_capability(
     assert "bone/root" not in by_preset["idle"].evidence_ids
 
 
-def test_missing_eye_layers_remove_blink_and_dependent_happy_only(tmp_path: Path) -> None:
+def test_missing_eye_layers_remove_only_presets_that_actually_drive_eyes(tmp_path: Path) -> None:
     cache, anatomy, _controls, presets = build_capability_fixture(
         tmp_path,
         eyes=False,
     )
 
-    by_preset = _by_preset(
-        derive_capabilities(cache, anatomy, presets, native_variant_set=None)
-    )
+    by_preset = _by_preset(derive_capabilities(cache, anatomy, presets, native_variant_set=None))
 
     assert by_preset["blink"].status == "unavailable"
-    assert by_preset["happy"].status == "unavailable"
+    assert by_preset["wink_screen_left"].status == "unavailable"
+    assert by_preset["wink_screen_right"].status == "unavailable"
+    assert by_preset["happy"].status == "available"
+    assert by_preset["unimpressed"].status == "available"
     assert by_preset["sad"].status == "available"
     assert by_preset["talk"].status == "available"
 

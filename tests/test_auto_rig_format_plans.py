@@ -78,7 +78,11 @@ def test_profile_registry_freezes_required_formats_presets_and_terminal_scope() 
         "sad",
         "surprised",
         "talk",
+        "unimpressed",
+        "wink_screen_left",
+        "wink_screen_right",
     )
+    assert set(avatar.required_preset_ids).isdisjoint(avatar.optional_preset_priority)
     assert core.optional_preset_parity == avatar.optional_preset_parity == "per_format"
     assert core.terminal_delivery is True
     assert avatar.terminal_delivery is True
@@ -104,22 +108,22 @@ def test_core_format_plan_selects_atomic_bundles_and_allows_optional_format_spli
         plan,
     ) = _build(tmp_path)
 
-    assert validate_format_plan_set(
-        plan,
-        cache,
-        controls,
-        presets,
-        capabilities,
-        bindings,
-        candidates,
-        symbols,
-    ) is plan
+    assert (
+        validate_format_plan_set(
+            plan,
+            cache,
+            controls,
+            presets,
+            capabilities,
+            bindings,
+            candidates,
+            symbols,
+        )
+        is plan
+    )
     by_format = {item.format_id: item for item in plan.preset_set_plans}
     spine = {item.preset_id: item for item in by_format["spine_4_2"].decisions}
-    live2d = {
-        item.preset_id: item
-        for item in by_format["live2d_moc3_v4_00"].decisions
-    }
+    live2d = {item.preset_id: item for item in by_format["live2d_moc3_v4_00"].decisions}
 
     for preset_id in plan.profile.required_preset_ids:
         assert spine[preset_id].status == "supported"
@@ -140,21 +144,14 @@ def test_core_format_plan_selects_atomic_bundles_and_allows_optional_format_spli
 
     blink = live2d["blink"]
     assert blink.status == "supported"
-    assert blink.selected_implementation_ids == (
-        "binding-impl/blink.procedural-v1",
-    )
+    assert blink.selected_implementation_ids == ("binding-impl/blink.procedural-v1",)
     blink_bindings = {
-        binding.binding_id
-        for binding in bindings.bindings
-        if binding.implementation_id == "binding-impl/blink.procedural-v1"
+        binding.binding_id for binding in bindings.bindings if binding.implementation_id == "binding-impl/blink.procedural-v1"
     }
     assert set(blink.selected_binding_ids) == blink_bindings
 
     candidate_ids = {candidate.candidate_id for candidate in candidates.candidates}
-    key_ids = {
-        candidate.typed_primitive_key.key_sha256
-        for candidate in candidates.candidates
-    }
+    key_ids = {candidate.typed_primitive_key.key_sha256 for candidate in candidates.candidates}
     for set_plan in plan.preset_set_plans:
         assert set(set_plan.selected_candidate_ids) <= candidate_ids
         assert set(set_plan.selected_primitive_key_sha256) <= key_ids
@@ -164,19 +161,13 @@ def test_live2d_model_plan_preserves_component_rank_and_capacity_boundary(
     tmp_path: Path,
 ) -> None:
     cache, *_rest, plan = _build(tmp_path)
-    live2d = next(
-        model for model in plan.model_plans if model.format_id == "live2d_moc3_v4_00"
-    )
+    live2d = next(model for model in plan.model_plans if model.format_id == "live2d_moc3_v4_00")
 
     assert live2d.status == "supported"
     assert live2d.component_count == len(cache.skinning_plan.weighted_meshes)
-    assert live2d.component_draw_ranks == tuple(
-        record.component_draw_rank for record in cache.component_draw_order.records
-    )
+    assert live2d.component_draw_ranks == tuple(record.component_draw_rank for record in cache.component_draw_order.records)
     assert _live2d_draw_order_capacity(tuple(range(1001))) is None
-    assert _live2d_draw_order_capacity(tuple(range(1002))) == (
-        "draw_order_capacity_exceeded"
-    )
+    assert _live2d_draw_order_capacity(tuple(range(1002))) == ("draw_order_capacity_exceeded")
     assert _live2d_draw_order_capacity((0, 2)) == "invalid_component_draw_rank"
 
 

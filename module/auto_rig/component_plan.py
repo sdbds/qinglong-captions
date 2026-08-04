@@ -17,14 +17,13 @@ from .tag_registry import V3_SPLIT_FAMILIES
 if TYPE_CHECKING:
     from .native_variants import NativeVariantCandidate, NativeVariantSet
 
-MASK_COMPONENT_PLAN_VERSION = "mask-component-plan-v1"
+MASK_COMPONENT_PLAN_VERSION = "mask-component-plan-v2"
 MASK_COMPONENT_ID_SCHEMA = "mask-component-id-v1"
-MASK_CLEANUP_SCHEMA = "mask-cleanup-v1"
-MASK_SIDE_CLASSIFIER_VERSION = "mask-side-classifier-v2"
+MASK_CLEANUP_SCHEMA = "mask-cleanup-v2"
+MASK_SIDE_CLASSIFIER_VERSION = "mask-side-classifier-v3"
 NATIVE_VARIANT_PARTITION_VERSION = "native-variant-partition-v1"
-MASK_SIDE_CLASSIFIABLE_FAMILIES = V3_SPLIT_FAMILIES | frozenset(
-    {"legwear", "footwear"}
-)
+MASK_ALPHA_SUPPORT_THRESHOLD_U8 = 24
+MASK_SIDE_CLASSIFIABLE_FAMILIES = V3_SPLIT_FAMILIES | frozenset({"legwear", "footwear"})
 SIDE_MIN_COMPONENT_FRACTION_NUMERATOR = 1
 SIDE_MIN_COMPONENT_FRACTION_DENOMINATOR = 20
 
@@ -232,7 +231,7 @@ def _cleanup_descriptor(canvas_edge: int) -> MaskCleanupDescriptor:
     threshold = cleanup_area_threshold(canvas_edge)
     return MaskCleanupDescriptor(
         schema_version=MASK_CLEANUP_SCHEMA,
-        alpha_threshold_u8=1,
+        alpha_threshold_u8=MASK_ALPHA_SUPPORT_THRESHOLD_U8,
         connectivity=8,
         morphology="identity",
         min_component_area_px=threshold,
@@ -318,25 +317,29 @@ def _assign_sides(
         for candidate in candidates:
             candidate.side = loaded.part.side
         return "source_tag"
-    if loaded.part.base_tag not in MASK_SIDE_CLASSIFIABLE_FAMILIES or len(candidates) != 2:
+    if loaded.part.base_tag not in MASK_SIDE_CLASSIFIABLE_FAMILIES:
         return "none"
     total_pixels = sum(candidate.pixel_count for candidate in candidates)
-    if any(
-        candidate.pixel_count * descriptor.side_min_component_fraction_denominator
-        < total_pixels * descriptor.side_min_component_fraction_numerator
+    reliable = [
+        candidate
         for candidate in candidates
-    ):
+        if candidate.pixel_count * descriptor.side_min_component_fraction_denominator
+        >= total_pixels * descriptor.side_min_component_fraction_numerator
+    ]
+    if len(reliable) != 2:
         return "none"
-    first, second = candidates
-    comparison = (
-        first.centroid_x_sum * second.pixel_count
-        - second.centroid_x_sum * first.pixel_count
-    )
+    first, second = reliable
+    comparison = first.centroid_x_sum * second.pixel_count - second.centroid_x_sum * first.pixel_count
     if comparison == 0:
         return "none"
     xmin, xmax = (first, second) if comparison < 0 else (second, first)
-    xmin.side = "xmin"
-    xmax.side = "xmax"
+    midpoint_numerator = xmin.centroid_x_sum * xmax.pixel_count + xmax.centroid_x_sum * xmin.pixel_count
+    midpoint_denominator = xmin.pixel_count * xmax.pixel_count
+    for candidate in candidates:
+        side_comparison = 2 * candidate.centroid_x_sum * midpoint_denominator - candidate.pixel_count * midpoint_numerator
+        if side_comparison == 0:
+            return "none"
+        candidate.side = "xmin" if side_comparison < 0 else "xmax"
     return "component_pair"
 
 
@@ -400,9 +403,7 @@ def _build_normalized_part(
                 pixel_count=candidate.pixel_count,
             )
         )
-    cleaned_mask_sha256 = _sha256_bytes(
-        (labels > 0).astype(np.uint8).tobytes(order="C")
-    )
+    cleaned_mask_sha256 = _sha256_bytes((labels > 0).astype(np.uint8).tobytes(order="C"))
     qcl_payload = encode_qcl(
         labels.ravel(order="C"),
         width=labels.shape[1],
@@ -590,10 +591,7 @@ def _variant_partition_record(
             for component in candidates
         )
         first, second = candidates
-        comparison = (
-            first.centroid_x_sum * second.pixel_count
-            - second.centroid_x_sum * first.pixel_count
-        )
+        comparison = first.centroid_x_sum * second.pixel_count - second.centroid_x_sum * first.pixel_count
         if reliable and comparison != 0:
             xmin, xmax = (first, second) if comparison < 0 else (second, first)
             xmin.side = "xmin"
@@ -630,9 +628,7 @@ def _variant_partition_record(
                 pixel_count=component.pixel_count,
             )
         )
-    cleaned_mask_sha256 = _sha256_bytes(
-        (canonical_labels > 0).astype(np.uint8).tobytes(order="C")
-    )
+    cleaned_mask_sha256 = _sha256_bytes((canonical_labels > 0).astype(np.uint8).tobytes(order="C"))
     qcl_file = materialize_qcl(
         item_root,
         encode_qcl(

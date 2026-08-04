@@ -69,7 +69,7 @@ from .manifests import (
 from .rig_document import RigDocument, load_rig_document
 
 STAGE_E_SCHEMA_VERSION = 1
-STAGE_E_ALGORITHM_VERSION = "stage-e-live2d-moc3-v1"
+STAGE_E_ALGORITHM_VERSION = "stage-e-live2d-moc3-v2"
 STAGE_E_FAILURE_SCHEMA_VERSION = "stage-failure-v1"
 LIVE2D_EXPORT_REPORT_VERSION = "live2d-export-report-v1"
 LIVE2D_VALIDATION_TIERS = frozenset({"structural", "release"})
@@ -181,10 +181,8 @@ def _validate_rig_identity(
     payload = rig.to_dict()
     if (
         payload["input_fingerprint"] != c_manifest.target_input_fingerprint
-        or payload["input"]["native_variant_set_sha256"]
-        != c_manifest.native_variant_set_sha256
-        or payload["input"]["native_variant_eligibility_sha256"]
-        != c_manifest.native_variant_eligibility_sha256
+        or payload["input"]["native_variant_set_sha256"] != c_manifest.native_variant_set_sha256
+        or payload["input"]["native_variant_eligibility_sha256"] != c_manifest.native_variant_eligibility_sha256
     ):
         raise StageEError(
             "input_contract_mismatch",
@@ -203,14 +201,8 @@ def _source_pages(
             "input_contract_mismatch",
             "RigDocument texture_pages is not a list",
         )
-    by_index = {
-        raw.get("index"): raw
-        for raw in raw_pages
-        if isinstance(raw, Mapping) and isinstance(raw.get("index"), int)
-    }
-    expected_paths = tuple(
-        f"textures/page_{index}.png" for index in range(len(by_index))
-    )
+    by_index = {raw.get("index"): raw for raw in raw_pages if isinstance(raw, Mapping) and isinstance(raw.get("index"), int)}
+    expected_paths = tuple(f"textures/page_{index}.png" for index in range(len(by_index)))
     if runtime_assets.referenced_texture_paths != expected_paths:
         raise StageEError(
             "input_contract_mismatch",
@@ -227,9 +219,7 @@ def _source_pages(
             )
         source_relative = raw.get("relative_path")
         expected_digest = raw.get("encoded_png_sha256")
-        if not isinstance(source_relative, str) or not isinstance(
-            expected_digest, str
-        ):
+        if not isinstance(source_relative, str) or not isinstance(expected_digest, str):
             raise StageEError(
                 "input_contract_mismatch",
                 f"texture page {index} lacks a canonical file contract",
@@ -271,11 +261,7 @@ def _build_export_report(
     payload = rig.to_dict()
     format_plans = payload["format_plans"]
     model_plans = format_plans["model_plans"]
-    model_matches = [
-        record
-        for record in model_plans
-        if record["format_id"] == "live2d_moc3_v4_00"
-    ]
+    model_matches = [record for record in model_plans if record["format_id"] == "live2d_moc3_v4_00"]
     if len(model_matches) != 1 or model_matches[0]["status"] != "supported":
         raise StageEError(
             "live2d_model_not_supported",
@@ -315,9 +301,7 @@ def _build_export_report(
             "runtime_asset_plan_sha256": runtime_assets.plan_sha256,
         },
         "parameters": [record.to_dict() for record in bindings.parameters],
-        "rotation_instances": [
-            record.to_dict() for record in bindings.rotation_instances
-        ],
+        "rotation_instances": [record.to_dict() for record in bindings.rotation_instances],
         "bindings": [record.to_dict() for record in bindings.bindings],
         "artifacts": [
             {
@@ -355,9 +339,7 @@ def execute_stage_e(
                 "input_contract_mismatch",
                 "validation_tier must be structural or release",
             )
-        if validation_tier == "release" and (
-            core_path is None or renderer_path is None
-        ):
+        if validation_tier == "release" and (core_path is None or renderer_path is None):
             raise StageEError(
                 "live2d_release_gate_unavailable",
                 "release tier requires configured Cubism Core and SDK renderer",
@@ -371,33 +353,19 @@ def execute_stage_e(
         rigid_registry = build_rigid_driver_registry(payload["control_specs"])
         bindings = build_live2d_binding_plan(rig, symbols, rigid_registry)
         coordinates = build_live2d_coordinate_plan(rig, bindings)
-        artmeshes = build_live2d_artmesh_plan(
-            rig, symbols, bindings, coordinates
-        )
-        keyforms = build_live2d_keyform_plan(
-            rig, bindings, coordinates, artmeshes
-        )
-        document = build_live2d_moc3_document(
-            rig, bindings, coordinates, artmeshes, keyforms
-        )
+        artmeshes = build_live2d_artmesh_plan(rig, symbols, bindings, coordinates)
+        keyforms = build_live2d_keyform_plan(rig, bindings, coordinates, artmeshes)
+        document = build_live2d_moc3_document(rig, bindings, coordinates, artmeshes, keyforms)
         moc_bytes = encode_moc3_v400(document)
-        animations = build_live2d_animation_plan(
-            rig, symbols, bindings, keyforms
-        )
-        runtime_assets = build_live2d_runtime_asset_plan(
-            rig, symbols, bindings, artmeshes, animations
-        )
-        source_pages, page_input_digests = _source_pages(
-            root, payload, runtime_assets
-        )
+        animations = build_live2d_animation_plan(rig, symbols, bindings, keyforms)
+        runtime_assets = build_live2d_runtime_asset_plan(rig, symbols, bindings, artmeshes, animations)
+        source_pages, page_input_digests = _source_pages(root, payload, runtime_assets)
         input_digests = (
             describe_file(root, "rig/rig.json"),
             *page_input_digests,
         )
         status = (
-            "stage_validated_with_degradation"
-            if payload["provenance"]["degradation_state"] == "degraded"
-            else "stage_validated"
+            "stage_validated_with_degradation" if payload["provenance"]["degradation_state"] == "degraded" else "stage_validated"
         )
 
         cache_dir = root / "rig" / "cache" / "E"
@@ -407,25 +375,16 @@ def execute_stage_e(
             bundle_root = staging_root / "rig" / "live2d"
             artifact_bytes: dict[str, bytes] = {
                 "rig/live2d/model.moc3": moc_bytes,
-                f"rig/live2d/{runtime_assets.model3.relative_path}": (
-                    encode_live2d_runtime_asset(runtime_assets.model3)
-                ),
-                f"rig/live2d/{runtime_assets.cdi3.relative_path}": (
-                    encode_live2d_runtime_asset(runtime_assets.cdi3)
-                ),
+                f"rig/live2d/{runtime_assets.model3.relative_path}": (encode_live2d_runtime_asset(runtime_assets.model3)),
+                f"rig/live2d/{runtime_assets.cdi3.relative_path}": (encode_live2d_runtime_asset(runtime_assets.cdi3)),
                 **{
-                    f"rig/live2d/{asset.relative_path}": (
-                        encode_live2d_animation_asset(asset)
-                    )
+                    f"rig/live2d/{asset.relative_path}": (encode_live2d_animation_asset(asset))
                     for asset in (
                         *animations.motion_assets,
                         *animations.expression_assets,
                     )
                 },
-                **{
-                    f"rig/live2d/{relative_path}": encoded
-                    for relative_path, encoded in source_pages.items()
-                },
+                **{f"rig/live2d/{relative_path}": encoded for relative_path, encoded in source_pages.items()},
             }
             for relative_path, encoded in artifact_bytes.items():
                 atomic_write_bytes(_path(staging_root, relative_path), encoded)
@@ -475,13 +434,7 @@ def execute_stage_e(
                     "stage_e_transaction_incomplete",
                     "staged export report did not round-trip canonical JCS",
                 )
-            if report["report_sha256"] != jcs_sha256(
-                {
-                    key: value
-                    for key, value in report.items()
-                    if key != "report_sha256"
-                }
-            ):
+            if report["report_sha256"] != jcs_sha256({key: value for key, value in report.items() if key != "report_sha256"}):
                 raise StageEError(
                     "stage_e_transaction_incomplete",
                     "staged export report digest is invalid",
@@ -501,9 +454,7 @@ def execute_stage_e(
             input_file_sha256=input_digests,
             target_input_fingerprint=c_manifest.target_input_fingerprint,
             native_variant_set_sha256=c_manifest.native_variant_set_sha256,
-            native_variant_eligibility_sha256=(
-                c_manifest.native_variant_eligibility_sha256
-            ),
+            native_variant_eligibility_sha256=(c_manifest.native_variant_eligibility_sha256),
             relevant_config_fingerprint=relevant_config_fingerprint,
             rig_overrides_sha256=c_manifest.rig_overrides_sha256,
             output_paths=output_paths,

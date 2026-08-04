@@ -179,6 +179,7 @@ Lance versions and media/caption export are documented in the [Import / Export g
 | PSD layer export | [PSD Export](docs/tools/psd_export.en.md) | `2.4.psdexport.ps1` |
 | Audio separation | [Audio Separation](docs/tools/audio_separation.en.md) | `2.5.audio_separator.ps1` |
 | Image2PSD | [See-through](docs/tools/image2psd.en.md) | `2.6.image2psd.ps1` |
+| PSD auto-rig export | [Auto-rig](docs/tools/auto_rig.en.md) | `qinglong-auto-rig <item-or-final.psd>` |
 | Audio to MIDI | [MuScriptor](docs/tools/muscriptor.en.md) | `2.7.music_transcription.ps1` |
 | Sheet-music OMR | [MuSViT](docs/tools/sheet_music.en.md) | GUI Tools |
 | Text and document translation | [Translation](docs/tools/text_translation.en.md) | `5.translate.ps1` |

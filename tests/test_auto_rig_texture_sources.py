@@ -8,6 +8,7 @@ import pytest
 from PIL import Image
 
 from module.auto_rig.artifacts import sha256_file
+from module.auto_rig.component_plan import build_mask_component_plan
 from module.auto_rig.contracts import (
     AUTO_RIG_INPUT_CONTRACT_VERSION,
     AutoRigCanvasContract,
@@ -17,9 +18,11 @@ from module.auto_rig.contracts import (
     ValidatedPartSource,
 )
 from module.auto_rig.jcs import jcs_sha256
+from module.auto_rig.mask_sources import load_validated_part_alphas
 from module.auto_rig.native_variants import NativeVariantCandidate, NativeVariantSet
 from module.auto_rig.texture_sources import (
     TEXTURE_PIXEL_CONTRACT_VERSION,
+    build_render_texture_regions,
     load_base_texture_regions,
     load_native_texture_regions,
 )
@@ -169,3 +172,42 @@ def test_native_texture_source_rejects_mutation_or_wrong_mode(tmp_path: Path) ->
 
     with pytest.raises(AutoRigContractError, match="changed after validation"):
         load_native_texture_regions(_variant_set(candidate))
+
+
+def test_render_texture_regions_follow_component_side_split_and_tight_xyxy(
+    tmp_path: Path,
+) -> None:
+    width, height = 30, 12
+    rgba = bytearray(bytes((40, 80, 120, 0)) * (width * height))
+    for y in range(1, 11):
+        for x in (*range(1, 9), *range(21, 29)):
+            offset = (y * width + x) * 4
+            rgba[offset : offset + 4] = bytes((40, 80, 120, 255))
+    contract = _contract(
+        tmp_path,
+        ("part/handwear", (100, 200, 130, 212), bytes(rgba)),
+    )
+    component_plan = build_mask_component_plan(
+        load_validated_part_alphas(contract),
+        canvas_edge=768,
+        item_root=tmp_path,
+    )
+
+    base, native = build_render_texture_regions(
+        component_plan,
+        item_root=tmp_path,
+        base_regions=load_base_texture_regions(contract),
+        native_regions=(),
+    )
+
+    assert native == ()
+    assert tuple(region.part_id for region in base) == (
+        "part/handwear.xmax",
+        "part/handwear.xmin",
+    )
+    assert tuple(region.xyxy for region in base) == (
+        (121, 201, 129, 211),
+        (101, 201, 109, 211),
+    )
+    assert all(region.width == 8 and region.height == 10 for region in base)
+    assert all(set(region.rgba_u8[3::4]) == {255} for region in base)

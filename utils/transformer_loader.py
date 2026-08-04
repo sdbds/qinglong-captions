@@ -42,6 +42,23 @@ def _resolve_console(console: Optional[Any]) -> Console:
     return _default_console()
 
 
+def _console_safe_text(console: Console, value: Any) -> str:
+    """Replace glyphs that a strict legacy Windows console cannot encode."""
+
+    text = str(value or "")
+    encoding = getattr(getattr(console, "file", None), "encoding", None)
+    if not encoding:
+        return text
+    try:
+        text.encode(encoding, errors="strict")
+    except (LookupError, UnicodeEncodeError):
+        try:
+            return text.encode(encoding, errors="replace").decode(encoding)
+        except LookupError:
+            return text
+    return text
+
+
 class _RichHFDownloadProgress:
     def __init__(
         self,
@@ -231,7 +248,10 @@ def hf_download_reporting(console: Optional[Any] = None):
 
                 return _RichHFDownloadProgress(
                     progress,
-                    desc=str(kwargs.get("desc") or "download"),
+                    desc=_console_safe_text(
+                        resolved_console,
+                        kwargs.get("desc") or "download",
+                    ),
                     total=kwargs.get("total"),
                     initial=int(kwargs.get("initial") or 0),
                 )
@@ -239,9 +259,7 @@ def hf_download_reporting(console: Optional[Any] = None):
             file_download._get_progress_bar_context = _rich_progress_context
 
             try:
-                xet_progress_module = importlib.import_module(
-                    "huggingface_hub.utils._xet_progress_reporting"
-                )
+                xet_progress_module = importlib.import_module("huggingface_hub.utils._xet_progress_reporting")
             except Exception:
                 xet_progress_module = None
 
@@ -258,7 +276,10 @@ def hf_download_reporting(console: Optional[Any] = None):
 
                     bar = _RichHFDownloadProgress(
                         progress,
-                        desc=str(kwargs.get("desc") or "download"),
+                        desc=_console_safe_text(
+                            resolved_console,
+                            kwargs.get("desc") or "download",
+                        ),
                         total=kwargs.get("total"),
                         initial=int(kwargs.get("initial") or 0),
                     )
@@ -676,9 +697,7 @@ class transformerLoader:
         key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
         return key in self._processor_cache
 
-    def get_cached_processor(
-        self, processor_id: str, processor_cls: Any = None, use_fast: Optional[bool] = None
-    ) -> Optional[Any]:
+    def get_cached_processor(self, processor_id: str, processor_cls: Any = None, use_fast: Optional[bool] = None) -> Optional[Any]:
         if processor_cls is None:
             processor_cls = _default_auto_processor()
         key = f"{processor_cls.__name__}:{processor_id}:fast={use_fast}"
@@ -749,9 +768,7 @@ class transformerLoader:
                 attempt_kwargs = dict(kwargs)
                 attempt_kwargs[self.attn_kw] = fallback_attn_impl
                 if console:
-                    console.print(
-                        f"[yellow]flash_attn 不可用，回退到 {fallback_attn_impl} attention 继续加载[/yellow]"
-                    )
+                    console.print(f"[yellow]flash_attn 不可用，回退到 {fallback_attn_impl} attention 继续加载[/yellow]")
                 attempt_attn_impl = fallback_attn_impl
         try:
             model = model.eval()

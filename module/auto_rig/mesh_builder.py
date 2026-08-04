@@ -19,8 +19,8 @@ MESH_BUILD_PLAN_VERSION = "mesh-build-plan-v1"
 MESH_COMPONENT_ID_SCHEMA = "mesh-component-id-v1"
 MESH_DESCRIPTOR_VERSION = "mesh-build-descriptor-v1"
 MESH_CONTOUR_POLICY_VERSION = "canonical-marching-squares-v1"
-MESH_SAMPLER_VERSION = "scale-relative-mesh-sampler-v1"
-MESH_TRIANGLE_FILTER_VERSION = "alpha-quarter-sample-filter-v1"
+MESH_SAMPLER_VERSION = "scale-relative-mesh-sampler-v2"
+MESH_TRIANGLE_FILTER_VERSION = "alpha-center-coverage-filter-v2"
 MESH_QUANTIZATION_DENOMINATOR = 256
 MESH_SYMBOLIC_PERTURBATION_DENOMINATOR = 4096
 MESH_BOUNDARY_SPACING_CANVAS_DENOMINATOR = 512
@@ -83,19 +83,13 @@ class MeshBuildDescriptor:
             "qhull_options": self.qhull_options,
             "quantization_denominator": self.quantization_denominator,
             "symbolic_perturbation_denominator": self.symbolic_perturbation_denominator,
-            "boundary_spacing_canvas_denominator": (
-                self.boundary_spacing_canvas_denominator
-            ),
-            "interior_spacing_canvas_denominator": (
-                self.interior_spacing_canvas_denominator
-            ),
+            "boundary_spacing_canvas_denominator": (self.boundary_spacing_canvas_denominator),
+            "interior_spacing_canvas_denominator": (self.interior_spacing_canvas_denominator),
             "minimum_boundary_spacing_px": self.minimum_boundary_spacing_px,
             "minimum_interior_spacing_px": self.minimum_interior_spacing_px,
             "edge_sample_numerators": list(self.edge_sample_numerators),
             "edge_sample_denominator": self.edge_sample_denominator,
-            "maximum_circumradius_local_radius_ratio": (
-                self.maximum_circumradius_local_radius_ratio
-            ),
+            "maximum_circumradius_local_radius_ratio": (self.maximum_circumradius_local_radius_ratio),
         }
 
     def to_dict(self) -> dict[str, object]:
@@ -248,19 +242,13 @@ def build_mesh_descriptor() -> MeshBuildDescriptor:
         "qhull_options": MESH_QHULL_OPTIONS,
         "quantization_denominator": MESH_QUANTIZATION_DENOMINATOR,
         "symbolic_perturbation_denominator": MESH_SYMBOLIC_PERTURBATION_DENOMINATOR,
-        "boundary_spacing_canvas_denominator": (
-            MESH_BOUNDARY_SPACING_CANVAS_DENOMINATOR
-        ),
-        "interior_spacing_canvas_denominator": (
-            MESH_INTERIOR_SPACING_CANVAS_DENOMINATOR
-        ),
+        "boundary_spacing_canvas_denominator": (MESH_BOUNDARY_SPACING_CANVAS_DENOMINATOR),
+        "interior_spacing_canvas_denominator": (MESH_INTERIOR_SPACING_CANVAS_DENOMINATOR),
         "minimum_boundary_spacing_px": MESH_MIN_BOUNDARY_SPACING_PX,
         "minimum_interior_spacing_px": MESH_MIN_INTERIOR_SPACING_PX,
         "edge_sample_numerators": list(MESH_TRIANGLE_EDGE_SAMPLE_NUMERATORS),
         "edge_sample_denominator": MESH_TRIANGLE_EDGE_SAMPLE_DENOMINATOR,
-        "maximum_circumradius_local_radius_ratio": (
-            MESH_MAX_CIRCUMRADIUS_LOCAL_RADIUS_RATIO
-        ),
+        "maximum_circumradius_local_radius_ratio": (MESH_MAX_CIRCUMRADIUS_LOCAL_RADIUS_RATIO),
     }
     return MeshBuildDescriptor(
         schema_version=MESH_DESCRIPTOR_VERSION,
@@ -280,9 +268,7 @@ def build_mesh_descriptor() -> MeshBuildDescriptor:
         minimum_interior_spacing_px=MESH_MIN_INTERIOR_SPACING_PX,
         edge_sample_numerators=MESH_TRIANGLE_EDGE_SAMPLE_NUMERATORS,
         edge_sample_denominator=MESH_TRIANGLE_EDGE_SAMPLE_DENOMINATOR,
-        maximum_circumradius_local_radius_ratio=(
-            MESH_MAX_CIRCUMRADIUS_LOCAL_RADIUS_RATIO
-        ),
+        maximum_circumradius_local_radius_ratio=(MESH_MAX_CIRCUMRADIUS_LOCAL_RADIUS_RATIO),
         descriptor_sha256=jcs_sha256(content),
     )
 
@@ -348,16 +334,11 @@ def _signed_area_q(
     second: tuple[int, int],
     third: tuple[int, int],
 ) -> int:
-    return (second[0] - first[0]) * (third[1] - first[1]) - (
-        second[1] - first[1]
-    ) * (third[0] - first[0])
+    return (second[0] - first[0]) * (third[1] - first[1]) - (second[1] - first[1]) * (third[0] - first[0])
 
 
 def _polygon_area_q(points: tuple[tuple[int, int], ...]) -> int:
-    return sum(
-        first[0] * second[1] - first[1] * second[0]
-        for first, second in zip(points, (*points[1:], points[0]), strict=True)
-    )
+    return sum(first[0] * second[1] - first[1] * second[0] for first, second in zip(points, (*points[1:], points[0]), strict=True))
 
 
 def _resample_closed_loop(
@@ -369,8 +350,7 @@ def _resample_closed_loop(
     if len(points) < 3:
         return ()
     raw_area = sum(
-        first[0] * second[1] - first[1] * second[0]
-        for first, second in zip(points, (*points[1:], points[0]), strict=True)
+        first[0] * second[1] - first[1] * second[0] for first, second in zip(points, (*points[1:], points[0]), strict=True)
     )
     if raw_area == 0.0:
         return ()
@@ -394,10 +374,7 @@ def _resample_closed_loop(
     traversed = 0.0
     for sample_index in range(count):
         target = sample_index * perimeter / count
-        while (
-            segment_index + 1 < len(segments)
-            and traversed + segments[segment_index] < target
-        ):
+        while segment_index + 1 < len(segments) and traversed + segments[segment_index] < target:
             traversed += segments[segment_index]
             segment_index += 1
         first = points[segment_index]
@@ -451,10 +428,7 @@ def _boundary_loops(
     x1, y1 = source.bbox[:2]
     loops: list[tuple[tuple[int, int], ...]] = []
     for contour in contours:
-        mapped = tuple(
-            (x1 + float(column) - 0.5, y1 + float(row) - 0.5)
-            for row, column in contour
-        )
+        mapped = tuple((x1 + float(column) - 0.5, y1 + float(row) - 0.5) for row, column in contour)
         loop = _resample_closed_loop(mapped, spacing)
         if loop:
             loops.append(loop)
@@ -481,9 +455,7 @@ def _axis_candidates(value: float, size: int) -> tuple[int, ...]:
 
 def _mask_contains_local(mask, x: float, y: float) -> bool:
     return any(
-        bool(mask[row, column])
-        for row in _axis_candidates(y, mask.shape[0])
-        for column in _axis_candidates(x, mask.shape[1])
+        bool(mask[row, column]) for row in _axis_candidates(y, mask.shape[0]) for column in _axis_candidates(x, mask.shape[1])
     )
 
 
@@ -565,13 +537,40 @@ def _circumradius(points) -> float:
         math.dist(second, third),
         math.dist(third, first),
     )
-    twice_area = abs(
-        (second[0] - first[0]) * (third[1] - first[1])
-        - (second[1] - first[1]) * (third[0] - first[0])
-    )
+    twice_area = abs((second[0] - first[0]) * (third[1] - first[1]) - (second[1] - first[1]) * (third[0] - first[0]))
     if twice_area == 0.0:
         return math.inf
     return lengths[0] * lengths[1] * lengths[2] / (2.0 * twice_area)
+
+
+def _covered_mask_centers(mask, points):
+    import numpy as np
+
+    minimum_x = max(0, int(math.ceil(min(point[0] for point in points) - 0.5)))
+    maximum_x = min(
+        mask.shape[1] - 1,
+        int(math.floor(max(point[0] for point in points) - 0.5)),
+    )
+    minimum_y = max(0, int(math.ceil(min(point[1] for point in points) - 0.5)))
+    maximum_y = min(
+        mask.shape[0] - 1,
+        int(math.floor(max(point[1] for point in points) - 0.5)),
+    )
+    if maximum_x < minimum_x or maximum_y < minimum_y:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+
+    local_mask = mask[minimum_y : maximum_y + 1, minimum_x : maximum_x + 1]
+    rows, columns = np.nonzero(local_mask)
+    if rows.size == 0:
+        return rows, columns
+    rows = rows + minimum_y
+    columns = columns + minimum_x
+    xs = columns.astype(np.float64) + 0.5
+    ys = rows.astype(np.float64) + 0.5
+    inside = np.ones(rows.shape, dtype=bool)
+    for first, second in zip(points, (*points[1:], points[0]), strict=True):
+        inside &= ((second[0] - first[0]) * (ys - first[1]) - (second[1] - first[1]) * (xs - first[0])) >= -1e-9
+    return rows[inside], columns[inside]
 
 
 def _canonical_triangle(indices: tuple[int, int, int]) -> tuple[int, int, int]:
@@ -602,25 +601,33 @@ def _build_component_mesh(
                 unique_loop.append(point)
         if len(unique_loop) >= 3:
             loop_coordinates.append(tuple(unique_loop))
+    bbox_x1, bbox_y1, bbox_x2, bbox_y2 = source.bbox
+    envelope_corners = {
+        (_quantize(x), _quantize(y))
+        for x, y in (
+            (bbox_x1, bbox_y1),
+            (bbox_x2, bbox_y1),
+            (bbox_x2, bbox_y2),
+            (bbox_x1, bbox_y2),
+        )
+    }
+    interior_points = set(
+        _interior_points(
+            source,
+            canvas_edge=canvas_edge,
+            boundary_points=seen_boundary,
+        )
+    )
     interior_q = tuple(
         sorted(
-            set(
-                _interior_points(
-                    source,
-                    canvas_edge=canvas_edge,
-                    boundary_points=seen_boundary,
-                )
-            ),
+            (interior_points | envelope_corners) - seen_boundary,
             key=lambda point: (point[1], point[0]),
         )
     )
     points_q = tuple(boundary_q) + interior_q
     if len(points_q) < 3:
         return None
-    points = tuple(
-        (x / MESH_QUANTIZATION_DENOMINATOR, y / MESH_QUANTIZATION_DENOMINATOR)
-        for x, y in points_q
-    )
+    points = tuple((x / MESH_QUANTIZATION_DENOMINATOR, y / MESH_QUANTIZATION_DENOMINATOR) for x, y in points_q)
     topology_points = np.asarray(
         [
             (
@@ -649,6 +656,7 @@ def _build_component_mesh(
         0.5,
         canvas_edge / MESH_BOUNDARY_SPACING_CANVAS_DENOMINATOR / 2.0,
     )
+    covered_mask = np.zeros(mask.shape, dtype=bool)
     accepted: set[tuple[int, int, int]] = set()
     for raw in simplexes:
         indices = tuple(int(index) for index in raw)
@@ -662,7 +670,13 @@ def _build_component_mesh(
         triangle_points = tuple(points[index] for index in indices)
         samples = _triangle_samples(triangle_points)
         local_samples = tuple((x - bbox_x, y - bbox_y) for x, y in samples)
-        if not all(_mask_contains_local(mask, x, y) for x, y in local_samples):
+        local_triangle = tuple((point[0] - bbox_x, point[1] - bbox_y) for point in triangle_points)
+        covered_rows, covered_columns = _covered_mask_centers(
+            mask,
+            local_triangle,
+        )
+        covers_alpha = covered_rows.size > 0
+        if not covers_alpha and not all(_mask_contains_local(mask, x, y) for x, y in local_samples):
             continue
         centroid_x, centroid_y = local_samples[0]
         columns = _axis_candidates(centroid_x, source.width)
@@ -671,40 +685,72 @@ def _build_component_mesh(
             (float(radii[row, column]) for row in rows for column in columns),
             default=0.0,
         )
-        if (
-            _circumradius(triangle_points)
-            > descriptor.maximum_circumradius_local_radius_ratio
-            * max(minimum_radius, local_radius)
+        if not covers_alpha and (
+            _circumradius(triangle_points) > descriptor.maximum_circumradius_local_radius_ratio * max(minimum_radius, local_radius)
         ):
             continue
         accepted.add(_canonical_triangle(indices))
+        covered_mask[covered_rows, covered_columns] = True
     if not accepted:
+        return None
+    if np.any((mask > 0) & ~covered_mask):
         return None
 
     used_old = tuple(sorted({index for triangle in accepted for index in triangle}))
     remap = {old: new for new, old in enumerate(used_old)}
     compact_points = tuple(points[index] for index in used_old)
-    compact_triangles = tuple(
-        sorted(
-            _canonical_triangle(tuple(remap[index] for index in triangle))
-            for triangle in accepted
-        )
-    )
+    compact_triangles = tuple(sorted(_canonical_triangle(tuple(remap[index] for index in triangle)) for triangle in accepted))
     compact_loops: list[tuple[int, ...]] = []
     boundary_metadata: dict[int, tuple[int, int]] = {}
     coordinate_to_old = {coordinate: index for index, coordinate in enumerate(points_q)}
     for loop in loop_coordinates:
-        compact = tuple(
-            remap[coordinate_to_old[coordinate]]
-            for coordinate in loop
-            if coordinate_to_old[coordinate] in remap
-        )
+        compact = tuple(remap[coordinate_to_old[coordinate]] for coordinate in loop if coordinate_to_old[coordinate] in remap)
         if len(compact) < 3:
             continue
+        start = min(
+            range(len(compact)),
+            key=lambda position: (
+                _quantize(compact_points[compact[position]][1]),
+                _quantize(compact_points[compact[position]][0]),
+                compact[position],
+            ),
+        )
+        compact = (*compact[start:], *compact[:start])
         loop_index = len(compact_loops)
         compact_loops.append(compact)
         for order, index in enumerate(compact):
             boundary_metadata.setdefault(index, (loop_index, order))
+
+    compact_loops.sort(
+        key=lambda loop: (
+            min(_quantize(compact_points[index][1]) for index in loop),
+            min(_quantize(compact_points[index][0]) for index in loop),
+            len(loop),
+            tuple(
+                (
+                    _quantize(compact_points[index][0]),
+                    _quantize(compact_points[index][1]),
+                )
+                for index in loop
+            ),
+        )
+    )
+    boundary_metadata = {
+        index: (loop_index, order) for loop_index, loop in enumerate(compact_loops) for order, index in enumerate(loop)
+    }
+
+    boundary_indices = tuple(index for index in range(len(compact_points)) if index in boundary_metadata)
+    interior_indices = tuple(index for index in range(len(compact_points)) if index not in boundary_metadata)
+    vertex_order = boundary_indices + interior_indices
+    vertex_remap = {old: new for new, old in enumerate(vertex_order)}
+    compact_points = tuple(compact_points[index] for index in vertex_order)
+    compact_loops = [tuple(vertex_remap[index] for index in loop) for loop in compact_loops]
+    compact_triangles = tuple(
+        sorted(_canonical_triangle(tuple(vertex_remap[index] for index in triangle)) for triangle in compact_triangles)
+    )
+    boundary_metadata = {
+        index: (loop_index, order) for loop_index, loop in enumerate(compact_loops) for order, index in enumerate(loop)
+    }
 
     part_x1, part_y1, part_x2, part_y2 = source.part_xyxy
     part_width = part_x2 - part_x1
@@ -854,19 +900,14 @@ def validate_mesh_plan(plan: MeshBuildPlan) -> MeshBuildPlan:
             if any(index < 0 or index >= len(mesh.vertices) for index in loop):
                 raise _error("invalid_mesh_plan", "mesh boundary index is out of range")
             if any(
-                mesh.vertices[index].boundary_loop != loop_index
-                or mesh.vertices[index].boundary_order != order
+                mesh.vertices[index].boundary_loop != loop_index or mesh.vertices[index].boundary_order != order
                 for order, index in enumerate(loop)
             ):
                 raise _error("invalid_mesh_plan", "mesh boundary loop metadata differs")
-            coordinates_q = tuple(
-                tuple(_quantize(value) for value in mesh.vertices[index].position)
-                for index in loop
-            )
+            coordinates_q = tuple(tuple(_quantize(value) for value in mesh.vertices[index].position) for index in loop)
             start_key = (coordinates_q[0][1], coordinates_q[0][0], loop[0])
             if start_key != min(
-                (coordinate[1], coordinate[0], index)
-                for coordinate, index in zip(coordinates_q, loop, strict=True)
+                (coordinate[1], coordinate[0], index) for coordinate, index in zip(coordinates_q, loop, strict=True)
             ):
                 raise _error("invalid_mesh_plan", "mesh boundary start is not canonical")
             if _polygon_area_q(coordinates_q) <= 0:
@@ -882,26 +923,16 @@ def validate_mesh_plan(plan: MeshBuildPlan) -> MeshBuildPlan:
             loop_vertex_indices.update(loop)
         if loop_keys != sorted(loop_keys):
             raise _error("invalid_mesh_plan", "mesh boundary loops are not canonical")
-        if loop_vertex_indices != {
-            index for index, vertex in enumerate(mesh.vertices) if vertex.boundary
-        }:
+        if loop_vertex_indices != {index for index, vertex in enumerate(mesh.vertices) if vertex.boundary}:
             raise _error("invalid_mesh_plan", "mesh boundary flags differ from loops")
-        triangles = tuple(
-            tuple(mesh.triangles[offset : offset + 3])
-            for offset in range(0, len(mesh.triangles), 3)
-        )
+        triangles = tuple(tuple(mesh.triangles[offset : offset + 3]) for offset in range(0, len(mesh.triangles), 3))
         if triangles != tuple(sorted(set(triangles))):
             raise _error("invalid_mesh_plan", "mesh triangles are not canonical")
         used: set[int] = set()
         for triangle in triangles:
-            if len(set(triangle)) != 3 or any(
-                index < 0 or index >= len(mesh.vertices) for index in triangle
-            ):
+            if len(set(triangle)) != 3 or any(index < 0 or index >= len(mesh.vertices) for index in triangle):
                 raise _error("invalid_mesh_plan", "mesh triangle index is invalid")
-            points_q = tuple(
-                tuple(_quantize(value) for value in mesh.vertices[index].position)
-                for index in triangle
-            )
+            points_q = tuple(tuple(_quantize(value) for value in mesh.vertices[index].position) for index in triangle)
             if _signed_area_q(*points_q) <= 0 or triangle != _canonical_triangle(triangle):
                 raise _error("invalid_mesh_plan", "mesh triangle winding/order is invalid")
             used.update(triangle)

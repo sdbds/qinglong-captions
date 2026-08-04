@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -40,10 +39,7 @@ def test_mesh_descriptor_freezes_topology_affecting_dependencies_and_options() -
     assert "QJ" not in MESH_QHULL_OPTIONS.split()
     assert descriptor.qhull_options == MESH_QHULL_OPTIONS
     assert descriptor.quantization_denominator == MESH_QUANTIZATION_DENOMINATOR
-    assert (
-        descriptor.symbolic_perturbation_denominator
-        == MESH_SYMBOLIC_PERTURBATION_DENOMINATOR
-    )
+    assert descriptor.symbolic_perturbation_denominator == MESH_SYMBOLIC_PERTURBATION_DENOMINATOR
     assert descriptor.scipy_version == "1.15.3"
     assert descriptor.scikit_image_version == "0.25.2"
     assert descriptor.descriptor_sha256 == jcs_sha256(descriptor.content_payload())
@@ -130,26 +126,18 @@ def test_mesh_plan_builds_a_canonical_quantized_rectangle(tmp_path: Path) -> Non
     assert len(mesh.triangles) % 3 == 0
     assert tuple(mesh.triangles) == tuple(
         index
-        for triangle in sorted(
-            tuple(mesh.triangles[offset : offset + 3])
-            for offset in range(0, len(mesh.triangles), 3)
-        )
+        for triangle in sorted(tuple(mesh.triangles[offset : offset + 3]) for offset in range(0, len(mesh.triangles), 3))
         for index in triangle
     )
     assert all(
-        float(coordinate * MESH_QUANTIZATION_DENOMINATOR).is_integer()
-        for vertex in mesh.vertices
-        for coordinate in vertex.position
+        float(coordinate * MESH_QUANTIZATION_DENOMINATOR).is_integer() for vertex in mesh.vertices for coordinate in vertex.position
     )
     assert all(0.0 <= value <= 1.0 for vertex in mesh.vertices for value in vertex.uv)
     assert tuple(vertex.boundary for vertex in mesh.vertices) == tuple(
         sorted((vertex.boundary for vertex in mesh.vertices), reverse=True)
     )
     for offset in range(0, len(mesh.triangles), 3):
-        a, b, c = (
-            mesh.vertices[index].position
-            for index in mesh.triangles[offset : offset + 3]
-        )
+        a, b, c = (mesh.vertices[index].position for index in mesh.triangles[offset : offset + 3])
         assert _signed_area(a, b, c) > 0.0
 
 
@@ -186,57 +174,44 @@ def test_mesh_plan_handles_near_collinear_and_cocircular_samples_without_duplica
     )
 
 
-def _axis_candidates(value: float, size: int) -> tuple[int, ...]:
-    candidates = {math.floor(value)}
-    if math.isclose(value, round(value), abs_tol=1e-9):
-        candidates.add(int(round(value)) - 1)
-    return tuple(sorted(index for index in candidates if 0 <= index < size))
-
-
-def _source_contains(source, point: tuple[float, float]) -> bool:
-    local_x = point[0] - source.bbox[0]
-    local_y = point[1] - source.bbox[1]
-    return any(
-        source.binary_mask_u8[row * source.width + column] == 1
-        for row in _axis_candidates(local_y, source.height)
-        for column in _axis_candidates(local_x, source.width)
+def _mesh_uncovered_source_pixels(source, mesh):
+    triangles = tuple(
+        tuple(mesh.vertices[index].position for index in mesh.triangles[offset : offset + 3])
+        for offset in range(0, len(mesh.triangles), 3)
     )
-
-
-def _mesh_membership_samples(mesh):
-    for offset in range(0, len(mesh.triangles), 3):
-        points = tuple(
-            mesh.vertices[index].position
-            for index in mesh.triangles[offset : offset + 3]
-        )
-        yield (
-            sum(point[0] for point in points) / 3.0,
-            sum(point[1] for point in points) / 3.0,
-        )
-        for first, second in zip(points, (*points[1:], points[0]), strict=True):
-            for numerator in (1, 2, 3):
-                fraction = numerator / 4.0
-                yield (
-                    first[0] + fraction * (second[0] - first[0]),
-                    first[1] + fraction * (second[1] - first[1]),
+    uncovered = []
+    for row in range(source.height):
+        for column in range(source.width):
+            if source.binary_mask_u8[row * source.width + column] != 1:
+                continue
+            point = (
+                source.bbox[0] + column + 0.5,
+                source.bbox[1] + row + 0.5,
+            )
+            if not any(
+                all(
+                    _signed_area(first, second, point) >= -1e-9
+                    for first, second in zip(
+                        triangle,
+                        (*triangle[1:], triangle[0]),
+                        strict=True,
+                    )
                 )
+                for triangle in triangles
+            ):
+                uncovered.append((column, row))
+    return tuple(uncovered)
 
 
 @pytest.mark.parametrize(
     "points",
     (
-        (
-            _filled_rectangle(1, 1, 12, 12)
-            - _filled_rectangle(5, 4, 12, 9)
-        ),
-        (
-            _filled_rectangle(1, 1, 14, 14)
-            - _filled_rectangle(5, 5, 10, 10)
-        ),
+        (_filled_rectangle(1, 1, 12, 12) - _filled_rectangle(5, 4, 12, 9)),
+        (_filled_rectangle(1, 1, 14, 14) - _filled_rectangle(5, 5, 10, 10)),
     ),
     ids=("concave-c", "hole"),
 )
-def test_mesh_plan_filters_every_concave_or_hole_triangle_sample_to_alpha(
+def test_mesh_plan_covers_every_source_alpha_pixel(
     tmp_path: Path,
     points: set[tuple[int, int]],
 ) -> None:
@@ -250,12 +225,123 @@ def test_mesh_plan_filters_every_concave_or_hole_triangle_sample_to_alpha(
         final_part_ids=("part/objects",),
     )
 
-    assert len(sources) == 1
-    assert len(plan.meshes) == 1
-    assert all(
-        _source_contains(sources[0], sample)
-        for sample in _mesh_membership_samples(plan.meshes[0])
+    assert _mesh_uncovered_source_pixels(sources[0], plan.meshes[0]) == ()
+
+
+def test_mesh_plan_reindexes_demoted_hole_vertices_boundary_first(
+    tmp_path: Path,
+) -> None:
+    points = _filled_rectangle(1, 1, 63, 63)
+    points -= _filled_rectangle(23, 26, 26, 28)
+    points -= _filled_rectangle(27, 28, 36, 33)
+    component_plan = _component_plan(
+        tmp_path,
+        points=points,
+        xyxy=(0, 0, 64, 64),
+        canvas_edge=1280,
     )
+
+    plan = build_mesh_plan(
+        component_plan,
+        item_root=tmp_path,
+        render_variant_ids=(),
+        final_part_ids=("part/objects",),
+    )
+
+    mesh = plan.meshes[0]
+    assert tuple(vertex.boundary for vertex in mesh.vertices) == tuple(
+        sorted((vertex.boundary for vertex in mesh.vertices), reverse=True)
+    )
+
+
+def test_mesh_plan_recanonicalizes_a_filtered_boundary_loop_start(
+    tmp_path: Path,
+) -> None:
+    rows = (
+        "......................##########..",
+        "......................#########...",
+        ".....................##########...",
+        ".....................##########...",
+        "....................##########....",
+        "....................##########....",
+        "........#..........###########....",
+        "...#....#.........###########.....",
+        "...#.###..##......###########.....",
+        "...#.####.#.......##########......",
+        "...#..####.###...###########......",
+        "...#...####.#...###########.......",
+        "...###..####...############.......",
+        "...####.#####..###########........",
+        ".....###..###############.......##",
+        "....#####..#######################",
+        "...#######..######################",
+        "...#####.#########################",
+        ".######....######################.",
+        ".###.....#########...####.........",
+        ".#.......########.................",
+        ".......########...................",
+        ".....#########....................",
+        "....#########.....................",
+    )
+    points = {(x, y) for y, row in enumerate(rows) for x, value in enumerate(row) if value == "#"}
+    component_plan = _component_plan(
+        tmp_path,
+        points=points,
+        xyxy=(0, 0, len(rows[0]), len(rows)),
+        canvas_edge=1280,
+    )
+
+    plan = build_mesh_plan(
+        component_plan,
+        item_root=tmp_path,
+        render_variant_ids=(),
+        final_part_ids=("part/objects",),
+    )
+
+    assert validate_mesh_plan(plan) is plan
+
+
+def test_mesh_plan_resorts_filtered_boundary_loops(
+    tmp_path: Path,
+) -> None:
+    rows = tuple(
+        row[18:]
+        for row in (
+            ".......................#########################.",
+            ".......................##########################",
+            ".......................##########################",
+            ".....................############################",
+            ".....................############################",
+            "...................#.###########################.",
+            "...................#.###########################.",
+            "...................#.##########################..",
+            "...................#.##########################..",
+            "...................#.#########################...",
+            "...................#.########################.#..",
+            "...................#.####.###################.#..",
+            "...................#.####.##################..#..",
+            "...................######.#####################..",
+            "...................#####.######################..",
+            "...................#####.######################..",
+            "..................######.####################....",
+        )
+    )
+    points = {(x, y) for y, row in enumerate(rows) for x, value in enumerate(row) if value == "#"}
+    component_plan = _component_plan(
+        tmp_path,
+        points=points,
+        xyxy=(0, 0, len(rows[0]), len(rows)),
+        canvas_edge=1280,
+    )
+
+    plan = build_mesh_plan(
+        component_plan,
+        item_root=tmp_path,
+        render_variant_ids=(),
+        final_part_ids=("part/objects",),
+    )
+
+    assert validate_mesh_plan(plan) is plan
 
 
 def test_mesh_plan_never_connects_two_frozen_components(tmp_path: Path) -> None:
@@ -276,17 +362,11 @@ def test_mesh_plan_never_connects_two_frozen_components(tmp_path: Path) -> None:
     for mesh in plan.meshes:
         source = source_by_id[mesh.component_id]
         x1, y1, x2, y2 = source.bbox
-        assert all(
-            x1 <= vertex.position[0] <= x2 and y1 <= vertex.position[1] <= y2
-            for vertex in mesh.vertices
-        )
-        assert all(
-            _source_contains(source, sample)
-            for sample in _mesh_membership_samples(mesh)
-        )
+        assert all(x1 <= vertex.position[0] <= x2 and y1 <= vertex.position[1] <= y2 for vertex in mesh.vertices)
+        assert _mesh_uncovered_source_pixels(source, mesh) == ()
 
 
-def test_mesh_plan_reports_a_degenerate_diagonal_without_qhull_joggle(
+def test_mesh_plan_builds_a_thin_diagonal_without_qhull_joggle(
     tmp_path: Path,
 ) -> None:
     component_plan = _component_plan(
@@ -301,8 +381,10 @@ def test_mesh_plan_reports_a_degenerate_diagonal_without_qhull_joggle(
         final_part_ids=("part/objects",),
     )
 
-    assert plan.meshes == ()
-    assert tuple(item.code for item in plan.diagnostics) == ("degenerate_mesh",)
+    source = load_mesh_component_sources(component_plan, item_root=tmp_path)[0]
+    assert len(plan.meshes) == 1
+    assert plan.diagnostics == ()
+    assert _mesh_uncovered_source_pixels(source, plan.meshes[0]) == ()
     assert "QJ" not in plan.descriptor.qhull_options.split()
 
 

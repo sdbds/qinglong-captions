@@ -6,15 +6,13 @@ from dataclasses import dataclass, replace
 
 from .jcs import jcs_sha256
 
-CONTROL_REGISTRY_VERSION = "control-registry-v1"
+CONTROL_REGISTRY_VERSION = "control-registry-v2"
 CONTROL_REGISTRY_PLAN_VERSION = "control-registry-plan-v1"
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9_-]*/[a-z0-9][a-z0-9._-]{0,126}$")
 _EXPORT_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,62}$")
 _UNITS = frozenset({"degree", "normalized"})
-_FORBIDDEN_IMAGE_SIDE_ALIASES = frozenset(
-    {"ParamEyeLOpen", "ParamEyeROpen", "ParamBrowLY", "ParamBrowRY"}
-)
+_FORBIDDEN_IMAGE_SIDE_ALIASES = frozenset({"ParamEyeLOpen", "ParamEyeROpen", "ParamBrowLY", "ParamBrowRY"})
 
 
 class ControlRegistryError(ValueError):
@@ -62,9 +60,7 @@ class ControlSpec:
             "unit": self.unit,
             "format_bindings": {
                 "spine_4_2": {"control_id": self.control_id},
-                "live2d_moc3_v4_00": (
-                    None if self.live2d is None else self.live2d.to_dict()
-                ),
+                "live2d_moc3_v4_00": (None if self.live2d is None else self.live2d.to_dict()),
             },
         }
 
@@ -122,6 +118,14 @@ def _spec(
 
 
 _CONTROL_ROWS = (
+    _spec(
+        "control/arm_sway",
+        -1.0,
+        0.0,
+        1.0,
+        "normalized",
+        _live2d("parameter/arm_sway", "ParamArmSway", standard=False),
+    ),
     _spec(
         "control/body_sway",
         -10.0,
@@ -195,6 +199,14 @@ _CONTROL_ROWS = (
         _live2d("parameter/auto_idle", "ParamAutoIdle", standard=False),
     ),
     _spec(
+        "control/leg_sway",
+        -1.0,
+        0.0,
+        1.0,
+        "normalized",
+        _live2d("parameter/leg_sway", "ParamLegSway", standard=False),
+    ),
+    _spec(
         "control/mouth_form",
         -1.0,
         0.0,
@@ -233,10 +245,7 @@ def validate_control_registry_plan(
 
     if not isinstance(plan, ControlRegistryPlan):
         raise _error("registry must use ControlRegistryPlan")
-    if (
-        plan.schema_version != CONTROL_REGISTRY_PLAN_VERSION
-        or plan.registry_version != CONTROL_REGISTRY_VERSION
-    ):
+    if plan.schema_version != CONTROL_REGISTRY_PLAN_VERSION or plan.registry_version != CONTROL_REGISTRY_VERSION:
         raise _error("registry version is unsupported")
     if tuple(sorted(plan.controls, key=lambda item: item.control_id)) != plan.controls:
         raise _error("controls must be sorted by control_id")
@@ -291,9 +300,7 @@ def build_control_registry_plan() -> ControlRegistryPlan:
 
     ordered = tuple(sorted(_CONTROL_ROWS, key=lambda item: item.control_id))
     registry_sha256 = _registry_digest(ordered)
-    controls = tuple(
-        replace(control, registry_sha256=registry_sha256) for control in ordered
-    )
+    controls = tuple(replace(control, registry_sha256=registry_sha256) for control in ordered)
     values = {
         "schema_version": CONTROL_REGISTRY_PLAN_VERSION,
         "registry_version": CONTROL_REGISTRY_VERSION,

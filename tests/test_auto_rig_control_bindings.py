@@ -62,15 +62,18 @@ def test_core_bindings_freeze_canvas_clockwise_geometry_normalized_transfers(
 
     assert plan.schema_version == CONTROL_BINDING_PLAN_VERSION
     assert plan.transform_semantics_version == RIG_TRANSFORM_SEMANTICS_VERSION
-    assert validate_control_binding_plan(
-        plan,
-        cache,
-        anatomy,
-        controls,
-        presets,
-        capabilities,
-        native_variant_set=None,
-    ) is plan
+    assert (
+        validate_control_binding_plan(
+            plan,
+            cache,
+            anatomy,
+            controls,
+            presets,
+            capabilities,
+            native_variant_set=None,
+        )
+        is plan
+    )
 
     idle = _bindings(
         plan,
@@ -121,9 +124,7 @@ def test_breath_and_facial_deforms_store_default_rest_and_topology_bound_samples
     tmp_path: Path,
 ) -> None:
     cache, _anatomy, _controls, _presets, _capabilities, plan = _build(tmp_path)
-    weighted_by_id = {
-        mesh.mesh_id: mesh for mesh in cache.skinning_plan.weighted_meshes
-    }
+    weighted_by_id = {mesh.mesh_id: mesh for mesh in cache.skinning_plan.weighted_meshes}
 
     breath_bindings = _bindings(
         plan,
@@ -131,6 +132,9 @@ def test_breath_and_facial_deforms_store_default_rest_and_topology_bound_samples
         property_name="deform",
     )
     assert breath_bindings
+    torso_metric = _metric(_anatomy, "mask/torso_core")
+    maximum_x_delta = 0.0
+    maximum_y_delta = 0.0
     for binding in breath_bindings:
         mesh = weighted_by_id[binding.target_id]
         rest = tuple(value for vertex in mesh.vertices for value in vertex.position)
@@ -138,7 +142,17 @@ def test_breath_and_facial_deforms_store_default_rest_and_topology_bound_samples
         assert transfer.kind == "sampled_deform"
         assert transfer.topology_sha256 == mesh.weighted_mesh_sha256
         assert next(sample for sample in transfer.samples if sample.input_value == 0.0).output_values == rest
-        assert next(sample for sample in transfer.samples if sample.input_value == 1.0).output_values != rest
+        expanded = next(sample for sample in transfer.samples if sample.input_value == 1.0).output_values
+        maximum_x_delta = max(
+            maximum_x_delta,
+            max(abs(after - before) for before, after in zip(rest[0::2], expanded[0::2], strict=True)),
+        )
+        maximum_y_delta = max(
+            maximum_y_delta,
+            max(abs(after - before) for before, after in zip(rest[1::2], expanded[1::2], strict=True)),
+        )
+    assert maximum_x_delta >= 0.01 * torso_metric.width
+    assert maximum_y_delta >= 0.01 * torso_metric.height
 
     eye_deforms = _bindings(
         plan,
@@ -150,9 +164,7 @@ def test_breath_and_facial_deforms_store_default_rest_and_topology_bound_samples
     for binding in eye_deforms:
         mesh = weighted_by_id[binding.target_id]
         rest = tuple(value for vertex in mesh.vertices for value in vertex.position)
-        assert next(
-            sample for sample in binding.transfer.samples if sample.input_value == 1.0
-        ).output_values == rest
+        assert next(sample for sample in binding.transfer.samples if sample.input_value == 1.0).output_values == rest
     iris_opacity = _bindings(
         plan,
         control_id="control/eye_open.xmin",
@@ -160,9 +172,7 @@ def test_breath_and_facial_deforms_store_default_rest_and_topology_bound_samples
         kind="procedural",
     )
     assert iris_opacity
-    assert next(
-        sample for sample in iris_opacity[0].transfer.samples if sample.input_value == 0.0
-    ).output_values == (0.0,)
+    assert next(sample for sample in iris_opacity[0].transfer.samples if sample.input_value == 0.0).output_values == (0.0,)
 
     talk = _bindings(
         plan,
@@ -177,7 +187,46 @@ def test_breath_and_facial_deforms_store_default_rest_and_topology_bound_samples
         kind="procedural",
     )
     assert talk and mouth_form
+    for binding in talk:
+        rest = next(sample for sample in binding.transfer.samples if sample.input_value == 0.0).output_values
+        opened = next(sample for sample in binding.transfer.samples if sample.input_value == 1.0).output_values
+        rest_span = max(rest[1::2]) - min(rest[1::2])
+        opened_span = max(opened[1::2]) - min(opened[1::2])
+        assert opened_span >= rest_span * 2.2 - 1e-6
     assert all(binding.visibility_branch_id is None for binding in plan.bindings)
+
+
+def test_head_shake_uses_depth_to_move_front_and_back_hair_differently(
+    tmp_path: Path,
+) -> None:
+    cache, _anatomy, _controls, _presets, _capabilities, plan = _build(
+        tmp_path,
+        hair=True,
+    )
+    mesh_by_id = {mesh.mesh_id: mesh for mesh in cache.skinning_plan.weighted_meshes}
+    part_by_id = {part.part_id: part for part in cache.parts}
+    offsets_by_tag: dict[str, set[float]] = {}
+
+    for binding in _bindings(
+        plan,
+        control_id="control/head_shake",
+        property_name="deform",
+        kind="canonical",
+    ):
+        mesh = mesh_by_id[binding.target_id]
+        tag = part_by_id[mesh.part_id].base_tag
+        rest = next(sample for sample in binding.transfer.samples if sample.input_value == 0.0).output_values
+        maximum = max(
+            binding.transfer.samples,
+            key=lambda sample: sample.input_value,
+        ).output_values
+        offsets_by_tag.setdefault(tag, set()).add(maximum[0] - rest[0])
+        assert maximum[1::2] == rest[1::2]
+
+    assert set(offsets_by_tag) == {"back hair", "front hair"}
+    assert min(offsets_by_tag["front hair"]) > 0.0
+    assert max(offsets_by_tag["back hair"]) < 0.0
+    assert offsets_by_tag["front hair"] != offsets_by_tag["back hair"]
 
 
 def test_wave_bindings_use_visual_side_sign_and_complete_three_bone_chain(
@@ -214,6 +263,64 @@ def test_missing_wrist_removes_the_entire_matching_wave_bundle(tmp_path: Path) -
     assert _bindings(plan, control_id="control/wave_lift.xmax")
 
 
+def test_coarse_limb_sways_deform_merged_parts_without_claiming_joint_chains(
+    tmp_path: Path,
+) -> None:
+    omitted = (
+        "joint/shoulder.xmin",
+        "joint/elbow.xmin",
+        "joint/wrist.xmin",
+        "joint/hand_tip.xmin",
+        "joint/shoulder.xmax",
+        "joint/elbow.xmax",
+        "joint/wrist.xmax",
+        "joint/hand_tip.xmax",
+        "joint/hip.xmin",
+        "joint/knee.xmin",
+        "joint/ankle.xmin",
+        "joint/toe.xmin",
+        "joint/hip.xmax",
+        "joint/knee.xmax",
+        "joint/ankle.xmax",
+        "joint/toe.xmax",
+    )
+    cache, _anatomy, _controls, _presets, _capabilities, plan = _build(
+        tmp_path,
+        limb_mode="merged",
+        omitted_joints=omitted,
+    )
+    mesh_by_id = {mesh.mesh_id: mesh for mesh in cache.skinning_plan.weighted_meshes}
+    part_by_id = {part.part_id: part for part in cache.parts}
+
+    for control_id, allowed_tags in (
+        ("control/arm_sway", {"handwear"}),
+        ("control/leg_sway", {"legwear", "footwear"}),
+    ):
+        bindings = _bindings(
+            plan,
+            control_id=control_id,
+            property_name="deform",
+            kind="procedural",
+        )
+        assert bindings
+        for binding in bindings:
+            mesh = mesh_by_id[binding.target_id]
+            assert part_by_id[mesh.part_id].base_tag in allowed_tags
+            assert tuple(sample.input_value for sample in binding.transfer.samples) == (
+                -1.0,
+                0.0,
+                1.0,
+            )
+            rest = tuple(value for vertex in mesh.vertices for value in vertex.position)
+            samples = {sample.input_value: sample.output_values for sample in binding.transfer.samples}
+            assert samples[0.0] == rest
+            assert samples[-1.0] != rest
+            assert samples[1.0] != rest
+
+    assert not _bindings(plan, control_id="control/wave_lift.xmin")
+    assert not _bindings(plan, control_id="control/wave_lift.xmax")
+
+
 def test_binding_ids_bundles_and_ranks_are_typed_canonical_and_reference_closed(
     tmp_path: Path,
 ) -> None:
@@ -227,17 +334,13 @@ def test_binding_ids_bundles_and_ranks_are_typed_canonical_and_reference_closed(
     for binding in plan.bindings:
         implementation_rows.setdefault(binding.implementation_id, []).append(binding)
     assert all(
-        len({binding.implementation_bundle_digest for binding in bindings}) == 1
-        for bindings in implementation_rows.values()
+        len({binding.implementation_bundle_digest for binding in bindings}) == 1 for bindings in implementation_rows.values()
     )
     ranks_by_group = {}
     for binding in plan.bindings:
-        ranks_by_group.setdefault(binding.binding_group_id, {})[
-            binding.implementation_id
-        ] = binding.implementation_rank
+        ranks_by_group.setdefault(binding.binding_group_id, {})[binding.implementation_id] = binding.implementation_rank
     assert all(
-        len(set(implementation_ranks.values())) == len(implementation_ranks)
-        for implementation_ranks in ranks_by_group.values()
+        len(set(implementation_ranks.values())) == len(implementation_ranks) for implementation_ranks in ranks_by_group.values()
     )
 
 
@@ -246,17 +349,9 @@ def test_blink_sides_form_one_atomic_procedural_implementation_bundle(
 ) -> None:
     _cache, _anatomy, _controls, _presets, _capabilities, plan = _build(tmp_path)
 
-    blink_bindings = tuple(
-        binding
-        for binding in plan.bindings
-        if binding.control_id.startswith("control/eye_open.")
-    )
-    assert {binding.binding_group_id for binding in blink_bindings} == {
-        "binding-group/blink"
-    }
-    assert {binding.implementation_id for binding in blink_bindings} == {
-        "binding-impl/blink.procedural-v1"
-    }
+    blink_bindings = tuple(binding for binding in plan.bindings if binding.control_id.startswith("control/eye_open."))
+    assert {binding.binding_group_id for binding in blink_bindings} == {"binding-group/blink"}
+    assert {binding.implementation_id for binding in blink_bindings} == {"binding-impl/blink.procedural-v1"}
     assert len({binding.implementation_bundle_digest for binding in blink_bindings}) == 1
 
 
@@ -276,11 +371,7 @@ def test_binding_validator_rejects_rehashed_reference_and_bundle_mutations(
             for binding in bindings
             if sum(item.implementation_id == binding.implementation_id for item in bindings) > 1
         )
-        delete_index = next(
-            index
-            for index, binding in enumerate(bindings)
-            if binding.implementation_id == implementation_id
-        )
+        delete_index = next(index for index, binding in enumerate(bindings) if binding.implementation_id == implementation_id)
         del bindings[delete_index]
     elif mutation == "wrong_target":
         bindings[0] = replace(bindings[0], target_id="bone/missing")

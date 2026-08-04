@@ -39,8 +39,8 @@ from .e0_fixture import (
 from .moc3 import moc3_v400_layout_descriptor
 from .moc3_codec import moc3_v400_sections_descriptor
 
-E0_ATTESTATION_GENERATOR_VERSION = "live2d-e0-attestation-generator-v1"
-E0_VALIDATOR_PROTOCOL_VERSION = "live2d-e0-validator-protocol-v2"
+E0_ATTESTATION_GENERATOR_VERSION = "live2d-e0-attestation-generator-v2"
+E0_VALIDATOR_PROTOCOL_VERSION = "live2d-e0-validator-protocol-v3"
 EXPECTED_CORE_VERSION = "06.00.0001"
 EXPECTED_CORE_SHA256 = "d883c00d114fdf6cef61f439feb23e02d000fdf683e092803010470b80dfaf09"
 
@@ -103,12 +103,8 @@ def _geometry_residual(
 
 
 def _negative_default_residual(positive: CubismModelState, negative: CubismModelState) -> float:
-    positive_nested = next(
-        drawable for drawable in positive.drawables if drawable.id == "ArtMeshNested"
-    )
-    negative_nested = next(
-        drawable for drawable in negative.drawables if drawable.id == "ArtMeshNested"
-    )
+    positive_nested = next(drawable for drawable in positive.drawables if drawable.id == "ArtMeshNested")
+    negative_nested = next(drawable for drawable in negative.drawables if drawable.id == "ArtMeshNested")
     ppu = max(DEFORMER_E0_CANVAS_SIZE)
     return max(
         max(abs(good[0] - bad[0]), abs(good[1] - bad[1])) * ppu
@@ -167,7 +163,7 @@ def _protocol() -> dict[str, Any]:
             "load-model",
             "set-base-parameters",
             "start-motion-at-zero",
-            "evaluate-motion-at-one-second-with-zero-fade",
+            "evaluate-motion-at-one-second-with-serialized-zero-fade",
             "apply-zero-fade-expression-at-full-weight",
             "update-model",
             "render-d3d11-warp",
@@ -409,16 +405,9 @@ def generate_live2d_e0_attestation(
         negative_residual = _negative_default_residual(positive_state, negative_state)
         if negative_residual <= 0.1:
             raise E0AttestationGenerationError("negative default fixture did not expose the missing rest key")
-        forward = evaluate_deformer_e0_canvas({"ParamOuter": 20.0, "ParamInner": 30.0})[
-            "ArtMeshNested"
-        ]
-        reversed_stack = evaluate_deformer_e0_reversed_stack_canvas(
-            {"ParamOuter": 20.0, "ParamInner": 30.0}
-        )
-        noncommuting_delta = max(
-            max(abs(good[0] - bad[0]), abs(good[1] - bad[1]))
-            for good, bad in zip(forward, reversed_stack)
-        )
+        forward = evaluate_deformer_e0_canvas({"ParamOuter": 20.0, "ParamInner": 30.0})["ArtMeshNested"]
+        reversed_stack = evaluate_deformer_e0_reversed_stack_canvas({"ParamOuter": 20.0, "ParamInner": 30.0})
+        noncommuting_delta = max(max(abs(good[0] - bad[0]), abs(good[1] - bad[1])) for good, bad in zip(forward, reversed_stack))
         if noncommuting_delta <= 0.1:
             raise E0AttestationGenerationError("rotation stack fixture is not observably non-commutative")
 
@@ -598,7 +587,7 @@ def generate_live2d_e0_attestation(
             "renderer_cmake_sha256": _sha256_file(renderer_cmake),
             "renderer_source_sha256": _sha256_file(renderer_source),
             "sdk_release": sdk_release,
-            "spec_revision": 22,
+            "spec_revision": 41,
         },
     }
     validate_live2d_frame_attestation(payload, kernel_sources=sources)

@@ -420,7 +420,7 @@ void WriteReport(
     stream << '}'
            << ",\"premultiplied_alpha_input\":false"
            << ",\"schema_version\":\"auto-rig-live2d-render-v1\""
-           << ",\"validator_protocol_digest\":\"sha256:51e77ee76d08072db76e1ccef0638e8c706ccba7bae5ea2ae8e19b71269283a3\""
+           << ",\"validator_protocol_digest\":\"sha256:df69c4a95ab40da12ce05deb7070edd76c58c8ec43a9c9a699cf9917dbfb8a21\""
            << ",\"width\":" << width << '}';
     if (!stream)
     {
@@ -569,8 +569,6 @@ RenderResult Render(const Options& options)
         {
             throw std::runtime_error("Cubism Framework rejected the motion3 payload");
         }
-        motion->SetFadeInTime(0.0f);
-        motion->SetFadeOutTime(0.0f);
         Csm::CubismMotionManager motionManager;
         motionManager.StartMotionPriority(motion, true, 1);
         motionManager.UpdateMotion(model, 0.0f);

@@ -18,8 +18,11 @@ from module.auto_rig.export.live2d.keyforms import build_live2d_keyform_plan
 from module.auto_rig.export.live2d.moc3_codec import encode_moc3_v400
 from module.auto_rig.export.live2d.release_validator import (
     LIVE2D_RELEASE_VALIDATOR_VERSION,
+    Live2DExpressionReleaseEvidence,
     Live2DReleaseGateError,
     Live2DReleaseValidationReport,
+    _motion_sample_times,
+    evaluate_facial_render_semantics,
     validate_live2d_release_bundle,
 )
 from module.auto_rig.export.live2d.rigid_drivers import build_rigid_driver_registry
@@ -40,6 +43,169 @@ def test_release_report_schema_excludes_machine_specific_binary_paths() -> None:
     assert "core_path" not in fields
     assert "renderer_path" not in fields
     assert "renderer_protocol_digest" in fields
+    expression_fields = Live2DExpressionReleaseEvidence.__dataclass_fields__
+    assert "blink_composition_tested" in expression_fields
+    assert "blink_composition_parameter_maximum_residual" in expression_fields
+    assert "blink_composition_visible" in expression_fields
+
+
+def _rgba(
+    width: int,
+    height: int,
+    changed: set[tuple[int, int]] | None = None,
+) -> bytes:
+    values = bytearray((20, 30, 40, 255) * (width * height))
+    for x, y in changed or ():
+        offset = (y * width + x) * 4
+        values[offset : offset + 4] = bytes((220, 10, 40, 255))
+    return bytes(values)
+
+
+def test_facial_semantics_rejects_a_hash_change_confined_to_one_pixel() -> None:
+    width = height = 64
+    parts = ({"base_tag": "mouth", "side": None, "xyxy": [12, 14, 20, 18]},)
+
+    metrics, passed = evaluate_facial_render_semantics(
+        "talk",
+        baseline_rgba=_rgba(width, height),
+        effect_rgba=_rgba(width, height, {(28, 30)}),
+        render_width=width,
+        render_height=height,
+        canvas_width=32,
+        canvas_height=32,
+        parts=parts,
+    )
+
+    assert passed is False
+    assert metrics[0].changed_pixel_count == 1
+    assert metrics[0].passed is False
+
+
+def test_facial_semantics_accepts_a_mouth_change_with_area_and_height() -> None:
+    width = height = 64
+    parts = ({"base_tag": "mouth", "side": None, "xyxy": [12, 14, 20, 18]},)
+    changed = {(x, y) for y in range(30, 34) for x in range(28, 35)}
+
+    metrics, passed = evaluate_facial_render_semantics(
+        "talk",
+        baseline_rgba=_rgba(width, height),
+        effect_rgba=_rgba(width, height, changed),
+        render_width=width,
+        render_height=height,
+        canvas_width=32,
+        canvas_height=32,
+        parts=parts,
+    )
+
+    assert passed is True
+    assert metrics[0].changed_fraction >= 0.20
+    assert metrics[0].changed_bbox_height >= 4
+
+
+def test_facial_semantics_accepts_emotion_when_one_symmetric_brow_is_occluded() -> None:
+    width = height = 64
+    parts = (
+        {"base_tag": "mouth", "side": None, "xyxy": [12, 20, 20, 24]},
+        {"base_tag": "eyebrow", "side": "xmin", "xyxy": [8, 8, 12, 10]},
+        {"base_tag": "eyebrow", "side": "xmax", "xyxy": [20, 8, 24, 10]},
+    )
+    changed = {
+        *((x, y) for y in range(36, 39) for x in range(28, 36)),
+        *((x, y) for y in range(24, 26) for x in range(36, 40)),
+    }
+
+    metrics, passed = evaluate_facial_render_semantics(
+        "happy",
+        baseline_rgba=_rgba(width, height),
+        effect_rgba=_rgba(width, height, changed),
+        render_width=width,
+        render_height=height,
+        canvas_width=32,
+        canvas_height=32,
+        parts=parts,
+    )
+
+    by_roi = {metric.roi_id: metric for metric in metrics}
+    assert passed is True
+    assert by_roi["mouth"].passed is True
+    assert by_roi["brow.xmin"].passed is False
+    assert by_roi["brow.xmax"].passed is True
+
+
+def test_unimpressed_semantics_do_not_require_a_held_eye_crossfade() -> None:
+    width = height = 64
+    parts = (
+        {"base_tag": "mouth", "side": None, "xyxy": [12, 20, 20, 24]},
+        {"base_tag": "eyebrow", "side": "xmin", "xyxy": [8, 8, 12, 10]},
+        {"base_tag": "eyebrow", "side": "xmax", "xyxy": [20, 8, 24, 10]},
+        {"base_tag": "eyewhite", "side": "xmin", "xyxy": [8, 12, 12, 16]},
+        {"base_tag": "eyewhite", "side": "xmax", "xyxy": [20, 12, 24, 16]},
+    )
+    changed = {
+        *((x, y) for y in range(36, 39) for x in range(28, 36)),
+        *((x, y) for y in range(24, 26) for x in range(36, 40)),
+    }
+
+    metrics, passed = evaluate_facial_render_semantics(
+        "unimpressed",
+        baseline_rgba=_rgba(width, height),
+        effect_rgba=_rgba(width, height, changed),
+        render_width=width,
+        render_height=height,
+        canvas_width=32,
+        canvas_height=32,
+        parts=parts,
+    )
+
+    by_roi = {metric.roi_id: metric for metric in metrics}
+    assert passed is True
+    assert by_roi["mouth"].passed is True
+    assert by_roi["brow.xmax"].passed is True
+    assert not any(roi_id.startswith("eye.") for roi_id in by_roi)
+
+
+def test_facial_semantics_rejects_old_three_pixel_talk_height() -> None:
+    width = height = 64
+    parts = ({"base_tag": "mouth", "side": None, "xyxy": [12, 14, 20, 18]},)
+    changed = {(x, y) for y in range(30, 33) for x in range(28, 35)}
+
+    metrics, passed = evaluate_facial_render_semantics(
+        "talk",
+        baseline_rgba=_rgba(width, height),
+        effect_rgba=_rgba(width, height, changed),
+        render_width=width,
+        render_height=height,
+        canvas_width=32,
+        canvas_height=32,
+        parts=parts,
+    )
+
+    assert passed is False
+    assert metrics[0].changed_fraction >= 0.20
+    assert metrics[0].changed_bbox_height == 3
+
+
+def test_render_semantics_measures_breath_inside_the_torso_roi() -> None:
+    width = height = 64
+    parts = ({"base_tag": "topwear", "side": None, "xyxy": [8, 8, 24, 28]},)
+    changed = {(x, y) for y in range(22, 28) for x in range(22, 40)}
+
+    metrics, passed = evaluate_facial_render_semantics(
+        "breath",
+        baseline_rgba=_rgba(width, height),
+        effect_rgba=_rgba(width, height, changed),
+        render_width=width,
+        render_height=height,
+        canvas_width=32,
+        canvas_height=32,
+        parts=parts,
+    )
+
+    assert passed is True
+    assert len(metrics) == 1
+    assert metrics[0].roi_id == "torso"
+    assert metrics[0].changed_fraction >= 0.05
+    assert metrics[0].changed_bbox_height >= 4
 
 
 @pytest.fixture(scope="module")
@@ -52,37 +218,21 @@ def release_fixture(tmp_path_factory: pytest.TempPathFactory):
     registry = build_rigid_driver_registry(payload["control_specs"])
     bindings = build_live2d_binding_plan(rig, symbols, registry)
     coordinates = build_live2d_coordinate_plan(rig, bindings)
-    artmeshes = build_live2d_artmesh_plan(
-        rig, symbols, bindings, coordinates
-    )
-    keyforms = build_live2d_keyform_plan(
-        rig, bindings, coordinates, artmeshes
-    )
-    document = build_live2d_moc3_document(
-        rig, bindings, coordinates, artmeshes, keyforms
-    )
+    artmeshes = build_live2d_artmesh_plan(rig, symbols, bindings, coordinates)
+    keyforms = build_live2d_keyform_plan(rig, bindings, coordinates, artmeshes)
+    document = build_live2d_moc3_document(rig, bindings, coordinates, artmeshes, keyforms)
     moc_payload = encode_moc3_v400(document)
-    animations = build_live2d_animation_plan(
-        rig, symbols, bindings, keyforms
-    )
-    runtime = build_live2d_runtime_asset_plan(
-        rig, symbols, bindings, artmeshes, animations
-    )
-    structure = build_live2d_structure_validation_report(
-        moc_payload, rig, bindings, coordinates, artmeshes, keyforms
-    )
+    animations = build_live2d_animation_plan(rig, symbols, bindings, keyforms)
+    runtime = build_live2d_runtime_asset_plan(rig, symbols, bindings, artmeshes, animations)
+    structure = build_live2d_structure_validation_report(moc_payload, rig, bindings, coordinates, artmeshes, keyforms)
 
     bundle = root / "rig" / "live2d"
     (bundle / "textures").mkdir(parents=True)
     (bundle / "motions").mkdir()
     (bundle / "expressions").mkdir()
     (bundle / "model.moc3").write_bytes(moc_payload)
-    (bundle / runtime.model3.relative_path).write_bytes(
-        encode_live2d_runtime_asset(runtime.model3)
-    )
-    (bundle / runtime.cdi3.relative_path).write_bytes(
-        encode_live2d_runtime_asset(runtime.cdi3)
-    )
+    (bundle / runtime.model3.relative_path).write_bytes(encode_live2d_runtime_asset(runtime.model3))
+    (bundle / runtime.cdi3.relative_path).write_bytes(encode_live2d_runtime_asset(runtime.cdi3))
     for asset in (*animations.motion_assets, *animations.expression_assets):
         output = bundle / Path(*asset.relative_path.split("/"))
         output.write_bytes(encode_live2d_animation_asset(asset))
@@ -103,9 +253,7 @@ def release_fixture(tmp_path_factory: pytest.TempPathFactory):
     )
 
 
-def test_release_gate_requires_configured_attested_core_and_renderer(
-    release_fixture, tmp_path: Path
-) -> None:
+def test_release_gate_requires_configured_attested_core_and_renderer(release_fixture, tmp_path: Path) -> None:
     (
         bundle,
         rig,
@@ -133,6 +281,14 @@ def test_release_gate_requires_configured_attested_core_and_renderer(
             runtime_assets=runtime,
             structure_report=structure,
         )
+
+
+def test_blink_release_samples_rest_before_motion_completion(release_fixture) -> None:
+    animations = release_fixture[6]
+    blink = next(asset for asset in animations.motion_assets if asset.preset_id == "blink")
+    defaults = {parameter_id: 1.0 for parameter_id in blink.parameter_ids}
+
+    assert 23 / 30 in _motion_sample_times(blink, defaults=defaults)
 
 
 @pytest.mark.optional_runtime
@@ -174,12 +330,14 @@ def test_official_sdk_validates_every_parameter_motion_and_expression(
     assert report.default_rest_maximum_residual <= 0.1
     assert len(report.parameter_evidence) == len(bindings.parameters)
     assert all(record.visible_change for record in report.parameter_evidence)
-    assert {record.preset_id for record in report.motion_evidence} == {
-        asset.preset_id for asset in animations.motion_assets
-    }
+    assert {record.preset_id for record in report.motion_evidence} == {asset.preset_id for asset in animations.motion_assets}
     assert {record.preset_id for record in report.expression_evidence} == {
         asset.preset_id for asset in animations.expression_assets
     }
     assert all(record.nonzero_alpha for record in report.motion_evidence)
     assert all(record.visible_change for record in report.motion_evidence)
     assert all(record.restored_after_clear for record in report.expression_evidence)
+    blink_compositions = [record for record in report.expression_evidence if record.blink_composition_tested]
+    assert blink_compositions
+    assert all(record.blink_composition_visible for record in blink_compositions)
+    assert all(record.blink_composition_parameter_maximum_residual <= 1e-6 for record in blink_compositions)

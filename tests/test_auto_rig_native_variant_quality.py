@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -31,6 +33,33 @@ from module.auto_rig.native_variants import NativeVariantCandidate, NativeVarian
 _SHA256_ZERO = "sha256:" + "0" * 64
 
 
+def test_disk_dilation_scales_to_release_canvas_radii() -> None:
+    script = """
+import numpy as np
+
+from module.auto_rig.native_variant_quality import _disk_dilate
+
+mask = np.zeros((256, 256), dtype=bool)
+mask[128, 128] = True
+result = _disk_dilate(mask, 128)
+assert result.shape == mask.shape
+assert result[128, 128]
+assert not result[0, 0]
+print("ok")
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=8,
+    )
+
+    assert completed.stdout.strip() == "ok"
+
+
 def _alpha(width: int, height: int, points: set[tuple[int, int]]) -> bytes:
     values = bytearray(width * height)
     for x, y in points:
@@ -51,9 +80,7 @@ def _loaded_part(
     height = xyxy[3] - xyxy[1]
     return LoadedPartAlpha(
         part=AutoRigPartContract(
-            source_tag=(
-                f"{base_tag}-r" if side == "xmin" else f"{base_tag}-l" if side == "xmax" else base_tag
-            ),
+            source_tag=(f"{base_tag}-r" if side == "xmin" else f"{base_tag}-l" if side == "xmax" else base_tag),
             base_tag=base_tag,
             semantic_slug=base_tag.replace(" ", "-"),
             side=side,
@@ -81,6 +108,7 @@ def _mouth_candidate(
     xyxy: tuple[int, int, int, int] = (20, 20, 32, 44),
     variant_id: str = "mouth-open",
     role: str = "mouth_open",
+    composite_mode: str = "occluding_overlay_v1",
 ) -> NativeVariantCandidate:
     width = xyxy[2] - xyxy[0]
     height = xyxy[3] - xyxy[1]
@@ -89,7 +117,7 @@ def _mouth_candidate(
         variant_id=variant_id,
         part_id=f"part/native.{variant_id}",
         semantic_role=role,
-        composite_mode="occluding_overlay_v1",
+        composite_mode=composite_mode,
         base_part_ids=("part/mouth",),
         draw_anchor_part_id="part/mouth",
         anchor_base_tag="mouth",
@@ -387,6 +415,7 @@ def test_native_variant_role_envelope_registry_is_exact_and_digestible() -> None
         "eye_closed.xmin",
         "eye_closed.xmax",
         "eye_closed.coupled",
+        "mouth_closed",
         "mouth_open",
         "mouth_smile",
         "mouth_frown",
@@ -543,6 +572,27 @@ def test_transparent_replacement_is_rejected_by_coverage_leak(tmp_path: Path) ->
     assert metrics.coverage_leak == pytest.approx(0.5)
 
 
+def test_crossfade_closed_mouth_does_not_require_replacement_coverage(
+    tmp_path: Path,
+) -> None:
+    candidate = _mouth_candidate(
+        {(x, 1) for x in range(10)},
+        xyxy=(21, 29, 31, 33),
+        variant_id="mouth-closed",
+        role="mouth_closed",
+        composite_mode="crossfade_overlay_v1",
+    )
+
+    metrics = _mouth_quality(tmp_path, candidate)
+    plan = _mouth_quality_plan(tmp_path / "plan", candidate)
+
+    assert metrics.coverage_leak >= 0.5
+    assert metrics.eligible is True
+    assert metrics.rejection_reason is None
+    assert plan.bundle_results[0].bundle_id == "mouth_crossfade.native"
+    assert plan.bundle_results[0].eligible is True
+
+
 def test_oversized_mouth_overlay_is_rejected_by_role_mass_ratio(tmp_path: Path) -> None:
     points = {(x, y) for y in range(24) for x in range(12)}
 
@@ -603,12 +653,8 @@ def test_intrusion_reports_every_prefix_part_and_excludes_parts_after_anchor(
     assert by_part["part/nose"] > 0.0
     assert "part/front-hair" not in by_part
     assert metrics.intrusion_other_parts_ratio == pytest.approx(by_part["part/nose"])
-    assert metrics.occlusion_intrusion == pytest.approx(
-        sum(entry.ratio for entry in metrics.intrusion_by_part)
-    )
-    assert metrics.occlusion_intrusion == pytest.approx(
-        metrics.intrusion_face_ratio + metrics.intrusion_other_parts_ratio
-    )
+    assert metrics.occlusion_intrusion == pytest.approx(sum(entry.ratio for entry in metrics.intrusion_by_part))
+    assert metrics.occlusion_intrusion == pytest.approx(metrics.intrusion_face_ratio + metrics.intrusion_other_parts_ratio)
 
 
 def test_coupled_eye_uses_two_independent_component_branches_and_mass_scales(
@@ -618,10 +664,7 @@ def test_coupled_eye_uses_two_independent_component_branches_and_mass_scales(
         tmp_path / "coupled",
         role="eye_closed.coupled",
         xyxy=(2, 20, 62, 40),
-        points=(
-            {(x, y) for y in range(20) for x in range(20)}
-            | {(x, y) for y in range(20) for x in range(40, 60)}
-        ),
+        points=({(x, y) for y in range(20) for x in range(20)} | {(x, y) for y in range(20) for x in range(40, 60)}),
     )
 
     assert coupled.eligible is True
@@ -645,10 +688,7 @@ def test_coupled_eye_uses_two_independent_component_branches_and_mass_scales(
             | {(x, y) for y in range(10) for x in range(25, 35)}
             | {(x, y) for y in range(10) for x in range(50, 60)}
         ),
-        (
-            {(x, y) for y in range(20) for x in range(20)}
-            | {(58, 0), (59, 0), (58, 1), (59, 1)}
-        ),
+        ({(x, y) for y in range(20) for x in range(20)} | {(58, 0), (59, 0), (58, 1), (59, 1)}),
     ),
 )
 def test_coupled_eye_requires_exactly_two_reliable_sided_components(
@@ -787,11 +827,7 @@ def test_native_variant_quality_plan_is_iteration_independent_and_self_validatin
     for result in forward.candidate_results:
         assert result.result_sha256 == jcs_sha256(result.content_payload())
         for branch in result.branches:
-            assert branch.occlusion_intrusion == pytest.approx(
-                sum(entry.ratio for entry in branch.intrusion_by_part)
-            )
-            assert branch.occlusion_intrusion == pytest.approx(
-                branch.intrusion_face_ratio + branch.intrusion_other_parts_ratio
-            )
+            assert branch.occlusion_intrusion == pytest.approx(sum(entry.ratio for entry in branch.intrusion_by_part))
+            assert branch.occlusion_intrusion == pytest.approx(branch.intrusion_face_ratio + branch.intrusion_other_parts_ratio)
     for bundle in forward.bundle_results:
         assert bundle.result_sha256 == jcs_sha256(bundle.content_payload())

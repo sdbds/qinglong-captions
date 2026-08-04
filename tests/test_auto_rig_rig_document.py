@@ -11,6 +11,8 @@ from module.auto_rig.jcs import jcs_sha256
 from module.auto_rig.rig_document import (
     RIG_DOCUMENT_SCHEMA_VERSION,
     RigDocumentError,
+    _public_meshes,
+    _public_parts,
     build_rig_document,
     load_rig_document,
     rig_document_bytes,
@@ -91,9 +93,10 @@ def _texture_pages(cache):
     return plan, page_set
 
 
-def _build(tmp_path: Path):
+def _build(tmp_path: Path, **fixture_kwargs):
     cache, controls, presets, capabilities, bindings, candidates, symbols = _fixture(
-        tmp_path
+        tmp_path,
+        **fixture_kwargs,
     )
     texture_plan, page_set = _texture_pages(cache)
     assert candidates.texture_page_ids == ("texture-page/page_0",)
@@ -168,12 +171,40 @@ def test_public_rig_contains_complete_groups_without_private_qcl_paths(
     ):
         assert payload[field]
     assert b".qcl" not in rig_document_bytes(rig)
-    assert [part["part_draw_rank"] for part in payload["parts"]] == list(
-        range(len(cache.parts))
+    assert [part["part_draw_rank"] for part in payload["parts"]] == list(range(len(cache.parts)))
+    assert [mesh["component_draw_rank"] for mesh in payload["meshes"]] == list(range(len(cache.skinning_plan.weighted_meshes)))
+
+
+def test_public_rig_omits_component_draw_records_without_a_mesh(tmp_path: Path) -> None:
+    cache, *_rest = _fixture(tmp_path)
+    omitted = cache.component_draw_order.records[0]
+    component_draw = replace(
+        cache.component_draw_order,
+        records=(
+            replace(omitted, mesh_id=None),
+            *cache.component_draw_order.records[1:],
+        ),
     )
-    assert [mesh["component_draw_rank"] for mesh in payload["meshes"]] == list(
-        range(len(cache.skinning_plan.weighted_meshes))
+    skinning = replace(
+        cache.skinning_plan,
+        weighted_meshes=tuple(mesh for mesh in cache.skinning_plan.weighted_meshes if mesh.component_id != omitted.component_id),
     )
+    degraded = replace(
+        cache,
+        component_draw_order=component_draw,
+        skinning_plan=skinning,
+    )
+
+    meshes = _public_meshes(degraded)
+    parts = _public_parts(
+        degraded,
+        native_quality_by_part={},
+        native_composite_mode_by_part={},
+    )
+
+    assert omitted.component_id not in {mesh["component_id"] for mesh in meshes}
+    assert [mesh["component_draw_rank"] for mesh in meshes] == list(range(len(meshes)))
+    assert omitted.component_id not in {component_id for part in parts for component_id in part["component_ids"]}
 
 
 @pytest.mark.parametrize(

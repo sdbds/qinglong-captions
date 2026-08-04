@@ -18,12 +18,8 @@ from .artifacts import (
 
 STAGE_MANIFEST_SCHEMA_VERSION = 3
 VALID_STAGE_NAMES = frozenset({"A", "B", "C", "D", "E", "F", "G"})
-VALID_PRODUCTION_STAGE_STATUSES = frozenset(
-    {"stage_validated", "stage_validated_with_degradation"}
-)
-VALID_TERMINAL_STAGE_STATUSES = frozenset(
-    {"completed", "completed_with_degradation", "failed"}
-)
+VALID_PRODUCTION_STAGE_STATUSES = frozenset({"stage_validated", "stage_validated_with_degradation"})
+VALID_TERMINAL_STAGE_STATUSES = frozenset({"completed", "completed_with_degradation", "failed"})
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _MANIFEST_FIELDS = frozenset(
     {
@@ -87,15 +83,9 @@ def _require_optional_sha256(value: Any, *, field: str) -> str | None:
 def _require_stage_status(stage_name: str, status: Any) -> str:
     if not isinstance(status, str):
         raise StageManifestError("stage status must be a string")
-    allowed = (
-        VALID_TERMINAL_STAGE_STATUSES
-        if stage_name == "G"
-        else VALID_PRODUCTION_STAGE_STATUSES
-    )
+    allowed = VALID_TERMINAL_STAGE_STATUSES if stage_name == "G" else VALID_PRODUCTION_STAGE_STATUSES
     if status not in allowed:
-        raise StageManifestError(
-            f"unsupported status for stage {stage_name}: {status!r}"
-        )
+        raise StageManifestError(f"unsupported status for stage {stage_name}: {status!r}")
     return status
 
 
@@ -130,9 +120,7 @@ def _normalize_semantic_identities(
             if value is None
         ]
         if missing:
-            raise StageManifestError(
-                f"successful stage manifest requires {', '.join(missing)}"
-            )
+            raise StageManifestError(f"successful stage manifest requires {', '.join(missing)}")
     return target, native_set, native_eligibility
 
 
@@ -253,20 +241,26 @@ def _remove_obsolete_public_outputs(
 ) -> None:
     stage = _require_stage_name(stage_name)
     item_root = Path(root)
-    declared_public = {
-        path for path in declared_paths if public_output_owner(path) == stage
-    }
+    declared_public = {path for path in declared_paths if public_output_owner(path) == stage}
     obsolete = set(scan_stage_public_output_paths(item_root, stage)) - declared_public
     for relative_path in sorted(obsolete, reverse=True):
         candidate = item_root / Path(*relative_path.split("/"))
         if candidate.is_dir() and not candidate.is_symlink():
-            raise StageManifestError(
-                f"owner public namespace contains an unexpected directory artifact: {relative_path}"
-            )
+            raise StageManifestError(f"owner public namespace contains an unexpected directory artifact: {relative_path}")
         try:
             candidate.unlink(missing_ok=True)
         except OSError as exc:
             raise StageManifestError(f"unable to remove obsolete stage output {relative_path}: {exc}") from exc
+
+
+def clear_stage_public_outputs(root: str | Path, stage_name: str) -> None:
+    """Invalidate a stage and remove every artifact in its public namespace."""
+
+    stage = _require_stage_name(stage_name)
+    item_root = Path(root)
+    marker = item_root / Path(*manifest_relative_path(stage).split("/"))
+    marker.unlink(missing_ok=True)
+    _remove_obsolete_public_outputs(item_root, stage, ())
 
 
 def build_stage_fingerprint(
@@ -378,9 +372,7 @@ class StageManifest:
         for output_path in output_paths:
             owner = public_output_owner(output_path)
             if owner is not None and owner != stage:
-                raise StageManifestError(
-                    f"stage {stage} cannot own {owner}-owned public output: {output_path}"
-                )
+                raise StageManifestError(f"stage {stage} cannot own {owner}-owned public output: {output_path}")
 
         expected_inventory_sha256 = _output_inventory_sha256(outputs)
         if inventory_sha256 != expected_inventory_sha256:
@@ -455,9 +447,7 @@ class StageManifest:
             input_file_sha256=inputs,
             target_input_fingerprint=payload["target_input_fingerprint"],
             native_variant_set_sha256=payload["native_variant_set_sha256"],
-            native_variant_eligibility_sha256=payload[
-                "native_variant_eligibility_sha256"
-            ],
+            native_variant_eligibility_sha256=payload["native_variant_eligibility_sha256"],
             relevant_config_fingerprint=payload["relevant_config_fingerprint"],
             rig_overrides_sha256=payload["rig_overrides_sha256"],
             output_file_sha256=outputs,
@@ -547,9 +537,7 @@ def write_stage_manifest(root: str | Path, manifest: StageManifest) -> Path:
         if actual != expected:
             raise StageManifestError(f"stage output changed before commit: {expected.path}")
     actual_public = set(scan_stage_public_output_paths(item_root, manifest.stage_name))
-    declared_public = {
-        path for path in declared_paths if public_output_owner(path) == manifest.stage_name
-    }
+    declared_public = {path for path in declared_paths if public_output_owner(path) == manifest.stage_name}
     if actual_public != declared_public:
         raise StageManifestError("stage public output namespace does not match the declared inventory")
     atomic_write_json(marker, manifest.to_dict())

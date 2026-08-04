@@ -11,20 +11,27 @@ from .control_registry import (
 from .jcs import jcs_sha256
 
 PRESET_LIBRARY_PLAN_VERSION = "preset-library-plan-v1"
-PRESET_LIBRARY_VERSION = "motion-core-v1"
+PRESET_LIBRARY_VERSION = "motion-core-v6"
 MOTION_CLIP_SCHEMA_VERSION = "motion-clip-v1"
 EXPRESSION_PRESET_SCHEMA_VERSION = "expression-preset-v1"
 MOTION_RUNTIME_APPLICATION_VERSION = "motion-runtime-application-v1"
-OPTIONAL_PRESET_SELECTION_VERSION = "optional-preset-selection-v1"
+OPTIONAL_PRESET_SELECTION_VERSION = "optional-preset-selection-v4"
 MOTION_SAMPLE_RATE_HZ = 30
+_BLINK_DURATION_FRAMES = 24
+_BLINK_KEYS = ((0, 1.0), (6, 0.0), (9, 0.0), (16, 1.0), (24, 1.0))
 CORE_REQUIRED_PRESET_IDS = ("breath", "head_nod", "head_shake", "idle")
 OPTIONAL_PRESET_PRIORITY = (
     "body_sway",
+    "arm_sway",
+    "leg_sway",
     "blink",
     "talk",
     "surprised",
     "happy",
     "sad",
+    "unimpressed",
+    "wink_screen_left",
+    "wink_screen_right",
     "wave.xmin",
     "wave.xmax",
 )
@@ -245,8 +252,7 @@ def _expression(
         "preset_version": PRESET_LIBRARY_VERSION,
         "application_mode": "overwrite_full_weight",
         "values": tuple(
-            ExpressionValue(control_id=control_id, absolute_value=value)
-            for control_id, value in sorted(values_by_control)
+            ExpressionValue(control_id=control_id, absolute_value=value) for control_id, value in sorted(values_by_control)
         ),
     }
     provisional = ExpressionPresetTemplate(**values, template_sha256="")
@@ -346,6 +352,18 @@ def validate_preset_library_plan(
                     raise _error(f"curve exceeds the control domain: {clip.preset_id}")
             if clip.loop and curve.keys[0].value != curve.keys[-1].value:
                 raise _error(f"loop endpoints differ: {clip.preset_id}")
+        if clip.preset_id == "blink":
+            blink_curves = {curve.control_id: tuple((key.frame, key.value) for key in curve.keys) for curve in clip.control_curves}
+            if (
+                clip.loop
+                or clip.duration_frames != _BLINK_DURATION_FRAMES
+                or blink_curves
+                != {
+                    "control/eye_open.xmax": _BLINK_KEYS,
+                    "control/eye_open.xmin": _BLINK_KEYS,
+                }
+            ):
+                raise _error("blink lacks the frozen closed/open recovery holds")
         if clip.template_sha256 != jcs_sha256(clip.semantic_payload()):
             raise _error(f"clip digest mismatch: {clip.preset_id}")
     for expression in plan.expressions:
@@ -365,11 +383,14 @@ def validate_preset_library_plan(
             control = control_by_id.get(value.control_id)
             if control is None:
                 raise _error(f"expression references unknown control: {value.control_id}")
-            if not math.isfinite(value.absolute_value) or not (
-                control.minimum <= value.absolute_value <= control.maximum
-            ):
+            if not math.isfinite(value.absolute_value) or not (control.minimum <= value.absolute_value <= control.maximum):
                 raise _error(f"expression value exceeds the domain: {expression.preset_id}")
-            if value.absolute_value == control.default:
+            intentional_wink_reset = (
+                expression.preset_id in {"wink_screen_left", "wink_screen_right"}
+                and value.control_id in {"control/eye_open.xmin", "control/eye_open.xmax"}
+                and value.absolute_value == 1.0
+            )
+            if value.absolute_value == control.default and not intentional_wink_reset:
                 raise _error(f"expression contains a default-value placeholder: {expression.preset_id}")
         if expression.template_sha256 != jcs_sha256(expression.semantic_payload()):
             raise _error(f"expression digest mismatch: {expression.preset_id}")
@@ -397,12 +418,23 @@ def build_preset_library_plan(
     validate_control_registry_plan(controls)
     clips = (
         _clip(
+            "arm_sway",
+            90,
+            True,
+            (
+                _curve(
+                    "control/arm_sway",
+                    ((0, 0.0), (22, 1.0), (45, 0.0), (67, -1.0), (90, 0.0)),
+                ),
+            ),
+        ),
+        _clip(
             "blink",
-            12,
+            _BLINK_DURATION_FRAMES,
             False,
             (
-                _curve("control/eye_open.xmax", ((0, 1.0), (6, 0.0), (12, 1.0))),
-                _curve("control/eye_open.xmin", ((0, 1.0), (6, 0.0), (12, 1.0))),
+                _curve("control/eye_open.xmax", _BLINK_KEYS),
+                _curve("control/eye_open.xmin", _BLINK_KEYS),
             ),
         ),
         _clip(
@@ -451,13 +483,24 @@ def build_preset_library_plan(
             ),
         ),
         _clip(
+            "leg_sway",
+            120,
+            True,
+            (
+                _curve(
+                    "control/leg_sway",
+                    ((0, 0.0), (30, 1.0), (60, 0.0), (90, -1.0), (120, 0.0)),
+                ),
+            ),
+        ),
+        _clip(
             "talk",
             30,
             True,
             (
                 _curve(
                     "control/mouth_open",
-                    ((0, 0.0), (10, 0.65), (20, 0.2), (30, 0.0)),
+                    ((0, 0.0), (10, 1.0), (20, 0.35), (30, 0.0)),
                 ),
             ),
         ),
@@ -497,10 +540,16 @@ def build_preset_library_plan(
             "happy",
             (
                 ("control/mouth_form", 0.7),
-                ("control/eye_open.xmin", 0.8),
-                ("control/eye_open.xmax", 0.8),
                 ("control/brow_y.xmin", 0.15),
                 ("control/brow_y.xmax", 0.15),
+            ),
+        ),
+        _expression(
+            "unimpressed",
+            (
+                ("control/mouth_form", -0.15),
+                ("control/brow_y.xmin", -0.35),
+                ("control/brow_y.xmax", -0.35),
             ),
         ),
         _expression(
@@ -517,6 +566,20 @@ def build_preset_library_plan(
                 ("control/mouth_open", 0.8),
                 ("control/brow_y.xmin", 0.8),
                 ("control/brow_y.xmax", 0.8),
+            ),
+        ),
+        _expression(
+            "wink_screen_right",
+            (
+                ("control/eye_open.xmin", 1.0),
+                ("control/eye_open.xmax", 0.0),
+            ),
+        ),
+        _expression(
+            "wink_screen_left",
+            (
+                ("control/eye_open.xmin", 0.0),
+                ("control/eye_open.xmax", 1.0),
             ),
         ),
     )

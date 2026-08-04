@@ -10,10 +10,12 @@
 
 ## Global Constraints
 
-- Follow design spec Revision 24.
+- Follow design spec Revision 30.
 - B consumes authenticated `MaskComponentPlan v1`/QCL and `StageAJointPlan v1`; it never thresholds PNG/PSD, labels connected components, or runs a pose model.
 - `bone/root` is the only zero-length/synthetic bone. Every other emitted bone requires two resolved joints and a positive finite length; a missing parent is promoted to the closest emitted ancestor.
-- Meshes are built per frozen component ID. No triangle may cross another component or accepted transparent/hole samples.
+- Meshes are built per frozen component ID. No triangle may cross another component. Within one component, mesh geometry
+  is a carrier envelope and may cover transparent/hole samples because the canonical straight-alpha texture remains the
+  visibility source; every cleaned nonzero alpha pixel center must be covered by at least one triangle.
 - Persisted vertices are quantized to `1/256` canvas px. Qhull `QJ` is forbidden; symbolic perturbation exists only in the topology copy and is `<1/4096 px`.
 - Mesh rest positions remain LayerDiff canvas coordinates; UVs remain part-local top-left `u-right/v-down` values in `[0,1]`.
 - Each vertex has 1-4 finite non-negative influences summing to one. Limb transitions scale with local mask/joint radius and chain arc length, never a fixed pixel constant.
@@ -80,7 +82,10 @@
 
 - [x] **Step 3: Implement RED/green contour and topology fixtures**
 
-  Cover rectangle, concave C, hole, two components, duplicate/near-collinear/cocircular points, and a degenerate component. Assert positive signed area, in-range flat indices, no accepted centroid or edge quarter sample in alpha zero, no cross-component edge, canonical vertex/triangle order, and `degenerate_mesh` instead of a random joggle.
+  Cover rectangle, concave C, hole, two components, duplicate/near-collinear/cocircular points, and a thin diagonal.
+  Assert positive signed area, in-range flat indices, no cross-component edge, canonical vertex/triangle order, and complete
+  coverage of every cleaned nonzero alpha pixel center. Transparent samples inside a component envelope are legal and are
+  clipped by the texture; do not reintroduce the disproven all-samples-inside-alpha rule.
 
 - [x] **Step 4: Prove deterministic topology under input/library ordering changes**
 

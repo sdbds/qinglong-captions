@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from PIL import Image
 
-E0_RUNTIME_ASSET_VERSION = "live2d-e0-runtime-assets-v1"
+E0_RUNTIME_ASSET_VERSION = "live2d-e0-runtime-assets-v2"
 E0_ORIENTATION_TEXTURE_SIZE = (64, 64)
 E0_BASE_PARAMETER_VALUES = {
     "ParamBreath": 0.25,
@@ -45,6 +45,8 @@ def build_e0_motion_json_bytes() -> bytes:
                 "Duration": 1.0,
                 "Fps": 30.0,
                 "Loop": False,
+                "FadeInTime": 0.0,
+                "FadeOutTime": 0.0,
                 "AreBeziersRestricted": True,
                 "CurveCount": 1,
                 "TotalSegmentCount": 1,

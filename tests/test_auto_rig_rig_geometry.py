@@ -30,6 +30,7 @@ from module.auto_rig.rig_geometry import (
     RigGeometryCacheError,
     build_rig_geometry_cache,
     expand_component_draw_order,
+    load_rig_geometry_cache,
     rig_geometry_cache_bytes,
     validate_component_draw_order,
     validate_rig_geometry_cache,
@@ -39,12 +40,8 @@ from module.auto_rig.skinning import build_skinning_plan
 from tests.test_auto_rig_bone_graph import _joint_stage
 from tests.test_auto_rig_component_plan import _loaded_part
 
-_EMPTY_VARIANT_SET_SHA256 = jcs_sha256(
-    {"schema_version": "native-variant-set-v1", "present": False, "entries": []}
-)
-_EMPTY_ELIGIBILITY_SHA256 = jcs_sha256(
-    {"schema_version": "native-variant-eligibility-plan-v1", "render_variant_ids": []}
-)
+_EMPTY_VARIANT_SET_SHA256 = jcs_sha256({"schema_version": "native-variant-set-v1", "present": False, "entries": []})
+_EMPTY_ELIGIBILITY_SHA256 = jcs_sha256({"schema_version": "native-variant-eligibility-plan-v1", "render_variant_ids": []})
 
 
 def _final_draw_plan(parts) -> FinalDrawOrderPlan:
@@ -140,17 +137,12 @@ def test_component_draw_expander_assigns_gapless_contiguous_stable_ranks(
 
     assert COMPONENT_DRAW_ORDER_EXPANDER_VERSION == "component-draw-order-expander-v1"
     assert validate_component_draw_order(plan, final_draw=final_draw, mesh_plan=mesh_plan) is plan
-    assert tuple(record.component_draw_rank for record in plan.records) == tuple(
-        range(len(plan.records))
-    )
+    assert tuple(record.component_draw_rank for record in plan.records) == tuple(range(len(plan.records)))
     records_by_part = {
-        part_id: tuple(record for record in plan.records if record.part_id == part_id)
-        for part_id in final_draw.part_order
+        part_id: tuple(record for record in plan.records if record.part_id == part_id) for part_id in final_draw.part_order
     }
     for part_id, records in records_by_part.items():
-        assert tuple(record.component_id for record in records) == tuple(
-            sorted(record.component_id for record in records)
-        )
+        assert tuple(record.component_id for record in records) == tuple(sorted(record.component_id for record in records))
         ranks = tuple(record.component_draw_rank for record in records)
         assert ranks == tuple(range(min(ranks), max(ranks) + 1)), part_id
 
@@ -219,9 +211,7 @@ def _rehash_cache(cache, **changes):
 def test_rig_geometry_cache_is_complete_b_owned_geometry_not_a_partial_rig_document(
     tmp_path: Path,
 ) -> None:
-    target, components, final_draw, joints, bones, meshes, skinning = (
-        _full_geometry_inputs(tmp_path)
-    )
+    target, components, final_draw, joints, bones, meshes, skinning = _full_geometry_inputs(tmp_path)
 
     cache = build_rig_geometry_cache(
         target=target,
@@ -241,14 +231,12 @@ def test_rig_geometry_cache_is_complete_b_owned_geometry_not_a_partial_rig_docum
     assert validate_rig_geometry_cache(cache) is cache
     assert payload["cache_schema_version"] == RIG_GEOMETRY_CACHE_VERSION
     assert payload["target_input_fingerprint"] == target.target_input_fingerprint
-    assert tuple(part["part_draw_rank"] for part in payload["parts"]) == tuple(
-        range(len(payload["parts"]))
+    assert tuple(part["part_draw_rank"] for part in payload["parts"]) == tuple(range(len(payload["parts"])))
+    assert tuple(record["component_draw_rank"] for record in payload["component_draw_order"]["records"]) == tuple(
+        range(len(meshes.sources))
     )
-    assert tuple(
-        record["component_draw_rank"] for record in payload["component_draw_order"]["records"]
-    ) == tuple(range(len(meshes.sources)))
-    assert payload["degradation_state"] == "degraded"
-    assert "rigid_fallback_applied" in payload["degradation_codes"]
+    assert payload["degradation_state"] == "clean"
+    assert payload["degradation_codes"] == []
     forbidden = {
         "capabilities",
         "control_specs",
@@ -266,9 +254,7 @@ def test_rig_geometry_cache_is_complete_b_owned_geometry_not_a_partial_rig_docum
 def test_rig_geometry_cache_validator_rejects_rehashed_rank_drift_and_c_fields(
     tmp_path: Path,
 ) -> None:
-    target, components, final_draw, joints, bones, meshes, skinning = (
-        _full_geometry_inputs(tmp_path)
-    )
+    target, components, final_draw, joints, bones, meshes, skinning = _full_geometry_inputs(tmp_path)
     cache = build_rig_geometry_cache(
         target=target,
         component_plan=components,
@@ -306,9 +292,7 @@ def test_rig_geometry_cache_validator_rejects_rehashed_rank_drift_and_c_fields(
 def test_rig_geometry_cache_validator_rejects_rehashed_reference_drift(
     tmp_path: Path,
 ) -> None:
-    target, components, final_draw, joints, bones, meshes, skinning = (
-        _full_geometry_inputs(tmp_path)
-    )
+    target, components, final_draw, joints, bones, meshes, skinning = _full_geometry_inputs(tmp_path)
     cache = build_rig_geometry_cache(
         target=target,
         component_plan=components,
@@ -327,13 +311,9 @@ def test_rig_geometry_cache_validator_rejects_rehashed_reference_drift(
         component_ids=("mask-component/external",),
     )
     with pytest.raises(RigGeometryCacheError):
-        validate_rig_geometry_cache(
-            _rehash_cache(cache, parts=(changed_part, *cache.parts[1:]))
-        )
+        validate_rig_geometry_cache(_rehash_cache(cache, parts=(changed_part, *cache.parts[1:])))
 
-    child_index = next(
-        index for index, bone in enumerate(cache.bone_graph.bones) if bone.parent_id
-    )
+    child_index = next(index for index, bone in enumerate(cache.bone_graph.bones) if bone.parent_id)
     changed_bone = replace(
         cache.bone_graph.bones[child_index],
         parent_id="bone/missing",
@@ -350,15 +330,11 @@ def test_rig_geometry_cache_validator_rejects_rehashed_reference_drift(
         plan_sha256=jcs_sha256(provisional_graph.semantic_payload()),
     )
     with pytest.raises(RigGeometryCacheError):
-        validate_rig_geometry_cache(
-            _rehash_cache(cache, bone_graph=changed_graph)
-        )
+        validate_rig_geometry_cache(_rehash_cache(cache, bone_graph=changed_graph))
 
 
 def test_stage_b_owns_only_the_private_geometry_cache_payload(tmp_path: Path) -> None:
-    target, components, final_draw, joints, bones, meshes, skinning = (
-        _full_geometry_inputs(tmp_path)
-    )
+    target, components, final_draw, joints, bones, meshes, skinning = _full_geometry_inputs(tmp_path)
     cache = build_rig_geometry_cache(
         target=target,
         component_plan=components,
@@ -383,37 +359,50 @@ def test_stage_b_owns_only_the_private_geometry_cache_payload(tmp_path: Path) ->
         input_file_sha256=(),
         target_input_fingerprint=target.target_input_fingerprint,
         native_variant_set_sha256=final_draw.native_variant_set_sha256,
-        native_variant_eligibility_sha256=(
-            final_draw.native_variant_eligibility_plan_sha256
-        ),
+        native_variant_eligibility_sha256=(final_draw.native_variant_eligibility_plan_sha256),
         relevant_config_fingerprint="sha256:" + "d" * 64,
         rig_overrides_sha256=joints.rig_overrides_sha256,
         output_paths=(RIG_GEOMETRY_CACHE_PATH,),
-        status=(
-            "stage_validated_with_degradation"
-            if cache.degradation_state == "degraded"
-            else "stage_validated"
-        ),
+        status=("stage_validated_with_degradation" if cache.degradation_state == "degraded" else "stage_validated"),
     )
 
-    assert tuple(item.path for item in manifest.output_file_sha256) == (
-        RIG_GEOMETRY_CACHE_PATH,
-    )
+    assert tuple(item.path for item in manifest.output_file_sha256) == (RIG_GEOMETRY_CACHE_PATH,)
     assert not (tmp_path / "rig" / "rig.json").exists()
 
 
-def test_mesh_descriptor_change_invalidates_b_and_c_but_not_a(tmp_path: Path) -> None:
-    target, _components, final_draw, joints, _bones, meshes, _skinning = (
-        _full_geometry_inputs(tmp_path)
+def test_stage_b_geometry_cache_round_trips_to_typed_runtime_state(
+    tmp_path: Path,
+) -> None:
+    target, components, final_draw, joints, bones, meshes, skinning = _full_geometry_inputs(tmp_path)
+    cache = build_rig_geometry_cache(
+        target=target,
+        component_plan=components,
+        final_draw=final_draw,
+        joints=joints,
+        bone_graph=bones,
+        mesh_plan=meshes,
+        skinning_plan=skinning,
+        native_variant_set=None,
+        stage_a_fingerprint="sha256:" + "a" * 64,
+        stage_b_fingerprint="sha256:" + "b" * 64,
     )
+    cache_path = tmp_path / Path(*RIG_GEOMETRY_CACHE_PATH.split("/"))
+    atomic_write_bytes(cache_path, rig_geometry_cache_bytes(cache))
+
+    loaded = load_rig_geometry_cache(tmp_path, target=target)
+
+    assert loaded == cache
+    assert validate_rig_geometry_cache(loaded) is loaded
+
+
+def test_mesh_descriptor_change_invalidates_b_and_c_but_not_a(tmp_path: Path) -> None:
+    target, _components, final_draw, joints, _bones, meshes, _skinning = _full_geometry_inputs(tmp_path)
     common = {
         "stage_schema_version": 1,
         "input_file_sha256": (),
         "target_input_fingerprint": target.target_input_fingerprint,
         "native_variant_set_sha256": final_draw.native_variant_set_sha256,
-        "native_variant_eligibility_sha256": (
-            final_draw.native_variant_eligibility_plan_sha256
-        ),
+        "native_variant_eligibility_sha256": (final_draw.native_variant_eligibility_plan_sha256),
         "rig_overrides_sha256": joints.rig_overrides_sha256,
         "status": "stage_validated",
     }
@@ -431,9 +420,7 @@ def test_mesh_descriptor_change_invalidates_b_and_c_but_not_a(tmp_path: Path) ->
         upstream_manifests={},
         relevant_config_fingerprint=jcs_sha256({"joint_pipeline": "v1"}),
     )
-    baseline_mesh_config = jcs_sha256(
-        {"mesh_descriptor_sha256": meshes.descriptor.descriptor_sha256}
-    )
+    baseline_mesh_config = jcs_sha256({"mesh_descriptor_sha256": meshes.descriptor.descriptor_sha256})
     changed_mesh_config = jcs_sha256(
         {
             "mesh_descriptor_sha256": meshes.descriptor.descriptor_sha256,

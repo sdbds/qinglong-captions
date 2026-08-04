@@ -23,6 +23,8 @@ def test_e0_motion_and_expression_assets_cover_the_frozen_parameter_order() -> N
     expression = json.loads(build_e0_expression_json_bytes())
 
     assert motion["Curves"][0]["Id"] == "ParamOuter"
+    assert motion["Meta"]["FadeInTime"] == 0.0
+    assert motion["Meta"]["FadeOutTime"] == 0.0
     assert [parameter["Blend"] for parameter in expression["Parameters"]] == [
         "Add",
         "Multiply",

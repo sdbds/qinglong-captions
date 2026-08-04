@@ -25,6 +25,13 @@ from module.auto_rig.export.live2d.moc3_codec import (
 )
 
 
+def test_offscreen_harness_honors_serialized_motion_fade() -> None:
+    source = (Path(__file__).parents[1] / "tools" / "auto_rig_live2d_e0" / "main.cpp").read_text(encoding="utf-8")
+
+    assert "motion->SetFadeInTime" not in source
+    assert "motion->SetFadeOutTime" not in source
+
+
 def _sample_near_vertex(
     rgba: bytes,
     width: int,
@@ -65,14 +72,11 @@ def test_offscreen_harness_renders_uv_orientation_and_straight_alpha(tmp_path: P
 
     assert evidence.width == 512
     assert evidence.height == 512
-    assert evidence.validator_protocol_digest == (
-        "sha256:51e77ee76d08072db76e1ccef0638e8c706ccba7bae5ea2ae8e19b71269283a3"
-    )
+    assert evidence.validator_protocol_digest == ("sha256:df69c4a95ab40da12ce05deb7070edd76c58c8ec43a9c9a699cf9917dbfb8a21")
     assert evidence.nonzero_alpha_pixels > 1000
     assert evidence.alpha_bbox is not None
     samples = tuple(
-        _sample_near_vertex(evidence.rgba, evidence.width, evidence.height, vertex)
-        for vertex in STATIC_E0_ROOT_VERTICES
+        _sample_near_vertex(evidence.rgba, evidence.width, evidence.height, vertex) for vertex in STATIC_E0_ROOT_VERTICES
     )
     assert samples[0][0] > 200 and samples[0][1] < 30 and samples[0][2] < 30
     assert samples[1][1] > 200 and samples[1][0] < 30 and samples[1][2] < 30
@@ -140,9 +144,7 @@ def test_offscreen_harness_binds_ordered_multiple_texture_pages(
     write_e0_orientation_texture(texture_0)
     write_e0_orientation_texture(texture_1)
 
-    evidence = render_moc_with_offscreen_harness(
-        executable, moc_path, (texture_0, texture_1)
-    )
+    evidence = render_moc_with_offscreen_harness(executable, moc_path, (texture_0, texture_1))
     assert evidence.nonzero_alpha_pixels > 1000
     with pytest.raises(RuntimeError, match="texture.*count|failed"):
         render_moc_with_offscreen_harness(executable, moc_path, texture_0)

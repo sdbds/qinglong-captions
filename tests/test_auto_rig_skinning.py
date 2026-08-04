@@ -23,7 +23,7 @@ from module.auto_rig.skinning import (
     compute_arc_length_influences,
     validate_skinning_plan,
 )
-from tests.test_auto_rig_bone_graph import _joint_stage
+from tests.test_auto_rig_bone_graph import _JOINT_COORDINATES, _joint_stage
 from tests.test_auto_rig_component_plan import _loaded_part, _variant, _variant_set
 
 
@@ -106,7 +106,7 @@ def _semantic_mesh_plan(tmp_path: Path):
     return component_plan, mesh_plan
 
 
-def test_part_bone_registry_blocks_cross_semantic_and_cross_side_influences(
+def test_part_bone_registry_exposes_both_limb_chains_for_geometry_selection(
     tmp_path: Path,
 ) -> None:
     component_plan, mesh_plan = _semantic_mesh_plan(tmp_path)
@@ -120,24 +120,33 @@ def test_part_bone_registry_blocks_cross_semantic_and_cross_side_influences(
     )
     by_part = {binding.part_id: binding for binding in bindings}
 
-    assert PART_BONE_BINDING_REGISTRY_VERSION == "part-bone-binding-registry-v1"
-    assert SKINNING_PLAN_VERSION == "skinning-plan-v1"
+    assert PART_BONE_BINDING_REGISTRY_VERSION == "part-bone-binding-registry-v2"
+    assert SKINNING_PLAN_VERSION == "skinning-plan-v3"
     assert by_part["part/face"].semantic_candidate_bone_ids == ("bone/head",)
     assert by_part["part/front-hair"].semantic_candidate_bone_ids == ("bone/head",)
     assert by_part["part/handwear.xmin"].semantic_candidate_bone_ids == (
         "bone/upper_arm.xmin",
         "bone/forearm.xmin",
         "bone/hand.xmin",
+        "bone/upper_arm.xmax",
+        "bone/forearm.xmax",
+        "bone/hand.xmax",
     )
     assert by_part["part/handwear.xmax"].semantic_candidate_bone_ids == (
         "bone/upper_arm.xmax",
         "bone/forearm.xmax",
         "bone/hand.xmax",
+        "bone/upper_arm.xmin",
+        "bone/forearm.xmin",
+        "bone/hand.xmin",
     )
     assert by_part["part/legwear.xmin"].semantic_candidate_bone_ids == (
         "bone/thigh.xmin",
         "bone/shin.xmin",
         "bone/foot.xmin",
+        "bone/thigh.xmax",
+        "bone/shin.xmax",
+        "bone/foot.xmax",
     )
     assert by_part["part/objects"].dynamic_candidate is True
     assert not (
@@ -246,8 +255,7 @@ def test_skinning_plan_assigns_non_limb_meshes_one_semantic_bone(
     assert plan.diagnostics == ()
     assert len(plan.weighted_meshes) == 1
     assert all(
-        tuple((item.bone_id, item.weight) for item in vertex.influences)
-        == (("bone/head", 1.0),)
+        tuple((item.bone_id, item.weight) for item in vertex.influences) == (("bone/head", 1.0),)
         for vertex in plan.weighted_meshes[0].vertices
     )
 
@@ -277,13 +285,8 @@ def test_skinning_plan_records_rigid_fallback_for_missing_semantic_bone(
         native_variant_set=None,
     )
 
-    assert {
-        diagnostic.code for diagnostic in plan.diagnostics
-    } == {"rigid_fallback_applied"}
-    assert all(
-        vertex.influences[0].bone_id == "bone/torso"
-        for vertex in plan.weighted_meshes[0].vertices
-    )
+    assert {diagnostic.code for diagnostic in plan.diagnostics} == {"rigid_fallback_applied"}
+    assert all(vertex.influences[0].bone_id == "bone/torso" for vertex in plan.weighted_meshes[0].vertices)
 
 
 def test_skinning_plan_degrades_a_one_bone_limb_to_rigid(tmp_path: Path) -> None:
@@ -307,10 +310,7 @@ def test_skinning_plan_degrades_a_one_bone_limb_to_rigid(tmp_path: Path) -> None
     )
 
     assert tuple(item.code for item in plan.diagnostics) == ("rigid_fallback_applied",)
-    assert all(
-        vertex.influences[0].bone_id == "bone/upper_arm.xmin"
-        for vertex in plan.weighted_meshes[0].vertices
-    )
+    assert all(vertex.influences[0].bone_id == "bone/upper_arm.xmin" for vertex in plan.weighted_meshes[0].vertices)
 
 
 def test_skinning_plan_keeps_unknown_parts_visible_and_diagnosed(
@@ -340,8 +340,7 @@ def test_skinning_plan_keeps_unknown_parts_visible_and_diagnosed(
         "rigid_fallback_applied",
     }
     assert all(
-        vertex.influences == (plan.weighted_meshes[0].vertices[0].influences[0],)
-        and vertex.influences[0].bone_id == "bone/root"
+        vertex.influences == (plan.weighted_meshes[0].vertices[0].influences[0],) and vertex.influences[0].bone_id == "bone/root"
         for vertex in plan.weighted_meshes[0].vertices
     )
 
@@ -429,12 +428,7 @@ def _thick_polyline_points(
             center_y = start[1] + fraction * (end[1] - start[1])
             for y in range(math.floor(center_y - radius), math.ceil(center_y + radius) + 1):
                 for x in range(math.floor(center_x - radius), math.ceil(center_x + radius) + 1):
-                    if (
-                        x1 <= x < x2
-                        and y1 <= y < y2
-                        and (x + 0.5 - center_x) ** 2 + (y + 0.5 - center_y) ** 2
-                        <= radius**2
-                    ):
+                    if x1 <= x < x2 and y1 <= y < y2 and (x + 0.5 - center_x) ** 2 + (y + 0.5 - center_y) ** 2 <= radius**2:
                         result.add((x - x1, y - y1))
     return result
 
@@ -483,22 +477,144 @@ def test_skinning_plan_uses_component_radius_and_joint_chain_for_bent_limb_weigh
         "bone/upper_arm.xmin",
         "bone/forearm.xmin",
         "bone/hand.xmin",
+        "bone/upper_arm.xmax",
+        "bone/forearm.xmax",
+        "bone/hand.xmax",
     )
     assert any(len(vertex.influences) == 2 for vertex in mesh.vertices)
-    assert {
-        influence.bone_id
-        for vertex in mesh.vertices
-        for influence in vertex.influences
-    } == set(mesh.allowed_bone_ids)
-    assert all(
-        abs(sum(influence.weight for influence in vertex.influences) - 1.0) <= 1e-12
-        for vertex in mesh.vertices
+    assert {influence.bone_id for vertex in mesh.vertices for influence in vertex.influences} == {
+        "bone/upper_arm.xmin",
+        "bone/forearm.xmin",
+        "bone/hand.xmin",
+    }
+    assert all(abs(sum(influence.weight for influence in vertex.influences) - 1.0) <= 1e-12 for vertex in mesh.vertices)
+    assert all(".xmax" not in influence.bone_id for vertex in mesh.vertices for influence in vertex.influences)
+
+
+def test_skinning_plan_partitions_an_unsided_merged_limb_across_both_pose_chains(
+    tmp_path: Path,
+) -> None:
+    bbox = (20, 110, 180, 230)
+    left_chain = ((70.0, 125.0), (50.0, 160.0), (40.0, 195.0), (35.0, 220.0))
+    right_chain = (
+        (130.0, 125.0),
+        (150.0, 160.0),
+        (160.0, 195.0),
+        (165.0, 220.0),
     )
-    assert all(
-        ".xmax" not in influence.bone_id
-        for vertex in mesh.vertices
-        for influence in vertex.influences
+    loaded = _loaded_part(
+        source_tag="handwear",
+        base_tag="handwear",
+        semantic_slug="handwear",
+        part_id="part/handwear",
+        side=None,
+        xyxy=bbox,
+        points=(
+            _thick_polyline_points(left_chain, bbox=bbox, radius=7)
+            | _thick_polyline_points(right_chain, bbox=bbox, radius=7)
+            | {(x - bbox[0], y - bbox[1]) for y in range(123, 129) for x in range(70, 131)}
+        ),
     )
+    component_plan = build_mask_component_plan(
+        (loaded,),
+        canvas_edge=768,
+        item_root=tmp_path,
+    )
+    mesh_plan = build_mesh_plan(
+        component_plan,
+        item_root=tmp_path,
+        render_variant_ids=(),
+        final_part_ids=tuple(part.part_id for part in component_plan.parts),
+    )
+    sources = load_mesh_component_sources(component_plan, item_root=tmp_path)
+    joints = _joint_stage(
+        tmp_path,
+        omitted=("joint/hand_tip.xmin", "joint/hand_tip.xmax"),
+    )
+    bones = build_bone_graph(joints)
+
+    plan = build_skinning_plan(
+        mesh_plan,
+        bones,
+        joints,
+        normalized_parts=component_plan.parts,
+        component_sources=sources,
+        native_variant_set=None,
+    )
+
+    assert plan.diagnostics == ()
+    binding = plan.part_bindings[0]
+    assert binding.side is None
+    assert binding.usable_bone_ids == (
+        "bone/upper_arm.xmin",
+        "bone/forearm.xmin",
+        "bone/upper_arm.xmax",
+        "bone/forearm.xmax",
+    )
+    all_influences = {
+        influence.bone_id for mesh in plan.weighted_meshes for vertex in mesh.vertices for influence in vertex.influences
+    }
+    assert all_influences == set(binding.usable_bone_ids)
+    assert "bone/root" not in all_influences
+
+    left_vertices = [vertex for mesh in plan.weighted_meshes for vertex in mesh.vertices if vertex.position[0] < 80.0]
+    right_vertices = [vertex for mesh in plan.weighted_meshes for vertex in mesh.vertices if vertex.position[0] > 120.0]
+    assert left_vertices and right_vertices
+    assert {influence.bone_id.rsplit(".", 1)[-1] for vertex in left_vertices for influence in vertex.influences} == {"xmin"}
+    assert {influence.bone_id.rsplit(".", 1)[-1] for vertex in right_vertices for influence in vertex.influences} == {"xmax"}
+
+
+def test_skinning_plan_uses_geometry_not_part_suffix_for_crossed_distal_limbs(
+    tmp_path: Path,
+) -> None:
+    bbox = (52, 258, 88, 344)
+    loaded = _loaded_part(
+        source_tag="footwear-r",
+        base_tag="footwear",
+        semantic_slug="footwear",
+        part_id="part/footwear.xmin",
+        side="xmin",
+        xyxy=bbox,
+        points={(x, y) for y in range(1, 85) for x in range(1, 35)},
+    )
+    component_plan = build_mask_component_plan(
+        (loaded,),
+        canvas_edge=768,
+        item_root=tmp_path,
+    )
+    mesh_plan = build_mesh_plan(
+        component_plan,
+        item_root=tmp_path,
+        render_variant_ids=(),
+        final_part_ids=tuple(part.part_id for part in component_plan.parts),
+    )
+    sources = load_mesh_component_sources(component_plan, item_root=tmp_path)
+    coordinates = {
+        **_JOINT_COORDINATES,
+        "joint/knee.xmin": (55, 260),
+        "joint/ankle.xmin": (130, 320),
+        "joint/toe.xmin": (145, 335),
+        "joint/knee.xmax": (115, 260),
+        "joint/ankle.xmax": (70, 320),
+        "joint/toe.xmax": (55, 335),
+    }
+    joints = _joint_stage(tmp_path, coordinates=coordinates)
+    bones = build_bone_graph(joints)
+
+    plan = build_skinning_plan(
+        mesh_plan,
+        bones,
+        joints,
+        normalized_parts=component_plan.parts,
+        component_sources=sources,
+        native_variant_set=None,
+    )
+
+    influence_ids = {
+        influence.bone_id for mesh in plan.weighted_meshes for vertex in mesh.vertices for influence in vertex.influences
+    }
+    assert all(bone_id.endswith(".xmax") for bone_id in influence_ids)
+    assert influence_ids
 
 
 def _rehash_weighted_mesh(mesh):
@@ -559,9 +675,7 @@ def test_skinning_validator_rejects_rehashed_unknown_bones_and_geometry_drift(
         vertex,
         position=(vertex.position[0] + 1 / 256.0, vertex.position[1]),
     )
-    moved_mesh = _rehash_weighted_mesh(
-        replace(mesh, vertices=(moved_vertex, *mesh.vertices[1:]))
-    )
+    moved_mesh = _rehash_weighted_mesh(replace(mesh, vertices=(moved_vertex, *mesh.vertices[1:])))
     moved_plan = _rehash_skinning_plan(plan, weighted_mesh=moved_mesh)
 
     with pytest.raises(skinning_module.SkinningError):

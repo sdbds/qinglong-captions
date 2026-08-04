@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Iterable
@@ -87,6 +88,24 @@ class PoseObservationBatch:
 
 
 @dataclass(frozen=True, slots=True)
+class PoseObservationRejection:
+    observation_id: str
+    joint_id: str
+    reason: str
+    distance: float | None
+    tolerance: float
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "observation_id": self.observation_id,
+            "joint_id": self.joint_id,
+            "reason": self.reason,
+            "distance": self.distance,
+            "tolerance": self.tolerance,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class StageAJointPlan:
     schema_version: str
     target_input_fingerprint: str
@@ -107,9 +126,7 @@ class StageAJointPlan:
             "target_input_fingerprint": self.target_input_fingerprint,
             "anatomy_plan_sha256": self.anatomy_plan_sha256,
             "rig_overrides_sha256": self.rig_overrides_sha256,
-            "observation_anatomy_validator_version": (
-                self.observation_anatomy_validator_version
-            ),
+            "observation_anatomy_validator_version": (self.observation_anatomy_validator_version),
             "axial": {
                 **self.axial.semantic_payload(),
                 "batch_sha256": self.axial.batch_sha256,
@@ -165,20 +182,14 @@ def build_pose_observation_batch(
         raise _error("pose provider_id must be non-empty")
     if not isinstance(provider_version, str) or not provider_version:
         raise _error("pose provider_version must be non-empty")
-    if not isinstance(provider_fingerprint, str) or not _SHA256_PATTERN.fullmatch(
-        provider_fingerprint
-    ):
+    if not isinstance(provider_fingerprint, str) or not _SHA256_PATTERN.fullmatch(provider_fingerprint):
         raise _error("pose provider_fingerprint must be a canonical SHA-256")
-    if not isinstance(
-        preprocessing_fingerprint, str
-    ) or not _SHA256_PATTERN.fullmatch(preprocessing_fingerprint):
+    if not isinstance(preprocessing_fingerprint, str) or not _SHA256_PATTERN.fullmatch(preprocessing_fingerprint):
         raise _error("pose preprocessing_fingerprint must be a canonical SHA-256")
     raw_observations = tuple(observations)
     if any(not isinstance(item, JointObservation) for item in raw_observations):
         raise _error("pose batch requires typed joint observations")
-    ordered_observations = tuple(
-        sorted(raw_observations, key=lambda item: item.observation_id)
-    )
+    ordered_observations = tuple(sorted(raw_observations, key=lambda item: item.observation_id))
     edge = anatomy.plan.canvas_edge
     values = {
         "schema_version": POSE_OBSERVATION_BATCH_VERSION,
@@ -276,9 +287,7 @@ def _validate_override_geometry(
             (override.x, override.y),
         )
         if distance > tolerance and not override.allow_outside:
-            raise _error(
-                f"joint override is outside its anatomy evidence: {override.joint_id}"
-            )
+            raise _error(f"joint override is outside its anatomy evidence: {override.joint_id}")
         if override.allow_outside:
             warning_ids.append(override.joint_id)
     return tuple(sorted(warning_ids))
@@ -292,11 +301,7 @@ def _evidence_tolerance(
     radius = eligibility.local_limb_radius
     tolerance = max(
         EVIDENCE_MASK_MIN_TOLERANCE_PX,
-        0.0
-        if radius is None
-        else radius
-        * EVIDENCE_MASK_RADIUS_NUMERATOR
-        / EVIDENCE_MASK_RADIUS_DENOMINATOR,
+        0.0 if radius is None else radius * EVIDENCE_MASK_RADIUS_NUMERATOR / EVIDENCE_MASK_RADIUS_DENOMINATOR,
     )
     return min(
         tolerance,
@@ -309,16 +314,9 @@ def _distance_to_eligibility_evidence(
     eligibility: JointEligibility,
     point: tuple[float, float],
 ) -> float:
-    metric_ids = tuple(
-        evidence_id
-        for evidence_id in eligibility.evidence_ids
-        if evidence_id.startswith("mask/")
-    )
+    metric_ids = tuple(evidence_id for evidence_id in eligibility.evidence_ids if evidence_id.startswith("mask/"))
     return min(
-        (
-            _mask_distance(anatomy, metric_id, point)
-            for metric_id in metric_ids
-        ),
+        (_mask_distance(anatomy, metric_id, point) for metric_id in metric_ids),
         default=float("inf"),
     )
 
@@ -328,9 +326,39 @@ def _validate_pose_geometry(
     pose: PoseObservationBatch,
     eligibilities: tuple[JointEligibility, ...],
 ) -> None:
-    eligibility_by_id = {item.joint_id: item for item in eligibilities}
+    _, rejected = partition_pose_observations_by_anatomy(
+        anatomy,
+        eligibilities,
+        pose.observations,
+    )
+    if rejected:
+        raise _error(f"pose observation is outside anatomy evidence: {rejected[0].joint_id}")
+
+
+def partition_pose_observations_by_anatomy(
+    anatomy: AnatomyMaskGeometry,
+    eligibilities: Iterable[JointEligibility],
+    observations: Iterable[JointObservation],
+) -> tuple[tuple[JointObservation, ...], tuple[PoseObservationRejection, ...]]:
+    """Partition provider points without turning one rejected point into an item failure."""
+
+    validate_anatomy_mask_geometry(anatomy)
+    eligibility_values = tuple(eligibilities)
+    eligibility_by_id = {item.joint_id: item for item in eligibility_values}
+    if len(eligibility_by_id) != len(eligibility_values):
+        raise _error("pose anatomy partition received duplicate joint eligibility")
+    observation_values = tuple(observations)
+    if any(item.source != "pose" for item in observation_values):
+        raise _error("pose anatomy partition received a non-pose observation")
+    if any(item.joint_id not in eligibility_by_id for item in observation_values):
+        raise _error("pose anatomy partition received an unknown joint")
+    if len({item.joint_id for item in observation_values}) != len(observation_values):
+        raise _error("pose anatomy partition received duplicate joints")
+
     edge = anatomy.plan.canvas_edge
-    for observation in pose.observations:
+    accepted: list[JointObservation] = []
+    rejected: list[PoseObservationRejection] = []
+    for observation in observation_values:
         eligibility = eligibility_by_id[observation.joint_id]
         distance = _distance_to_eligibility_evidence(
             anatomy,
@@ -338,10 +366,22 @@ def _validate_pose_geometry(
             (observation.x, observation.y),
         )
         tolerance = _evidence_tolerance(eligibility, canvas_edge=edge)
-        if distance > tolerance:
-            raise _error(
-                f"pose observation is outside anatomy evidence: {observation.joint_id}"
+        if distance <= tolerance:
+            accepted.append(observation)
+            continue
+        rejected.append(
+            PoseObservationRejection(
+                observation_id=observation.observation_id,
+                joint_id=observation.joint_id,
+                reason="outside_anatomy_evidence",
+                distance=distance if math.isfinite(distance) else None,
+                tolerance=tolerance,
             )
+        )
+    return (
+        tuple(sorted(accepted, key=lambda item: item.observation_id)),
+        tuple(sorted(rejected, key=lambda item: (item.joint_id, item.observation_id))),
+    )
 
 
 def _validate_pose_batch(
@@ -374,32 +414,29 @@ def _validate_pose_batch_values(
     if pose.canvas_width != canvas_width or pose.canvas_height != canvas_height:
         raise _error("pose observation canvas differs from anatomy canvas")
     if pose.enabled:
-        if not all(
-            isinstance(value, str) and value
-            for value in (pose.provider_id, pose.provider_version)
-        ):
+        if not all(isinstance(value, str) and value for value in (pose.provider_id, pose.provider_version)):
             raise _error("enabled pose input requires provider identity")
         if not all(
             isinstance(value, str) and _SHA256_PATTERN.fullmatch(value)
             for value in (pose.provider_fingerprint, pose.preprocessing_fingerprint)
         ):
             raise _error("enabled pose input requires canonical fingerprints")
-    elif any(
-        value is not None
-        for value in (
-            pose.provider_id,
-            pose.provider_version,
-            pose.provider_fingerprint,
-            pose.preprocessing_fingerprint,
+    elif (
+        any(
+            value is not None
+            for value in (
+                pose.provider_id,
+                pose.provider_version,
+                pose.provider_fingerprint,
+                pose.preprocessing_fingerprint,
+            )
         )
-    ) or pose.observations:
+        or pose.observations
+    ):
         raise _error("disabled pose input must be an empty identity")
     if any(item.source != "pose" for item in pose.observations):
         raise _error("pose batch contains a non-pose observation")
-    if any(
-        item.canvas_width != canvas_width or item.canvas_height != canvas_height
-        for item in pose.observations
-    ):
+    if any(item.canvas_width != canvas_width or item.canvas_height != canvas_height for item in pose.observations):
         raise _error("pose observation canvas differs from anatomy canvas")
     keys = tuple(item.joint_id for item in pose.observations)
     if len(keys) != len(set(keys)):
@@ -419,10 +456,7 @@ def validate_stage_a_joint_plan(plan: StageAJointPlan) -> StageAJointPlan:
         raise _error("anatomy plan digest is not canonical")
     if not _SHA256_PATTERN.fullmatch(plan.rig_overrides_sha256):
         raise _error("override input digest is not canonical")
-    if (
-        plan.observation_anatomy_validator_version
-        != OBSERVATION_ANATOMY_VALIDATOR_VERSION
-    ):
+    if plan.observation_anatomy_validator_version != OBSERVATION_ANATOMY_VALIDATOR_VERSION:
         raise _error("observation anatomy validator version mismatch")
 
     axial = plan.axial
@@ -442,10 +476,7 @@ def validate_stage_a_joint_plan(plan: StageAJointPlan) -> StageAJointPlan:
     limb = plan.limb
     if not isinstance(limb, LimbGeometryEvidenceBatch):
         raise _error("limb evidence must use LimbGeometryEvidenceBatch")
-    if (
-        limb.schema_version != LIMB_GEOMETRY_EVIDENCE_VERSION
-        or limb.provider_version != LIMB_JOINT_GEOMETRY_VERSION
-    ):
+    if limb.schema_version != LIMB_GEOMETRY_EVIDENCE_VERSION or limb.provider_version != LIMB_JOINT_GEOMETRY_VERSION:
         raise _error("limb evidence version mismatch")
     if limb.batch_sha256 != jcs_sha256(limb.semantic_payload()):
         raise _error("limb evidence batch digest mismatch")
@@ -470,9 +501,7 @@ def validate_stage_a_joint_plan(plan: StageAJointPlan) -> StageAJointPlan:
     if plan.joints.plan_sha256 != jcs_sha256(plan.joints.semantic_payload()):
         raise _error("joint observation plan digest mismatch")
 
-    eligibility_by_id = {
-        item.joint_id: item for item in axial.eligibilities + limb.eligibilities
-    }
+    eligibility_by_id = {item.joint_id: item for item in axial.eligibilities + limb.eligibilities}
     if set(eligibility_by_id) != set(JOINT_IDS):
         raise _error("geometry evidence does not cover the joint registry")
     expected_eligibilities = tuple(eligibility_by_id[joint_id] for joint_id in JOINT_IDS)
@@ -482,18 +511,12 @@ def validate_stage_a_joint_plan(plan: StageAJointPlan) -> StageAJointPlan:
     override_ids = tuple(sorted(plan.override_observation_ids))
     if plan.override_observation_ids != override_ids:
         raise _error("override observation identities are not canonical")
-    observation_by_id = {
-        item.observation_id: item for item in plan.joints.observations
-    }
+    observation_by_id = {item.observation_id: item for item in plan.joints.observations}
     if any(observation_id not in observation_by_id for observation_id in override_ids):
         raise _error("override observation identity is absent from the joint plan")
     if any(observation_by_id[item].source != "override" for item in override_ids):
         raise _error("override observation identity names another source")
-    actual_override_ids = tuple(
-        item.observation_id
-        for item in plan.joints.observations
-        if item.source == "override"
-    )
+    actual_override_ids = tuple(item.observation_id for item in plan.joints.observations if item.source == "override")
     if actual_override_ids != override_ids:
         raise _error("joint plan contains undeclared override observations")
     expected_observations = tuple(
@@ -511,18 +534,10 @@ def validate_stage_a_joint_plan(plan: StageAJointPlan) -> StageAJointPlan:
     outside_ids = tuple(sorted(plan.override_outside_joint_ids))
     if plan.override_outside_joint_ids != outside_ids:
         raise _error("outside override joint identities are not canonical")
-    override_by_joint = {
-        observation_by_id[item].joint_id: observation_by_id[item]
-        for item in override_ids
-    }
-    if any(
-        joint_id not in override_by_joint or not override_by_joint[joint_id].allow_outside
-        for joint_id in outside_ids
-    ):
+    override_by_joint = {observation_by_id[item].joint_id: observation_by_id[item] for item in override_ids}
+    if any(joint_id not in override_by_joint or not override_by_joint[joint_id].allow_outside for joint_id in outside_ids):
         raise _error("outside override warning lacks an authorized observation")
-    expected_outside_ids = tuple(
-        sorted(item.joint_id for item in override_by_joint.values() if item.allow_outside)
-    )
+    expected_outside_ids = tuple(sorted(item.joint_id for item in override_by_joint.values() if item.allow_outside))
     if outside_ids != expected_outside_ids:
         raise _error("outside override warning set differs from override coordinates")
 
@@ -568,12 +583,7 @@ def build_stage_a_joint_plan(
         canvas_width=target.canvas_width,
         canvas_height=target.canvas_height,
     )
-    observations = (
-        axial.observations
-        + limb.observations
-        + pose_batch.observations
-        + override_observations
-    )
+    observations = axial.observations + limb.observations + pose_batch.observations + override_observations
     joints = resolve_joint_observations(
         eligibilities,
         observations,
@@ -585,15 +595,11 @@ def build_stage_a_joint_plan(
         "target_input_fingerprint": target.target_input_fingerprint,
         "anatomy_plan_sha256": anatomy.plan.plan_sha256,
         "rig_overrides_sha256": overrides.identity.rig_overrides_sha256,
-        "observation_anatomy_validator_version": (
-            OBSERVATION_ANATOMY_VALIDATOR_VERSION
-        ),
+        "observation_anatomy_validator_version": (OBSERVATION_ANATOMY_VALIDATOR_VERSION),
         "axial": axial,
         "limb": limb,
         "pose": pose_batch,
-        "override_observation_ids": tuple(
-            sorted(item.observation_id for item in override_observations)
-        ),
+        "override_observation_ids": tuple(sorted(item.observation_id for item in override_observations)),
         "override_outside_joint_ids": override_outside_joint_ids,
         "joints": joints,
     }
@@ -611,8 +617,10 @@ __all__ = [
     "STAGE_A_JOINT_PLAN_VERSION",
     "JointPipelineError",
     "PoseObservationBatch",
+    "PoseObservationRejection",
     "StageAJointPlan",
     "build_pose_observation_batch",
     "build_stage_a_joint_plan",
+    "partition_pose_observations_by_anatomy",
     "validate_stage_a_joint_plan",
 ]

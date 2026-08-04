@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import re
-from dataclasses import dataclass
-from typing import Literal
+import types
+from dataclasses import dataclass, fields, is_dataclass
+from pathlib import Path
+from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from .artifacts import canonical_json_bytes
 from .bone_graph import BoneGraphPlan, validate_bone_graph
@@ -278,9 +281,7 @@ def _validate_final_draw_order(plan: FinalDrawOrderPlan) -> None:
         raise _draw_error("final draw-order plan is invalid")
     if tuple(record.part_id for record in plan.records) != plan.part_order:
         raise _draw_error("final draw records differ from Part order")
-    if tuple(record.part_draw_rank for record in plan.records) != tuple(
-        range(len(plan.records))
-    ):
+    if tuple(record.part_draw_rank for record in plan.records) != tuple(range(len(plan.records))):
         raise _draw_error("final Part draw ranks are not gapless")
 
 
@@ -311,9 +312,7 @@ def validate_component_draw_order(
         raise _draw_error("mesh components are not unique")
     if any(component_id not in source_by_id for component_id in mesh_by_component):
         raise _draw_error("mesh lies outside the A component table")
-    if tuple(record.component_draw_rank for record in plan.records) != tuple(
-        range(len(plan.records))
-    ):
+    if tuple(record.component_draw_rank for record in plan.records) != tuple(range(len(plan.records))):
         raise _draw_error("component draw ranks are not gapless")
     if {record.component_id for record in plan.records} != set(source_by_id):
         raise _draw_error("component draw records differ from A component table")
@@ -382,11 +381,7 @@ def expand_component_draw_order(
     records = tuple(
         ComponentDrawRankRecord(
             component_id=component_id,
-            mesh_id=(
-                mesh_by_component[component_id].mesh_id
-                if component_id in mesh_by_component
-                else None
-            ),
+            mesh_id=(mesh_by_component[component_id].mesh_id if component_id in mesh_by_component else None),
             part_id=source_by_id[component_id].part_id,
             part_draw_rank=part_rank[source_by_id[component_id].part_id],
             component_draw_rank=rank,
@@ -419,14 +414,9 @@ def _cache_parts(
     native_variant_set: NativeVariantSet | None,
 ) -> tuple[RigGeometryPartRecord, ...]:
     ordinary_by_id = {part.part_id: part for part in component_plan.parts}
-    partition_by_variant = {
-        partition.variant_id: partition
-        for partition in component_plan.variant_partitions
-    }
+    partition_by_variant = {partition.variant_id: partition for partition in component_plan.variant_partitions}
     candidate_by_part = (
-        {candidate.part_id: candidate for candidate in native_variant_set.entries}
-        if native_variant_set is not None
-        else {}
+        {candidate.part_id: candidate for candidate in native_variant_set.entries} if native_variant_set is not None else {}
     )
     draw_by_id = {record.part_id: record for record in final_draw.records}
     parts: list[RigGeometryPartRecord] = []
@@ -448,9 +438,7 @@ def _cache_parts(
                     xyxy=ordinary.xyxy,
                     depth_median=ordinary.depth_median,
                     cleaned_binary_mask_sha256=ordinary.cleaned_binary_mask_sha256,
-                    component_ids=tuple(
-                        component.component_id for component in ordinary.components
-                    ),
+                    component_ids=tuple(component.component_id for component in ordinary.components),
                     variant_id=None,
                     semantic_role=None,
                     base_part_ids=(),
@@ -490,9 +478,7 @@ def _cache_parts(
                 xyxy=partition.xyxy,
                 depth_median=candidate.anchor_depth_median,
                 cleaned_binary_mask_sha256=partition.cleaned_binary_mask_sha256,
-                component_ids=tuple(
-                    component.component_id for component in partition.components
-                ),
+                component_ids=tuple(component.component_id for component in partition.components),
                 variant_id=candidate.variant_id,
                 semantic_role=candidate.semantic_role,
                 base_part_ids=candidate.base_part_ids,
@@ -652,18 +638,12 @@ def validate_rig_geometry_cache_payload(payload: object) -> dict[str, object]:
         raise _cache_error("serialized Part IDs are invalid")
     if [part.get("part_draw_rank") for part in parts] != list(range(len(parts))):
         raise _cache_error("serialized Part draw ranks are not gapless")
-    component_ids = [
-        component_id
-        for part in parts
-        for component_id in part.get("component_ids", [])
-    ]
+    component_ids = [component_id for part in parts for component_id in part.get("component_ids", [])]
     if len(component_ids) != len(set(component_ids)):
         raise _cache_error("serialized component IDs are not unique")
     component_draw = payload["component_draw_order"]
     records = component_draw.get("records") if isinstance(component_draw, dict) else None
-    if not isinstance(records, list) or [
-        record.get("component_draw_rank") for record in records
-    ] != list(range(len(records))):
+    if not isinstance(records, list) or [record.get("component_draw_rank") for record in records] != list(range(len(records))):
         raise _cache_error("serialized component draw ranks are invalid")
     if {record.get("component_id") for record in records} != set(component_ids):
         raise _cache_error("serialized component draw records differ from Parts")
@@ -673,25 +653,17 @@ def validate_rig_geometry_cache_payload(payload: object) -> dict[str, object]:
     if "bone/root" not in bone_ids:
         raise _cache_error("serialized bone graph lacks root")
     skinning = payload["skinning_plan"]
-    weighted_meshes = (
-        skinning.get("weighted_meshes") if isinstance(skinning, dict) else None
-    )
+    weighted_meshes = skinning.get("weighted_meshes") if isinstance(skinning, dict) else None
     if not isinstance(weighted_meshes, list):
         raise _cache_error("serialized skinning meshes are invalid")
-    mesh_by_component = {
-        mesh.get("component_id"): mesh for mesh in weighted_meshes if isinstance(mesh, dict)
-    }
-    if len(mesh_by_component) != len(weighted_meshes) or not set(mesh_by_component) <= set(
-        component_ids
-    ):
+    mesh_by_component = {mesh.get("component_id"): mesh for mesh in weighted_meshes if isinstance(mesh, dict)}
+    if len(mesh_by_component) != len(weighted_meshes) or not set(mesh_by_component) <= set(component_ids):
         raise _cache_error("serialized weighted mesh references are invalid")
     for mesh in weighted_meshes:
         for vertex in mesh.get("vertices", []):
             influences = vertex.get("influences", []) if isinstance(vertex, dict) else []
             if not influences or any(
-                influence.get("bone_id") not in bone_ids
-                for influence in influences
-                if isinstance(influence, dict)
+                influence.get("bone_id") not in bone_ids for influence in influences if isinstance(influence, dict)
             ):
                 raise _cache_error("serialized influence references an unknown bone")
     state = payload.get("degradation_state")
@@ -744,8 +716,7 @@ def validate_rig_geometry_cache(cache: RigGeometryCache) -> RigGeometryCache:
     except ValueError as exc:
         raise _cache_error("nested geometry plan is invalid") from exc
     if (
-        cache.target.target_input_fingerprint
-        != cache.joint_plan.target_input_fingerprint
+        cache.target.target_input_fingerprint != cache.joint_plan.target_input_fingerprint
         or cache.target.canvas_width != cache.mesh_plan.canvas_edge
         or cache.target.canvas_height != cache.mesh_plan.canvas_edge
         or cache.component_plan_sha256 != cache.mesh_plan.component_plan_sha256
@@ -760,9 +731,7 @@ def validate_rig_geometry_cache(cache: RigGeometryCache) -> RigGeometryCache:
         raise _cache_error("cache Parts differ from final draw order")
     if tuple(part.part_draw_rank for part in cache.parts) != tuple(range(len(cache.parts))):
         raise _cache_error("cache Part ranks are not gapless")
-    component_ids = tuple(
-        component_id for part in cache.parts for component_id in part.component_ids
-    )
+    component_ids = tuple(component_id for part in cache.parts for component_id in part.component_ids)
     if len(component_ids) != len(set(component_ids)) or set(component_ids) != {
         source.component_id for source in cache.mesh_plan.sources
     }:
@@ -772,10 +741,7 @@ def validate_rig_geometry_cache(cache: RigGeometryCache) -> RigGeometryCache:
         not _SHA256_RE.fullmatch(item.sha256) for item in cache.dependencies
     ):
         raise _cache_error("cache dependencies are not canonical")
-    diagnostic_keys = tuple(
-        (item.source_stage, item.code, item.subject_id, item.related_ids)
-        for item in cache.diagnostics
-    )
+    diagnostic_keys = tuple((item.source_stage, item.code, item.subject_id, item.related_ids) for item in cache.diagnostics)
     if diagnostic_keys != tuple(sorted(set(diagnostic_keys))):
         raise _cache_error("cache diagnostics are not canonical")
     expected_codes = tuple(
@@ -783,14 +749,11 @@ def validate_rig_geometry_cache(cache: RigGeometryCache) -> RigGeometryCache:
             {
                 item.code
                 for item in cache.diagnostics
-                if item.code
-                in {"degenerate_mesh", "rigid_fallback_applied", "unknown_part_semantics"}
+                if item.code in {"degenerate_mesh", "rigid_fallback_applied", "unknown_part_semantics"}
             }
         )
     )
-    if cache.degradation_codes != expected_codes or cache.degradation_state != (
-        "degraded" if expected_codes else "clean"
-    ):
+    if cache.degradation_codes != expected_codes or cache.degradation_state != ("degraded" if expected_codes else "clean"):
         raise _cache_error("cache degradation state differs from diagnostics")
     validate_rig_geometry_cache_payload(cache.to_dict())
     return cache
@@ -814,10 +777,8 @@ def build_rig_geometry_cache(
     if component_plan.plan_sha256 != jcs_sha256(component_plan.semantic_payload()):
         raise _cache_error("MaskComponentPlan digest mismatch")
     if native_variant_set is not None and (
-        native_variant_set.native_variant_set_sha256
-        != jcs_sha256(native_variant_set.semantic_payload())
-        or native_variant_set.native_variant_set_sha256
-        != final_draw.native_variant_set_sha256
+        native_variant_set.native_variant_set_sha256 != jcs_sha256(native_variant_set.semantic_payload())
+        or native_variant_set.native_variant_set_sha256 != final_draw.native_variant_set_sha256
     ):
         raise _cache_error("NativeVariant set differs from final draw order")
     if set(final_draw.part_order) != set(mesh_plan.final_part_ids):
@@ -830,8 +791,7 @@ def build_rig_geometry_cache(
             {
                 item.code
                 for item in diagnostics
-                if item.code
-                in {"degenerate_mesh", "rigid_fallback_applied", "unknown_part_semantics"}
+                if item.code in {"degenerate_mesh", "rigid_fallback_applied", "unknown_part_semantics"}
             }
         )
     )
@@ -852,9 +812,7 @@ def build_rig_geometry_cache(
         "stage_b_fingerprint": stage_b_fingerprint,
         "component_plan_sha256": component_plan.plan_sha256,
         "native_variant_set_sha256": final_draw.native_variant_set_sha256,
-        "native_variant_eligibility_sha256": (
-            final_draw.native_variant_eligibility_plan_sha256
-        ),
+        "native_variant_eligibility_sha256": (final_draw.native_variant_eligibility_plan_sha256),
         "rig_overrides_sha256": joints.rig_overrides_sha256,
         "parts": parts,
         "final_draw_order": final_draw,
@@ -883,6 +841,83 @@ def rig_geometry_cache_bytes(cache: RigGeometryCache) -> bytes:
     return canonical_json_bytes(cache.to_dict()) + b"\n"
 
 
+def _decode_cache_value(value: object, annotation: object) -> object:
+    origin = get_origin(annotation)
+    arguments = get_args(annotation)
+    if is_dataclass(annotation):
+        if isinstance(value, annotation):
+            return value
+        if not isinstance(value, dict):
+            raise _cache_error("serialized nested cache value is not an object")
+        hints = get_type_hints(annotation)
+        expected = {field.name for field in fields(annotation)}
+        if set(value) != expected:
+            raise _cache_error("serialized nested cache fields differ from the typed plan")
+        return annotation(**{name: _decode_cache_value(value[name], hints[name]) for name in sorted(expected)})
+    if origin is tuple:
+        if not isinstance(value, list):
+            raise _cache_error("serialized tuple cache value is not an array")
+        if len(arguments) == 2 and arguments[1] is Ellipsis:
+            return tuple(_decode_cache_value(item, arguments[0]) for item in value)
+        if len(value) != len(arguments):
+            raise _cache_error("serialized fixed tuple has the wrong length")
+        return tuple(_decode_cache_value(item, item_type) for item, item_type in zip(value, arguments, strict=True))
+    if origin is list:
+        if not isinstance(value, list):
+            raise _cache_error("serialized list cache value is not an array")
+        item_type = arguments[0] if arguments else Any
+        return [_decode_cache_value(item, item_type) for item in value]
+    if origin in {Union, types.UnionType}:
+        if value is None and type(None) in arguments:
+            return None
+        candidates = tuple(item for item in arguments if item is not type(None))
+        if len(candidates) == 1:
+            return _decode_cache_value(value, candidates[0])
+    return value
+
+
+def load_rig_geometry_cache(
+    item_root: str | Path,
+    *,
+    target: TargetInputIdentity,
+) -> RigGeometryCache:
+    """Reload the authenticated B cache without recomputing meshes or weights."""
+
+    root = Path(item_root).resolve(strict=True)
+    path = root / Path(*RIG_GEOMETRY_CACHE_PATH.split("/"))
+    try:
+        raw = path.read_bytes()
+        payload = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise _cache_error("serialized cache is not valid UTF-8 JSON") from exc
+    validated = validate_rig_geometry_cache_payload(payload)
+    if not isinstance(target, TargetInputIdentity):
+        raise _cache_error("cache reload requires the current TargetInputIdentity")
+    canvas = validated["canvas"]
+    expected_canvas = {
+        "width": target.canvas_width,
+        "height": target.canvas_height,
+        "resolution": target.canvas_resolution,
+        "coordinate_space": "layerdiff_canvas",
+        "origin": "top_left",
+        "y_axis": "down",
+        "tag_version": target.tag_version,
+    }
+    if validated["target_input_fingerprint"] != target.target_input_fingerprint or canvas != expected_canvas:
+        raise _cache_error("serialized cache target identity differs from current input")
+    typed_payload = {key: value for key, value in validated.items() if key not in {"target_input_fingerprint", "canvas"}}
+    typed_payload["target"] = target
+    try:
+        cache = _decode_cache_value(typed_payload, RigGeometryCache)
+    except RigGeometryCacheError:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise _cache_error("serialized cache cannot be restored to typed plans") from exc
+    if not isinstance(cache, RigGeometryCache):
+        raise _cache_error("serialized cache did not restore a RigGeometryCache")
+    return validate_rig_geometry_cache(cache)
+
+
 __all__ = [
     "COMPONENT_DRAW_ORDER_EXPANDER_VERSION",
     "RIG_GEOMETRY_CACHE_GENERATOR",
@@ -898,6 +933,7 @@ __all__ = [
     "RigGeometryPartRecord",
     "build_rig_geometry_cache",
     "expand_component_draw_order",
+    "load_rig_geometry_cache",
     "rig_geometry_cache_bytes",
     "validate_component_draw_order",
     "validate_rig_geometry_cache",

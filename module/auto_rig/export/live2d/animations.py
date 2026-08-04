@@ -16,9 +16,26 @@ from .symbols import (
     validate_live2d_symbol_view,
 )
 
-LIVE2D_ANIMATION_PLAN_VERSION = "live2d-animation-plan-v1"
+LIVE2D_ANIMATION_PLAN_VERSION = "live2d-animation-plan-v3"
 LIVE2D_MOTION_VERSION = 3
 LIVE2D_MOTION_SAMPLE_RATE_HZ = 30
+_EYE_OPEN_CONTROL_IDS = frozenset({"control/eye_open.xmin", "control/eye_open.xmax"})
+_BLINK_RUNTIME_SEGMENTS = (
+    0.0,
+    1.0,
+    0,
+    0.2,
+    0.0,
+    0,
+    0.3,
+    0.0,
+    0,
+    16 / LIVE2D_MOTION_SAMPLE_RATE_HZ,
+    1.0,
+    0,
+    0.8,
+    1.0,
+)
 
 
 class Live2DAnimationError(ValueError):
@@ -43,11 +60,7 @@ def _list(value: object, *, field: str) -> list[object]:
 
 
 def _number(value: object, *, field: str) -> float:
-    if (
-        not isinstance(value, (int, float))
-        or isinstance(value, bool)
-        or not math.isfinite(float(value))
-    ):
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)):
         raise _error(f"{field} must be finite numeric data")
     result = round(float(value), 12)
     return 0.0 if abs(result) < 1e-12 else result
@@ -119,9 +132,7 @@ class Live2DAnimationPlan:
             "clip_set_sha256": self.clip_set_sha256,
             "expression_set_sha256": self.expression_set_sha256,
             "motion_assets": [asset.to_dict() for asset in self.motion_assets],
-            "expression_assets": [
-                asset.to_dict() for asset in self.expression_assets
-            ],
+            "expression_assets": [asset.to_dict() for asset in self.expression_assets],
             "asset_set_sha256": self.asset_set_sha256,
         }
 
@@ -142,11 +153,8 @@ def _format_set(payload: Mapping[str, object]) -> Mapping[str, object]:
     formats = _mapping(payload.get("format_plans"), field="format plans")
     matches = [
         _mapping(raw, field="format preset-set plan")
-        for raw in _list(
-            formats.get("preset_set_plans"), field="format preset-set plans"
-        )
-        if isinstance(raw, Mapping)
-        and raw.get("format_id") == "live2d_moc3_v4_00"
+        for raw in _list(formats.get("preset_set_plans"), field="format preset-set plans")
+        if isinstance(raw, Mapping) and raw.get("format_id") == "live2d_moc3_v4_00"
     ]
     if len(matches) != 1:
         raise _error("Rig must contain exactly one Live2D preset-set plan")
@@ -172,9 +180,7 @@ def _motion_payload(
     parameter_ids = []
     total_segments = 0
     total_points = 0
-    for raw_curve in _list(
-        clip.get("control_curves"), field="motion control curves"
-    ):
+    for raw_curve in _list(clip.get("control_curves"), field="motion control curves"):
         curve = _mapping(raw_curve, field="motion control curve")
         control_id = curve.get("control_id")
         parameter = control_to_parameter.get(str(control_id))
@@ -208,12 +214,8 @@ def _motion_payload(
             keys[0][1],
         ]
         for frame, value in keys[1:]:
-            segments.extend(
-                (0, frame / LIVE2D_MOTION_SAMPLE_RATE_HZ, value)
-            )
-        curves.append(
-            {"Target": "Parameter", "Id": export_name, "Segments": segments}
-        )
+            segments.extend((0, frame / LIVE2D_MOTION_SAMPLE_RATE_HZ, value))
+        curves.append({"Target": "Parameter", "Id": export_name, "Segments": segments})
         parameter_ids.append(export_name)
         total_segments += len(keys) - 1
         total_points += len(keys)
@@ -228,6 +230,8 @@ def _motion_payload(
             "Duration": duration_frames / LIVE2D_MOTION_SAMPLE_RATE_HZ,
             "Fps": float(LIVE2D_MOTION_SAMPLE_RATE_HZ),
             "Loop": loop,
+            "FadeInTime": 0.0,
+            "FadeOutTime": 0.0,
             "AreBeziersRestricted": True,
             "CurveCount": len(curves),
             "TotalSegmentCount": total_segments,
@@ -247,7 +251,7 @@ def _expression_payload(
     keyforms: Live2DKeyformPlan,
 ) -> tuple[dict[str, object], tuple[str, ...]]:
     if expression.get("application_mode") != "overwrite_full_weight":
-        raise _error("Live2D formal expressions require full-weight Overwrite")
+        raise _error("Live2D formal expressions require full-weight absolute values")
     keyform_ranges: dict[str, tuple[float, float]] = {}
     for record in keyforms.artmesh_keyforms:
         if record.parameter_id is not None:
@@ -270,9 +274,8 @@ def _expression_payload(
         export_name = getattr(parameter, "export_name", None)
         minimum = getattr(parameter, "minimum", None)
         maximum = getattr(parameter, "maximum", None)
-        absolute = _number(
-            value.get("absolute_value"), field="expression absolute value"
-        )
+        default = getattr(parameter, "default", None)
+        absolute = _number(value.get("absolute_value"), field="expression absolute value")
         if (
             not isinstance(parameter_id, str)
             or not isinstance(export_name, str)
@@ -281,15 +284,15 @@ def _expression_payload(
         ):
             raise _error("expression parameter/value contract is invalid")
         keyform_range = keyform_ranges.get(parameter_id)
-        if (
-            keyform_range is None
-            or absolute < keyform_range[0]
-            or absolute > keyform_range[1]
-        ):
+        if keyform_range is None or absolute < keyform_range[0] or absolute > keyform_range[1]:
             raise _error("expression value lacks an ArtMesh keyform interval")
-        parameters.append(
-            {"Id": export_name, "Value": absolute, "Blend": "Overwrite"}
-        )
+        if control_id in _EYE_OPEN_CONTROL_IDS and default != 1.0:
+            raise _error("multiplicative eye-open expressions require a default of 1")
+        # Cubism applies a persistent expression after the active motion. Eye-open
+        # values therefore multiply the motion result so an explicit blink can
+        # still close both eyes; all other absolute expression targets overwrite.
+        blend = "Multiply" if control_id in _EYE_OPEN_CONTROL_IDS else "Overwrite"
+        parameters.append({"Id": export_name, "Value": absolute, "Blend": blend})
         ids.append(export_name)
     if not parameters or len(set(ids)) != len(ids):
         raise _error("expression contains no targets or duplicate parameters")
@@ -315,13 +318,10 @@ def _assemble(
     payload = rig.to_dict()
     format_set = _format_set(payload)
     decisions = [
-        _mapping(raw, field="Live2D format decision")
-        for raw in _list(format_set.get("decisions"), field="Live2D decisions")
+        _mapping(raw, field="Live2D format decision") for raw in _list(format_set.get("decisions"), field="Live2D decisions")
     ]
     supported = [item for item in decisions if item.get("status") == "supported"]
-    if tuple(sorted(str(item.get("preset_id")) for item in supported)) != tuple(
-        sorted(bindings.supported_preset_ids)
-    ):
+    if tuple(sorted(str(item.get("preset_id")) for item in supported)) != tuple(sorted(bindings.supported_preset_ids)):
         raise _error("binding plan and format decisions support different presets")
     raw_bindings = _list(payload.get("control_bindings"), field="control bindings")
     binding_by_id = {}
@@ -331,9 +331,7 @@ def _assemble(
         if not isinstance(identity, str) or identity in binding_by_id:
             raise _error("control binding identity is invalid or duplicated")
         binding_by_id[identity] = binding
-    control_to_parameter = {
-        parameter.control_id: parameter for parameter in bindings.parameters
-    }
+    control_to_parameter = {parameter.control_id: parameter for parameter in bindings.parameters}
     clips = {
         str(item["preset_id"]): item
         for raw in _list(payload.get("clips"), field="clips")
@@ -378,15 +376,11 @@ def _assemble(
             source_id = source.get("clip_id")
             curve_controls = {
                 str(_mapping(raw, field="motion curve").get("control_id"))
-                for raw in _list(
-                    source.get("control_curves"), field="motion control curves"
-                )
+                for raw in _list(source.get("control_curves"), field="motion control curves")
             }
             if selected_controls != curve_controls:
                 raise _error("motion controls differ from selected bindings")
-            asset_payload, parameter_ids = _motion_payload(
-                source, control_to_parameter
-            )
+            asset_payload, parameter_ids = _motion_payload(source, control_to_parameter)
             kind = "live2d_motion"
             relative_path = f"motions/{artifact_name}.motion3.json"
         elif preset_id in expressions:
@@ -399,9 +393,7 @@ def _assemble(
             }
             if selected_controls != value_controls:
                 raise _error("expression controls differ from selected bindings")
-            asset_payload, parameter_ids = _expression_payload(
-                source, control_to_parameter, keyforms
-            )
+            asset_payload, parameter_ids = _expression_payload(source, control_to_parameter, keyforms)
             kind = "live2d_expression"
             relative_path = f"expressions/{artifact_name}.exp3.json"
         else:
@@ -414,10 +406,7 @@ def _assemble(
             source_internal_ids=(source_id,),
             preset_id=source_id,
         )
-        if (
-            symbol.export_name != artifact_name
-            or symbol.symbol_id != artifact_symbol_id
-        ):
+        if symbol.export_name != artifact_name or symbol.symbol_id != artifact_symbol_id:
             raise _error("runtime artifact differs from the global symbol")
         if relative_path in used_paths:
             raise _error("two supported presets share one runtime path")
@@ -442,9 +431,7 @@ def _assemble(
     if not motions:
         raise _error("Live2D preset plan has no supported motions")
     motions_tuple = tuple(sorted(motions, key=lambda item: item.preset_id))
-    expressions_tuple = tuple(
-        sorted(expression_assets, key=lambda item: item.preset_id)
-    )
+    expressions_tuple = tuple(sorted(expression_assets, key=lambda item: item.preset_id))
     asset_payload = {
         "motions": [asset.to_dict() for asset in motions_tuple],
         "expressions": [asset.to_dict() for asset in expressions_tuple],
@@ -466,9 +453,7 @@ def _assemble(
         "asset_set_sha256": jcs_sha256(asset_payload),
     }
     provisional = Live2DAnimationPlan(**values, plan_sha256="")
-    return Live2DAnimationPlan(
-        **values, plan_sha256=jcs_sha256(provisional.semantic_payload())
-    )
+    return Live2DAnimationPlan(**values, plan_sha256=jcs_sha256(provisional.semantic_payload()))
 
 
 def build_live2d_animation_plan(
@@ -508,35 +493,40 @@ def _validate_motion(asset: Live2DAnimationAsset) -> None:
         point_count += 1 + (len(segments) - 2) // 3
     if len(ids) != len(set(ids)):
         raise _error("motion has duplicate parameter curves")
+    if asset.preset_id == "blink" and (
+        meta.get("Duration") != 0.8
+        or meta.get("Loop") is not False
+        or len(curves) != 2
+        or any(tuple(_mapping(raw, field="blink curve").get("Segments", ())) != _BLINK_RUNTIME_SEGMENTS for raw in curves)
+    ):
+        raise _error("blink motion lacks its closed/open recovery hold")
     if (
         meta.get("CurveCount") != len(curves)
         or meta.get("TotalSegmentCount") != segment_count
         or meta.get("TotalPointCount") != point_count
+        or meta.get("FadeInTime") != 0.0
+        or meta.get("FadeOutTime") != 0.0
         or payload.get("UserData") != []
     ):
-        raise _error("motion Meta counts differ from its curves")
+        raise _error("motion Meta counts/fade differ from its curves")
 
 
-def _validate_expression(asset: Live2DAnimationAsset) -> None:
+def _validate_expression(
+    asset: Live2DAnimationAsset,
+    *,
+    eye_parameter_ids: frozenset[str],
+) -> None:
     payload = asset.payload
     parameters = _list(payload.get("Parameters"), field="expression Parameters")
     ids = []
     for raw in parameters:
         parameter = _mapping(raw, field="expression parameter")
         identity = parameter.get("Id")
-        if (
-            not isinstance(identity, str)
-            or parameter.get("Blend") != "Overwrite"
-            or set(parameter) != {"Id", "Value", "Blend"}
-        ):
-            raise _error("expression target is not full-weight Overwrite")
+        expected_blend = "Multiply" if identity in eye_parameter_ids else "Overwrite"
+        if not isinstance(identity, str) or parameter.get("Blend") != expected_blend or set(parameter) != {"Id", "Value", "Blend"}:
+            raise _error("expression target has an invalid per-control blend mode")
         ids.append(identity)
-    if (
-        not parameters
-        or len(ids) != len(set(ids))
-        or payload.get("FadeInTime") != 0.0
-        or payload.get("FadeOutTime") != 0.0
-    ):
+    if not parameters or len(ids) != len(set(ids)) or payload.get("FadeInTime") != 0.0 or payload.get("FadeOutTime") != 0.0:
         raise _error("expression has duplicate targets or nonzero fade")
 
 
@@ -552,8 +542,11 @@ def validate_live2d_animation_plan(
     for asset in plan.motion_assets:
         _validate_motion(asset)
         encode_live2d_animation_asset(asset)
+    eye_parameter_ids = frozenset(
+        parameter.export_name for parameter in bindings.parameters if parameter.control_id in _EYE_OPEN_CONTROL_IDS
+    )
     for asset in plan.expression_assets:
-        _validate_expression(asset)
+        _validate_expression(asset, eye_parameter_ids=eye_parameter_ids)
         encode_live2d_animation_asset(asset)
     expected = _assemble(rig, symbols, bindings, keyforms)
     if plan != expected:

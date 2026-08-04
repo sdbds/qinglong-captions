@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -159,6 +160,28 @@ def test_component_plan_cleans_tiny_noise_fills_holes_and_tightens_crop(
     assert label_map.labels == (1,) * 9
 
 
+def test_component_plan_ignores_low_alpha_canvas_haze(tmp_path: Path) -> None:
+    core = {(x, y) for y in range(12, 20) for x in range(12, 20)}
+    loaded = _loaded_part(
+        source_tag="face",
+        base_tag="face",
+        semantic_slug="face",
+        part_id="part/face",
+        side=None,
+        xyxy=(0, 0, 32, 32),
+        points=core,
+    )
+    noisy_alpha = bytearray([1] * (loaded.width * loaded.height))
+    for x, y in core:
+        noisy_alpha[y * loaded.width + x] = 255
+    loaded = replace(loaded, alpha_u8=bytes(noisy_alpha))
+
+    plan = build_mask_component_plan((loaded,), canvas_edge=1024, item_root=tmp_path)
+
+    assert plan.cleanup.alpha_threshold_u8 == 24
+    assert plan.parts[0].xyxy == (12, 12, 20, 20)
+
+
 def test_component_plan_uses_eight_connectivity_and_keeps_components_separate(
     tmp_path: Path,
 ) -> None:
@@ -290,6 +313,38 @@ def test_component_plan_does_not_promote_a_tiny_surviving_speck_to_a_side(
     assert {component.side for component in plan.parts[0].components} == {None}
 
 
+def test_component_plan_splits_two_reliable_limbs_despite_surviving_specks(
+    tmp_path: Path,
+) -> None:
+    xmin = {(x, y) for y in range(10) for x in range(10)}
+    xmax = {(x, y) for y in range(10) for x in range(20, 30)}
+    nearby_speck = {(x, y) for y in range(12, 14) for x in range(4, 6)}
+    loaded = _loaded_part(
+        source_tag="handwear",
+        base_tag="handwear",
+        semantic_slug="handwear",
+        part_id="part/handwear",
+        side=None,
+        xyxy=(0, 0, 32, 16),
+        points=xmin | xmax | nearby_speck,
+    )
+
+    plan = build_mask_component_plan(
+        (loaded,),
+        canvas_edge=1024,
+        item_root=tmp_path,
+    )
+
+    assert tuple(part.part_id for part in plan.parts) == (
+        "part/handwear.xmax",
+        "part/handwear.xmin",
+    )
+    by_side = {part.side: part for part in plan.parts}
+    assert len(by_side["xmin"].components) == 2
+    assert len(by_side["xmax"].components) == 1
+    assert {part.side_provenance for part in plan.parts} == {"component_pair"}
+
+
 @pytest.mark.parametrize(
     ("base_tag", "semantic_slug", "part_id", "expected_part_ids"),
     (
@@ -312,9 +367,18 @@ def test_component_plan_keeps_ambiguous_or_non_split_multi_component_parts_unsid
         side=None,
         xyxy=(0, 0, 14, 4),
         points={
-            (0, 0), (1, 0), (0, 1), (1, 1),
-            (5, 0), (6, 0), (5, 1), (6, 1),
-            (10, 0), (11, 0), (10, 1), (11, 1),
+            (0, 0),
+            (1, 0),
+            (0, 1),
+            (1, 1),
+            (5, 0),
+            (6, 0),
+            (5, 1),
+            (6, 1),
+            (10, 0),
+            (11, 0),
+            (10, 1),
+            (11, 1),
         },
     )
 
@@ -335,9 +399,7 @@ def test_component_ids_use_full_jcs_identity_digest(tmp_path: Path) -> None:
         points={(1, 1), (2, 1), (1, 2), (2, 2)},
     )
 
-    component = build_mask_component_plan(
-        (loaded,), canvas_edge=1024, item_root=tmp_path
-    ).parts[0].components[0]
+    component = build_mask_component_plan((loaded,), canvas_edge=1024, item_root=tmp_path).parts[0].components[0]
     identity = {
         "schema": MASK_COMPONENT_ID_SCHEMA,
         "part_id": "part/face",
@@ -374,9 +436,7 @@ def test_component_plan_is_independent_of_source_and_library_label_order(
     )
     normal_root = tmp_path / "normal"
     normal_root.mkdir()
-    normal = build_mask_component_plan(
-        (face, hair), canvas_edge=1024, item_root=normal_root
-    )
+    normal = build_mask_component_plan((face, hair), canvas_edge=1024, item_root=normal_root)
     original_label = component_plan_module._label_components
 
     def reverse_positive_labels(mask):
@@ -390,9 +450,7 @@ def test_component_plan_is_independent_of_source_and_library_label_order(
     monkeypatch.setattr(component_plan_module, "_label_components", reverse_positive_labels)
     reversed_root = tmp_path / "reversed"
     reversed_root.mkdir()
-    reversed_plan = build_mask_component_plan(
-        (hair, face), canvas_edge=1024, item_root=reversed_root
-    )
+    reversed_plan = build_mask_component_plan((hair, face), canvas_edge=1024, item_root=reversed_root)
 
     assert reversed_plan.plan_sha256 == normal.plan_sha256
     assert reversed_plan.parts == normal.parts
@@ -542,8 +600,14 @@ def test_native_variant_single_eye_role_assigns_component_sides_without_splittin
         role="eye_closed.xmin",
         xyxy=(10, 20, 22, 24),
         points={
-            (0, 0), (1, 0), (0, 1), (1, 1),
-            (9, 1), (10, 1), (9, 2), (10, 2),
+            (0, 0),
+            (1, 0),
+            (0, 1),
+            (1, 1),
+            (9, 1),
+            (10, 1),
+            (9, 2),
+            (10, 2),
         },
     )
 
@@ -555,9 +619,7 @@ def test_native_variant_single_eye_role_assigns_component_sides_without_splittin
 
     assert partition.part_id == "part/native.blink-left"
     assert partition.side_provenance == "role_single"
-    assert {component.part_id for component in partition.components} == {
-        "part/native.blink-left"
-    }
+    assert {component.part_id for component in partition.components} == {"part/native.blink-left"}
     assert {component.side for component in partition.components} == {"xmin"}
 
 
@@ -584,8 +646,14 @@ def test_native_variant_coupled_eye_assigns_two_reliable_components_by_centroid(
         role="eye_closed.coupled",
         xyxy=(10, 20, 22, 24),
         points={
-            (0, 0), (1, 0), (0, 1), (1, 1),
-            (9, 1), (10, 1), (9, 2), (10, 2),
+            (0, 0),
+            (1, 0),
+            (0, 1),
+            (1, 1),
+            (9, 1),
+            (10, 1),
+            (9, 2),
+            (10, 2),
         },
     )
 

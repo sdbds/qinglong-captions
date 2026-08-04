@@ -17,6 +17,7 @@ NATIVE_VARIANT_ELIGIBILITY_PLAN_VERSION = "native-variant-eligibility-plan-v1"
 NATIVE_VARIANT_ADMISSION_POLICY_VERSION = "native-variant-admission-policy-v1"
 NATIVE_VARIANT_ADMISSION_PRIORITY = (
     "blink.native",
+    "mouth_crossfade.native",
     "mouth_open.native",
     "mouth_form.native",
 )
@@ -60,11 +61,7 @@ class NativeVariantAdmissionAttempt:
             "reason_code": self.reason_code,
             "projected_drawable_count": self.projected_drawable_count,
             "quality_result_sha256": self.quality_result_sha256,
-            "texture_plan": (
-                _texture_plan_payload(self.texture_plan)
-                if self.texture_plan is not None
-                else None
-            ),
+            "texture_plan": (_texture_plan_payload(self.texture_plan) if self.texture_plan is not None else None),
         }
 
 
@@ -91,9 +88,7 @@ class NativeVariantEligibilityPlan:
             "component_plan_sha256": self.component_plan_sha256,
             "native_variant_quality_plan_sha256": self.native_variant_quality_plan_sha256,
             "base_projected_drawable_count": self.base_projected_drawable_count,
-            "mandatory_base_texture_plan": _texture_plan_payload(
-                self.mandatory_base_texture_plan
-            ),
+            "mandatory_base_texture_plan": _texture_plan_payload(self.mandatory_base_texture_plan),
             "admission_attempts": [attempt.to_dict() for attempt in self.admission_attempts],
             "render_variant_ids": list(self.render_variant_ids),
             "final_projected_drawable_count": self.final_projected_drawable_count,
@@ -191,33 +186,24 @@ def _validate_inputs(
         raise _error("invalid_native_variant_admission", "quality plan belongs to another component plan")
     if quality_plan.native_variant_set_sha256 != component_plan.native_variant_set_sha256:
         raise _error("invalid_native_variant_admission", "quality/component variant-set digests differ")
-    expected_base_ids = {part.source_part_id for part in component_plan.parts}
+    expected_base_ids = {part.part_id for part in component_plan.parts}
     if {region.part_id for region in base_regions} != expected_base_ids or any(
         region.source_kind != "see_through" for region in base_regions
     ):
         raise _error("invalid_native_variant_admission", "base texture regions differ from base payloads")
-    native_by_id = {
-        region.variant_id: region for region in native_regions if region.variant_id is not None
-    }
-    if len(native_by_id) != len(native_regions) or any(
-        region.source_kind != "native_variant" for region in native_regions
-    ):
+    native_by_id = {region.variant_id: region for region in native_regions if region.variant_id is not None}
+    if len(native_by_id) != len(native_regions) or any(region.source_kind != "native_variant" for region in native_regions):
         raise _error("invalid_native_variant_admission", "native texture regions are invalid")
     expected_native_ids = {result.variant_id for result in quality_plan.candidate_results}
     if set(native_by_id) != expected_native_ids:
         raise _error("invalid_native_variant_admission", "native texture regions differ from quality candidates")
-    partition_by_id = {
-        partition.variant_id: partition for partition in component_plan.variant_partitions
-    }
+    partition_by_id = {partition.variant_id: partition for partition in component_plan.variant_partitions}
     if set(partition_by_id) != expected_native_ids:
         raise _error("invalid_native_variant_admission", "variant partitions differ from quality candidates")
     for variant_id, region in native_by_id.items():
         if partition_by_id[variant_id].part_id != region.part_id:
             raise _error("invalid_native_variant_admission", "variant region Part differs from partition")
-    component_counts = {
-        variant_id: len(partition.components)
-        for variant_id, partition in partition_by_id.items()
-    }
+    component_counts = {variant_id: len(partition.components) for variant_id, partition in partition_by_id.items()}
     bundles = {bundle.bundle_id: bundle for bundle in quality_plan.bundle_results}
     return native_by_id, component_counts, bundles
 
@@ -253,9 +239,7 @@ def admit_native_variant_resources(
         if bundle is None:
             continue
         variant_ids = tuple(sorted(bundle.variant_ids))
-        projected_count = base_count + sum(
-            component_counts[variant_id] for variant_id in accepted | set(variant_ids)
-        )
+        projected_count = base_count + sum(component_counts[variant_id] for variant_id in accepted | set(variant_ids))
         if not bundle.eligible:
             attempts.append(
                 NativeVariantAdmissionAttempt(

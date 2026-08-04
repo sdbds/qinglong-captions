@@ -16,7 +16,8 @@ from .joint_observations import (
 )
 
 GEOMETRY_EVIDENCE_BATCH_VERSION = "geometry-evidence-batch-v1"
-AXIAL_JOINT_GEOMETRY_VERSION = "axial-joint-geometry-v1"
+AXIAL_JOINT_GEOMETRY_VERSION = "axial-joint-geometry-v2"
+AXIAL_DOMINANT_COMPONENT_PERCENT = 95
 
 AXIAL_JOINT_IDS = (
     "joint/pelvis",
@@ -124,6 +125,7 @@ class _AxisFrame:
     transverse_max: float
     eigen_ratio: float
     connected: bool
+    target_anchored: bool
 
     @property
     def axial_span(self) -> float:
@@ -189,8 +191,22 @@ def _component_count(mask) -> int:
 
 def _principal_axis(mask, target_mask) -> tuple[_AxisFrame, object, object]:
     import numpy as np
+    from scipy.ndimage import label
 
-    ys, xs = np.nonzero(mask)
+    labels, component_count = label(
+        mask,
+        structure=np.ones((3, 3), dtype=np.uint8),
+    )
+    connected = component_count == 1
+    axis_mask = mask
+    if component_count > 1:
+        counts = np.bincount(labels.ravel())[1:]
+        dominant_label = int(np.argmax(counts)) + 1
+        dominant_count = int(counts[dominant_label - 1])
+        total_count = int(counts.sum())
+        connected = dominant_count * 100 >= total_count * AXIAL_DOMINANT_COMPONENT_PERCENT
+        axis_mask = labels == dominant_label
+    ys, xs = np.nonzero(axis_mask)
     if len(xs) < 4:
         raise _error("torso mask has too few pixels for an axis")
     points = np.column_stack((xs.astype(np.float64) + 0.5, ys.astype(np.float64) + 0.5))
@@ -198,13 +214,20 @@ def _principal_axis(mask, target_mask) -> tuple[_AxisFrame, object, object]:
     centered = points - centroid
     covariance = centered.T @ centered / float(len(points))
     eigenvalues, eigenvectors = np.linalg.eigh(covariance)
-    headward = eigenvectors[:, int(np.argmax(eigenvalues))]
+    principal = eigenvectors[:, int(np.argmax(eigenvalues))]
     target = _centroid(target_mask)
+    target_anchored = False
     if target is not None:
         toward_target = np.asarray(target, dtype=np.float64) - centroid
-        if float(headward @ toward_target) < 0.0:
-            headward = -headward
-    elif float(headward[1]) > 0.0:
+        target_distance = float(np.linalg.norm(toward_target))
+        if target_distance > 1e-12:
+            headward = toward_target / target_distance
+            target_anchored = True
+        else:
+            headward = principal
+    else:
+        headward = principal
+    if not target_anchored and float(headward[1]) > 0.0:
         headward = -headward
     transverse = np.asarray((-headward[1], headward[0]), dtype=np.float64)
     if float(transverse[0]) < 0.0:
@@ -227,7 +250,8 @@ def _principal_axis(mask, target_mask) -> tuple[_AxisFrame, object, object]:
             transverse_min=float(transverse_projection.min()),
             transverse_max=float(transverse_projection.max()),
             eigen_ratio=ratio,
-            connected=_component_count(mask) == 1,
+            connected=connected,
+            target_anchored=target_anchored,
         ),
         points,
         axial_projection,
@@ -313,11 +337,7 @@ def _factors(
 ) -> GeometryConfidenceFactors:
     return GeometryConfidenceFactors(
         connectivity=1.0 if frame is None or frame.connected else 0.0,
-        main_path_length=(
-            None
-            if frame is None
-            else min(1.0, frame.axial_span / max(reference_width, 1.0))
-        ),
+        main_path_length=(None if frame is None else min(1.0, frame.axial_span / max(reference_width, 1.0))),
         branch_ratio=None,
         endpoint_contact=endpoint_contact,
         curvature_peak=None,
@@ -408,14 +428,8 @@ def _head_top(mask, base: tuple[float, float], neck_mask):
     neck_center = _centroid(neck_mask)
     head_center = _centroid(mask)
     origin = neck_center if neck_center is not None else base
-    away = (
-        (head_center[0] - origin[0], head_center[1] - origin[1])
-        if head_center is not None
-        else (0.0, -1.0)
-    )
-    farthest = [
-        node for node, distance in distances.items() if math.isclose(distance, maximum)
-    ]
+    away = (head_center[0] - origin[0], head_center[1] - origin[1]) if head_center is not None else (0.0, -1.0)
+    farthest = [node for node, distance in distances.items() if math.isclose(distance, maximum)]
     end = min(
         farthest,
         key=lambda node: (
@@ -485,7 +499,7 @@ def build_axial_joint_evidence(anatomy: AnatomyMaskGeometry) -> GeometryEvidence
         torso_frame, torso_points, torso_projections = _principal_axis(torso, target)
         torso_width = max(1.0, torso_frame.transverse_span)
         torso_quality: Literal["high", "low"] = (
-            "high" if torso_frame.connected and torso_frame.eigen_ratio >= 1.25 else "low"
+            "high" if torso_frame.connected and (torso_frame.target_anchored or torso_frame.eigen_ratio >= 1.25) else "low"
         )
         for joint_id, percentile in (
             ("joint/pelvis", descriptor.pelvis_axis_percentile),
@@ -687,25 +701,30 @@ def build_axial_joint_evidence(anatomy: AnatomyMaskGeometry) -> GeometryEvidence
                 )
             )
 
-    limb_state_by_family = {
-        state.family: state for state in anatomy.plan.limb_states
-    }
+    limb_state_by_family = {state.family: state for state in anatomy.plan.limb_states}
     for joint_prefix, family in (("shoulder", "handwear"), ("hip", "legwear")):
         state = limb_state_by_family[family]
         for side in ("xmin", "xmax"):
             joint_id = f"joint/{joint_prefix}.{side}"
             limb_metric_id = f"mask/limb/{family}.{side}"
             evidence_ids = ("mask/torso_core", limb_metric_id)
-            metric = metric_by_id[limb_metric_id]
-            if torso_frame is None or state.state == "missing" or metric.status == "missing":
-                status: Literal["ambiguous", "missing"] = (
-                    "ambiguous" if state.state == "merged-ambiguous" else "missing"
-                )
-                reason = "merged_limb" if status == "ambiguous" else "limb_or_torso_missing"
+            if state.state == "merged-ambiguous":
                 unavailable(
                     joint_id,
-                    status=status,
-                    reason=reason,
+                    status="ambiguous",
+                    reason="merged_limb",
+                    evidence_ids=(
+                        "mask/torso_core",
+                        f"mask/limb/{family}.merged",
+                    ),
+                )
+                continue
+            metric = metric_by_id[limb_metric_id]
+            if torso_frame is None or state.state == "missing" or metric.status == "missing":
+                unavailable(
+                    joint_id,
+                    status="missing",
+                    reason="limb_or_torso_missing",
                     evidence_ids=evidence_ids,
                 )
                 continue
@@ -753,9 +772,7 @@ def build_axial_joint_evidence(anatomy: AnatomyMaskGeometry) -> GeometryEvidence
 
     ordered_eligibilities = tuple(eligibility_by_id[joint_id] for joint_id in AXIAL_JOINT_IDS)
     ordered_observations = tuple(sorted(observations, key=lambda item: item.observation_id))
-    ordered_diagnostics = tuple(
-        sorted(diagnostics, key=lambda item: (item.joint_id, item.reason))
-    )
+    ordered_diagnostics = tuple(sorted(diagnostics, key=lambda item: (item.joint_id, item.reason)))
     values = {
         "schema_version": GEOMETRY_EVIDENCE_BATCH_VERSION,
         "provider": "axial",

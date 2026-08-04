@@ -13,10 +13,10 @@ from .joint_pipeline import StageAJointPlan, validate_stage_a_joint_plan
 from .mesh_builder import MeshBuildPlan, MeshRecord, validate_mesh_plan
 from .native_variants import NativeVariantSet
 
-PART_BONE_BINDING_REGISTRY_VERSION = "part-bone-binding-registry-v1"
-SKINNING_PLAN_VERSION = "skinning-plan-v1"
-SKINNING_DESCRIPTOR_VERSION = "skinning-descriptor-v1"
-SKINNING_ARC_PROJECTION_VERSION = "joint-chain-arc-projection-v1"
+PART_BONE_BINDING_REGISTRY_VERSION = "part-bone-binding-registry-v2"
+SKINNING_PLAN_VERSION = "skinning-plan-v3"
+SKINNING_DESCRIPTOR_VERSION = "skinning-descriptor-v3"
+SKINNING_ARC_PROJECTION_VERSION = "component-chain-assignment-v3"
 SKINNING_TRANSITION_RADIUS_NUMERATOR = 1
 SKINNING_TRANSITION_RADIUS_DENOMINATOR = 1
 SKINNING_WEIGHT_DENOMINATOR = 1_000_000
@@ -309,16 +309,42 @@ def _semantic_candidates(
     if rule.target == "lower_torso":
         return ("bone/lower_torso",), ("bone/torso", "bone/root")
     if rule.target == "arm" and side in {"xmin", "xmax"}:
+        other = "xmax" if side == "xmin" else "xmin"
         return (
             f"bone/upper_arm.{side}",
             f"bone/forearm.{side}",
             f"bone/hand.{side}",
+            f"bone/upper_arm.{other}",
+            f"bone/forearm.{other}",
+            f"bone/hand.{other}",
+        ), ("bone/torso", "bone/lower_torso", "bone/root")
+    if rule.target == "arm" and side is None:
+        return (
+            "bone/upper_arm.xmin",
+            "bone/forearm.xmin",
+            "bone/hand.xmin",
+            "bone/upper_arm.xmax",
+            "bone/forearm.xmax",
+            "bone/hand.xmax",
         ), ("bone/torso", "bone/lower_torso", "bone/root")
     if rule.target == "leg" and side in {"xmin", "xmax"}:
+        other = "xmax" if side == "xmin" else "xmin"
         return (
             f"bone/thigh.{side}",
             f"bone/shin.{side}",
             f"bone/foot.{side}",
+            f"bone/thigh.{other}",
+            f"bone/shin.{other}",
+            f"bone/foot.{other}",
+        ), ("bone/lower_torso", "bone/torso", "bone/root")
+    if rule.target == "leg" and side is None:
+        return (
+            "bone/thigh.xmin",
+            "bone/shin.xmin",
+            "bone/foot.xmin",
+            "bone/thigh.xmax",
+            "bone/shin.xmax",
+            "bone/foot.xmax",
         ), ("bone/lower_torso", "bone/torso", "bone/root")
     if rule.mode == "dynamic":
         return ("bone/torso", "bone/root"), ("bone/lower_torso", "bone/root")
@@ -339,9 +365,7 @@ def _make_binding(
 ) -> PartBoneBinding:
     if inherited is None:
         candidates, fallback = _semantic_candidates(rule, side=side)
-        mode: Literal["rigid", "limb", "dynamic", "unknown"] = (
-            "unknown" if rule is None else rule.mode
-        )
+        mode: Literal["rigid", "limb", "dynamic", "unknown"] = "unknown" if rule is None else rule.mode
         dynamic_candidate = False if rule is None else rule.dynamic_candidate
         rule_id = None if rule is None else rule.rule_id
     else:
@@ -353,14 +377,15 @@ def _make_binding(
         base_tag = inherited.base_tag
         side = inherited.side
     usable = tuple(bone_id for bone_id in candidates if bone_id in emitted_bone_ids)
-    selected = next(
-        (
-            bone_id
-            for bone_id in (*usable, *fallback)
-            if bone_id in emitted_bone_ids
-        ),
-        "bone/root",
-    )
+    if inherited is not None:
+        selected = inherited.selected_rigid_bone_id
+    else:
+        prefer_fallback = rule is not None and rule.mode == "limb" and side is None
+        selection_order = (*fallback, *usable) if prefer_fallback else (*usable, *fallback)
+        selected = next(
+            (bone_id for bone_id in selection_order if bone_id in emitted_bone_ids),
+            "bone/root",
+        )
     content = {
         "part_id": part_id,
         "source_kind": source_kind,
@@ -411,9 +436,7 @@ def build_part_bone_bindings(
     if len(part_by_id) != len(parts):
         raise _error("invalid_skinning_input", "normalized Part IDs are not unique")
     source_by_part = {source.part_id: source for source in mesh_plan.sources}
-    ordinary_ids = {
-        source.part_id for source in mesh_plan.sources if source.source_kind == "see_through"
-    }
+    ordinary_ids = {source.part_id for source in mesh_plan.sources if source.source_kind == "see_through"}
     if set(part_by_id) != ordinary_ids:
         raise _error("invalid_skinning_input", "normalized Parts differ from mesh sources")
 
@@ -445,12 +468,7 @@ def build_part_bone_bindings(
             candidate = candidate_by_id[variant_id]
             source = source_by_part.get(candidate.part_id)
             anchor = bindings.get(candidate.draw_anchor_part_id)
-            if (
-                source is None
-                or source.source_kind != "native_variant"
-                or source.variant_id != variant_id
-                or anchor is None
-            ):
+            if source is None or source.source_kind != "native_variant" or source.variant_id != variant_id or anchor is None:
                 raise _error("invalid_skinning_input", "NativeVariant anchor/source is invalid")
             bindings[candidate.part_id] = _make_binding(
                 part_id=candidate.part_id,
@@ -506,9 +524,7 @@ def _authenticated_source_map(
 ) -> dict[str, MeshComponentSource]:
     sources = tuple(component_sources)
     source_by_id = {source.component_id: source for source in sources}
-    if len(source_by_id) != len(sources) or set(source_by_id) != {
-        source.component_id for source in mesh_plan.sources
-    }:
+    if len(source_by_id) != len(sources) or set(source_by_id) != {source.component_id for source in mesh_plan.sources}:
         raise _error("invalid_skinning_input", "component sources differ from MeshBuildPlan")
     record_by_id = {source.component_id: source for source in mesh_plan.sources}
     for source in sources:
@@ -551,15 +567,8 @@ def _quantized_influences(
     if total <= 0.0:
         raise _error("invalid_skinning_input", "arc weights have zero mass")
     normalized = {bone_id: weight / total for bone_id, weight in combined.items()}
-    units = {
-        bone_id: int(math.floor(weight * SKINNING_WEIGHT_DENOMINATOR + 0.5))
-        for bone_id, weight in normalized.items()
-    }
-    units = {
-        bone_id: value
-        for bone_id, value in units.items()
-        if value >= SKINNING_MIN_INFLUENCE_UNITS
-    }
+    units = {bone_id: int(math.floor(weight * SKINNING_WEIGHT_DENOMINATOR + 0.5)) for bone_id, weight in normalized.items()}
+    units = {bone_id: value for bone_id, value in units.items() if value >= SKINNING_MIN_INFLUENCE_UNITS}
     if not units:
         winner = min(
             normalized,
@@ -612,34 +621,25 @@ def compute_arc_length_influences(
         or len(internal_joint_radii) != len(bone_ids) - 1
     ):
         raise _error("invalid_skinning_input", "arc chain cardinality is invalid")
-    if any(
-        not math.isfinite(value)
-        for point in (*joint_points, position)
-        for value in point
-    ) or any(not math.isfinite(radius) or radius <= 0.0 for radius in internal_joint_radii):
+    if any(not math.isfinite(value) for point in (*joint_points, position) for value in point) or any(
+        not math.isfinite(radius) or radius <= 0.0 for radius in internal_joint_radii
+    ):
         raise _error("invalid_skinning_input", "arc chain geometry is invalid")
 
     cumulative = [0.0]
     best: tuple[float, int, float, float] | None = None
-    for index, (start, end) in enumerate(
-        zip(joint_points[:-1], joint_points[1:], strict=True)
-    ):
+    for index, (start, end) in enumerate(zip(joint_points[:-1], joint_points[1:], strict=True)):
         delta_x = end[0] - start[0]
         delta_y = end[1] - start[1]
         length_squared = delta_x * delta_x + delta_y * delta_y
         if length_squared <= 0.0:
             raise _error("invalid_skinning_input", "arc chain contains a zero-length segment")
         length = math.sqrt(length_squared)
-        projection = (
-            (position[0] - start[0]) * delta_x
-            + (position[1] - start[1]) * delta_y
-        ) / length_squared
+        projection = ((position[0] - start[0]) * delta_x + (position[1] - start[1]) * delta_y) / length_squared
         projection = min(1.0, max(0.0, projection))
         projected_x = start[0] + projection * delta_x
         projected_y = start[1] + projection * delta_y
-        distance_squared = (
-            (position[0] - projected_x) ** 2 + (position[1] - projected_y) ** 2
-        )
+        distance_squared = (position[0] - projected_x) ** 2 + (position[1] - projected_y) ** 2
         arc_position = cumulative[-1] + projection * length
         candidate = (distance_squared, index, projection, arc_position)
         if best is None or candidate < best:
@@ -652,11 +652,7 @@ def compute_arc_length_influences(
 
     active_transition: tuple[float, int, float] | None = None
     for boundary_index, radius in enumerate(internal_joint_radii):
-        half_width = (
-            radius
-            * SKINNING_TRANSITION_RADIUS_NUMERATOR
-            / SKINNING_TRANSITION_RADIUS_DENOMINATOR
-        )
+        half_width = radius * SKINNING_TRANSITION_RADIUS_NUMERATOR / SKINNING_TRANSITION_RADIUS_DENOMINATOR
         boundary = cumulative[boundary_index + 1]
         normalized_distance = abs(arc_position - boundary) / half_width
         if normalized_distance <= 1.0:
@@ -708,18 +704,21 @@ def _component_radius_at(
 
 
 def _limb_chain_geometry(
-    binding: PartBoneBinding,
+    bone_ids: tuple[str, ...],
     *,
     bone_graph: BoneGraphPlan,
     joints: StageAJointPlan,
     source: MeshComponentSource,
-) -> tuple[
-    tuple[str, ...],
-    tuple[tuple[float, float], ...],
-    tuple[float, ...],
-] | None:
+) -> (
+    tuple[
+        tuple[str, ...],
+        tuple[tuple[float, float], ...],
+        tuple[float, ...],
+    ]
+    | None
+):
     bone_by_id = {bone.bone_id: bone for bone in bone_graph.bones}
-    chain = tuple(bone_by_id[bone_id] for bone_id in binding.usable_bone_ids)
+    chain = tuple(bone_by_id[bone_id] for bone_id in bone_ids)
     if len(chain) < 2 or any(bone.head is None or bone.tail is None for bone in chain):
         return None
     for first, second in zip(chain[:-1], chain[1:], strict=True):
@@ -728,10 +727,7 @@ def _limb_chain_geometry(
     points = (chain[0].head, *(bone.tail for bone in chain))
     if any(point is None for point in points):
         return None
-    eligibility_by_id = {
-        eligibility.joint_id: eligibility
-        for eligibility in joints.joints.eligibilities
-    }
+    eligibility_by_id = {eligibility.joint_id: eligibility for eligibility in joints.joints.eligibilities}
     radii: list[float] = []
     for bone in chain[:-1]:
         if bone.tail_joint_id is None:
@@ -748,6 +744,95 @@ def _limb_chain_geometry(
         tuple(point for point in points if point is not None),
         tuple(radii),
     )
+
+
+def _limb_chain_groups(binding: PartBoneBinding) -> tuple[tuple[str, ...], ...]:
+    groups_by_side = {
+        side: tuple(bone_id for bone_id in binding.usable_bone_ids if bone_id.endswith(f".{side}")) for side in ("xmin", "xmax")
+    }
+    if binding.side in {"xmin", "xmax"}:
+        own = groups_by_side[binding.side]
+        if len(own) < 2:
+            return ()
+        other_side = "xmax" if binding.side == "xmin" else "xmin"
+        other = groups_by_side[other_side]
+        return (own, other) if len(other) >= 2 else (own,)
+    groups = (groups_by_side["xmin"], groups_by_side["xmax"])
+    return groups if all(len(group) >= 2 for group in groups) else ()
+
+
+def _chain_distance_squared(
+    position: tuple[float, float],
+    joint_points: tuple[tuple[float, float], ...],
+) -> float:
+    distances = []
+    for start, end in zip(joint_points[:-1], joint_points[1:], strict=True):
+        delta_x = end[0] - start[0]
+        delta_y = end[1] - start[1]
+        length_squared = delta_x * delta_x + delta_y * delta_y
+        if length_squared <= 0.0:
+            raise _error("invalid_skinning_input", "arc chain contains a zero-length segment")
+        projection = ((position[0] - start[0]) * delta_x + (position[1] - start[1]) * delta_y) / length_squared
+        projection = min(1.0, max(0.0, projection))
+        projected_x = start[0] + projection * delta_x
+        projected_y = start[1] + projection * delta_y
+        distances.append((position[0] - projected_x) ** 2 + (position[1] - projected_y) ** 2)
+    if not distances:
+        raise _error("invalid_skinning_input", "arc chain has no segments")
+    return min(distances)
+
+
+def _median_chain_distance_squared(
+    mesh: MeshRecord,
+    joint_points: tuple[tuple[float, float], ...],
+) -> float:
+    distances = sorted(_chain_distance_squared(vertex.position, joint_points) for vertex in mesh.vertices)
+    midpoint = len(distances) // 2
+    if len(distances) % 2:
+        return distances[midpoint]
+    return (distances[midpoint - 1] + distances[midpoint]) / 2.0
+
+
+def _component_chain_geometry(
+    mesh: MeshRecord,
+    binding: PartBoneBinding,
+    geometries: tuple[
+        tuple[
+            tuple[str, ...],
+            tuple[tuple[float, float], ...],
+            tuple[float, ...],
+        ],
+        ...,
+    ],
+) -> (
+    tuple[
+        tuple[str, ...],
+        tuple[tuple[float, float], ...],
+        tuple[float, ...],
+    ]
+    | None
+):
+    if binding.side not in {"xmin", "xmax"}:
+        return None
+    if binding.base_tag == "footwear":
+        center_x = sum(vertex.position[0] for vertex in mesh.vertices) / len(mesh.vertices)
+        center_y = sum(vertex.position[1] for vertex in mesh.vertices) / len(mesh.vertices)
+
+        def assignment_cost(item) -> tuple[float, int]:
+            index, geometry = item
+            terminal_x, terminal_y = geometry[1][-1]
+            return (
+                (center_x - terminal_x) ** 2 + (center_y - terminal_y) ** 2,
+                index,
+            )
+
+    else:
+
+        def assignment_cost(item) -> tuple[float, int]:
+            index, geometry = item
+            return (_median_chain_distance_squared(mesh, geometry[1]), index)
+
+    return min(enumerate(geometries), key=assignment_cost)[1]
 
 
 def _weighted_mesh(
@@ -768,9 +853,7 @@ def _weighted_mesh(
         )
         for vertex, vertex_influences in zip(mesh.vertices, influences, strict=True)
     )
-    allowed = tuple(
-        dict.fromkeys((*binding.usable_bone_ids, binding.selected_rigid_bone_id))
-    )
+    allowed = tuple(dict.fromkeys((*binding.usable_bone_ids, binding.selected_rigid_bone_id)))
     content = {
         "mesh_id": mesh.mesh_id,
         "mesh_sha256": mesh.mesh_sha256,
@@ -845,11 +928,7 @@ def validate_skinning_plan(plan: SkinningPlan) -> SkinningPlan:
         raise _error("invalid_skinning_plan", "SkinningPlan digest mismatch")
     if plan.descriptor != build_skinning_descriptor():
         raise _error("invalid_skinning_plan", "skinning descriptor differs from v1")
-    if (
-        not plan.bone_ids
-        or plan.bone_ids[0] != "bone/root"
-        or len(plan.bone_ids) != len(set(plan.bone_ids))
-    ):
+    if not plan.bone_ids or plan.bone_ids[0] != "bone/root" or len(plan.bone_ids) != len(set(plan.bone_ids)):
         raise _error("invalid_skinning_plan", "skinning bone inventory is invalid")
     bone_id_set = set(plan.bone_ids)
     bindings = {binding.part_id: binding for binding in plan.part_bindings}
@@ -858,9 +937,8 @@ def validate_skinning_plan(plan: SkinningPlan) -> SkinningPlan:
     for binding in plan.part_bindings:
         if binding.binding_sha256 != jcs_sha256(binding.content_payload()):
             raise _error("invalid_skinning_plan", "Part binding digest mismatch")
-        if (
-            binding.selected_rigid_bone_id not in bone_id_set
-            or any(bone_id not in bone_id_set for bone_id in binding.usable_bone_ids)
+        if binding.selected_rigid_bone_id not in bone_id_set or any(
+            bone_id not in bone_id_set for bone_id in binding.usable_bone_ids
         ):
             raise _error("invalid_skinning_plan", "Part binding references an unknown bone")
     component_ids = tuple(mesh.component_id for mesh in plan.weighted_meshes)
@@ -888,30 +966,21 @@ def validate_skinning_plan(plan: SkinningPlan) -> SkinningPlan:
             if not 1 <= len(influences) <= plan.descriptor.maximum_influences:
                 raise _error("invalid_skinning_plan", "vertex influence count is invalid")
             bone_ids = tuple(influence.bone_id for influence in influences)
-            if bone_ids != tuple(sorted(set(bone_ids))) or any(
-                bone_id not in mesh.allowed_bone_ids for bone_id in bone_ids
-            ):
+            if bone_ids != tuple(sorted(set(bone_ids))) or any(bone_id not in mesh.allowed_bone_ids for bone_id in bone_ids):
                 raise _error("invalid_skinning_plan", "vertex influence bone is invalid")
             weights = tuple(influence.weight for influence in influences)
-            if (
-                any(not math.isfinite(weight) or weight < 0.0 for weight in weights)
-                or not math.isclose(sum(weights), 1.0, abs_tol=1e-12)
+            if any(not math.isfinite(weight) or weight < 0.0 for weight in weights) or not math.isclose(
+                sum(weights), 1.0, abs_tol=1e-12
             ):
                 raise _error("invalid_skinning_plan", "vertex influence weights are invalid")
         if any(index < 0 or index >= len(mesh.vertices) for index in mesh.triangles):
             raise _error("invalid_skinning_plan", "weighted mesh triangle index is invalid")
-    diagnostics = tuple(
-        (diagnostic.part_id, diagnostic.code, diagnostic.component_ids)
-        for diagnostic in plan.diagnostics
-    )
+    diagnostics = tuple((diagnostic.part_id, diagnostic.code, diagnostic.component_ids) for diagnostic in plan.diagnostics)
     if diagnostics != tuple(sorted(set(diagnostics))):
         raise _error("invalid_skinning_plan", "skinning diagnostics are not canonical")
     if any(diagnostic.part_id not in bindings for diagnostic in plan.diagnostics):
         raise _error("invalid_skinning_plan", "skinning diagnostic Part is unknown")
-    if any(
-        diagnostic.selected_bone_id not in bone_id_set
-        for diagnostic in plan.diagnostics
-    ):
+    if any(diagnostic.selected_bone_id not in bone_id_set for diagnostic in plan.diagnostics):
         raise _error("invalid_skinning_plan", "skinning diagnostic bone is unknown")
     return plan
 
@@ -954,37 +1023,53 @@ def build_skinning_plan(
         binding = binding_by_part[mesh.part_id]
         vertex_influences: tuple[tuple[SkinInfluence, ...], ...]
         if binding.mode == "limb" and len(binding.usable_bone_ids) >= 2:
-            geometry = _limb_chain_geometry(
-                binding,
-                bone_graph=bone_graph,
-                joints=joints,
-                source=source_by_id[mesh.component_id],
-            )
-            if geometry is None:
-                limb_geometry_fallback_parts.add(binding.part_id)
-                vertex_influences = tuple(
-                    _rigid_influences(binding.selected_rigid_bone_id)
-                    for _vertex in mesh.vertices
+            chain_groups = _limb_chain_groups(binding)
+            geometries = tuple(
+                geometry
+                for bone_ids in chain_groups
+                if (
+                    geometry := _limb_chain_geometry(
+                        bone_ids,
+                        bone_graph=bone_graph,
+                        joints=joints,
+                        source=source_by_id[mesh.component_id],
+                    )
                 )
+                is not None
+            )
+            if len(geometries) != len(chain_groups) or not geometries:
+                limb_geometry_fallback_parts.add(binding.part_id)
+                vertex_influences = tuple(_rigid_influences(binding.selected_rigid_bone_id) for _vertex in mesh.vertices)
             else:
-                bone_ids, joint_points, radii = geometry
-                vertex_influences = tuple(
-                    compute_arc_length_influences(
+                component_geometry = _component_chain_geometry(
+                    mesh,
+                    binding,
+                    geometries,
+                )
+
+                def influences_for_vertex(vertex) -> tuple[SkinInfluence, ...]:
+                    if component_geometry is None:
+                        _, selected_geometry = min(
+                            enumerate(geometries),
+                            key=lambda item: (
+                                _chain_distance_squared(vertex.position, item[1][1]),
+                                item[0],
+                            ),
+                        )
+                    else:
+                        selected_geometry = component_geometry
+                    bone_ids, joint_points, radii = selected_geometry
+                    return compute_arc_length_influences(
                         position=vertex.position,
                         bone_ids=bone_ids,
                         joint_points=joint_points,
                         internal_joint_radii=radii,
                     )
-                    for vertex in mesh.vertices
-                )
+
+                vertex_influences = tuple(influences_for_vertex(vertex) for vertex in mesh.vertices)
         else:
-            vertex_influences = tuple(
-                _rigid_influences(binding.selected_rigid_bone_id)
-                for _vertex in mesh.vertices
-            )
-        weighted_mesh_list.append(
-            _weighted_mesh(mesh, binding, vertex_influences)
-        )
+            vertex_influences = tuple(_rigid_influences(binding.selected_rigid_bone_id) for _vertex in mesh.vertices)
+        weighted_mesh_list.append(_weighted_mesh(mesh, binding, vertex_influences))
     weighted_meshes = tuple(weighted_mesh_list)
 
     diagnostics: list[SkinningDiagnostic] = []
@@ -1008,8 +1093,7 @@ def build_skinning_plan(
                 binding.mode in {"rigid", "dynamic"}
                 and (
                     not binding.semantic_candidate_bone_ids
-                    or binding.selected_rigid_bone_id
-                    != binding.semantic_candidate_bone_ids[0]
+                    or binding.selected_rigid_bone_id != binding.semantic_candidate_bone_ids[0]
                 )
             )
         )

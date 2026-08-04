@@ -38,6 +38,9 @@ dependencies = [
     "tomlkit",
 ]
 
+[project.scripts]
+qinglong-auto-rig = "module.auto_rig.cli:main"
+
 [project.optional-dependencies]
 torch-base = [
     "torch==2.13.0",
@@ -111,6 +114,15 @@ auto-rig = [
     "psd-tools[composite]==1.17.4",
     "pillow==12.3.0",
     "rectpack==0.2.2",
+]
+auto-rig-pose = [
+    "qinglong-captions[auto-rig,torch-base]",
+    "diffusers>=0.35.1",
+    "omegaconf>=2.3.0",
+    "detrpose @ git+https://github.com/SebastianJanampa/DETRPose.git@da12e0cd29864b1d3a289c562c34d423371a4157",
+    "flash-attn==2.8.4; sys_platform == 'linux'",
+    "triton-windows; sys_platform == 'win32'",
+    "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
 ]
 music-export = [
     "mido>=1.3.0",

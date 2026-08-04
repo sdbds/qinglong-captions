@@ -13,6 +13,7 @@ from module.auto_rig.joint_pipeline import (
     StageAJointPlan,
     build_pose_observation_batch,
     build_stage_a_joint_plan,
+    partition_pose_observations_by_anatomy,
     validate_stage_a_joint_plan,
 )
 from module.auto_rig.joint_registry import JOINT_IDS
@@ -97,9 +98,7 @@ def test_stage_a_joint_plan_accepts_an_explicit_pose_provider_batch(
         overrides=overrides,
         pose=pose,
     )
-    resolution = next(
-        item for item in stage_plan.joints.resolutions if item.joint_id == "joint/wrist.xmin"
-    )
+    resolution = next(item for item in stage_plan.joints.resolutions if item.joint_id == "joint/wrist.xmin")
 
     assert stage_plan.pose.schema_version == POSE_OBSERVATION_BATCH_VERSION
     assert stage_plan.pose.enabled is True
@@ -125,9 +124,7 @@ def test_stage_a_joint_plan_keeps_authorized_outside_override_warning(
         target=target,
         overrides=overrides,
     )
-    resolution = next(
-        item for item in stage_plan.joints.resolutions if item.joint_id == "joint/elbow.xmin"
-    )
+    resolution = next(item for item in stage_plan.joints.resolutions if item.joint_id == "joint/elbow.xmin")
 
     assert stage_plan.override_outside_joint_ids == ("joint/elbow.xmin",)
     assert resolution.status == "resolved"
@@ -207,6 +204,63 @@ def test_stage_a_joint_plan_rejects_pose_observation_outside_anatomy_evidence(
             overrides=overrides,
             pose=pose,
         )
+
+
+def test_pose_observation_partition_keeps_valid_points_and_reports_invalid_ones(
+    tmp_path,
+) -> None:
+    target = _target(tmp_path)
+    overrides = validate_rig_override_source(load_rig_override_source(tmp_path), target)
+    anatomy = _anatomy(
+        tmp_path,
+        _torso(),
+        _part(
+            "handwear",
+            xyxy=(50, 100, 102, 180),
+            points=_bent_arm_points(),
+        ),
+    )
+    geometry = build_stage_a_joint_plan(
+        anatomy,
+        target=target,
+        overrides=overrides,
+    )
+    inside = make_joint_observation(
+        joint_id="joint/wrist.xmin",
+        source="pose",
+        x=75,
+        y=165,
+        confidence_class="model",
+        canvas_width=768,
+        canvas_height=768,
+        evidence_ids=("pose/keypoint/9",),
+        pose_score=0.95,
+        algorithm_version="synthetic-pose-v1",
+    )
+    outside = make_joint_observation(
+        joint_id="joint/elbow.xmin",
+        source="pose",
+        x=300,
+        y=310,
+        confidence_class="model",
+        canvas_width=768,
+        canvas_height=768,
+        evidence_ids=("pose/keypoint/7",),
+        pose_score=0.95,
+        algorithm_version="synthetic-pose-v1",
+    )
+
+    accepted, rejected = partition_pose_observations_by_anatomy(
+        anatomy,
+        geometry.joints.eligibilities,
+        (outside, inside),
+    )
+
+    assert accepted == (inside,)
+    assert len(rejected) == 1
+    assert rejected[0].joint_id == "joint/elbow.xmin"
+    assert rejected[0].reason == "outside_anatomy_evidence"
+    assert rejected[0].distance > rejected[0].tolerance
 
 
 def test_pose_batch_rejects_non_string_fingerprints_as_contract_errors(

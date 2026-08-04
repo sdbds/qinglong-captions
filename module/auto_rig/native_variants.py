@@ -6,7 +6,7 @@ import re
 import stat
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .artifacts import ArtifactContractError, sha256_file
 from .component_plan import MaskComponentPlan, NormalizedMaskPart
@@ -15,13 +15,16 @@ from .draw_order import OrdinaryDrawOrderPlan
 from .jcs import jcs_sha256
 
 NATIVE_VARIANT_MANIFEST_VERSION = "native-variant-manifest-v1"
-NATIVE_VARIANT_SET_VERSION = "native-variant-set-v1"
+NATIVE_VARIANT_SET_VERSION = "native-variant-set-v2"
 NATIVE_VARIANT_COMPOSITE_MODE = "occluding_overlay_v1"
+NATIVE_VARIANT_CROSSFADE_COMPOSITE_MODE = "crossfade_overlay_v1"
+NATIVE_VARIANT_COMPOSITE_MODES = frozenset({NATIVE_VARIANT_COMPOSITE_MODE, NATIVE_VARIANT_CROSSFADE_COMPOSITE_MODE})
 NATIVE_VARIANT_ROLES = frozenset(
     {
         "eye_closed.xmin",
         "eye_closed.xmax",
         "eye_closed.coupled",
+        "mouth_closed",
         "mouth_open",
         "mouth_smile",
         "mouth_frown",
@@ -46,9 +49,7 @@ _VARIANT_FIELDS = {
 _VARIANT_ID_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$")
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _WINDOWS_RESERVED = frozenset(
-    {"con", "prn", "aux", "nul"}
-    | {f"com{index}" for index in range(1, 10)}
-    | {f"lpt{index}" for index in range(1, 10)}
+    {"con", "prn", "aux", "nul"} | {f"com{index}" for index in range(1, 10)} | {f"lpt{index}" for index in range(1, 10)}
 )
 _REPARSE_POINT_ATTRIBUTE = 0x400
 
@@ -76,6 +77,8 @@ class NativeVariantCandidate:
     color_space: str
     alpha_mass_u8_sum: int
     alpha_u8: bytes
+    source_kind: Literal["authored", "generated"] = "authored"
+    generator_version: str | None = None
 
     def semantic_entry(self) -> dict[str, object]:
         return {
@@ -91,6 +94,8 @@ class NativeVariantCandidate:
             "alpha_mode": self.alpha_mode,
             "color_space": self.color_space,
             "file_sha256": self.file_sha256,
+            "source_kind": self.source_kind,
+            "generator_version": self.generator_version,
         }
 
 
@@ -116,9 +121,7 @@ def _error(message: str) -> NativeVariantContractError:
 
 def _is_reparse_point(path: Path) -> bool:
     status = os.lstat(path)
-    return stat.S_ISLNK(status.st_mode) or bool(
-        getattr(status, "st_file_attributes", 0) & _REPARSE_POINT_ATTRIBUTE
-    )
+    return stat.S_ISLNK(status.st_mode) or bool(getattr(status, "st_file_attributes", 0) & _REPARSE_POINT_ATTRIBUTE)
 
 
 def _lexists(path: Path) -> bool:
@@ -153,9 +156,7 @@ def _load_manifest(path: Path) -> dict[str, Any]:
         payload = json.loads(
             path.read_text(encoding="utf-8"),
             object_pairs_hook=_duplicate_key_object,
-            parse_constant=lambda value: (_ for _ in ()).throw(
-                _error(f"NativeVariant JSON contains non-finite number: {value}")
-            ),
+            parse_constant=lambda value: (_ for _ in ()).throw(_error(f"NativeVariant JSON contains non-finite number: {value}")),
         )
     except NativeVariantContractError:
         raise
@@ -211,25 +212,13 @@ def _expected_base_ids(
     parts: tuple[NormalizedMaskPart, ...],
 ) -> tuple[str, ...]:
     if role == "eye_closed.xmin":
-        selected = (
-            part.part_id
-            for part in parts
-            if part.base_tag in NATIVE_VARIANT_EYE_BASE_TAGS and part.side == "xmin"
-        )
+        selected = (part.part_id for part in parts if part.base_tag in NATIVE_VARIANT_EYE_BASE_TAGS and part.side == "xmin")
     elif role == "eye_closed.xmax":
-        selected = (
-            part.part_id
-            for part in parts
-            if part.base_tag in NATIVE_VARIANT_EYE_BASE_TAGS and part.side == "xmax"
-        )
+        selected = (part.part_id for part in parts if part.base_tag in NATIVE_VARIANT_EYE_BASE_TAGS and part.side == "xmax")
     elif role == "eye_closed.coupled":
-        selected = (
-            part.part_id for part in parts if part.base_tag in NATIVE_VARIANT_EYE_BASE_TAGS
-        )
+        selected = (part.part_id for part in parts if part.base_tag in NATIVE_VARIANT_EYE_BASE_TAGS)
     else:
-        selected = (
-            part.part_id for part in parts if part.base_tag in NATIVE_VARIANT_MOUTH_BASE_TAGS
-        )
+        selected = (part.part_id for part in parts if part.base_tag in NATIVE_VARIANT_MOUTH_BASE_TAGS)
     return tuple(sorted(selected))
 
 
@@ -291,9 +280,7 @@ def _validate_context(
         raise _error("NativeVariant component plan belongs to different base PartSources")
     if any(part_id.startswith("part/native.") for part_id in parts):
         raise _error("NativeVariant parser received a component plan that already contains variants")
-    ranks = {
-        record.part_id: record.part_draw_rank for record in draw_order_plan.records
-    }
+    ranks = {record.part_id: record.part_draw_rank for record in draw_order_plan.records}
     if set(parts) != set(ranks) or tuple(draw_order_plan.ordinary_part_order) != tuple(
         part_id for part_id, _ in sorted(ranks.items(), key=lambda item: item[1])
     ):
@@ -329,8 +316,12 @@ def _parse_entries(
         seen_ids.add(variant_id)
         seen_paths.add(path_value)
         seen_roles.add(role)
-        if raw["composite_mode"] != NATIVE_VARIANT_COMPOSITE_MODE:
+        if raw["composite_mode"] not in NATIVE_VARIANT_COMPOSITE_MODES:
             raise _error("NativeVariant composite_mode is unsupported")
+        if role == "mouth_closed" and raw["composite_mode"] != NATIVE_VARIANT_CROSSFADE_COMPOSITE_MODE:
+            raise _error("NativeVariant mouth_closed requires crossfade_overlay_v1")
+        if role in {"mouth_open", "mouth_smile", "mouth_frown"} and raw["composite_mode"] != NATIVE_VARIANT_COMPOSITE_MODE:
+            raise _error(f"NativeVariant {role} requires occluding_overlay_v1")
         if raw["rgba_mode"] != "RGBA":
             raise _error("NativeVariant rgba_mode must be RGBA")
         if raw["alpha_mode"] != "straight":
@@ -346,9 +337,7 @@ def _parse_entries(
             raise _error(f"NativeVariant base references do not exist: {unknown_base}")
         expected_base_ids = _expected_base_ids(role, tuple(ordinary_parts.values()))
         if base_ids != expected_base_ids:
-            raise _error(
-                f"NativeVariant base_part_ids differ from the role registry; expected={expected_base_ids}"
-            )
+            raise _error(f"NativeVariant base_part_ids differ from the role registry; expected={expected_base_ids}")
         anchor = _require_string(raw["draw_anchor_part_id"], field="draw_anchor_part_id")
         if anchor not in ordinary_parts:
             raise _error(f"NativeVariant draw anchor does not exist: {anchor}")
@@ -356,9 +345,7 @@ def _parse_entries(
             raise _error("NativeVariant draw anchor must belong to base_part_ids")
         expected_anchor = max(base_ids, key=draw_ranks.__getitem__)
         if anchor != expected_anchor:
-            raise _error(
-                f"NativeVariant draw anchor is not the frontmost base Part; expected={expected_anchor}"
-            )
+            raise _error(f"NativeVariant draw anchor is not the frontmost base Part; expected={expected_anchor}")
         xyxy = _require_xyxy(raw["xyxy"], canvas_edge=canvas_edge)
         part_id = f"part/native.{variant_id}"
         if part_id in ordinary_parts:
@@ -376,7 +363,7 @@ def _parse_entries(
                 variant_id=variant_id,
                 part_id=part_id,
                 semantic_role=role,
-                composite_mode=NATIVE_VARIANT_COMPOSITE_MODE,
+                composite_mode=raw["composite_mode"],
                 base_part_ids=base_ids,
                 draw_anchor_part_id=anchor,
                 anchor_base_tag=anchor_part.base_tag,
@@ -390,6 +377,8 @@ def _parse_entries(
                 color_space="sRGB",
                 alpha_mass_u8_sum=alpha_mass,
                 alpha_u8=alpha_u8,
+                source_kind="authored",
+                generator_version=None,
             )
         )
     return tuple(sorted(candidates, key=lambda entry: entry.variant_id))
@@ -416,9 +405,7 @@ def _validate_inventory(
 ) -> None:
     expected = {"manifest.json", *(entry.relative_path for entry in entries)}
     if actual != expected:
-        raise _error(
-            f"NativeVariant inventory mismatch; missing={sorted(expected-actual)}, extra={sorted(actual-expected)}"
-        )
+        raise _error(f"NativeVariant inventory mismatch; missing={sorted(expected - actual)}, extra={sorted(actual - expected)}")
 
 
 def _validate_role_combinations(entries: tuple[NativeVariantCandidate, ...]) -> None:
@@ -426,13 +413,12 @@ def _validate_role_combinations(entries: tuple[NativeVariantCandidate, ...]) -> 
     if "eye_closed.coupled" in roles and roles & {"eye_closed.xmin", "eye_closed.xmax"}:
         raise _error("NativeVariant coupled and single-side eye coverage overlap")
     by_role = {entry.semantic_role: entry for entry in entries}
+    if {"mouth_closed", "mouth_open"} <= roles:
+        raise _error("NativeVariant mouth_closed and mouth_open encode opposite base-state contracts")
     if {"mouth_smile", "mouth_frown"} <= roles:
         smile = by_role["mouth_smile"]
         frown = by_role["mouth_frown"]
-        if (
-            smile.base_part_ids != frown.base_part_ids
-            or smile.draw_anchor_part_id != frown.draw_anchor_part_id
-        ):
+        if smile.base_part_ids != frown.base_part_ids or smile.draw_anchor_part_id != frown.draw_anchor_part_id:
             raise _error("NativeVariant smile/frown base or anchor is inconsistent")
 
 
@@ -442,16 +428,51 @@ def _semantic_set(
     manifest_path: Path | None,
     entries: tuple[NativeVariantCandidate, ...],
 ) -> NativeVariantSet:
+    return make_native_variant_set(
+        present=present,
+        manifest_path=manifest_path,
+        entries=entries,
+    )
+
+
+def make_native_variant_set(
+    *,
+    present: bool,
+    manifest_path: Path | None,
+    entries: tuple[NativeVariantCandidate, ...],
+) -> NativeVariantSet:
+    """Build a canonical authored/generated variant set after role validation."""
+
+    ordered = tuple(sorted(entries, key=lambda entry: entry.variant_id))
+    if len({entry.variant_id for entry in ordered}) != len(ordered):
+        raise _error("NativeVariant set contains duplicate variant IDs")
+    if len({entry.part_id for entry in ordered}) != len(ordered):
+        raise _error("NativeVariant set contains duplicate Part IDs")
+    if len({entry.semantic_role for entry in ordered}) != len(ordered):
+        raise _error("NativeVariant set contains duplicate semantic roles")
+    if any(entry.semantic_role not in NATIVE_VARIANT_ROLES for entry in ordered):
+        raise _error("NativeVariant set contains an unknown semantic role")
+    if any(entry.composite_mode not in NATIVE_VARIANT_COMPOSITE_MODES for entry in ordered):
+        raise _error("NativeVariant set contains an unsupported composite mode")
+    if any(
+        entry.source_kind == "generated"
+        and not entry.generator_version
+        or entry.source_kind == "authored"
+        and entry.generator_version is not None
+        for entry in ordered
+    ):
+        raise _error("NativeVariant source provenance is inconsistent")
+    _validate_role_combinations(ordered)
     payload = {
         "schema_version": NATIVE_VARIANT_SET_VERSION,
         "manifest_schema_version": NATIVE_VARIANT_MANIFEST_VERSION,
-        "entries": [entry.semantic_entry() for entry in entries],
+        "entries": [entry.semantic_entry() for entry in ordered],
     }
     return NativeVariantSet(
         schema_version=NATIVE_VARIANT_SET_VERSION,
         present=present,
         manifest_path=manifest_path,
-        entries=entries,
+        entries=ordered,
         native_variant_set_sha256=jcs_sha256(payload),
     )
 
@@ -486,6 +507,8 @@ def load_native_variant_set(
 
 __all__ = [
     "NATIVE_VARIANT_COMPOSITE_MODE",
+    "NATIVE_VARIANT_COMPOSITE_MODES",
+    "NATIVE_VARIANT_CROSSFADE_COMPOSITE_MODE",
     "NATIVE_VARIANT_EYE_BASE_TAGS",
     "NATIVE_VARIANT_MANIFEST_VERSION",
     "NATIVE_VARIANT_MOUTH_BASE_TAGS",
@@ -495,4 +518,5 @@ __all__ = [
     "NativeVariantContractError",
     "NativeVariantSet",
     "load_native_variant_set",
+    "make_native_variant_set",
 ]

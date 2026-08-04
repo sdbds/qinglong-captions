@@ -21,10 +21,19 @@ from .preset_library import PresetLibraryPlan, validate_preset_library_plan
 from .rig_geometry import RigGeometryCache, validate_rig_geometry_cache
 from .skinning import WeightedMeshRecord
 
-CONTROL_BINDING_PLAN_VERSION = "control-binding-plan-v1"
+CONTROL_BINDING_PLAN_VERSION = "control-binding-plan-v3"
 CONTROL_BINDING_ID_VERSION = "control-binding-id-v1"
 TARGET_TRANSFER_VERSION = "target-transfer-v1"
-RIG_TRANSFORM_SEMANTICS_VERSION = "rig-transform-semantics-v1"
+RIG_TRANSFORM_SEMANTICS_VERSION = "rig-transform-semantics-v3"
+
+HEAD_DEPTH_PARALLAX_TAGS = frozenset({"back hair", "earwear", "eyewear", "front hair", "headwear"})
+HEAD_DEPTH_PARALLAX_MAX_CANVAS_PIXELS = 8.0
+HEAD_DEPTH_PARALLAX_HEAD_WIDTH_RATIO = 0.03
+PROCEDURAL_MOUTH_OPEN_SCALE = 2.2
+BREATH_HORIZONTAL_SCALE = 1.03
+BREATH_VERTICAL_SCALE = 1.03
+PROCEDURAL_ARM_SWAY_DEGREES = 4.0
+PROCEDURAL_LEG_SWAY_DEGREES = 2.0
 
 ImplementationKind = Literal["canonical", "native", "procedural"]
 TransferKind = Literal[
@@ -297,6 +306,25 @@ def _deformed_values(
     return tuple(values)
 
 
+def _rotated_values(
+    mesh: WeightedMeshRecord,
+    *,
+    pivot_x: float,
+    pivot_y: float,
+    degrees: float,
+) -> tuple[float, ...]:
+    radians = math.radians(degrees)
+    cosine = math.cos(radians)
+    sine = math.sin(radians)
+    return _deformed_values(
+        mesh,
+        lambda x, y: (
+            pivot_x + (x - pivot_x) * cosine - (y - pivot_y) * sine,
+            pivot_y + (x - pivot_x) * sine + (y - pivot_y) * cosine,
+        ),
+    )
+
+
 def _sampled_deform(
     control: ControlSpec,
     mesh: WeightedMeshRecord,
@@ -305,15 +333,8 @@ def _sampled_deform(
     evaluator_version: str,
     metric_inputs: tuple[TransferMetricInput, ...] = (),
 ) -> TargetTransfer:
-    sample_records = tuple(
-        TransferSample(input_value=value, output_values=output)
-        for value, output in samples
-    )
-    default_matches = [
-        sample.output_values
-        for sample in sample_records
-        if sample.input_value == control.default
-    ]
+    sample_records = tuple(TransferSample(input_value=value, output_values=output) for value, output in samples)
+    default_matches = [sample.output_values for sample in sample_records if sample.input_value == control.default]
     if len(default_matches) != 1:
         raise _error(f"sampled deform lacks one default sample for {control.control_id}")
     return _make_transfer(
@@ -333,15 +354,8 @@ def _sampled_property(
     *,
     evaluator_version: str,
 ) -> TargetTransfer:
-    sample_records = tuple(
-        TransferSample(input_value=value, output_values=(_round(output),))
-        for value, output in samples
-    )
-    default_matches = [
-        sample.output_values
-        for sample in sample_records
-        if sample.input_value == control.default
-    ]
+    sample_records = tuple(TransferSample(input_value=value, output_values=(_round(output),)) for value, output in samples)
+    default_matches = [sample.output_values for sample in sample_records if sample.input_value == control.default]
     if len(default_matches) != 1:
         raise _error(f"sampled property lacks one default sample for {control.control_id}")
     return _make_transfer(
@@ -524,9 +538,7 @@ def _derive_bindings(
 
     torso_metric_input: tuple[TransferMetricInput, ...] = ()
     if metric_by_id["mask/torso_core"].status == "available":
-        torso_metric_input = (
-            _metric_input(metric_by_id["mask/torso_core"], anatomy),
-        )
+        torso_metric_input = (_metric_input(metric_by_id["mask/torso_core"], anatomy),)
     head_metric_input: tuple[TransferMetricInput, ...] = ()
     if metric_by_id["mask/head_core"].status == "available":
         head_metric_input = (_metric_input(metric_by_id["mask/head_core"], anatomy),)
@@ -608,29 +620,200 @@ def _derive_bindings(
             facts=("bone/head", "bone/neck", "mask/head_core"),
             metrics=head_metric_input,
         )
+        face_parts = tuple(part for part in cache.parts if part.source_kind == "see_through" and part.base_tag == "face")
+        parallax_parts = tuple(
+            sorted(
+                (part for part in cache.parts if part.source_kind == "see_through" and part.base_tag in HEAD_DEPTH_PARALLAX_TAGS),
+                key=lambda part: part.part_id,
+            )
+        )
+        if face_parts and parallax_parts:
+            face_depths = sorted(part.depth_median for part in face_parts)
+            face_depth = face_depths[len(face_depths) // 2]
+            depth_deltas = {part.part_id: face_depth - part.depth_median for part in parallax_parts}
+            depth_span = max(abs(value) for value in depth_deltas.values())
+            if depth_span > 1e-9:
+                maximum_offset = min(
+                    HEAD_DEPTH_PARALLAX_MAX_CANVAS_PIXELS,
+                    head_width * HEAD_DEPTH_PARALLAX_HEAD_WIDTH_RATIO,
+                )
+                control = control_by_id["control/head_shake"]
+                control_span = max(
+                    abs(control.minimum - control.default),
+                    abs(control.maximum - control.default),
+                )
+                if control_span <= 0.0:
+                    raise _error("head-shake control has no non-default range")
+                for part in parallax_parts:
+                    endpoint_offset = maximum_offset * depth_deltas[part.part_id] / depth_span
+                    if abs(endpoint_offset) < 0.25:
+                        continue
+                    for mesh in meshes_by_part.get(part.part_id, ()):
+                        rest = _rest_values(mesh)
+
+                        def shifted(value: float) -> tuple[float, ...]:
+                            amount = endpoint_offset * (value - control.default) / control_span
+                            return _deformed_values(
+                                mesh,
+                                lambda x, y: (x + amount, y),
+                            )
+
+                        samples = tuple(
+                            (value, rest if value == control.default else shifted(value))
+                            for value in sorted({control.minimum, control.default, control.maximum})
+                        )
+                        for _value, output in samples:
+                            _validate_deform_orientation(mesh, output)
+                        drafts.append(
+                            _draft_binding(
+                                group_id="binding-group/head_shake.depth-parallax",
+                                implementation_id=("binding-impl/head_shake.depth-parallax-v1"),
+                                implementation_kind="canonical",
+                                control_id=control.control_id,
+                                target_id=mesh.mesh_id,
+                                property_name="deform",
+                                required_facts=(
+                                    "mask/head_core",
+                                    mesh.mesh_id,
+                                    part.part_id,
+                                    *(face.part_id for face in face_parts),
+                                ),
+                                transfer=_sampled_deform(
+                                    control,
+                                    mesh,
+                                    samples,
+                                    evaluator_version=("head-depth-parallax-horizontal-v1"),
+                                    metric_inputs=head_metric_input,
+                                ),
+                            )
+                        )
+
+    if available("arm_sway"):
+        torso_bbox = torso_metric_input[0].bbox
+        torso_x1, torso_y1, torso_x2, torso_y2 = torso_bbox
+        torso_width = torso_x2 - torso_x1
+        torso_height = torso_y2 - torso_y1
+        torso_center_x = (torso_x1 + torso_x2) / 2.0
+        shoulder_y = torso_y1 + 0.15 * torso_height
+        control = control_by_id["control/arm_sway"]
+        arm_parts = tuple(part for part in cache.parts if part.source_kind == "see_through" and part.base_tag == "handwear")
+        for part in arm_parts:
+            for mesh in meshes_by_part.get(part.part_id, ()):
+                rest = _rest_values(mesh)
+                center_x = (mesh.component_bbox[0] + mesh.component_bbox[2]) / 2.0
+                if center_x < torso_center_x - 0.05 * torso_width:
+                    pivot_x = torso_x1 + 0.15 * torso_width
+                    direction = 1.0
+                elif center_x > torso_center_x + 0.05 * torso_width:
+                    pivot_x = torso_x2 - 0.15 * torso_width
+                    direction = -1.0
+                else:
+                    pivot_x = torso_center_x
+                    direction = 1.0
+                samples = tuple(
+                    (
+                        value,
+                        rest
+                        if value == control.default
+                        else _rotated_values(
+                            mesh,
+                            pivot_x=pivot_x,
+                            pivot_y=shoulder_y,
+                            degrees=value * direction * PROCEDURAL_ARM_SWAY_DEGREES,
+                        ),
+                    )
+                    for value in (control.minimum, control.default, control.maximum)
+                )
+                for _value, output in samples:
+                    _validate_deform_orientation(mesh, output)
+                drafts.append(
+                    _draft_binding(
+                        group_id="binding-group/arm_sway.coarse",
+                        implementation_id="binding-impl/arm_sway.coarse-v1",
+                        implementation_kind="procedural",
+                        control_id=control.control_id,
+                        target_id=mesh.mesh_id,
+                        property_name="deform",
+                        required_facts=(
+                            "mask/torso_core",
+                            part.part_id,
+                            mesh.mesh_id,
+                        ),
+                        transfer=_sampled_deform(
+                            control,
+                            mesh,
+                            samples,
+                            evaluator_version="coarse-arm-component-rotation-v1",
+                            metric_inputs=torso_metric_input,
+                        ),
+                    )
+                )
+
+    if available("leg_sway"):
+        pelvis = next(resolution for resolution in cache.joint_plan.joints.resolutions if resolution.joint_id == "joint/pelvis")
+        if pelvis.status != "resolved" or pelvis.x is None or pelvis.y is None:
+            raise _error("leg-sway capability lacks a resolved pelvis anchor")
+        control = control_by_id["control/leg_sway"]
+        leg_parts = tuple(
+            part for part in cache.parts if part.source_kind == "see_through" and part.base_tag in {"legwear", "footwear"}
+        )
+        for part in leg_parts:
+            for mesh in meshes_by_part.get(part.part_id, ()):
+                rest = _rest_values(mesh)
+                samples = tuple(
+                    (
+                        value,
+                        rest
+                        if value == control.default
+                        else _rotated_values(
+                            mesh,
+                            pivot_x=pelvis.x,
+                            pivot_y=pelvis.y,
+                            degrees=value * PROCEDURAL_LEG_SWAY_DEGREES,
+                        ),
+                    )
+                    for value in (control.minimum, control.default, control.maximum)
+                )
+                for _value, output in samples:
+                    _validate_deform_orientation(mesh, output)
+                drafts.append(
+                    _draft_binding(
+                        group_id="binding-group/leg_sway.coarse",
+                        implementation_id="binding-impl/leg_sway.coarse-v1",
+                        implementation_kind="procedural",
+                        control_id=control.control_id,
+                        target_id=mesh.mesh_id,
+                        property_name="deform",
+                        required_facts=(
+                            "joint/pelvis",
+                            part.part_id,
+                            mesh.mesh_id,
+                        ),
+                        transfer=_sampled_deform(
+                            control,
+                            mesh,
+                            samples,
+                            evaluator_version="coarse-leg-group-rotation-v1",
+                        ),
+                    )
+                )
 
     if available("breath"):
-        spine = next(
-            resolution
-            for resolution in cache.joint_plan.joints.resolutions
-            if resolution.joint_id == "joint/spine"
-        )
+        spine = next(resolution for resolution in cache.joint_plan.joints.resolutions if resolution.joint_id == "joint/spine")
         if spine.status != "resolved" or spine.x is None or spine.y is None:
             raise _error("breath capability lacks a resolved spine anchor")
+        torso_anchor_y = float(torso_metric_input[0].bbox[3])
         torso_parts = tuple(
-            part
-            for part in cache.parts
-            if part.source_kind == "see_through"
-            and part.base_tag in {"topwear", "bottomwear"}
+            part for part in cache.parts if part.source_kind == "see_through" and part.base_tag in {"topwear", "bottomwear"}
         )
         for part in torso_parts:
             for mesh in meshes_by_part.get(part.part_id, ()):
                 rest = _rest_values(mesh)
                 expanded = _deformed_values(
                     mesh,
-                    lambda x, y, ax=spine.x, ay=spine.y: (
-                        ax + (x - ax) * 1.01,
-                        ay + (y - ay) * 1.015,
+                    lambda x, y, ax=spine.x, ay=torso_anchor_y: (
+                        ax + (x - ax) * BREATH_HORIZONTAL_SCALE,
+                        ay + (y - ay) * BREATH_VERTICAL_SCALE,
                     ),
                 )
                 _validate_deform_orientation(mesh, expanded)
@@ -651,7 +834,7 @@ def _derive_bindings(
                             control_by_id["control/breath"],
                             mesh,
                             ((0.0, rest), (1.0, expanded)),
-                            evaluator_version="breath-torso-deform-v1",
+                            evaluator_version="breath-torso-deform-v2",
                             metric_inputs=torso_metric_input,
                         ),
                     )
@@ -686,38 +869,25 @@ def _derive_bindings(
 
     def ordinary_parts(base_tag: str, side: str | None = None):
         return tuple(
-            part
-            for part in cache.parts
-            if part.source_kind == "see_through"
-            and part.base_tag == base_tag
-            and part.side == side
+            part for part in cache.parts if part.source_kind == "see_through" and part.base_tag == base_tag and part.side == side
         )
 
     if available("blink"):
         for side in ("xmin", "xmax"):
             eye_meshes_by_tag = {
-                base_tag: tuple(
-                    mesh
-                    for part in ordinary_parts(base_tag, side)
-                    for mesh in meshes_by_part.get(part.part_id, ())
-                )
+                base_tag: tuple(mesh for part in ordinary_parts(base_tag, side) for mesh in meshes_by_part.get(part.part_id, ()))
                 for base_tag in ("eyewhite", "irides", "eyelash")
             }
             if all(eye_meshes_by_tag.values()):
                 all_vertices = [
-                    vertex.position
-                    for meshes in eye_meshes_by_tag.values()
-                    for mesh in meshes
-                    for vertex in mesh.vertices
+                    vertex.position for meshes in eye_meshes_by_tag.values() for mesh in meshes for vertex in mesh.vertices
                 ]
                 closure_y = sum(y for _x, y in all_vertices) / len(all_vertices)
                 implementation = "binding-impl/blink.procedural-v1"
                 for base_tag, meshes in eye_meshes_by_tag.items():
                     for mesh in meshes:
                         rest = _rest_values(mesh)
-                        center_y = sum(vertex.position[1] for vertex in mesh.vertices) / len(
-                            mesh.vertices
-                        )
+                        center_y = sum(vertex.position[1] for vertex in mesh.vertices) / len(mesh.vertices)
                         if base_tag == "eyelash":
                             closed = _deformed_values(
                                 mesh,
@@ -767,20 +937,22 @@ def _derive_bindings(
                                 )
                             )
 
-    mouth_meshes = tuple(
-        mesh
-        for part in ordinary_parts("mouth")
-        for mesh in meshes_by_part.get(part.part_id, ())
-    )
+    mouth_meshes = tuple(mesh for part in ordinary_parts("mouth") for mesh in meshes_by_part.get(part.part_id, ()))
+    mouth_open_samples: dict[str, tuple[tuple[float, tuple[float, ...]], ...]] = {}
     if available("talk") and mouth_meshes:
         for mesh in mouth_meshes:
             rest = _rest_values(mesh)
             center_y = sum(vertex.position[1] for vertex in mesh.vertices) / len(mesh.vertices)
             opened = _deformed_values(
                 mesh,
-                lambda x, y: (x, center_y + (y - center_y) * 1.35),
+                lambda x, y: (
+                    x,
+                    center_y + (y - center_y) * PROCEDURAL_MOUTH_OPEN_SCALE,
+                ),
             )
             _validate_deform_orientation(mesh, opened)
+            samples = ((0.0, rest), (1.0, opened))
+            mouth_open_samples[mesh.mesh_id] = samples
             drafts.append(
                 _draft_binding(
                     group_id="binding-group/mouth_open",
@@ -793,12 +965,12 @@ def _derive_bindings(
                     transfer=_sampled_deform(
                         control_by_id["control/mouth_open"],
                         mesh,
-                        ((0.0, rest), (1.0, opened)),
-                        evaluator_version="mouth-open-silhouette-v1",
+                        samples,
+                        evaluator_version="mouth-open-silhouette-v2",
                     ),
                 )
             )
-    if any(available(preset_id) for preset_id in ("happy", "sad")) and mouth_meshes:
+    if any(available(preset_id) for preset_id in ("happy", "sad", "unimpressed")) and mouth_meshes:
         for mesh in mouth_meshes:
             rest = _rest_values(mesh)
             xs = [vertex.position[0] for vertex in mesh.vertices]
@@ -838,7 +1010,7 @@ def _derive_bindings(
                 )
             )
 
-    if any(available(preset_id) for preset_id in ("happy", "sad", "surprised")):
+    if any(available(preset_id) for preset_id in ("happy", "sad", "surprised", "unimpressed")):
         head_height = head_metric_input[0].height if head_metric_input else 0
         for side in ("xmin", "xmax"):
             for part in ordinary_parts("eyebrow", side):
@@ -872,9 +1044,7 @@ def _derive_bindings(
                         )
                     )
 
-    native_parts = tuple(
-        part for part in cache.parts if part.source_kind == "native_variant"
-    )
+    native_parts = tuple(part for part in cache.parts if part.source_kind == "native_variant")
     native_by_role = {
         role: tuple(part for part in native_parts if part.semantic_role == role)
         for role in {part.semantic_role for part in native_parts}
@@ -900,6 +1070,25 @@ def _derive_bindings(
             blink_targets["xmax"].append(meshes[1])
         if all(blink_targets.values()):
             for side, meshes in blink_targets.items():
+                for base_tag in ("eyewhite", "irides", "eyelash"):
+                    for base_part in ordinary_parts(base_tag, side):
+                        for base_mesh in meshes_by_part.get(base_part.part_id, ()):
+                            drafts.append(
+                                _draft_binding(
+                                    group_id="binding-group/blink",
+                                    implementation_id="binding-impl/blink.native-v1",
+                                    implementation_kind="native",
+                                    control_id=f"control/eye_open.{side}",
+                                    target_id=base_mesh.mesh_id,
+                                    property_name="opacity",
+                                    required_facts=(base_mesh.mesh_id, base_part.part_id),
+                                    transfer=_sampled_property(
+                                        control_by_id[f"control/eye_open.{side}"],
+                                        ((0.0, 0.0), (1.0, 1.0)),
+                                        evaluator_version="native-eye-open-crossfade-opacity-v1",
+                                    ),
+                                )
+                            )
                 for mesh in meshes:
                     variant_id = part_by_id[mesh.part_id].variant_id
                     drafts.append(
@@ -919,6 +1108,62 @@ def _derive_bindings(
                             ),
                         )
                     )
+
+    if available("talk") and native_by_role.get("mouth_closed"):
+        implementation_id = "binding-impl/mouth_open.crossfade-v1"
+        for mesh in mouth_meshes:
+            drafts.append(
+                _draft_binding(
+                    group_id="binding-group/mouth_open",
+                    implementation_id=implementation_id,
+                    implementation_kind="native",
+                    control_id="control/mouth_open",
+                    target_id=mesh.mesh_id,
+                    property_name="deform",
+                    required_facts=(mesh.mesh_id, mesh.part_id),
+                    transfer=_sampled_deform(
+                        control_by_id["control/mouth_open"],
+                        mesh,
+                        mouth_open_samples[mesh.mesh_id],
+                        evaluator_version="native-mouth-open-base-deform-v1",
+                    ),
+                )
+            )
+            drafts.append(
+                _draft_binding(
+                    group_id="binding-group/mouth_open",
+                    implementation_id=implementation_id,
+                    implementation_kind="native",
+                    control_id="control/mouth_open",
+                    target_id=mesh.mesh_id,
+                    property_name="opacity",
+                    required_facts=(mesh.mesh_id, mesh.part_id),
+                    transfer=_sampled_property(
+                        control_by_id["control/mouth_open"],
+                        ((0.0, 0.0), (1.0, 1.0)),
+                        evaluator_version="native-mouth-open-base-crossfade-opacity-v1",
+                    ),
+                )
+            )
+        for part in native_by_role["mouth_closed"]:
+            for mesh in meshes_by_part.get(part.part_id, ()):
+                drafts.append(
+                    _draft_binding(
+                        group_id="binding-group/mouth_open",
+                        implementation_id=implementation_id,
+                        implementation_kind="native",
+                        control_id="control/mouth_open",
+                        target_id=mesh.mesh_id,
+                        property_name="opacity",
+                        required_facts=(mesh.mesh_id, part.part_id),
+                        visibility_branch_id=f"visibility-branch/{part.variant_id}",
+                        transfer=_sampled_property(
+                            control_by_id["control/mouth_open"],
+                            ((0.0, 1.0), (1.0, 0.0)),
+                            evaluator_version="native-mouth-closed-crossfade-opacity-v1",
+                        ),
+                    )
+                )
 
     if available("talk"):
         for part in native_by_role.get("mouth_open", ()):
@@ -940,7 +1185,7 @@ def _derive_bindings(
                         ),
                     )
                 )
-    if any(available(preset_id) for preset_id in ("happy", "sad")):
+    if any(available(preset_id) for preset_id in ("happy", "sad", "unimpressed")):
         role_samples = {
             "mouth_smile": ((-1.0, 0.0), (0.0, 0.0), (1.0, 1.0)),
             "mouth_frown": ((-1.0, 1.0), (0.0, 0.0), (1.0, 0.0)),
@@ -990,11 +1235,7 @@ def _validate_transfer(transfer: TargetTransfer) -> None:
         inputs = tuple(sample.input_value for sample in transfer.samples)
         if inputs != tuple(sorted(set(inputs))):
             raise _error("sample inputs must be unique and sorted")
-        defaults = [
-            sample.output_values
-            for sample in transfer.samples
-            if sample.input_value == transfer.control_default
-        ]
+        defaults = [sample.output_values for sample in transfer.samples if sample.input_value == transfer.control_default]
         if defaults != [transfer.output_at_default]:
             raise _error("sampled transfer does not restore the default output")
     if transfer.transfer_sha256 != jcs_sha256(transfer.semantic_payload()):
@@ -1058,8 +1299,7 @@ def validate_control_binding_plan(
     native_mesh_ids = {
         mesh.mesh_id
         for mesh in cache.skinning_plan.weighted_meshes
-        if next(part for part in cache.parts if part.part_id == mesh.part_id).source_kind
-        == "native_variant"
+        if next(part for part in cache.parts if part.part_id == mesh.part_id).source_kind == "native_variant"
     }
     ranks_by_group: dict[str, dict[str, int]] = {}
     by_implementation: dict[str, list[ControlBinding]] = {}
@@ -1075,39 +1315,25 @@ def validate_control_binding_plan(
                 raise _error("drawable binding references an unknown mesh")
         else:
             raise _error(f"unsupported canonical property: {binding.property}")
-        if (binding.visibility_branch_id is not None) != (
-            binding.target_id in native_mesh_ids
-        ):
+        if (binding.visibility_branch_id is not None) != (binding.target_id in native_mesh_ids):
             raise _error("visibility branch is allowed only for native drawable targets")
-        if binding.implementation_rank != _IMPLEMENTATION_RANKS.get(
-            binding.implementation_kind
-        ):
+        if binding.implementation_rank != _IMPLEMENTATION_RANKS.get(binding.implementation_kind):
             raise _error("implementation kind/rank differs from v1")
-        ranks_by_group.setdefault(binding.binding_group_id, {})[
-            binding.implementation_id
-        ] = binding.implementation_rank
+        ranks_by_group.setdefault(binding.binding_group_id, {})[binding.implementation_id] = binding.implementation_rank
         by_implementation.setdefault(binding.implementation_id, []).append(binding)
         if binding.binding_sha256 != jcs_sha256(binding.semantic_payload()):
             raise _error("binding digest mismatch")
-    if any(
-        len(set(ranks.values())) != len(ranks)
-        for ranks in ranks_by_group.values()
-    ):
+    if any(len(set(ranks.values())) != len(ranks) for ranks in ranks_by_group.values()):
         raise _error("a binding group contains duplicate implementation ranks")
     for implementation_id, members in by_implementation.items():
         expected_bundle = jcs_sha256(
             {
                 "schema_version": "control-binding-bundle-v1",
                 "implementation_id": implementation_id,
-                "bindings": [
-                    member.bundle_record()
-                    for member in sorted(members, key=lambda item: item.binding_id)
-                ],
+                "bindings": [member.bundle_record() for member in sorted(members, key=lambda item: item.binding_id)],
             }
         )
-        if any(
-            member.implementation_bundle_digest != expected_bundle for member in members
-        ):
+        if any(member.implementation_bundle_digest != expected_bundle for member in members):
             raise _error("implementation bundle digest mismatch")
     expected = _derive_bindings(cache, anatomy, controls, capabilities)
     if plan.bindings != expected:

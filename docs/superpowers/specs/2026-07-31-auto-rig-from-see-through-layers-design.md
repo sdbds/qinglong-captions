@@ -2,7 +2,7 @@
 
 ## Status
 
-**Revision 29，A-E/G 双格式产物流水线已实现。Stage E 从完整 `RigDocument v1` 编译固定 basename 的 MOC3 V4.00、model3/cdi3、motion3/exp3 与 canonical page byte copies；普通 CI 运行独立结构 validator，release tier 还逐 item 调用官方 Cubism Core/SDK D3D11 WARP，验证 consistency、默认姿态、每个参数、动作、表情和多页纹理。Stage G 不接受调用方自报格式成功，而是重新散列当前 A-E DAG、Rig、D/E canonical report、精确 artifact inventory、motion/symbol/texture/runtime contract 后才原子发布双格式 `export_manifest.json`，structural E 明确不能进入成功终态。当前官方证据为 SDK for Native 5-r.5、Core 06.00.0001（SHA-256 `d883c00d114fdf6cef61f439feb23e02d000fdf683e092803010470b80dfaf09`）、D3D11 harness（SHA-256 `823b03ea43e77da5f9238ad55e2c9c23fa54a34e7d4d0dade04973bee589778a`）与 protocol digest `51e77ee76d08072db76e1ccef0638e8c706ccba7bae5ea2ae8e19b71269283a3`。回归分组覆盖 `655 passed, 5 skipped` 的 auto-rig、`54 passed` 的 see-through 和 `193 passed` 的 dependency/UV。Spine 4.2 结构包是正式必需输出，但官方 Spine Editor/runtime 实载仍未在本机执行，因此仓库内 `completed` 表示双 artifact pipeline 完成，不等于组织已经通过外部 Spine runtime 与许可证发布门。NativeVariant 契约保持 Revision 20；Cubism SDK/Core 不随 Python 包或 item 分发。**
+**Revision 44，A-E/G 双格式产物流水线已实现，并由真实 Lucy2 `final.psd` 以 SDPose Body17、Live2D release gate 和官方 Spine 4.2 Runtime 重新实载。生产姿态源冻结为官方 `teemosliang/SDPose-Body` 的 17 点权重，并在首次下载校验后生成本地单文件 FP16 bundle；`DETRPose_X_CROWDPOSE` 作为同坐标/同质量门对照。Revision 38 冻结 merged 四肢与交叉腿的几何绑链粒度以及诚实的合并 HitArea；Revision 39 冻结 explicit-blink-only runtime 策略；Revision 40 冻结眼睛 expression 的乘法合成；Revision 41 冻结 Blink 的闭眼/睁眼保持段；Revision 42 冻结真实 stage resume、公共失败终态、批次姿态 provider 复用以及尺度归一化的 Spine 动作门；Revision 43 补上 preflight/cache-repair 边界；Revision 44 禁止静态表情把开眼/闭眼 replacement crossfade 长期停在中间透明度。Comfy 的 133 点 WholeBody checkpoint 与 RT-DETR detector 都不进入默认路径。模型量化不在本轮范围。Spine/Cubism SDK、Core、Runtime 源码和二进制均不随 Python 包或 item 分发。**
 
 本文覆盖三件事：
 
@@ -251,9 +251,12 @@ deform timeline；一旦表情 preset 使用顶点形变，就必须从 `MotionC
 形变时会拽出可见的膜。参考项目靠 `dilateAlphaMask` 膨胀 2 px 缓解，
 这只对细缝有效，对大凹口无效。
 
-**修法**：不同连通分量分别三角化，禁止跨分量连边；三角化后按掩膜剔除——重心或
-任一边的多点采样落在透明区就丢弃；再按相对采样间距归一化的外接圆半径剔除狭长片。
-比首版引入约束 Delaunay 库简单，且不会把两个分离发束直接缝起来。
+**修法（经真实 runtime 修订）**：不同连通分量分别三角化，禁止跨分量连边；但不能把
+mesh 当成第二张 alpha mask。每个三角形可以覆盖同一 component bbox 内的透明像素，因为最终可见性
+由 straight-alpha 纹理决定。B 必须反向证明 cleaned alpha 的每个非零像素中心至少落在一个三角内；
+用于保证 support coverage 的三角不得再被“任一采样落入透明区”规则删除。其余不承载 alpha support
+的狭长片仍可用重心/边采样和相对外接圆阈值剔除。这样既不跨 component，也不会沿轮廓切掉
+1-2 个像素宽的连续边界。
 
 ### F10（正确性）不能假设 see-through 已经解决四肢左右拆分
 
@@ -458,7 +461,7 @@ capability 和 exporter 执行顺序都不得改变同一 typed key 的 namespac
 | W3 page/motion/expression 是可变集合，却没有清理旧产物的精确 inventory | **成立。manifest 只核对列出的文件会让 4→1 页或 supported→omitted 后的旧文件继续留在发布目录** | `output_file_sha256[]` 改为 owner stage 的精确集合并增加 inventory digest；重跑先使旧 commit marker 失效，发布时删除该 owner namespace 中不在新 inventory 的旧文件，最后才写 manifest。C/D/E/G validator 拒绝任何未列出的 owner-owned public artifact |
 | W4 `rig.json` 被称为唯一事实源，但 D/E 又直接从 `motion_manifest.json` 取 capability 决策 | **成立，是双事实源** | clips/expressions/逐格式决策只以 `RigDocument` 为准；`motion_manifest.json` 改为 C 的确定性只读 projection，绑定 `rig_json_sha256`、语义 section digest 与 symbol-table digest。D/E 从 Rig 构造 binding plan，只交叉验证 projection，不能从 projection 覆盖 Rig |
 | W5 C 已冻结 supported/omitted，E 却可因 keyform 误差/预算临时 omit optional preset | **成立，两个阶段同时拥有 capability 决策** | C 在提交 Rig 前运行纯函数 `FormatCapabilityPreflight`，把逐格式 status/reason、planner version/input/output digest 写入 clip/expression decision；D/E 复算同一 planner 并要求摘要相等。所有 omission 只能发生在 C，writer/validator 阶段不再降级；late mismatch 或格式失败使 item 失败 |
-| W6 exporter-neutral expression 允许 Add/Multiply/Overwrite，但 Spine 没有 exp3 等价的资产级参数混合字段 | **成立，strict avatar 会得到两份结构合法但组合语义不同的表情** | v1 双格式 expression 只允许 full-weight `overwrite`，并冻结“base motion 后应用 expression”顺序；Spine 产独立 expression animation + manifest runtime application contract，Live2D 写 Overwrite exp3。Add/Multiply 仅作为 E0 的 Live2D writer conformance，不声明 dual-runtime capability |
+| W6 exporter-neutral expression 允许 Add/Multiply/Overwrite，但 Spine 没有 exp3 等价的资产级参数混合字段 | **成立，strict avatar 会得到两份结构合法但组合语义不同的表情** | v1 exporter-neutral expression 仍只表达 full-weight absolute target；Spine 产独立 expression animation + manifest runtime application contract。Live2D 非眼睛 target 写 Overwrite，只有 default=1 的两个 eye-open target 做格式 lowering 为 Multiply，以保证显式 blink 可组合；该例外必须由双格式 runtime parity gate 约束，不能扩展成任意 blend capability |
 | W7 canonical PNG 相同被误写成最终 UV 也可共用 | **成立。共享像素/region 不等于 Spine JSON 与 Cubism Core 使用相同 V 轴和 atlas 变换** | C 只冻结 top-left image-space rect 与 canonical UV；D/E 分别用版本化 `FormatUvAdapter` 转换目标 UV，不改像素。Spine golden/runtime 与 Live2D E0 都用四角异色、非对称 mesh fixture 验证实际采样，禁止凭数值范围猜 `v` 是否翻转 |
 | W8 shared PNG 没有 alpha-mode contract | **成立。Spine atlas 有显式 `pma`，Cubism renderer/texture upload 也必须与像素是否预乘一致；字节相同仍可在透明边一边发黑、一边发光** | canonical page 固定 straight-alpha sRGB RGBA；Spine atlas 明写 `pma:false`。Live2D report/manifest 声明 target-specific loader contract，Native/Web release harness 按官方 straight→runtime 路径加载；半透明异色 fixture 检测 double/missing premultiply |
 | W9 `MotionClip` 没有 interpolation 契约 | **成立。两格式可有相同 key/duration/loop，却在 key 间走不同轨迹** | `MotionClip v1` 固定 30 Hz rational-time 采样和显式 piecewise-linear interpolation；loop 首尾值闭合。Spine 写 linear timeline，Live2D 写 linear segment，运行时按统一时间网格比较。Cubic/Bezier 留给升级后的 motion schema |
@@ -478,7 +481,7 @@ capability 和 exporter 执行顺序都不得改变同一 typed key 的 namespac
 | X4 MotionClip channel 数值同时被当成骨骼属性和 Live2D parameter 值 | **成立，是不可实现的数据模型**。一个 idle 控制可同时驱动 torso rotation、head translation 和多个 deformer；它们不可能共用一条既是 degree 又是 pixel 的 parameter curve | 新增 `ControlSpec/ControlCurve/ControlBinding/TargetTransfer v1`。clip 只对 control 写一条曲线；Revision 16 进一步把 target transfer 提升为 Rig 顶层 binding。Spine 求值 transfer，Live2D 每 control/parameter 只写一条 motion curve并把多个 primitive keyform 绑到它 |
 | X5 `rig_overrides.json.input_fingerprint` 未说明是否包含 override 本身 | **成立。若包含会形成循环摘要；若含算法/config 又会让同一 canvas 上的人工坐标无谓失效** | 改名并冻结为 `target_input_fingerprint`：只覆盖 see-through manifests、合法 payload、canvas 与 canonical-tag schema，不含 override bytes、auto-rig 算法或运行配置。override SHA 作为独立 stage 输入，二者不得混用 |
 | X6 `padding=2` 与 `extrude=2` 没定义 packed rect | **成立。A/C 可以各自得到 `w+4` 或 `w+8`，即使都自称遵守同一 TexturePagePlan** | v1 明确定义 content rect、2px extrusion ring、再外加 2px transparent safety gap；packed footprint 为 `(w+8)×(h+8)`，UV/atlas region 只指 content rect。A dry-run、C pixels 与占用率统一使用 footprint |
-| X7 `xmin/xmax` 眼睛被直接映射为 `ParamEyeL/ROpen` | **成立，重新引入了本设计已拒绝的解剖左右猜测**。背面、侧面或镜像角色不能从较小 x 推出 L/R | v1 的分侧眼/眉 control 使用稳定 custom `XMin/XMax` parameter；`EyeBlink` group 可以引用 custom ID。只有未来版本有显式 anatomical-side observation/override 与独立 fixture 时才允许标准 L/R 映射，不能由 E 临时猜 |
+| X7 `xmin/xmax` 眼睛被直接映射为 `ParamEyeL/ROpen` | **成立，重新引入了本设计已拒绝的解剖左右猜测**。背面、侧面或镜像角色不能从较小 x 推出 L/R | v1 的分侧眼/眉 control 使用稳定 custom `XMin/XMax` parameter。Revision 39 后正式 runtime 不发射 `EyeBlink` group；眨眼只由显式 `blink.motion3.json` 驱动。只有未来版本有显式 anatomical-side observation/override 与独立 fixture 时才允许标准 L/R 映射，不能由 E 临时猜 |
 | X8 “固定 preset” 只有 ID/capability，没有冻结曲线、时长与几何 transfer | **成立。两个实现可以都通过 schema，却生成完全不同的 idle/breath/head 动作** | 增加 `PresetLibrary motion-core-v1` canonical descriptors：逐 preset 固定 kind、30Hz frames、loop、control keys 和 geometry-normalized transfer 公式；C 物化数值与 descriptor digest。任何调幅/改时长都是 preset version 变更 |
 | X9 blink/talk 同时被称为 expression，又被写成 motion3 | **成立，是 artifact kind 矛盾** | v1 固定 blink/talk 为 `MotionClip`（一个 one-shot、一个 loop），happy/sad/surprised 才是静态 `ExpressionPreset`；profile/manifest/artifact key 不能再按自然语言类别猜 |
 | X10 motion fade/crossfade 未冻结 | **成立。相同 keyform 在 Live2D 默认 fade 与 Spine AnimationState mix 下会得到不同的首尾轨迹** | `MotionRuntimeApplication v1` 固定资产 parity/默认建议为 weight=1、fade-in/out=0、无 crossfade；motion3 明写零 fade，Spine manifest/harness 使用零 mix。下游自定义混合属于播放器策略，不再宣称与 canonical 单 clip 轨迹相同 |
@@ -568,7 +571,7 @@ capability 和 exporter 执行顺序都不得改变同一 typed key 的 namespac
 | 嵌套 warp/rotation 的实际坐标语义 | **在 v1 限定域内通过**。`root→rectangular warp(quad_transforms=true)→rotation→rotation→ArtMesh` 的 rest、端点、九点 angle+origin 插值与多参数组合均在 canvas `≤0.1 px`；反转两个不同 pivot 的 rotation stack 产生可见差异。warp 会移动 rotation pivot，但不把自身非均匀伸缩 Jacobian 继续乘到 rigid local vector | `live2d-frames-v1` 只签署 axis-aligned rectangular structural warp；不得把 `quad_transforms=false` 当作普通 bilinear，也不得把本结果外推到任意曲面 warp。一般 warp/local inverse 需要另立 E0 与 schema version |
 | default-rest 是否只靠结构 consistency | **不能**。正例把 `ParamInner.default=6` 显式写为非中点 rest key，初次 update 还原 rest；负例保留同一 default 却遗漏对应 rest key，结构仍可加载但顶点偏差显著 `>0.1 px` | attestation 同时钉正/负 fixture；每个正式模型仍需逐 item 做 default 参数后的 vertices/opacity/draw-order parity，不能以 `csmHasMocConsistency=true` 替代 |
 | MOC、Core API 与最终 D3D11 纹理 V 方向 | **是三层不同表示**。MOC `uv.xys` 使用 canonical top-left V；Core drawable API 返回 `1-v`；官方 D3D11 shader 再翻一次 V，最终采样回到 canonical top-left。四角异色 + 半透明中心 fixture 已证明最终方向和 straight-alpha loader | 新增隔离 `uv_kernel.py` 并纳入 frame digest；共享 page PNG 不再被误读为 Spine/Cubism 数值 UV 相同。E0 同时保存 parser/Core/render 三层证据 |
-| motion3/exp3 能否按既定顺序生效 | **通过**。base parameters 后先把 motion 采到 1 秒，再应用 zero-fade exp3；Add/Multiply/Overwrite 分别得到 `0.75/15/-8`，且离屏像素摘要变化 | D3D11 WARP harness 报告 observed parameter values 与 raw RGBA；exp3 不在默认 fade 第一帧盲断言，正式 dual-runtime 表情能力仍只采用 Overwrite，Add/Multiply 只作 Live2D writer conformance |
+| motion3/exp3 能否按既定顺序生效 | **通过**。base parameters 后先把 motion 采到 1 秒，再应用 zero-fade exp3；Add/Multiply/Overwrite 分别得到 `0.75/15/-8`，且离屏像素摘要变化 | D3D11 WARP harness 报告 observed parameter values 与 raw RGBA；exp3 不在默认 fade 第一帧盲断言。正式表情仅保留非眼睛 Overwrite 与两个 default=1 eye-open target 的 Multiply lowering，后者必须再通过 blink+expression 组合实载 |
 | 官方 Framework 是否接受 JCS/minified motion JSON | **不可靠**。5-r.5 Framework numeric parser 只把逗号或换行识别为数字终止符，合法的 `10.0]`/`3}` 紧凑 JSON 会被拒绝 | JCS 只用于摘要/attestation；`.motion3.json`、`.exp3.json` 固定使用 ASCII、`indent=2`、stable key order 和末尾换行的 `cubism_runtime_json_bytes()`。禁止为了体积复用 JCS bytes 作为 runtime 文件 |
 | 技术 attestation 是否等于商业发布许可 | **不是**。Framework 受 Open Software License，Core 仍受专有条款和收入/用途条件约束 | generator 只在显式确认“不随包分发 SDK/Core，组织许可判断是外部门”后写技术 attestation；正式发行前仍需由发布主体完成许可证判断，本规范不提供法律结论 |
 
@@ -643,6 +646,170 @@ capability 和 exporter 执行顺序都不得改变同一 typed key 的 namespac
 | 当前 `completed` 是否等于官方 Spine runtime 已验证 | **不等于。** D 的 `official_spine_runtime_gate` 仍诚实为 `not_run` | G 保留 D report 在正式 artifact set 中，不篡改该事实；批处理可完成双格式物化，但对外宣称 Spine runtime 支持前仍必须执行本 spec 第 14 条的外部门 |
 | 完整回归如何避免昂贵 SDK 测试把结果吞进单一超时 | 按覆盖集合拆组，而不是删测试 | non-runtime 三组共 `626 passed, 1 skipped`；official-runtime 组 `29 passed, 4 skipped`；合计 `655 passed, 5 skipped`。另有 see-through `54 passed`、dependency/UV `193 passed` |
 
+### Revision 31 通用表情差分与语义可见性复审
+
+| 实现项 | 核对结论 | Revision 31 处理 |
+|---|---|---|
+| 是否已经参考 Anime2.5DRig 的核心方法 | **此前没有。** 旧实现只做眼部网格压缩和 mouth mesh `1.35x` 拉伸；Anime2.5DRig 的关键是缺图时生成 closed-eye/closed-mouth diff，再对 open/closed 纹理做互补淡变 | A 新增 `GenericVariantSynthesisPlan v1`。算法只读取当前 item 已验证的 RGBA/alpha、side 与 draw-order 事实；用角色自己的 eyelash/mouth 色与 face underlay 合成，不打包 Anime2.5DRig 示例素材。所有输出、参数、源摘要和 generator version 进入 A fingerprint 与 exact inventory |
+| transparent diff 能否继续套用 `occluding_overlay_v1` 的 99% coverage 门 | **不能。** replacement patch 与 crossfade diff 是两种不同原语，前者要求遮住 base，后者必须允许稀疏闭眼/闭口线稿 | composite registry 增加 `crossfade_overlay_v1`。它不走 replacement coverage/intrusion 公式，而检查 anchor/side、非空 alpha、feature-relative bbox、颜色来源和 open/closed target 完整性；作者提供的 opaque replacement 继续走现有 quality gate |
+| see-through 的普通 `mouth` 是 open 还是 closed | **由几何证据判定，不能仅按 tag 猜。** v1 对 bbox 高宽比、alpha 行分布和内部透明区产生 `mouth_state_observation`；明确 open 时普通 mouth 为 open target并合成 closed target，不确定时不冒充 native talk | crossfade talk 只有 observation 通过才是 `native_generated`；否则保留 procedural fallback，但严格 avatar 的 ROI gate 不通过就失败。不会用“生成了 PNG”替代能力判定 |
+| blink/talk 如何跨 runtime 保持同义 | open base opacity=`u`，closed overlay opacity=`1-u`；两个 side 的 eye control 独立。mouth 使用 `ParamMouthOpenY`/公共 `control/mouth_open` 同义映射 | ControlBinding 的 atomic implementation bundle 必须同时包含两侧 target；D/E 各自只做格式投影，不能在 exporter 内重算合成图或交换 open/closed 语义 |
+| `talk` 与 `happy/sad` 为什么此前无法同时导出 | `FormatPresetDecision` 硬编码把三者标成 incompatible，而不是从 typed primitive target 冲突推导；Lucy 因此只剩 surprised exp3 | 删除该硬编码表。冲突只由实际 selected primitive key 判定；smile/frown 是独立 variant target，talk 的 mouth-open target 不相交。运行期仍不承诺 talk+smile 同时叠加，但同一模型可分别拥有这些 preset |
+| 表情集合 | 只有 `happy/sad/surprised` 不足以覆盖已经生成的眼口能力 | `facial-expression-v3` 固定 `happy`、`sad`、`surprised`、`unimpressed`、`wink_screen_left`、`wink_screen_right`；blink/talk 仍为 motion。`screen_left/right` 明确是画布方向，不冒充角色解剖左右。Spine 与 Live2D 的 `motion_manifest` 逐格式记录相同 preset ID 与 capability 结论 |
+| release gate 为什么不能再比较整帧 SHA | 任意 1 个像素变化即可令 SHA 不同，无法证明目标器官发生了所声明的变化。Lucy 的旧结果是 talk 18 px、surprised 72 px 仍 passed | renderer evidence 增加 canonical rest/effect RGBA；validator 从 Rig 的 base-part bbox 映射到 render ROI。blink/wink 要求对应 eye ROI changed-alpha coverage `>=0.12` 且 iris visible mass 降至 rest 的 `<=0.15`；talk/surprised 要求 mouth ROI changed coverage `>=0.10` 且变化 bbox 高度增加 `>=max(2 px,0.15*rest_height)`；happy/sad 要求 mouth ROI changed coverage `>=0.08`，所有含 brow 的表达式要求每侧 brow landmark 位移 `>=0.015*head_height`。整帧 SHA 仅保留证据，不决定通过 |
+| head motion 的像素变化是否等于正确伪 3D | **不等于。** 现有 rigid rotation/translation 能显著改 hash，但没有利用 see-through depth，不能称为 Anime2.5DRig 式 parallax | 表情闭环后新增 `depth-parallax-head-v1`：按 part `depth_median` 对 head layers 施加有界差异平移/shear，face 为参考平面；保持 draw order/atlas/mesh 不变。SDK gate 比较近远层相对位移而非仅整帧变化 |
+
+Revision 31 的回归样本固定包含真实 Lucy item。完成定义不是生成文件数量，而是：公共 Rig 中存在对应
+control/binding/capability，两个 exporter 都物化预设，官方 Cubism renderer 的目标 ROI 门通过，Spine
+结构/独立 runtime smoke test 可选择并播放同名 preset。任一 required facial preset 只改变 ROI 外像素、
+仅改变极少像素或错误作用到另一侧，都视为 `runtime_effect_semantics_failed`。
+
+### Revision 32 MOC3 可见性、细特征幅度与深度视差闭环
+
+| 实现项 | 核对结论 | Revision 32 处理 |
+|---|---|---|
+| 默认透明的 ArtMesh 是否应写 `visible=false` | **不应。** Cubism Core 把 `visibles` 当作运行时可用性；一旦为 false，后续 opacity keyform 即使变成 1 也不会显示 | writer 对所有已发射 Part/ArtMesh 写 `visible=true`，setup opacity 只进入默认 keyform。官方 Core 回归固定验证 default opacity=0、参数非默认时 opacity=1 |
+| 小角色的 talk 能否通过降低语义阈值解决 | **不能。** 这会重新允许只有一行像素变化的假能力 | `mouth-open-silhouette-v2` 把最大纵向尺度由旧 `1.35x` 提高到 `2.2x`；结构测试钉住 span，SDK gate 仍要求 mouth ROI 变化高度至少 2 px |
+| head shake 是否只靠整个头刚性移动 | **不再是。** rigid head rotation 保留，同时近远层需要产生相对位移才有 2.5D 观感 | face 为零视差参考面；front/back hair、headwear、eyewear、earwear 按 `depth_median` 产生有界水平位移，最大为 8 canvas px 与 `0.03*head_width` 的较小值。五官不直接加第二个非刚性 driver，避免与 blink/mouth/brow 冲突 |
+| depth parallax 如何保持双格式同义 | 不能由 exporter 各自猜深度 | C 冻结同一 sampled deform；Spine 写 attachment deform timeline，Live2D 写同参数下的 ArtMesh keyform。Lucy 的 Spine `head_shake` 必须同时含 `bones` 与 `attachments` |
+| 真实 Lucy 的最终门是否通过 | **通过，带诚实降级。** 生成的闭眼 NativeVariant 因遮挡质量门被拒绝，回退到 layered procedural blink；不是伪装成 native | 官方 SDK 逐效果确认 7 个 motion 与 6 个 expression 均有目标 ROI 变化；`talk` mouth coverage `0.222`、变化高度 `3 px`。Spine/Live2D 共享 page PNG，G 状态为 `completed_with_degradation` |
+
+Revision 32 不宣称生成了新的语义纹理内容：通用 smile/frown 是从当前角色 mouth/face 像素确定性构造的
+最低可用差分。作者提供并通过质量门的表情素材仍拥有更高优先级。Spine 的官方 Editor/runtime gate 仍为
+`not_run`，所以“Spine 4.2 结构交付完成”和“已由官方 Spine Runtime 实载”必须继续分开陈述。
+
+### Revision 33 官方 Spine Runtime 实载闭环
+
+| 实测项 | 核对结论 | Revision 33 处理 |
+|---|---|---|
+| 用户提供的 Spine Runtime 4.3 能否验证 4.2 导出 | **不能，且官方 Runtime 正确拒绝。** `spine-cpp` 4.3 的 JSON loader 要求数据版本以 runtime 版本开头，Lucy 的 `skeleton.spine="4.2"` 因此加载失败 | 把 4.3 固定为版本错配负例，不通过修改 JSON 版本号或绕过 loader 冒充兼容；正向 gate 使用官方 4.2 runtime |
+| 如何证明所用 4.2 Runtime 的来源 | 不能只记录一个本机 exe 路径 | 以官方 `EsotericSoftware/spine-runtimes` commit `b81e5a58ed38704aee4f866f0e0ac672623ce914` 构建 `spine-cpp` 4.2；公共证据记录 executable SHA-256、size、runtime/skeleton version 与 probe protocol digest，不记录机器路径 |
+| JSON/atlas 结构通过是否足以证明动作可用 | **不足。** 空 timeline、附件切换错误、NaN 或状态残留都可能通过静态 parser | 新增 `tools/auto_rig_spine_runtime/` 外部 probe 和 `runtime_validator.py`。每个 animation 从 setup pose 开始，按完整 duration/60 FPS 采样 bone、slot color、attachment identity 与 VertexAttachment world vertices；必须 finite、至少一次 runtime-visible change，并在结束后恢复 setup pose至 `1e-4` 内 |
+| 真实 Lucy 的 Spine 结果 | **旧版官方 4.2 Runtime 结构验证通过，但用户复核发现 breath 与 talk 视觉强度不足，因此该记录不再视为语义验收。** | 旧产物仅证明 13 个 animation 可被 runtime 加载和改变某些状态；当前 v3 门要求 breath 通过归一化几何阈值，talk 则由归一化张嘴几何或完整 opacity/attachment crossfade 之一证明可见语义，并使用英文 `unimpressed`、`wink_screen_left`、`wink_screen_right`。 |
+| 外部 gate 如何进入一键流水线 | 手工运行后口头确认不可复现，也不能让任意 runtime 更新继续命中旧 D cache | `run_auto_rig_item(..., spine_runtime_path=...)` 把 executable SHA-256 纳入 D config fingerprint；Stage D 在私有 staging bundle 上先跑结构门再跑官方 Runtime，成功才发布 `official_spine_runtime_gate.status="passed"`。未配置时仍诚实记录 `not_run`，不伪造通过 |
+| 是否分发官方 Runtime | **不分发。** probe 是项目自有的小型适配器，官方 Runtime 仍由部署环境按其许可证提供 | CMake 只接受外部 `SPINE_CPP_ROOT`；仓库不 vendor Runtime 源码/二进制，item report 也不携带本机安装位置 |
+| 本轮回归是否完整退出 | 单一 auto-rig 全量进程在 30 分钟工具上限处被终止，不能记作通过；继续重复同一命令没有证据增益 | 按边界拆组得到：runtime protocol `5 passed`、官方 4.2 optional runtime `1 passed`、Stage D `4 passed`、pipeline `1 passed`、Spine exporter/validator `32 passed`、foundation/resume/public API `86 passed`、Stage G `3 passed, 1 skipped`；另有 fresh CMake Release build、Ruff、compileall 和 `git diff --check` 通过 |
+
+Revision 33 取代 Revision 27/29/32 中“本机未执行 Spine Runtime”的当前状态判断，但保留那些段落作为当时
+阶段审计记录。G 对 Lucy 已重新签发为 `completed_with_degradation`；降级来自图层/表情能力判决，不来自
+Spine Runtime，D report 的官方 gate 已为 `passed`。
+
+### Revision 34 Viewer 兼容、HitArea 与不可解四肢降级闭环
+
+| 实测项 | 核对结论 | Revision 34 处理 |
+|---|---|---|
+| ZIP 导入网页 Viewer 后 motion 名称变成 `data:application/json;base64,...` | **不是 motion 文件损坏。** ImDuck42/Live2D-Viewer 的 ZIP loader 会把 `File` 改写成 data URI，而 UI 在 entry 缺 `Name` 时从 `File` 推导显示名，因此把整个 data URI 当名称 | `.model3.json` 的每个 motion entry 必须同时写稳定 `Name=<artifact_export_name>`；`File` 仍是包内相对路径和资源身份。测试显式模拟 `File` 被 data URI 替换，显示名仍不得变化 |
+| runtime 包没有 HitAreas | **成立。** MOC3 的 ArtMesh 已存在，但 model3 没有从语义 part 投影 hit-area metadata | 可用时固定生成 `Head` 与 `Body`：Head 指向最大可见 `face` ArtMesh，Body 优先最大可见 `topwear`，其次 `bottomwear`；`Id` 必须是实际发射的 ArtMesh export ID。缺语义目标时省略对应 area，不允许写不存在的 ID |
+| Lucy2 只有头和上半身能动 | **根因是证据缺失，不是 exporter 丢动作。** shoulder/elbow/wrist/hand-tip 与 hip/knee/ankle/toe 均 unresolved；`handwear`、`legwear` 还是 merged 层，因此完整 wave/关节链按契约被省略 | 新增双格式 optional `arm_sway` / `leg_sway`。前者只要求 torso metric + handwear mesh，后者只要求 resolved pelvis + legwear/footwear mesh；两者直接对现有 ArtMesh/attachment 做小幅刚性 sampled deform，quality tier 固定为 `procedural_silhouette`。`wave.*` 仍要求完整侧向关节链，不能由粗摆动替代 |
+| 粗摆动是否只是“文件存在” | **不是。** 真实 Lucy2 由 Core `06.00.0001` 逐参数和逐 motion 实载：`ParamArmSway` 作用于 10 个 handwear ArtMesh，`ParamLegSway` 作用于 20 个 legwear/footwear ArtMesh，两个参数与两个 motion 均 `visible_change=true` | G 重新签发 `completed_with_degradation`；Live2D 9 motion/6 expression、Spine 15 animation 均通过官方 runtime gate。降级明确表示没有 elbow/knee 级 articulation，不影响产物完整性 |
+
+Revision 34 不把 coarse sway 宣称成自动补全骨架。需要挥手、迈步、屈肘或屈膝时，仍必须由 pose observation
+或 `rig_overrides.json` 提供可靠关节；当前降级只解决批量包中四肢完全静止的问题。
+
+### Revision 35 动作可感知性与英文命名闭环
+
+| 实测项 | 核对结论 | Revision 35 处理 |
+|---|---|---|
+| 旧 `breath` 为什么 runtime 通过但肉眼无效 | 旧 gate 只检查任一数值是否变化；Lucy 的实际最大 world-vertex displacement 只有 `3.91 px` | breath 横纵缩放从 `1.01/1.015` 提升为 `1.03/1.03`，并以 torso 下缘为纵向锚点。Spine 4.2 当时实测最大位移升至 `13.655 px`；Revision 42 已用尺度归一化的 v3 门取代不可跨分辨率比较的 `>=5 px` 绝对门 |
+| 旧 `talk` 为什么嘴不动 | Lucy 原 mouth 已微张，旧 native crossfade 只做闭口 patch 与原 mouth 的 opacity 切换；最大顶点位移为 `0`，alpha 只到 `0.65` | native bundle 现在同时驱动 base mouth sampled deform 与 `0..1` 完整 crossfade；曲线峰值改为 `1.0`。Spine 实测顶点位移 `8.584 px`、alpha delta `1.0`；Live2D mouth ROI 改变 `17/45=37.78%`、高度 `5 px`，通过 `20%/4 px` 门 |
+| `jito` 与 wink 名称是否可作为公共英文契约 | `jito` 是日语 `じと目` 的罗马字；`wink_xmin/xmax` 也不是 Spine 或 Live2D 的行业动作名 | 公共 preset 改为 `unimpressed`、`wink_screen_left`、`wink_screen_right`。screen 方位明确表示输出画布，不把 xmin/xmax 武断映射为角色解剖左右；内部几何 control 仍保留诚实的 xmin/xmax |
+| 是否能增加更多身体动作 | 当前四肢图层存在，但 elbow/wrist/knee/ankle 没有可靠 observation | 双格式继续提供 `body_sway`，并新增的 `arm_sway` / `leg_sway` 已由 Spine 4.2 实测最大位移 `37.06/24.45 px`。`wave.*` 继续省略，避免把整段图层刚性旋转冒充关节动画 |
+
+Revision 35 将“runtime 中某个值变化”降为结构证据，不再单独作为动作有效性的证明。对已声明语义的动作，
+release gate 必须同时记录与该语义对应的几何、alpha 或器官 ROI 指标。
+
+### Revision 37 SDPose Body17 单文件缓存、DETRPose 对照与自动触发
+
+| 实现项 | 核对结论 | Revision 37 处理 |
+|---|---|---|
+| 是否需要 Comfy 的 WholeBody 单文件 | **不需要。** Rig v1 只消费肩、肘、腕、髋、膝、踝以及双肩/双髋派生点；133 点中的 face/hand 点不进入 BoneSpec，手指精度也不足以抵消 640-channel decoder 的额外计算和显存 | 生产 provider 固定为官方 `teemosliang/SDPose-Body@5a34e0c7df4c8ea5fc8774c5f2ae4229e962238c` 的 COCO Body17。Comfy WholeBody 仅保留为单文件布局和固定 conditioning 的实现出处，不下载、不做自动 fallback |
+| 官方 Body diffusers 分片如何满足单文件部署 | 三份学习权重可机械合并，不需要 text encoder 常驻，也不需要改变模型结构 | 首次下载后逐文件 size/SHA 校验，将浮点学习权重转为 FP16并以 `unet.`、`vae.`、`decoder.` typed prefix 写入 `sdpose_body17_fp16.safetensors`。bundle metadata 固定 source/config/conditioning/converter schema；实际 bundle SHA 进入 Stage A fingerprint。它是可删除重建的本地缓存，不冒充上游发布物 |
+| 仓库里的 `rt_detr_v4-x-hgnet` 是否是 DETRPose | **不是。** 它只输出 person/object bbox，是 SDPose top-down crop 的可选前级 | provider taxonomy 固定为 `person_detector` 与 `pose_estimator` 两类。单角色 auto-rig 优先使用 `mask/pose_body` union bbox；只有多人物或 union bbox 不可用时才允许调用 RT-DETR |
+| 应与哪个 DETRPose 比较 | 比较 `SebasJanampa/DETRPose_X_CROWDPOSE` 的真实 14 点端到端模型，而不是 RT-DETR detector | 两个 provider 必须消费同一 `src_img.png`、同一人物框、同一 canvas 反变换与同一 observation-anatomy gate；只在共同覆盖的肩/肘/腕/髋/膝/踝/颈上比较 resolved gain、mask-normalized distance、左右交换、骨长连续性、延迟和峰值显存，不直接比较不可校准的 raw score |
+| 姿态何时运行 | 几何能解时运行 0.95B 模型没有信息增益 | `pose_mode=auto` 先构建 geometry-only provisional joint plan；仅当存在 `merged-separable/merged-ambiguous` 四肢，且 elbow/knee/wrist/ankle 等关节 unresolved 时触发。`disabled` 永不加载，`sdpose`/`detrpose` 强制指定，`compare` 同时运行并写对照报告 |
+| ONNX 与 FA2 如何选择 | 仓库当前没有 SDPose ONNX，不能把 safetensors detector 当 ONNX pose model | 只对登记了完整 input/output contract 与 SHA 的 pose ONNX coherence group 启用 `onnx`；否则用 `torch-fa2`。FA2 processor 安装或首个真实 forward 失败时降到 `torch-sdpa`，实际 backend、dtype、device、模型摘要与预处理摘要全部进入 Stage A fingerprint/report |
+| pose 是否直接重建骨骼或猜左右 | **不允许。** provider 只提交 Body17/CrowdPose observation | COCO right 侧映射到 image-space `xmin`，left 侧映射到 `xmax`；neck/pelvis 只能由双肩/双髋且双方过阈值时派生。所有点仍经过 anatomy support 和骨长门，失败保持 unresolved |
+| merged limb 有关节后如何动 | 仅生成 joint/bone 仍不够；unsided `handwear/legwear` 不会自动获得 side binding | Spine 对 merged mesh 允许在同一 mesh 内按两条 pose chain 的最近弧长做跨侧权重，不切纹理、不制造接缝；Live2D v1 只发布经现有 sampled-deform/runtime seam 门验证的动作。不能为了显示 wave 把一张 merged layer 粗暴切成两张带裂缝的 ArtMesh |
+
+Revision 37 的比较是项目数据上的工程选择，不用 COCO AP 替代。单张 Lucy2 可以暴露明显左右/关节错误，
+但不足以宣布全局 winner；默认 provider 只有在代表性 see-through 批次和人工 joint GT 上过门后才能从
+`sdpose` 改成另一模型。模型量化继续延期，避免在正确性尚未证明前优化错误路径。
+
+### Revision 38 Body17 实载、merged 权重与交叉肢体身份
+
+| 实测项 | 核对结论 | Revision 38 处理 |
+|---|---|---|
+| Body17 是否足够支撑当前 Rig | **足够，且 WholeBody 没有新增当前消费点。** Lucy2 的正式运行接受 14 条 pose observation，`pose_resolved_gain=12`，补齐双侧 shoulder/elbow/wrist/hip/knee/ankle并发射 13 根 root/躯干/头/上臂/前臂/大腿/小腿骨 | 生产 provider 保持 COCO Body17。`hand_tip`、`toe` 和手指仍 unresolved，因此不发射 hand/foot/finger bone；这不是降级伪装，而是当前 BoneSpec 的明确边界。只有未来把手指、脸部 landmark 或独立 hand/foot chain 升为正式输入时才重新评估 WholeBody |
+| FA2 在 Windows 是否只是配置名 | **不是。** Python 3.11.9、RTX 4090、PyTorch 2.13/CUDA 13.0、flash-attn 2.8.4 的真实 Lucy2 forward 记录 `backend=torch-fa2`、FP16、无 fallback | 保留 `onnx -> torch-fa2 -> torch-sdpa` 顺序；单样本 FA2 `1.680 s` 与 SDPA `1.669 s` 没有可声明的加速，因此只宣称后端可用，不宣称吞吐提升 |
+| merged 手臂/腿有骨但纹理仍不动 | **根因是 mesh 过去全绑 root。** 关节存在不等于顶点权重存在 | `skinning-plan-v3` 对 unsided merged limb 按每顶点到两条关节弧的最近距离分区，再做相邻骨 arc-length blend；不切纹理、不新增接缝。Lucy2 主 handwear/legwear mesh 均同时引用两侧 arm/leg chain，且不再引用 root |
+| part 的 `.xmin/.xmax` 能否直接等同 pose chain suffix | **不能。** Lucy2 双腿交叉：画面 xmin 鞋靠近 `ankle.xmax`，画面 xmax 鞋靠近 `ankle.xmin` | side-specific limb component 在两条候选链中整组件择一；footwear 用组件中心到 distal joint 的距离，其他单侧 limb 用 mesh 到 chain 的中位距离，suffix 只作等距时稳定先验。真实两只主鞋各自只保留正确的单条 shin chain，不在一只鞋内部混链 |
+| 四肢 HitArea 是否应伪造四个名称 | **不应。** Lucy2 的 arm/leg 主层仍各是一个 merged ArtMesh，复制同一 Id 或选取微小噪声 component 都会产生虚假点击语义 | split 且双方均有有效 ArtMesh 时发布四个 screen-side area；merged 时诚实发布 `Arms`、`Legs` 两个合并 area。需要四个独立点击区时另立不可见 hit-proxy ArtMesh 契约 |
+| 最新正式门 | **通过。** A-E 均 `stage_validated`，G=`completed`，resume 的 `is_item_completed` 返回 true | Spine 4.2 官方 Runtime gate 通过 15 个 animation；Live2D Core `06.00.0001` release gate 通过，motion 名称稳定，HitAreas 为 `Head/Body/Arms/Legs`。该结果只证明当前固定动作与格式交付，不把无 Glue 的 Live2D 独立肘/膝弯曲冒充已完成 |
+
+### Revision 39 显式眨眼与单眼表情隔离
+
+| 实测项 | 核对结论 | Revision 39 处理 |
+|---|---|---|
+| 为什么普通动作也会眨眼 | `.motion3.json` 本身没有复制眼睛曲线；根因是 `.model3.json` 的 `EyeBlink` group 会让支持该功能的 runtime 为所列参数启用全局自动眨眼 | 正式输出不再发射 `EyeBlink` group。`blink.motion3.json` 仍直接驱动双眼 custom parameter，其他 motion 必须与这两个 parameter 完全不相交 |
+| 为什么改名后的 `wink_screen_left/right` 看起来无效 | 两份 `.exp3.json` 的稳定名称、文件引用和单眼 Overwrite 值都正确；但 runtime 的自动眨眼更新顺序可以在 expression 后再次写双眼参数，从而覆盖 wink | 保留英文公共 preset ID；去掉全局 `EyeBlink` 写入源，并用 fixture 固定每个 wink 恰好关闭画布一侧、另一侧重置为 1。是否重新加入自动随机眨眼必须另立可组合的播放器策略，不能借参数组静默注入 |
+| `LipSync` 是否同样删除 | 不需要。当前问题只来自自动眨眼；口型仍需要标准语义供音频 runtime 识别 | `LipSync` group 继续仅在 `mouth_open` parameter 实际存活时发射。显式 `talk` motion 与下游 lip-sync 的并发属于播放器策略 |
+
+### Revision 40 显式 blink 与持续 expression 合成
+
+| 实测项 | 核对结论 | Revision 40 处理 |
+|---|---|---|
+| 为什么移除 `EyeBlink` 后 blink 单独有效、启用 wink 后却无效 | Cubism Framework 先求值 motion，再应用持续 expression。旧 `.exp3.json` 对双眼使用 `Overwrite`，所以 wink 每帧都把 blink 写入的 0 覆盖回单眼 0/1；这不是 blink motion 丢失 | `control/eye_open.xmin/xmax` 的 Live2D expression target 固定写 `Multiply`，其余 target 仍写 `Overwrite`。眼睛 rest/default 必须为 1，因此单独应用时 canonical absolute value 不变；与 blink 并发时 `0 × expression_value = 0`，显式 blink 可以闭合双眼 |
+| 是否恢复全局自动眨眼 | **不恢复。** 恢复会再次让普通 motion 获得未声明的随机眼睛变化 | `.model3.json` 继续不发射 `EyeBlink` group；只有 `blink.motion3.json` 可以主动驱动 eye-open parameter。测试必须覆盖“持续 wink 后播放 blink”而非只分别测试两个资产 |
+| 为什么 exporter-neutral source 仍叫 `overwrite_full_weight` | source 表达的是静态 absolute control 目标，不是 Cubism 的最终 blend opcode。Live2D 对默认值为 1 的 eye-open channel 做乘法 lowering，才能保持同一静态目标并满足显式 blink 的组合语义 | 该 lowering 只允许精确的两个 eye-open control；其他 control 擅自改为 Multiply/Add 必须校验失败。Spine lowering 保持原契约，跨 runtime 的并发 blink/expression 另由 runtime application parity gate 约束 |
+
+### Revision 41 Blink 时序与 motion 自包含 fade
+
+| 实测项 | 核对结论 | Revision 41 处理 |
+|---|---|---|
+| 为什么 Blink 结束后双眼仍半透明 | 在实际 `pixi-live2d-display 0.4.0` Viewer 中复现：旧动作完成后两个 eye-open parameter 停在约 `0.508`。`.model3.json` 虽给 motion entry 写了零 fade，但 `.motion3.json` 自身没有 `Meta.FadeInTime/FadeOutTime`；该 Viewer 对 model3 的数值 `0` 走默认 fade fallback，motion 停止后参数不再继续恢复 | 每份正式 `.motion3.json` 的 `Meta` 必须显式写 `FadeInTime=0.0` 与 `FadeOutTime=0.0`；animation validator 缺任一字段即失败。model3 entry 的 fade 只作调用建议，不能替代 motion 资产自身的契约 |
+| 为什么只有结束点写 `eye_open=1` 仍不够 | one-shot runtime 可以在精确终点被移出队列，只有端点 rest key 无法证明最后一次可见 update 已恢复 | `blink` 升为 24 帧：`(0,1),(6,0),(9,0),(16,1),(24,1)`。闭眼保持 3 帧、张眼后保持 8 帧；release gate 除峰值和终点外，还必须采样结束前一帧并得到 rest |
+| 为什么旧官方 gate 没抓到 | E0 harness 在加载后调用 `SetFadeInTime(0)`/`SetFadeOutTime(0)`，替资产补上了缺失语义，所以测试环境比实际交付宽容 | harness 必须原样消费 motion JSON 的 fade，不得覆盖；E0 validator protocol 升版并用官方 SDK 重新签署 attestation。结构测试同时禁止重新加入这两个 override |
+
+### Revision 42 恢复闭环、姿态生命周期与双格式独立验证门
+
+| 审查项 | 核对结论 | Revision 42 处理 |
+|---|---|---|
+| 同一 item 为什么仍会重跑 A-E | runner 在计算 expected fingerprint 前已经执行姿态、网格和 exporter，并且启动即删除 G；这不是 resume | A 的 expected fingerprint 只依赖输入、最终 native identity 和静态姿态配置；B/C/D/E 逐阶段重算 expected fingerprint，再用 manifest、逐文件 byte hash 和 owner inventory 闭合。A+B 命中时从认证 JSON 恢复 typed `RigGeometryCache`，不再加载姿态模型或重建网格；C/D/E 独立复用 |
+| A/B/C/D/E 抛错后为何没有公共失败产物 | stage-local failure 不是下游可寻址终态 | 执行期记录 active stage；失败先撤销该 stage success marker，再保留/生成 `rig/cache/<stage>/failure.json`，最后由 G 单写 `rig/error.json`。G 自身的程序错误不伪装成 item 的 A-E failure |
+| SDPose 为什么批次内反复加载、bundle 为什么读两遍 | 每个 item 临时创建无缓存 resolver；factory inspect 后 loader 又完整 verify | 新增显式 `PoseProviderPool`，每个 backend 每批只实例化一次并可显式 `close()`；inspect 成功后 loader 使用 `verify_bundle=False`，但仍读取并校验模型 metadata/tensor inventory。未来 see-through 后续阶段必须共享 pool，禁止全局无界 GPU cache |
+| Spine breath 的 5 px 门是否跨分辨率成立 | **不成立。** 同一相对动作在 768/1280 canvas 上绝对位移不同 | probe v3 同时输出受影响 setup vertex bbox 尺度和 `max_displacement/max_support_extent`；breath 用归一化位移门。talk 允许“足够的归一化几何张嘴”或“完整 opacity/attachment crossfade”任一路径，不再误杀有效的 alpha-only native talk |
+| avatar profile 的 required/optional 为什么重复 | profile 直接复用了全局 optional priority | profile 构建时从 optional 中剔除 required；validator 对 library priority 做相同投影，两个集合必须不相交 |
+| 显式左右四肢为何退化成 combined HitArea | joint containment 的小偏差压过了上游明确 side provenance | explicit `side=xmin/xmax` 成对时直接生成左右 HitArea；只有无 side 的单一 component 且同时覆盖两侧证据时才允许 combined，禁止用一侧 fallback 冒充双侧 |
+| 闭嘴弧线为何被判为 open mouth | 旧判据只看 bbox 高宽比 | mouth observation 改为 tight alpha support、填充率和 border flood-fill 后的真实封闭透明区；稀疏曲线不再触发 open candidate |
+| auto-rig 是否现在就并入 see-through 主 CLI | **否。** 两者的失败、依赖和发布节奏尚未耦合 | 当前只提供 `qinglong-auto-rig <item-or-final.psd>` 一个位置参数；Core/renderer/pose 等部署配置由环境变量提供。未来作为 see-through 后续选项接入，类似音轨分离后的 MIDI/人声后处理，而不是扩张当前命令面 |
+| 双格式交付是否要求两边使用同等级外部门 | **不要求。** 交付格式集合与验证证据等级是两件事 | formal dual profile 仍要求 D、E 都成功，但 D 的 Spine JSON/atlas/结构 validator 足以发布开放格式；官方 Spine 4.2 Runtime 是 opt-in，报告为 `passed` 或诚实的 `not_run`。E 的未公开 MOC3 则继续要求已签署 Core/renderer release gate；不得把 Live2D Core 门机械复制到 Spine |
+
+Revision 42 的真实 Lucy2 fresh run 以 SDK 5-r.5 Core `06.00.0001`、D3D11 renderer、官方
+Spine C++ Runtime 4.2 和 SDPose Body17 完成，G 为 `completed`。Spine probe v3 对 `breath` 记录
+归一化位移 `0.0326578803`，对 `talk` 记录归一化位移 `0.253186613`、alpha delta `1.0`；随后同命令
+返回 `reused_stages=[A,B,C,D,E,G]`，没有再次加载 SDPose 或运行 exporter。
+
+### Revision 43 Resume 与失败边界补强
+
+| 审查项 | 核对结论 | Revision 43 处理 |
+|---|---|---|
+| A 的 QCL/generated variant 在 resume 校验前被确定性重建，会不会掩盖丢失产物 | **会。** 重建后的 bytes 恰好匹配旧 manifest，若只做事后校验就会把真实 cache loss 报成 A 命中 | 在任何 A-owned planner 物化文件前先验证旧 A commit 的逐文件摘要和 inventory；该事实必须为真，后续 expected fingerprint 校验才有资格命中。缺一个 QCL 的回归测试必须重跑 A/B 和 pose provider |
+| 非法 tier/profile 是否应写成 item 的 A failure | **不应。** 这是启动配置错误，不是输入角色求解失败 | `validation_tier`、formal/tier 组合和 capability profile 在进入 item failure edge 前 preflight；失败不得撤销 A marker，也不得发布 `rig/error.json` |
+| terminal failure 发布自身失败时能否吞掉异常 | **不能。** 否则调用方只看到原异常，却误以为公共失败终态存在 | 保留原执行异常为 cause，并显式抛出 terminal publication error；`retryable` 只接受 JSON boolean，字符串等畸形值不得通过 truthiness 变成 `true` |
+| `spine_4_2_dev` 为何仍进入 E 并因缺 Live2D plan 失败 | runner 把 profile 只用于 C，随后仍无条件执行 D/E；这让“开放 Spine 格式不依赖 Core”的开发路径实际上不可用 | runner 以 profile 的 `required_formats` 决定 exporter stage；Spine dev 精确停在 A-D、清除旧 E public namespace、不给 G completion。单参数 CLI 从 profile 的 `terminal_delivery` 决定是否 finalize，而不是永远强制 G |
+
+Revision 43 后真实 Lucy2 再次运行返回
+`reused_stages=[A,B,C,D,E,G]`、`status=completed`；该复核重新 byte-hash 当前 manifests、owner
+inventories 和发布图，不重新执行已认证的 exporter/runtime gate。
+
+### Revision 44 静态表情与眨眼替换层隔离
+
+| 实测项 | 核对结论 | Revision 44 处理 |
+|---|---|---|
+| `happy` / `unimpressed` 为什么出现眼睛半透明重影 | 真实产物把 open-eye base 与 closed-eye replacement 分别固定在 `0.8/0.2` 和 `0.55/0.45`。这不是纹理 loader 错误，而是把只适合短暂 blink 过渡的离散 crossfade 当成长期保持的半睁眼姿态 | `motion-core-v6` 从两个静态表情中删除双侧 `eye_open` control；`happy` / `unimpressed` 只由 mouth-form 与双眉表达。只有显式 `blink` 的时间曲线和取值严格为 `0/1` 的两个 wink 可以驱动 closed-eye replacement |
+| 缺眼睛图层是否应连带删除 `happy` / `unimpressed` | **不应。** 修订后的两个 descriptor 不再引用 eye control，继续要求 blink evidence 会制造虚假依赖 | capability 从实际 descriptor 对齐：缺眼睛只移除 blink 与两个 wink；mouth-form 和双眉齐全时仍可发布 happy/unimpressed。Live2D ROI gate 同步取消 unimpressed 的 eye-change 要求，继续硬验 mouth 与至少一侧 brow |
+| 为什么不把 crossfade 改成阶跃或继续调 `0.55` | 两张离散 replacement 没有半睁眼几何事实；任何阈值都只是在 open/closed 间跳变，不能凭空产生可靠的 held half-lid | 若以后需要半睁眼，必须新增独立 `eye_half_closed.{side}` NativeVariant role、质量门和 target，而不是复用 blink opacity channel |
+
 ### 决策摘要
 
 新增 `module/auto_rig/`，消费 see-through item 目录，生成版本化 `RigDocument`，并从同一份
@@ -657,11 +824,12 @@ Rig 批量导出带预设动作/表情的 Spine 4.2 包和 Live2D Cubism runtime
 3. **C：冻结 ControlSpec/ControlBinding/曲线/target transfer，执行能力驱动的 exporter-neutral 动作/表情 preset 绑定 + 逐格式 model/preset/preset-set 纯 feasibility preflight + Rig 级全局符号表 + 共享纹理页规划/canonical PNG，并组装/写入完整 `RigDocument v1`**；
 4. **D：Spine 4.2 setup rig、animations、简单多页 atlas 导出与验证**；
 5. **E：Live2D MOC3 V4.00 runtime、motions、expressions、纹理导出与验证**；
-6. **F：可选姿态后端评测，SDPose-OOD Body 为首选候选、RTMW-l 为备选，不阻塞 A-E/G**；
+6. **F：可选姿态后端评测，官方 SDPose Body17 与真正的 DETRPose-X CrowdPose 做同门对照；Comfy WholeBody 不参与，RT-DETR 只是可选 person detector，不阻塞 A-E/G**；
 7. **G：item terminal finalization；正式 release 成功时验证并发布双格式 `export_manifest.json`，任一已枚举 item 的 A-E production-stage 失败时发布公共 `error.json`**。
 
-姿态模型默认关闭。没有几何基线和人工标注评测集之前，不把“SDPose-OOD 替换 DWPose”
-写成既成事实。正式批处理 profile 固定要求 Spine 4.2 与 Live2D runtime **同时成功**；单格式
+流水线配置默认使用 `pose_mode=auto`，但 auto 在几何已解析时等价于关闭，不下载也不加载模型。
+没有几何基线和人工标注评测集之前，不把“SDPose 替换其他 provider”写成既成事实。正式批处理 profile
+固定要求 Spine 4.2 与 Live2D runtime **同时成功**；单格式
 开关只用于开发诊断，不能把只成功一半的 item 标为 completed。正式 release 的依赖图是
 `A → B → C → (D, E) → G`；任一 A-E failure 也走 failure edge 到 G 写终态错误。D/E 可并行验收，
 但 E 未完成时项目就尚未达到正式交付定义。F 是实验分支，不在 release 关键路径。
@@ -1776,7 +1944,7 @@ SimCC raw score 与 geometry confidence 不在同一标度，禁止直接加权�
 `min(max(2px, 1.0 × local_limb_radius), 0.05 × canvas_edge)`；没有局部半径时只给 2px 数值余量，
 没有任何可用 evidence mask 时视为在 support 外。该门同时用于 pose 与 override，不能由 provider 名称绕过。
 
-### 姿态后端：可插拔，SDPose-OOD 优先评测，RTMW-l 备选
+### 姿态后端：几何优先，SDPose Body17 与 DETRPose 同门对照
 
 接口只返回观测：
 
@@ -1785,63 +1953,81 @@ PoseBackend.infer(image, person_bbox) -> list[JointObservation]
 ```
 
 backend 不知道 bone、mesh 或 exporter。输入图固定为 `src_img.png`，前景人物框由身体 mask
-union 得到，以版本化的 `bbox_padding=1.25` 外扩，再补到 backend 目标宽高比后做仿射；禁止
-直接拉伸任意长宽比、禁止把整张方形 canvas 当人体框，也禁止重合成 amodal layers。
+union 得到，以版本化的 `bbox_padding=1.25` 外扩，再按 provider 的冻结预处理执行。SDPose checkpoint
+的训练/参考实现把 crop **直接拉伸**到 `768×1024 (W×H)`；为保持权重 parity，SDPose provider v1
+也必须这样处理并记录独立 `scale_x/scale_y`，不能擅自改成等比 letterbox。DETRPose 则按其冻结的
+dynamic resize contract 执行。禁止把整张方形 canvas 当人体框，也禁止重合成 amodal layers。
 padding、仿射、RGB/归一化和坐标反变换全部进入 joints-stage fingerprint。`src_img.png` 若为
 RGBA，v1 先在固定白色 `RGB(255,255,255)` 上做 alpha composite，不能直接丢 alpha 后继承
 透明区的黑色 RGB；背景值进入 fingerprint，并在姿态评测证明不合适时随预处理版本升级。
 
-**首选评测候选是 SDPose-OOD Body（17 点）**。选择依据不是只比较同域 AP：官方方法以
-Stable Diffusion v2 U-Net 为 backbone，专门评估 OOD 与艺术风格；项目页报告 HumanArt AP
-71.2、COCO-OOD AP 63.5，并展示动画/风格化输入。官方 Body 模型卡明确列出 COCO 17 点、
-`1024×768 (H×W)` 输入、top-down 工作流和 confidence 输出。17 点已经覆盖首版骨架所需的
-肩、肘、腕、髋、膝、踝；Wholebody 133 点不能仅因“更多”就进入首版，只有证明它能减少
-脸/手 override 时才增加第二个 provider。
+**默认候选是官方 `teemosliang/SDPose-Body` 的 17 点模型。** 选择依据不是点数或只比较同域 AP：
+SDPose 以 Stable Diffusion v2 U-Net 为 backbone，专门评估 OOD 与艺术风格；项目页报告 HumanArt AP
+71.2、COCO-OOD AP 63.5。Rig v1 的信息需求到 wrist/ankle 为止，Body17 已完整覆盖；WholeBody 的
+face/hand 点不创建任何 joint，而其 640-channel feature/head 会增加 decoder 计算和显存，所以不进入
+默认路径。上游源契约固定为：
 
-SDPose-OOD 的集成成本也必须如实写出：
-
-- 参数量约 0.95B；官方 Body 仓库当前总计约 5.29 GB，其中 UNet safetensors 约 3.47 GB，
-  decoder 约 6.99 MB；
-- 当前官方路径是 PyTorch + Diffusers + MMPose，仓库未提供官方 ONNX；依赖清单固定到
-  Torch 2.8、Diffusers 0.35、MMCV/MMEngine 等，不能塞进几何基础 extra；
-- 它虽然借用 diffusion backbone，但官方 inference 固定 `t=999` 做单 timestep x0 prediction，
-  不是多步采样；仍需实测显存、吞吐和冷启动，不能从“diffusion”一词猜性能；
-- 官方 Gradio 预处理会把 crop 直接 resize 到目标尺寸。本设计先把 mask union bbox 补到 3:4
-  再缩放，避免形体比例失真；必须做与官方脚本的坐标 parity fixture，不能凭肉眼认为等价。
-
-因此 SDPose provider 放在独立 `auto-rig-pose-sdpose` extra，必要时用隔离 worker 避免其严格
-Torch/MMCV 版本污染主环境。首版允许用户提供完整本地模型目录；正式下载必须登记为统一
-模型源 coherence group，固定文件摘要、模型卡和全部组件，不能只固定 UNet。
-
-**RTMW-l 保留为备选和低成本对照**。它的 Cocktail14 包含 Human-Art，官方报告
-384×288 whole-body AP 70.1；DWPose 同尺寸最佳报告 66.5。这个证据比 SDPose-OOD 对艺术域的
-直接评测弱，但 RTMW 有可部署 ONNX、体积和依赖明显更小，适合作为显存受限 fallback。
-2026-07-31 已直接核对 OpenMMLab ONNX SDK 包：
-
-| 项目 | 已验证值 |
+| 项目 | 冻结值 |
 |---|---|
-| 上游包 | `rtmw-dw-x-l_simcc-cocktail14_270e-384x288_20231122.zip` |
-| ZIP SHA-256 | `a87e1af41a0a067776dba7d46e1c21c8f6e9f18e247e0e606718dd1f31e96ffd` |
-| ONNX 文件 | `end2end.onnx`，229,320,930 bytes |
-| ONNX SHA-256 | `bd033156e5104c4f5d2edfe0453e02661e30a2f3da453ec93c8764d561b83054` |
-| 输入 | `input: [N, 3, 384, 288]`，RGB，ImageNet mean/std |
-| 输出 | `simcc_x: [N, 133, 576]`，`simcc_y: [N, 133, 768]` |
-| body 索引 | COCO-WholeBody `0..16` |
+| repo / revision | `teemosliang/SDPose-Body` / `5a34e0c7df4c8ea5fc8774c5f2ae4229e962238c` |
+| UNet | `unet/diffusion_pytorch_model.safetensors`；`3,470,311,272`；SHA-256 `a75d358808e58cd5eb305dd3362d0d1457d243d787ac4bf1905b64da71d8934a` |
+| VAE | `vae/diffusion_pytorch_model.safetensors`；`334,643,276`；SHA-256 `a1d993488569e928462932c8c38a0760b874d166399b14414135bd9c42df5815` |
+| decoder | `decoder/decoder.safetensors`；`6,986,756`；SHA-256 `32994dfc90beb84786c8e9296eeef60dad66980d86d7349be7c7ff80f3aaa8a4` |
+| configs | `unet/config.json` (`1,872`, SHA `39e3b8a8550583c3aa15de950526aa6cccc3dc9965fb18ae586d214bd80b1ff4`)；`vae/config.json` (`611`, SHA `d69281aa3f6a0f3c41aaf6778e35464fc6ee8a92e6ac8a8b1eb679f6df6423eb`)；`scheduler/scheduler_config.json` (`344`, SHA `ce14ed1d0a58d10a1e22b2d16786ecde6b14ef52cd0e21f2631eca39b49fac63`) |
+| input / output | stretched RGB crop `768×1024 (W×H)` / 17 heatmaps `192×256` |
+| feature/head | final up-block feature `320×192×256` / 320-channel Body heatmap head |
+| inference | latent scale `0.18215`、固定 `t=999`、task embedding `[sin(1),sin(0),cos(1),cos(0)]`、single x0 forward |
 
-包内 `pipeline.json` 的预处理 `image_size` 仍写成 `192×256`，与实际 ONNX graph 和
-postprocess metadata 的 `288×384` 矛盾。因此运行时以 ONNX graph + 本文锁定的模型契约为
-准，并在加载时 fail fast；不能盲信 SDK 辅助 JSON。229 MB 也说明原稿“50-100 MB”低估了
-成本，但仍远轻于 SDPose-OOD。
+首次解析器只下载上表三份学习权重和三份小配置。`sdpose-body17-bundle-v1` 转换器把所有学习浮点
+tensor 转为 FP16，分别加 `unet.`、`vae.`、`decoder.` typed prefix，并把 canonical source contract、
+三份配置、converter version 和固定空 prompt embedding 的 digest 写入 safetensors metadata。输出
+`sdpose_body17_fp16.safetensors` 是可删除重建的本地缓存；不得在代码中给它伪造一个上游固定 SHA，
+而是逐次计算实际文件 SHA 并进入 provider/Stage A fingerprint。转换必须临时文件写完、重新 strict-load
+与 inventory 校验后再原子替换，源文件校验失败不得留下可选中的半成品。
 
-RTMW 集成走 `module/onnx_runtime/single_model.py` / `load_session_bundle`，
-`bundle_key="auto_rig.pose.rtmw_l_384"`。`module/see_through/model_manager.py` 不负责 ONNX
-仓库解析，原稿对此判断错误。正式发布前必须把 ONNX + 模型契约作为一个 coherence group
-登记到统一模型源 inventory，包含固定 SHA-256 和 Hugging Face/ModelScope 映射；在映射完成
-前只允许用户提供完整本地 ONNX，不新增不受管控的直链下载路径。
+空 prompt embedding 是官方 Body text encoder 对空字符串、`padding="do_not_pad"` 得到的冻结 fp16
+tensor。实现把一次性核验后的 4 KiB 常量作为 bundle tensor，记录官方 encoder/tokenizer revision、原始
+tensor SHA 与生成脚本版本；运行时核对 shape/digest 后使用，不下载或常驻 1.36 GB text encoder。
+heatmap head 与 UDP decoder 在本仓库依照官方 MIT SDPose 结构独立实现，并用官方 Body fixture 做数值
+parity，不复制 ComfyUI 的 GPL 实现。VAE posterior sampling 使用固定 provider seed，避免相同输入因
+全局 Torch RNG 状态产生不同关节；seed 与 flip-test 开关进入 provider fingerprint。
 
-SDPose 官方代码/模型卡标为 MIT，RTMW 所用 MMPose 代码为 Apache-2.0；这都不能替代对基础
-Stable Diffusion 权重、训练数据和 Cocktail14 各数据集条款的分发审计。发布清单必须记录
-每个 provider 的代码、权重、基础模型和训练数据许可证据。
+模型下载和设备选择复用 `utils.transformer_loader.snapshot_download_with_reporting` 与
+`resolve_device_dtype`。artifact resolver 只下载上表源文件并在转换前做 size/SHA 校验；后续运行只读取
+校验通过的本地 bundle。backend 顺序固定：
+
+1. 若同一 coherence group 登记了通过 shape/golden gate 的 SDPose ONNX，使用 `onnx`；
+2. 否则在 CUDA 且 `flash_attn` 可导入时给 Diffusers UNet 安装 `torch-fa2` processor；
+3. processor 安装或首个真实 forward 失败时回退 PyTorch SDPA，记录 `torch-sdpa`；
+4. CPU 只允许显式强制测试，不是正式批处理 fallback。
+
+FA2 不能只靠 import 成功就记为启用；首个真实 forward 必须覆盖 self/cross attention 并通过有限值检查。
+backend、fallback 原因、Torch/Diffusers/flash-attn 版本、device capability、dtype、checkpoint 与固定
+conditioning digest 都进入 provider fingerprint。模型量化明确延期。
+
+**对照模型是 `SebasJanampa/DETRPose_X_CROWDPOSE`。** DETRPose-X 是端到端 CrowdPose 14 点模型，
+官方表列出 73.3M 参数、CrowdPose AP 75.1；它不需要外部 person detector。对照 adapter 固定到
+inference-only commit `da12e0cd29864b1d3a289c562c34d423371a4157`，HF revision
+`cebc9cb1ad6289f262262412f604fd03a1d4d6a4`，以及 `model.safetensors` size `298,505,628`、
+SHA-256 `563431b5f20434a1954ba2998f2010d1e960a672996b4a07f2f32ab694e125ee`。CrowdPose 顺序固定为
+`left/right shoulder, elbow, wrist, hip, knee, ankle, top_head, neck`；v1 只投影肩至踝和 neck，
+不把 top_head 猜成 COCO nose/eye/ear。它和 SDPose 使用同一 person bbox 与 canvas 坐标恢复，并输出
+相同 `JointObservation` 类型。
+
+`Comfy-Org/SDPose` 只提供 133 点 WholeBody 单文件；它不属于 Body17 coherence group，禁止以截取前
+17 个 heatmap 的方式假装成 Body checkpoint。该仓库的 `diffusion_models/rt_detr_v4-x-hgnet_fp16.safetensors` 是 RT-DETRv4
+**person/object detector**，不是 DETRPose；它不能进入 pose comparison 或补 joint。单角色输入已有
+`mask/pose_body` union bbox，v1 不下载该 detector。未来多角色 profile 若启用它，必须另建
+`PersonDetectionBatch`，不能把 bbox score 塞进 pose score。
+
+比较报告不按 provider raw score 排名。每个 backend 分别记录：通过 anatomy gate 的 body 点数、关键
+hinge resolved gain、点到对应 mask 的距离/局部半径、左右交换与链自交、相邻骨长比异常、运行时间、
+峰值显存和 failure code。存在人工 GT 时再增加 PCK 与 normalized joint error。单个 Lucy2 的结果用于
+发现集成错误和给当前 item 选 provider，不足以改变全局默认。
+
+SDPose 官方代码/模型卡标为 MIT，DETRPose inference-only 代码为 Apache-2.0；这都不能替代对基础
+Stable Diffusion 权重、训练数据和模型权重条款的分发审计。发布清单必须记录每个 provider 的代码、
+权重、基础模型和训练数据许可证据。
 
 ### 声明式骨骼图
 
@@ -1901,8 +2087,16 @@ B 的网格步骤从 A-owned component masks 开始：
 1. 每个冻结连通分量分别 contour/resample/interior sampling；
 2. 空间哈希去重；
 3. 每分量 Delaunay；
-4. 通过重心、边多点采样和相对外接圆阈值删除跨透明区/狭长三角形；
-5. 生成稳定 vertex order、flat triangles、boundary/hull 顺序和局部 UV。
+4. 加入 component bbox 的确定性 envelope corners，并以 cleaned alpha 非零像素中心作为 coverage obligations；
+5. 先保留完成 obligation 的三角，再只对其余三角应用重心、边多点采样和相对外接圆阈值；
+6. 验证每个 obligation 至少由一个三角覆盖，然后生成稳定 vertex order、flat triangles、boundary/hull
+   顺序和局部 UV；任一 obligation 未覆盖时 B 失败，不能发布带切口的 mesh。
+
+这里的 mesh 是纹理 carrier，不是 mask。允许同一 component 的三角跨过透明孔洞或凹口；这些区域的
+straight-alpha 为零，不会在 rest pose 可见。真正禁止的是跨两个冻结 component 连边，或让任一非零
+alpha support 像素落在所有三角之外。旧版“triangle 的全部 quarter samples 都必须命中 alpha”已经由
+真实 Lucy 的 Spine/Live2D 双 runtime 证伪：它让主部件漏掉约 `1.7%-8.5%` 的 support、细小五官漏掉
+约 `10%-25%`，而结构、setup residual 与 Cubism consistency 仍会全部通过。
 
 “稳定”不能只指保存时排序。`MeshBuildPlan v1` 把会改变拓扑的 B 步骤一并冻结：
 
@@ -1935,8 +2129,9 @@ B 的网格步骤从 A-owned component masks 开始：
 `cv2.ximgproc.thinning` 所需的 contrib 保证。新增独立 `auto-rig` extra，明确加入
 `scipy`（distance transform/Delaunay）和 `scikit-image`（经过验证的 skeletonize），不要
 在首版手写 thinning，也不要为了 thinning 再引入 `opencv-contrib-python` 与现有 wheel 竞争。
-姿态依赖拆成 `auto-rig-pose-sdpose` 与 `auto-rig-pose-rtmw`；几何路径不应被数 GB 的
-Torch/Diffusers 模型或 229 MB ONNX 强制绑架。
+姿态依赖统一隔离在 `auto-rig-pose`；几何路径不应被数 GB 的 Torch/Diffusers 模型或
+约 299 MB 的 DETRPose 对照权重强制绑架。provider 仍按各自 coherence group 独立解析和校验，
+共享 extra 不表示可以相互冒充或静默 fallback。
 
 ### 共享 TexturePagePlan
 
@@ -2125,10 +2320,12 @@ control 可显式为 `null`，但此时任何引用它的 Live2D preset plan 都
 | control | parameter internal ID | Live2D export name | `min/default/max` | control unit |
 |---|---|---|---|---|
 | `control/body_sway` | `parameter/body_angle_x` | `ParamBodyAngleX` | `[-10, 0, 10]` | degree |
+| `control/arm_sway` | `parameter/arm_sway` | custom `ParamArmSway` | `[-1, 0, 1]` | normalized |
 | `control/idle` | `parameter/auto_idle` | custom `ParamAutoIdle` | `[-1, 0, 1]` | normalized |
 | `control/head_shake` | `parameter/angle_x` | `ParamAngleX` | `[-30, 0, 30]` | degree |
 | `control/head_nod` | `parameter/angle_y` | `ParamAngleY` | `[-30, 0, 30]` | degree |
 | `control/breath` | `parameter/breath` | `ParamBreath` | `[0, 0, 1]` | normalized |
+| `control/leg_sway` | `parameter/leg_sway` | custom `ParamLegSway` | `[-1, 0, 1]` | normalized |
 | `control/eye_open.xmin` / `control/eye_open.xmax` | `parameter/eye_open.xmin` / `parameter/eye_open.xmax` | custom `ParamEyeOpenXMin` / `ParamEyeOpenXMax` | `[0, 1, 1]` | normalized |
 | `control/brow_y.xmin` / `control/brow_y.xmax` | `parameter/brow_y.xmin` / `parameter/brow_y.xmax` | custom `ParamBrowYXMin` / `ParamBrowYXMax` | `[-1, 0, 1]` | normalized |
 | `control/mouth_open` | `parameter/mouth_open_y` | `ParamMouthOpenY` | `[0, 0, 1]` | normalized |
@@ -2151,8 +2348,9 @@ universe，unused control 也不会被误写成 MOC3 dead parameter。
 
 这里的 domain 是本产品的版本化模型契约，不是假装 Cubism 会替标准 ID 自动添加范围或行为。图像空间
 `xmin/xmax` 不是 anatomical L/R，所以 v1 不得把眼/眉分侧 control 命名为 `ParamEyeL/ROpen` 或对应 brow
-标准 ID；`.model3.json` 的 `EyeBlink` group 可以引用上述 custom IDs。未来只有在 C 持有显式、可验证的
-`anatomical_side` observation/override 并升级 registry/schema 后才允许标准 L/R 映射，E 不能现场猜。
+标准 ID；正式 v1 不发射 `EyeBlink` group，双眼 custom IDs 只由显式 blink motion / expression 驱动。
+未来只有在 C 持有显式、可验证的 `anatomical_side` observation/override 并升级 registry/schema 后才允许
+标准 L/R 映射，E 不能现场猜。
 其他可选 brow/custom control 也必须先增加 registry row；不能由 E 看见一个 channel 后临时发明
 min/default/max。
 同一 Live2D `parameter_id` 在一个 Rig 中只能对应一个相同 domain 的 `ControlSpec`。
@@ -2225,12 +2423,17 @@ interpolation。
 | `head_nod` | MotionClip | `30 / false` | `control/head_nod: (0,0),(15,15),(30,0)` |
 | `head_shake` | MotionClip | `45 / false` | `control/head_shake: (0,0),(10,-20),(25,20),(45,0)` |
 | `body_sway` | MotionClip | `120 / true` | `control/body_sway: (0,0),(30,5),(60,0),(90,-5),(120,0)` |
-| `blink` | MotionClip | `12 / false` | `control/eye_open.xmin` 与 `control/eye_open.xmax` 各为 `(0,1),(6,0),(12,1)` |
+| `arm_sway` | MotionClip | `90 / true` | `control/arm_sway: (0,0),(22,1),(45,0),(67,-1),(90,0)` |
+| `leg_sway` | MotionClip | `120 / true` | `control/leg_sway: (0,0),(30,1),(60,0),(90,-1),(120,0)` |
+| `blink` | MotionClip | `24 / false` | `control/eye_open.xmin` 与 `control/eye_open.xmax` 各为 `(0,1),(6,0),(9,0),(16,1),(24,1)`；最后 8 帧为显式 rest hold |
 | `talk` | MotionClip | `30 / true` | `control/mouth_open: (0,0),(10,0.65),(20,0.2),(30,0)` |
 | `wave.{side}` | MotionClip | `60 / false` | `wave_lift: (0,0),(15,1),(45,1),(60,0)`；`wave_osc: (0,0),(15,0),(25,1),(35,-1),(45,1),(60,0)` |
-| `happy` | ExpressionPreset | n/a | `control/mouth_form=0.7, control/eye_open.xmin=0.8, control/eye_open.xmax=0.8, control/brow_y.xmin=0.15, control/brow_y.xmax=0.15` |
+| `happy` | ExpressionPreset | n/a | `control/mouth_form=0.7, control/brow_y.xmin=0.15, control/brow_y.xmax=0.15` |
 | `sad` | ExpressionPreset | n/a | `control/mouth_form=-0.7, control/brow_y.xmin=0.25, control/brow_y.xmax=0.25` |
 | `surprised` | ExpressionPreset | n/a | `control/mouth_open=0.8, control/brow_y.xmin=0.8, control/brow_y.xmax=0.8` |
+| `unimpressed` | ExpressionPreset | n/a | `control/mouth_form=-0.15, control/brow_y.xmin=-0.35, control/brow_y.xmax=-0.35` |
+| `wink_screen_left` | ExpressionPreset | n/a | `control/eye_open.xmin=0, control/eye_open.xmax=1`；仅取 replacement endpoint |
+| `wink_screen_right` | ExpressionPreset | n/a | `control/eye_open.xmin=1, control/eye_open.xmax=0`；仅取 replacement endpoint |
 
 核心 geometry-normalized transfer 同样属于 descriptor，而不是实现默认值。`torso_width/height` 来自 A
 冻结的 torso mask metric，`head_width/height` 来自 `head_core` mask metric；这些 metric/value 与来源摘要
@@ -2245,6 +2448,11 @@ interpolation。
   `head.translation_x=(c/30)×0.06×head_width`，`head.rotation=0.1c°`；
 - `body_sway`：`torso.translation_x=(c/10)×0.02×torso_width`，
   `torso.rotation=0.2c°`；
+- `arm_sway`：对每个 `handwear` component，以 torso metric 估计 shoulder pivot；明确落在画布
+  `xmin/xmax` 一侧的 component 使用相反方向 `±4°×c`，跨中线的 merged component 以 torso 上部中心
+  作 pivot 整块旋转。它只声明 silhouette movement，不声明 shoulder/elbow/wrist 解剖正确；
+- `leg_sway`：所有 `legwear/footwear` component 共享 resolved pelvis pivot，整组使用 `2°×c` 小幅旋转，
+  以保持 merged leg/foot 的共同相位；它不声明 hip/knee/ankle articulation；
 - `wave.{side}`：令 visual side sign `s=+1` for `xmin`、`-1` for `xmax`，则
   `upper_arm.rotation=s×35°×lift`、`forearm.rotation=s×(20°×lift+15°×osc)`、
   `hand.rotation=s×5°×osc`；缺 hand bone 时整个 wave capability unavailable，不能删除 hand channel 后
@@ -2255,12 +2463,14 @@ interpolation。
 所有比例在 C 根据冻结的 Rig metric 物化成顶层 `ControlBinding.TargetTransfer` 并写 input/output digest；
 同一 binding 可被多个 clip/expression 引用，但只物化一次。修改任一 key、
 duration、loop、幅度、side sign 或 transfer 公式都必须升级 preset descriptor/version并失效 C 及下游，
-不能只改 exporter。`blink/talk` 的 artifact kind 至此固定为 MotionClip；只有
-`happy/sad/surprised` 是本版 ExpressionPreset。
+不能只改 exporter。`blink/talk` 的 artifact kind 至此固定为 MotionClip；
+`happy/sad/surprised/unimpressed/wink_screen_left/wink_screen_right` 是本版 ExpressionPreset。
 
 `MotionRuntimeApplication v1` 还固定 parity/default 建议的播放环境：单 clip、weight/alpha=`1`、
 fade-in=`0`、fade-out=`0`、无 crossfade、无其他 animation track 写同一 property。Live2D motion3 必须
-显式写 `FadeInTime=0` / `FadeOutTime=0`，不能继承 SDK 或 Editor 默认值；Spine JSON 没有 mix-duration
+在自身 `Meta` 显式写 `FadeInTime=0` / `FadeOutTime=0`，不能只依赖 model3 motion entry，也不能继承
+SDK、Viewer 或 Editor 默认值；官方 harness 禁止调用 setter 覆盖资产值。Blink 还必须在 motion 结束前一帧
+已经回到 rest，而不是只在精确终点放一个 rest key。Spine JSON 没有 mix-duration
 资产字段，所以 `motion_manifest.json.runtime_application` 必须声明 `track=0,alpha=1,mix_duration=0`，
 release harness 按此调用 AnimationState。下游当然可以自行 crossfade，但那是播放器合成策略，不能再用
 该轨迹声称通过了 canonical single-clip parity。
@@ -2293,11 +2503,14 @@ dual-runtime profile 只允许
 应用 expression”。Spine 将其编译为独立同名 animation，公共 manifest 写
 `runtime_application={track_role:"expression",track_index:1,loop:true,mix_blend:"replace",alpha:1,mix_duration:0,hold_until_cleared:true,apply_after:"base_motion_track_0"}`；
 其中 exporter 要把 canonical absolute target 转成 Spine 相对 setup-pose timeline 数值，不能把“absolute”
-误写成 Spine JSON 本身使用绝对坐标。Live2D 将同一 control absolute value 编译为已有参数 keyform 与
-Overwrite `.exp3.json`，正式文件同样固定 `FadeInTime=0` / `FadeOutTime=0`，按已经冻结的
-motion→save→expression→update 顺序应用。同一 control 同时存在于
-base motion 与 expression 时属于**显式可组合**：full-weight expression 胜出，manifest 必须列出
-`suppresses_controls`，两 runtime 都验证被压制 control 的最终 absolute value。两个不同 control 若直接
+误写成 Spine JSON 本身使用绝对坐标。Live2D 将同一 control absolute value 编译为已有参数 keyform；
+除 `control/eye_open.xmin/xmax` 外写 Overwrite `.exp3.json`；只有两个 endpoint wink 可以包含 eye-open
+control，并因 rest/default=1 固定写 Multiply，使持续 wink 不能覆盖显式 blink 的闭眼值。其他静态表情
+禁止用中间 eye-open 值长期混合 open/closed replacement。正式文件同样固定
+`FadeInTime=0` / `FadeOutTime=0`，按已经冻结的 motion→save→expression→update 顺序应用。同一非眼睛
+control 同时存在于 base motion 与 expression 时属于**显式可组合**：full-weight expression 胜出，
+manifest 必须列出 `suppresses_controls`，两 runtime 都验证被压制 control 的最终 absolute value；eye-open
+并发则按 `motion_value × expression_value` 验证。两个不同 control 若直接
 修改同一不可拆 non-rigid target，则仍是 `invalid_expression_preset` / `live2d_parameter_conflict`；C
 preflight 必须失败或按 optional omission 冻结，不能依赖两个 runtime 各自的隐式优先级。
 
@@ -2594,7 +2807,7 @@ compiler 做且只做：
    `ParamAngleZ`、`ParamBreath`、`ParamMouthOpenY`、`ParamMouthForm` 和 brow parameter 也必须先有 registry
    row；眼/眉的 `xmin/xmax` 在 v1 固定使用 custom parameter，不能冒充 anatomical L/R。无法对应标准含义时使用 C 已冻结的稳定 ASCII custom parameter，
    并在 `.cdi3.json` / report 中说明。标准 ID 只改善
-   EyeBlink/LipSync group、面捕和第三方 runtime 的语义兼容，**没有任何内建变形行为**；core v1
+   LipSync group、面捕和第三方 runtime 的语义兼容，**没有任何内建变形行为**；core v1
    的 `head_nod/head_shake` 仍只是固定的 2D pivot/translate 风格化动作，不得因使用
    `ParamAngleY/X` 就宣称重建了新视角、3D yaw/pitch 或可泛化的面捕行为；
 5. 先从 `RigDocument.control_specs/control_bindings/clips/expressions` 中经 projection validator 确认的 Live2D-supported
@@ -2625,11 +2838,20 @@ compiler 做且只做：
    parameter segment，也禁止 E 自行拟合 Bezier。每个正式 motion3 显式写 `FadeInTime=0`、
    `FadeOutTime=0`，per-curve fade 也不得重新引入非零权重包络；
    需要网格变化的 expression 同样先生成 parameter keyforms；正式 dual-runtime v1 的
-   `.exp3.json` 只写 full-weight Overwrite 目标。Add/Multiply 只存在于 E0 conformance fixture 或未来
-   显式的 per-format profile，不能混进 dual-runtime supported preset。Cubism runtime JSON 不使用
+   `.exp3.json` 对非 eye-open target 写 full-weight Overwrite，对精确的
+   `control/eye_open.xmin/xmax` 写 full-weight Multiply。后者依赖 default=1，并以
+   `motion_value × expression_value` 保证显式 blink 能在持续 wink/情绪表情上闭眼；任意其他 Add/Multiply
+   只存在于 E0 conformance fixture 或未来显式的 per-format profile。Cubism runtime JSON 不使用
    JCS/minified bytes；统一经 `cubism_runtime_json_bytes()` 写 ASCII、`indent=2`、stable key order 与
    terminal newline，确保每个数字在 `]`/`}` 前先遇到官方 Framework 5-r.5 可识别的换行终止符；
-9. 在 `.model3.json` 注册 motions、expressions，以及实际存在的 `EyeBlink` / `LipSync` 参数组；
+9. 在 `.model3.json` 注册 motions、expressions，以及实际存在的 `LipSync` 参数组。正式 v1 **不得**注册
+   `EyeBlink`：该组会让兼容 runtime 启用全局自动眨眼，造成非 blink motion 也改变眼睛，并可能覆盖
+   `wink_screen_left/right`。眨眼只由显式 `blink.motion3.json` 的两条 eye-open curve 产生；其他 motion
+   的 parameter 集必须与 eye-open parameter 集不相交。每个
+   motion entry 必须写来自全局 artifact symbol 的稳定 `Name`，不能依赖 Viewer 从 `File` basename 推导；
+   ZIP loader 即使把 `File` 改写为 data URI，名称仍必须稳定。可用语义 ArtMesh 还要投影 HitAreas：
+   `Head` 指向最大可见 `face` ArtMesh，`Body` 优先最大可见 `topwear`、其次 `bottomwear`，所有 `Id`
+   必须在实际 MOC3 ArtMesh ID 集合内闭合；
 10. 写 `.moc3`、JSON、纹理、参数映射和 `export_report.json`；report/公共 manifest 必须携带
     `texture_runtime_contract` 与已验证 target runtime loader mode，不得声明未生成的 physics/pose 文件，
     也不得向标准 model3 私加一个 runtime 不认识的 PMA 字段。
@@ -3110,12 +3332,12 @@ release tier 缺 Core/SDK 用 `live2d_release_gate_unavailable`，存在但不�
 - GUI：`gui/wizard/step6_tools.py` 新增工具 tab，走 `job_manager.submit()` +
   `ExecutionPanel`；只负责提交批任务和显示报告，不建设 canvas/player；
 - 脚本：`2.6.1.auto_rig.ps1`；
-- 包装：`pyproject.toml` 增加 `auto-rig`、`auto-rig-pose-sdpose`、
-  `auto-rig-pose-rtmw` extras；MOC3 writer 本身不引入 JS runtime，官方 Cubism Core/Viewer 只作为
+- 包装：`pyproject.toml` 增加 `auto-rig` 与 `auto-rig-pose` extras；后者共同承载
+  SDPose Body17 和实验性 DETRPose-X provider；MOC3 writer 本身不引入 JS runtime，官方 Cubism Core/Viewer 只作为
   opt-in release validator 探测，不随 Python wheel 擅自再分发；已通过 E0-core 的
   `attestations/live2d-frames-v1.json` 作为 package data 分发，structural/release worker 启动时先验证
   frame contract，release worker 再验证本机 Core allowlist；
-- 模型：SDPose 完整组件组与 RTMW ONNX 各自登记 coherence-group inventory；姿态开关只有在
+- 模型：SDPose Body17 源组件/本地 bundle 与 DETRPose-X safetensors 各自登记 coherence-group inventory；姿态开关只有在
   对应 provider 自检通过时才可用。
 
 “对现有代码改动为零”不成立。虽然不改 see-through 产物行为，仍需修改 config、GUI、
@@ -3158,7 +3380,7 @@ feasibility gate，而不是先把整个 auto-rig 写完再验证 MOC3 能否交
 | component rank 超过 Cubism draw-order 域 | 重复/clamp 后前后层不确定 | C 的 Live2D FormatModelPlan 要求 drawable `≤1001`，连续 rank 原值映射到 `0..1000`，超限 fail fast |
 | semantic 遮挡只作 depth tie-break | 异常 depth 让刘海、眼部或耳饰前后颠倒 | behind→front DAG 作为硬约束；Kahn ready set 才用 depth/stable ID，registry startup 验证无环 |
 | control parameter 与 target property 共用一组 keys，或 transfer 被复制进各 preset | 多 target motion 出现 degree/pixel 冲突；expression 没有可复用映射；同一 Live2D parameter 多条曲线 | `ControlSpec/ControlCurve/ControlBinding/TargetTransfer` 分层；binding 顶层单写，每 control 一条 curve，motion/expression 只引用 |
-| `xmin/xmax` 被命名成 Live2D anatomical L/R parameter | 镜像/侧背角色眼眉控制接反且第三方面捕语义虚假 | v1 使用 custom XMin/XMax IDs，EyeBlink group 引用 custom IDs；标准 L/R 等待显式 anatomical-side schema |
+| `xmin/xmax` 被命名成 Live2D anatomical L/R parameter | 镜像/侧背角色眼眉控制接反且第三方面捕语义虚假 | v1 使用 custom XMin/XMax IDs，并只允许显式 blink motion / wink expression 驱动；标准 L/R 等待显式 anatomical-side schema |
 | 固定 preset 只冻结名称、不冻结内容 | 不同实现的时长、幅度和动作轨迹都不同却使用同一版本 | `motion-core-v1` 固定 control keys、loop/duration 与 geometry-normalized transfer；任何内容变化必须升版本 |
 | blink/talk 在 clip 与 expression 间分类漂移 | manifest 路径、runtime API 和双格式 parity 无法闭环 | blink/talk 固定为 MotionClip，happy/sad/surprised 固定为 ExpressionPreset，projector 验证 artifact namespace |
 | motion fade/mix 使用 runtime 默认 | canonical keys 相同但首尾权重与轨迹不同 | motion3 显式零 fade；Spine manifest/harness 固定 alpha1、mix duration0，parity 只声明 single-clip 环境 |
@@ -3171,7 +3393,7 @@ feasibility gate，而不是先把整个 auto-rig 写完再验证 MOC3 能否交
 | 背面/侧面角色 | source `-l/-r` 不等于可靠解剖侧 | 内部 `xmin/xmax`；`anatomical_side` 独立可空 |
 | Rig schema 演进 | 旧 rig/override 无法读取 | `schema_version` + 集中迁移；首版未发布前不承诺 v0 |
 | SDPose 约 0.95B / 官方包数 GB | 启动、显存、依赖冲突、批量吞吐风险 | 独立 worker/extra、默认关闭、Body 17 优先、阶段结束释放 |
-| RTMW 包 229 MB | fallback 仍有缓存和 provider 成本 | 独立 ONNX extra、默认关闭、固定 graph 契约 |
+| DETRPose-X 约 299 MB | 对照 provider 仍有缓存、独立依赖和额外推理成本 | 与生产 SDPose 分别固定 coherence group；只在 `detrpose`/`compare` 模式加载，不作静默 fallback |
 | pose 权重和训练数据许可 | 不能稳定分发、镜像或商用 | 每 provider coherence group + SHA-256 + 基础模型/数据许可清单 |
 | 静态 PSD 没有新表情纹理 | procedural blink/smile 可能视觉失真 | 默认 core profile 把表情设为 optional；分层 blink validator；严格 avatar profile fail fast |
 | 共享 texture pack 超出 4×2048² | 两种格式无法满足冻结的资源预算 | A 阶段精确 dry-run fail fast，C 冻结同一 plan；不降采样、不回退散页；以后通过 profile/version 显式提高预算 |
@@ -3221,7 +3443,7 @@ feasibility gate，而不是先把整个 auto-rig 写完再验证 MOC3 能否交
    pose 点不能替代图像分层。
 7. **支持任意导出版本**。首版只有 Spine 4.2 与 Live2D MOC3 V4.00；升级任何一边都要新增
    明确 adapter/compatibility gate。
-8. **模型量化**。等 SDPose/RTMW 在本项目数据上证明有增益后再单独设计，不能提前优化
+8. **模型量化**。等 SDPose/DETRPose 在本项目数据上证明有增益后再单独设计，不能提前优化
    未证实的路径。
 
 ---
@@ -3347,14 +3569,17 @@ feasibility gate，而不是先把整个 auto-rig 写完再验证 MOC3 能否交
    仍只有一个 base Part ID。registry slug 碰撞、数字后缀兜底或把 source `-r/-l` 原样带入 internal ID
    的 mutation 必须失败。
    `tblr_split=true` 同时覆盖成功替换和保留 base tag 两条路径。v1 的 xmin/xmax 眼眉 control 必须导出
-   custom `Param*XMin/XMax`，并可被 EyeBlink group 正确驱动；未经版本化 anatomical-side observation/
-   override 却输出 `ParamEyeL/ROpen` 的 mutation 必须失败。
+   custom `Param*XMin/XMax`；`blink.motion3.json` 必须同时驱动两者，两个 screen-side wink expression
+   必须各自只关闭一侧并把另一侧显式重置为 1，且 `.model3.json` 不得出现 `EyeBlink` group。未经
+   版本化 anatomical-side observation/override 却输出 `ParamEyeL/ROpen` 的 mutation 必须失败。
 9. **几何关节**：覆盖直肢、弯肢、袖口毛刺、断裂 mask、交叉/粘连，并逐项覆盖
    head_base/head_top/wrist/hand_tip/ankle/toe observation；resolved 关节在合法 mask 区域，错误
    场景产生 unresolved 而非假坐标。geometry-only wrist false-resolve `≤5%` 且不设 recall 下限；
    eligible ankle conditional resolved `≥80%`、false-resolve `≤5%`。
-10. **网格/权重**：不跨连通分量，triangle 索引合法且面积大于零；每顶点 1-4 个有效
-    influence 且和为 1；分辨率缩放后弧长权重分布近似不变。固定 mask/part 在打乱 contour、component、
+10. **网格/权重**：不跨连通分量，triangle 索引合法且面积大于零；cleaned component mask 的每个
+    非零像素中心必须由至少一个 triangle 覆盖，凹 C、孔洞、细线和真实 Lucy fixture 都不得出现
+    support omission；同 component 内透明区由 texture alpha 裁切，不以“全部 triangle samples 均在
+    alpha 内”作为合法性条件。每顶点 1-4 个有效 influence 且和为 1；分辨率缩放后弧长权重分布近似不变。固定 mask/part 在打乱 contour、component、
     sample 和 Qhull simplex 输入顺序后，A `MaskComponentPlan` 必须先产生完全相同的 component
     IDs/label bytes/side/count，B `MeshBuildPlan` 再产生完全相同的量化 vertices/triangles/hull bytes；共圆、
     近共线、重复点和两连通分量 fixture 分别覆盖 symbolic perturbation 与失败路径。B 尝试重新 threshold、
@@ -3484,9 +3709,12 @@ feasibility gate，而不是先把整个 auto-rig 写完再验证 MOC3 能否交
     mutation 必须失败，不能只断言 UV 落在 `[0,1]`。用眼白/虹膜/睫毛/前后发和两块交叉肢体的
     非对称 overlap fixture，将 Spine 默认帧与按 Rig rank 做 straight-alpha source-over 的 canonical
     composite 比较；slot 反序或自行按 tag 排序必须失败。
-14. **Spine 实载**：opt-in 4.2 Editor/runtime 加载并逐个播放 required clips，不能出现 recovery、
-    missing region、schema error 或 attachment 跳变；canvas landmark 经 runtime world vertices 和 plan inverse
-    回映后误差 `≤0.1 px`。发布 Spine 支持前必须真实执行一次。
+14. **Spine 实载**：opt-in 官方 `spine-cpp` 4.2 probe 加载 atlas/JSON，并对导出的全部 animation（不只
+    required clips）按完整 duration/60 FPS 采样 bone、slot color、attachment identity 与 VertexAttachment
+    world vertices。每条 animation 必须产生 runtime-visible change，全程 finite，结束后 setup-pose 残差
+    `≤1e-4`；不能出现 recovery、missing region、schema error 或 attachment 跳变。runtime executable SHA-256、
+    runtime/skeleton version、协议摘要与逐 animation evidence 写入 D report，机器路径不得落盘。4.3 拒绝
+    4.2 数据是版本负例，不得改写 skeleton version 绕过。发布 Spine 支持前必须真实执行一次。
 15. **Live2D 普通 CI**：不依赖 Cubism Core 的 golden fixtures 断言 MOC3 header version 3、SOT
     offset/count、Rotation/WarpDeformer、parent_deformer_indices、ArtMesh index/UV/texture、parameter
     binding、rest/deformed keyforms、`CubismV400UvAdapter`、schema 和 deterministic bytes；每个 emitted
@@ -3598,10 +3826,11 @@ feasibility gate，而不是先把整个 auto-rig 写完再验证 MOC3 能否交
     completed/skip；该错误不强求写入已证明不可写的 `error.json`。
 20. **SDPose 契约**：真实 Body 模型组件摘要、`1024×768` 预处理、17 点/score 输出、timestep
     和坐标反变换固定测试；与官方脚本对同一 crop 做 parity 对比。
-21. **RTMW 备选契约**：真实 ONNX graph metadata、SHA-256、预处理和输出 shape 固定测试；SDK
-    `pipeline.json` 的错误 image_size 不得污染运行时。
+21. **DETRPose 对照契约**：真实 `DETRPose_X_CROWDPOSE` safetensors/config/revision/SHA-256、
+    CrowdPose 14 点顺序、person/query 选择、预处理和 canvas 反变换固定测试；RT-DETR detector
+    不得被误登记为 pose provider。
 22. **姿态价值评测**：建立人工标注动漫子集，按普通、弯肢、交叉、缺失分层，对比 geometry、
-    geometry+SDPose、geometry+RTMW 的 normalized joint error/PCK、左右交换率、unresolved 率、
+    geometry+SDPose、geometry+DETRPose 的 normalized joint error/PCK、左右交换率、unresolved 率、
     吞吐/峰值显存和人工 override 数。仅“落在 mask 内”不足以证明正确；没有显著降低 override
     数时，两个模型都保持实验性并默认关闭。
 
@@ -3623,7 +3852,7 @@ G 再验证完整 DAG 并发布成功/失败终态；F 只有在评测结果支�
 | R4 根 PNG 被误当 PartSource | 更正理由并无条件禁用；只接受 final PSD 或 optimized PNG |
 | R5 方形掩盖 PSD H/W 错位 | 本地实测 psd-tools 参数顺序；v1 非方形 fail fast，不伪造通用顺序契约 |
 | R6 原 C 阶段 MaxRects 过重 | 后移只对 Spine 单格式成立；恢复共享 packer 不是因为 Live2D 有纹理页格式硬上限，而是双 exporter 的 region/page 必须共享。Revision 6 把同算法 dry-run 前移到 A；Revision 13 进一步由 C 单次编码 canonical PNG，D/E 只复制字节 |
-| R7 pose 候选过时 | SDPose-OOD Body 升为首选评测候选，RTMW-l 降为已核实 ONNX 备选 |
+| R7 pose 候选过时 | Revision 7 曾把 SDPose-OOD Body 升为首选、RTMW-l 作为备选；该备选已由 Revision 37 的真实 DETRPose-X CrowdPose 对照取代 |
 | 批量交付不需要预览/GIF/WebM | 删除公共 preview 产物，加入 capability、common preset profile 和双格式 animations/motions/expressions |
 | 默认 `save_to_psd=true` 不产 optimized 最终逐层 PNG | 改为 final PSD / optimized PNG 双 PartSource 契约 |
 | `rig.json` 与阶段 JSON 可能形成多个事实源 | `rig.json` 唯一公共事实源；Revision 12 进一步固定 C 为唯一 writer，A/B cache 使用独立 schema 且 exporter 禁读 |
@@ -3666,7 +3895,7 @@ G 再验证完整 DAG 并发布成功/失败终态；F 只有在评测结果支�
 | 可变 page/motion/expression 目录没有精确 inventory | `output_file_sha256[]` 冻结为精确集合并加 inventory digest；旧 marker 先失效，obsolete owner 文件清完后才提交新 manifest |
 | motion manifest 成为 Rig 之外的第二套 capability 事实 | 改为绑定 Rig file/semantic/symbol digests 的 C-owned deterministic projection；D/E 从 Rig 选 binding，只交叉验证 projection |
 | C 冻结 capability 后 E 仍能临时 omit optional preset | C 运行共享的逐格式纯 preflight 并持久化 status/reason/plan digests；D/E 只能复算核对，late mismatch 或 validator failure 均使 item 失败 |
-| exp3 Add/Multiply/Overwrite 被误当成 Spine/Live2D 共享表达式语义 | dual-runtime v1 收窄为 full-weight overwrite；Spine 用独立 animation + manifest application contract，Live2D 用 Overwrite exp3；其余 blend 只进 E0 |
+| exp3 Add/Multiply/Overwrite 被误当成 Spine/Live2D 共享表达式语义 | dual-runtime v1 的公共语义收窄为 full-weight absolute target；Spine 用独立 animation + manifest application contract，Live2D 非眼睛用 Overwrite，两个 default=1 eye-open target 用 Multiply lowering。其余 blend 只进 E0 |
 | canonical page 相同被当成 Spine/Cubism 最终 UV 相同 | C 只冻结 top-left pixel/UV mapping；D/E 用各自版本化 adapter，Spine golden/runtime 与 Live2D E0 以非对称五色纹理验证最终采样 |
 | shared texture 缺 alpha-mode/loader 契约 | canonical page 固定 straight-alpha sRGB；Spine atlas 写 `pma:false`，Cubism Native/Web loader mode 写入 report/manifest 并用半透明异色 E0/release fixture 验证 |
 | MotionClip 只有 keys、没有 interpolation 语义 | v1 冻结 30 Hz rational-time integer frames 与显式 linear segments；D/E 不重采样，运行时在 frame/中点做全轨迹 parity |
@@ -3679,7 +3908,7 @@ G 再验证完整 DAG 并发布成功/失败终态；F 只有在评测结果支�
 | Cubism draw order 的 `0..1000` 容量未进入 preflight | 增加 C-owned `FormatModelPlan`；1001 component 正例使用连续原值，1002 直接 `draw_order_capacity_exceeded` |
 | semantic 遮挡关系只在 depth 同 bucket 才生效 | 改成 behind→front DAG + Kahn 拓扑排序，depth 只排序 ready set；规则按 canonical base tag 展开到 split Part ID，`head_core` 不再被误当 drawable part ID |
 | MotionClip 把 control 值与 target property 值混为一层 | 引入 `ControlSpec/ControlCurve/ControlBinding/TargetTransfer v1`；binding 在 Rig 顶层单写，motion/expression 只驱动 control，Spine 求值 transfer，Live2D 每 parameter 只写一条 curve |
-| image-space `xmin/xmax` 眼眉 control 被当成 anatomical L/R | v1 固定 custom XMin/XMax parameter 并允许 EyeBlink group 引用；标准 L/R 映射等待显式 side observation/override 与 schema 升级 |
+| image-space `xmin/xmax` 眼眉 control 被当成 anatomical L/R | v1 固定 custom XMin/XMax parameter，禁用会注入全局自动眨眼的 EyeBlink group；标准 L/R 映射等待显式 side observation/override 与 schema 升级 |
 | fixed preset 没有固定 duration/curve/transfer | `motion-core-v1` 增加可执行 descriptor 与 geometry-normalized 数学公式，所有内容改动必须升级版本并失效 C |
 | blink/talk 的 MotionClip/ExpressionPreset 身份冲突 | 固定 blink/talk 为 motion，happy/sad/surprised 为 expression；manifest/projector 按 kind 校验 artifact namespace |
 | motion fade/mix 没有共同运行时契约 | `MotionRuntimeApplication v1` 固定 Live2D 零 fade 与 Spine alpha1/mix0；下游自定义 crossfade 不纳入 single-clip parity 声明 |
@@ -3739,12 +3968,13 @@ format version、native-variant eligibility/composite semantics、texture/mesh p
 
 以下门项不妨碍按上面的顺序开始实现，但未关闭对应门前，不得宣称该 capability 或正式双格式交付完成：
 
-- SDPose-OOD Body 完整组件的固定 revision/SHA、Windows 环境兼容性、峰值显存和批量吞吐；
-  本轮不做量化，也不把 ComfyUI 重打包权重当作官方 Body 等价物。
-- SDPose 与 RTMW 应分别镜像到哪个 canonical Hugging Face/ModelScope coherence group；本地文件
-  模式可先实现，但正式 GUI 下载不能绕过统一模型源设计。
-- Stable Diffusion v2 基础权重、SDPose 训练数据及 Cocktail14 各数据集对权重再分发、商业使用
-  和镜像的具体约束。
+- SDPose-OOD Body 三份学习权重与配置的固定 revision/SHA、本地 bundle strict inventory/空
+  conditioning，以及 Windows 的真实 FA2/SDPA forward 已验证；代表性批次的峰值显存和吞吐分布仍须
+  实测。本轮不做 INT8/FP8 等量化，也不把 Comfy WholeBody 重打包权重当作官方 Body17 等价物。
+- SDPose Body17 与 DETRPose-X 已分别固定 canonical Hugging Face coherence group；未来镜像可新增
+  transport location，但不能改变 source revision/digest 或绕过统一 resolver。
+- Stable Diffusion v2 基础权重、SDPose 训练数据及 DETRPose-X CrowdPose 权重/训练数据对再分发、
+  商业使用和镜像的具体约束。
 - 真实 see-through 数据上 medial-axis 主路径的 resolved/unresolved 比例，尤其是宽袖、裙装、
   交叉肢体和只输出 merged `legwear` 的样本。
 - 768/1024/1280 letterbox canvas 在极端长宽比、小主体样本上的细部几何通过率。
@@ -3800,6 +4030,9 @@ format version、native-variant eligibility/composite semantics、texture/mesh p
 - [SDPose-OOD 官方仓库](https://github.com/T-S-Liang/SDPose-OOD)
 - [SDPose 官方项目页与 OOD 指标](https://tsliang.top/SDPose/)
 - [SDPose-OOD Body 官方模型仓库](https://huggingface.co/teemosliang/SDPose-Body)
+- [Comfy-Org SDPose WholeBody 单文件与 RT-DETR detector](https://huggingface.co/Comfy-Org/SDPose)
+- [DETRPose-X CrowdPose 模型仓库](https://huggingface.co/SebasJanampa/DETRPose_X_CROWDPOSE)
+- [DETRPose inference-only 实现](https://github.com/SebastianJanampa/DETRPose/tree/inference_only)
 - [Spine JSON export format](https://esotericsoftware.com/spine-json-format)
 - [Spine atlas format（支持多 page）](https://esotericsoftware.com/spine-atlas-format)
 - [Spine version compatibility](https://esotericsoftware.com/spine-versioning)
