@@ -11,6 +11,10 @@ from module.auto_rig.export.live2d.animations import (
     encode_live2d_animation_asset,
 )
 from module.auto_rig.export.live2d.artmesh import build_live2d_artmesh_plan
+from module.auto_rig.export.live2d.attestation import (
+    load_packaged_live2d_frame_attestation,
+    select_runtime_attestation,
+)
 from module.auto_rig.export.live2d.binding_plan import build_live2d_binding_plan
 from module.auto_rig.export.live2d.coordinates import build_live2d_coordinate_plan
 from module.auto_rig.export.live2d.document import build_live2d_moc3_document
@@ -29,6 +33,10 @@ from module.auto_rig.export.live2d.rigid_drivers import build_rigid_driver_regis
 from module.auto_rig.export.live2d.runtime_assets import (
     build_live2d_runtime_asset_plan,
     encode_live2d_runtime_asset,
+)
+from module.auto_rig.export.live2d.runtime_toolchain import (
+    LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+    ensure_live2d_runtime_toolchain,
 )
 from module.auto_rig.export.live2d.symbols import build_live2d_symbol_view
 from module.auto_rig.export.live2d.validator import (
@@ -253,7 +261,7 @@ def release_fixture(tmp_path_factory: pytest.TempPathFactory):
     )
 
 
-def test_release_gate_requires_configured_attested_core_and_renderer(release_fixture, tmp_path: Path) -> None:
+def test_release_gate_requires_resolved_toolchain_and_attestation(release_fixture) -> None:
     (
         bundle,
         rig,
@@ -265,13 +273,11 @@ def test_release_gate_requires_configured_attested_core_and_renderer(release_fix
         runtime,
         structure,
     ) = release_fixture
-    fake_core = tmp_path / "Live2DCubismCore.dll"
-    fake_core.write_bytes(b"not-a-core")
     with pytest.raises(Live2DReleaseGateError, match="Core|attest|release gate|renderer"):
         validate_live2d_release_bundle(
             bundle,
-            core_path=fake_core,
-            renderer_path=tmp_path / "missing-renderer.exe",
+            runtime_toolchain=None,  # type: ignore[arg-type]
+            runtime_attestation=None,  # type: ignore[arg-type]
             rig=rig,
             bindings=bindings,
             coordinates=coordinates,
@@ -295,10 +301,9 @@ def test_blink_release_samples_rest_before_motion_completion(release_fixture) ->
 def test_official_sdk_validates_every_parameter_motion_and_expression(
     release_fixture,
 ) -> None:
-    core_path = os.environ.get("LIVE2D_CUBISM_CORE_PATH")
-    renderer_path = os.environ.get("LIVE2D_E0_RENDERER_PATH")
-    if not core_path or not renderer_path:
-        pytest.skip("official Core and SDK renderer paths are required")
+    sdk_root = os.environ.get("CUBISM_SDK_ROOT") or os.environ.get("LIVE2D_SDK_ROOT")
+    if not sdk_root:
+        pytest.skip("CUBISM_SDK_ROOT is required")
     (
         bundle,
         rig,
@@ -311,10 +316,18 @@ def test_official_sdk_validates_every_parameter_motion_and_expression(
         structure,
     ) = release_fixture
 
+    runtime_toolchain = ensure_live2d_runtime_toolchain(sdk_root=sdk_root)
+    runtime_attestation = select_runtime_attestation(
+        load_packaged_live2d_frame_attestation(),
+        platform_id=runtime_toolchain.platform_id,
+        backend_id=runtime_toolchain.backend_id,
+        core_sha256=runtime_toolchain.core_sha256,
+        validator_protocol_digest=LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+    )
     report = validate_live2d_release_bundle(
         bundle,
-        core_path=core_path,
-        renderer_path=renderer_path,
+        runtime_toolchain=runtime_toolchain,
+        runtime_attestation=runtime_attestation,
         rig=rig,
         bindings=bindings,
         coordinates=coordinates,

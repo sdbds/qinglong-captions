@@ -5,6 +5,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping
 
 from ...jcs import JcsContractError, jcs_bytes, jcs_sha256
@@ -523,6 +524,25 @@ def load_live2d_frame_attestation(source: bytes | str) -> Mapping[str, Any]:
     return payload
 
 
+def load_packaged_live2d_frame_attestation() -> Mapping[str, Any]:
+    """Load and fully validate the repository-shipped frame attestation."""
+
+    from . import frame_kernel, moc3_layout_kernel, moc3_sections_kernel, uv_kernel
+
+    path = Path(__file__).with_name("attestations") / "live2d-frames-v1.json"
+    payload = load_live2d_frame_attestation(path.read_bytes())
+    validate_live2d_frame_attestation(
+        payload,
+        kernel_sources={
+            "frame-kernel-v1": Path(frame_kernel.__file__).read_bytes(),
+            "moc3-layout-kernel-v1": Path(moc3_layout_kernel.__file__).read_bytes(),
+            "moc3-sections-kernel-v1": Path(moc3_sections_kernel.__file__).read_bytes(),
+            "uv-kernel-v1": Path(uv_kernel.__file__).read_bytes(),
+        },
+    )
+    return payload
+
+
 def validate_live2d_frame_attestation(
     payload: Mapping[str, Any],
     *,
@@ -654,6 +674,7 @@ __all__ = [
     "Live2DStructuralAttestation",
     "kernel_source_sha256",
     "load_live2d_frame_attestation",
+    "load_packaged_live2d_frame_attestation",
     "select_runtime_attestation",
     "validate_live2d_frame_attestation",
 ]

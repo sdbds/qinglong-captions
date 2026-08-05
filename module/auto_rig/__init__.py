@@ -521,6 +521,7 @@ from .stage_e import (
     StageEError,
     StageEResult,
     execute_stage_e,
+    publish_stage_e_toolchain_failure,
 )
 from .stage_g import (
     STAGE_G_INTEGRATION_VERSION,
@@ -1057,6 +1058,7 @@ __all__ = [
     "detect_live2d_runtime_platform",
     "ensure_live2d_runtime_toolchain",
     "execute_stage_e",
+    "publish_stage_e_toolchain_failure",
     "execute_stage_g_success",
     "validate_live2d_animation_plan",
     "validate_live2d_artmesh_plan",

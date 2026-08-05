@@ -9,19 +9,13 @@ from typing import Mapping, Sequence
 
 from ...jcs import jcs_sha256
 from ...rig_document import RigDocument
-from . import frame_kernel, moc3_layout_kernel, moc3_sections_kernel, uv_kernel
 from .animations import (
     Live2DAnimationAsset,
     Live2DAnimationPlan,
     encode_live2d_animation_asset,
 )
 from .artmesh import Live2DArtMeshPlan
-from .attestation import (
-    Live2DRuntimeAttestation,
-    load_live2d_frame_attestation,
-    select_runtime_attestation,
-    validate_live2d_frame_attestation,
-)
+from .attestation import Live2DRuntimeAttestation
 from .binding_plan import Live2DBindingPlan
 from .coordinates import Live2DCoordinatePlan
 from .cubism_core import (
@@ -43,7 +37,7 @@ from .runtime_assets import (
     Live2DRuntimeAssetPlan,
     encode_live2d_runtime_asset,
 )
-from .runtime_toolchain import detect_live2d_runtime_platform
+from .runtime_toolchain import Live2DRuntimeToolchain
 from .validator import (
     Live2DMoc3State,
     Live2DStructureValidationReport,
@@ -54,10 +48,6 @@ LIVE2D_RELEASE_VALIDATOR_VERSION = "live2d-release-validator-v7"
 LIVE2D_RELEASE_REPORT_VERSION = "live2d-release-report-v6"
 LIVE2D_RENDER_WIDTH = 512
 LIVE2D_RENDER_HEIGHT = 512
-_BACKEND_BY_PLATFORM = {
-    "linux-x86_64": "opengl-egl-headless",
-    "windows-x86_64": "d3d11-warp",
-}
 
 
 class Live2DReleaseGateError(RuntimeError):
@@ -302,40 +292,19 @@ def _bundle_file(root: Path, relative_path: str) -> Path:
 def _attested_core(
     core_path: Path,
     *,
-    platform_id: str,
-    backend_id: str,
-    validator_protocol_digest: str,
-) -> tuple[CubismCoreProbe, Live2DRuntimeAttestation]:
+    runtime_attestation: Live2DRuntimeAttestation,
+) -> CubismCoreProbe:
     try:
         probe = probe_cubism_core(core_path)
     except (OSError, CubismCoreError) as exc:
         raise _error("Cubism Core release gate is unavailable") from exc
-    attestation_path = Path(__file__).with_name("attestations") / "live2d-frames-v1.json"
-    payload = load_live2d_frame_attestation(attestation_path.read_bytes())
-    try:
-        validate_live2d_frame_attestation(
-            payload,
-            kernel_sources={
-                "frame-kernel-v1": Path(frame_kernel.__file__).read_bytes(),
-                "moc3-layout-kernel-v1": Path(moc3_layout_kernel.__file__).read_bytes(),
-                "moc3-sections-kernel-v1": Path(moc3_sections_kernel.__file__).read_bytes(),
-                "uv-kernel-v1": Path(uv_kernel.__file__).read_bytes(),
-            },
-        )
-        runtime_attestation = select_runtime_attestation(
-            payload,
-            platform_id=platform_id,
-            backend_id=backend_id,
-            core_sha256=f"sha256:{probe.sha256}",
-            validator_protocol_digest=validator_protocol_digest,
-        )
-    except (OSError, ValueError) as exc:
-        raise _error("configured Cubism runtime has no exact platform attestation") from exc
+    if runtime_attestation.core_sha256 != f"sha256:{probe.sha256}":
+        raise _error("configured Cubism Core differs from its selected runtime attestation")
     if runtime_attestation.payload.get("core_version") != probe.version.label:
         raise _error("configured Cubism Core version differs from its runtime attestation")
     if not probe.capabilities.attestation_candidate:
         raise _error("configured Cubism Core is not attested for formal release")
-    return probe, runtime_attestation
+    return probe
 
 
 @dataclass(frozen=True, slots=True)
@@ -601,10 +570,8 @@ def _verify_bundle(
 def validate_live2d_release_bundle(
     bundle_root: str | Path,
     *,
-    core_path: str | Path,
-    renderer_path: str | Path,
-    platform_id: str | None = None,
-    backend_id: str | None = None,
+    runtime_toolchain: Live2DRuntimeToolchain,
+    runtime_attestation: Live2DRuntimeAttestation,
     rig: RigDocument,
     bindings: Live2DBindingPlan,
     coordinates: Live2DCoordinatePlan,
@@ -631,27 +598,36 @@ def validate_live2d_release_bundle(
         raise _error("Live2D release bundle is unavailable") from exc
     if not root.is_dir():
         raise _error("Live2D release bundle is unavailable")
-    selected_platform = platform_id or detect_live2d_runtime_platform()
-    expected_backend = _BACKEND_BY_PLATFORM.get(selected_platform)
-    if expected_backend is None:
-        raise _error("Live2D release validation is unsupported on this platform")
-    selected_backend = backend_id or expected_backend
-    if selected_backend != expected_backend:
-        raise _error("Live2D release backend does not match the selected platform")
-    renderer_file = _resolve_file(renderer_path, field="official SDK renderer")
+    if not isinstance(runtime_toolchain, Live2DRuntimeToolchain) or not isinstance(
+        runtime_attestation,
+        Live2DRuntimeAttestation,
+    ):
+        raise _error("release validation requires a resolved runtime toolchain and attestation")
+    if (
+        runtime_toolchain.platform_id != runtime_attestation.platform_id
+        or runtime_toolchain.backend_id != runtime_attestation.backend_id
+        or runtime_toolchain.core_sha256 != runtime_attestation.core_sha256
+        or runtime_attestation.validator_protocol_digest != LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST
+    ):
+        raise _error("runtime toolchain and attestation identities differ")
+    renderer_file = _resolve_file(runtime_toolchain.validator_path, field="official SDK renderer")
+    if _file_sha256(renderer_file) != runtime_toolchain.validator_sha256:
+        raise _error("cached official SDK renderer digest changed")
     try:
         renderer_probe = probe_offscreen_harness(
             renderer_file,
-            expected_backend=selected_backend,
+            expected_backend=runtime_toolchain.backend_id,
         )
     except CubismRendererError as exc:
         raise _error("official SDK renderer probe failed") from exc
-    core_file = _resolve_file(core_path, field="Cubism Core")
-    probe, _runtime_attestation = _attested_core(
+    if renderer_probe.protocol_digest != runtime_attestation.validator_protocol_digest:
+        raise _error("official SDK renderer protocol differs from its runtime attestation")
+    core_file = _resolve_file(runtime_toolchain.core_path, field="Cubism Core")
+    if _file_sha256(core_file) != runtime_toolchain.core_sha256:
+        raise _error("configured Cubism Core digest changed")
+    probe = _attested_core(
         core_file,
-        platform_id=selected_platform,
-        backend_id=selected_backend,
-        validator_protocol_digest=renderer_probe.protocol_digest,
+        runtime_attestation=runtime_attestation,
     )
     moc_path, texture_paths = _verify_bundle(root, animations, runtime_assets, structure_report)
     moc_payload = moc_path.read_bytes()
@@ -737,7 +713,7 @@ def validate_live2d_release_bundle(
             texture_paths,
             width=LIVE2D_RENDER_WIDTH,
             height=LIVE2D_RENDER_HEIGHT,
-            expected_backend=selected_backend,
+            expected_backend=runtime_toolchain.backend_id,
         )
     except CubismRendererError as exc:
         raise _error("official SDK renderer rejected setup state") from exc
@@ -776,7 +752,7 @@ def validate_live2d_release_bundle(
                     observe_parameter_ids=asset.parameter_ids,
                     width=LIVE2D_RENDER_WIDTH,
                     height=LIVE2D_RENDER_HEIGHT,
-                    expected_backend=selected_backend,
+                    expected_backend=runtime_toolchain.backend_id,
                 )
             except CubismRendererError as exc:
                 raise _error(f"official SDK rejected motion {asset.preset_id}") from exc
@@ -869,7 +845,7 @@ def validate_live2d_release_bundle(
                 observe_parameter_ids=asset.parameter_ids,
                 width=LIVE2D_RENDER_WIDTH,
                 height=LIVE2D_RENDER_HEIGHT,
-                expected_backend=selected_backend,
+                expected_backend=runtime_toolchain.backend_id,
             )
             cleared = render_moc_with_offscreen_harness(
                 renderer_file,
@@ -877,7 +853,7 @@ def validate_live2d_release_bundle(
                 texture_paths,
                 width=LIVE2D_RENDER_WIDTH,
                 height=LIVE2D_RENDER_HEIGHT,
-                expected_backend=selected_backend,
+                expected_backend=runtime_toolchain.backend_id,
             )
         except CubismRendererError as exc:
             raise _error(f"official SDK rejected expression {asset.preset_id}") from exc
@@ -920,7 +896,7 @@ def validate_live2d_release_bundle(
                     observe_parameter_ids=blink_asset.parameter_ids,
                     width=LIVE2D_RENDER_WIDTH,
                     height=LIVE2D_RENDER_HEIGHT,
-                    expected_backend=selected_backend,
+                    expected_backend=runtime_toolchain.backend_id,
                 )
             except CubismRendererError as exc:
                 raise _error(f"official SDK rejected blink composition for {asset.preset_id}") from exc

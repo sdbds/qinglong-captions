@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import os
 import shutil
 from pathlib import Path
@@ -7,6 +8,16 @@ from pathlib import Path
 import pytest
 
 from module.auto_rig.artifacts import canonical_json_sha256, sha256_file
+from module.auto_rig.export.live2d.attestation import (
+    Live2DRuntimeAttestation,
+    load_packaged_live2d_frame_attestation,
+    select_runtime_attestation,
+)
+from module.auto_rig.export.live2d.runtime_toolchain import (
+    LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+    Live2DRuntimeToolchain,
+    ensure_live2d_runtime_toolchain,
+)
 from module.auto_rig.manifests import (
     manifest_relative_path,
     read_stage_manifest,
@@ -35,8 +46,8 @@ def _run_stage_e(
     root: Path,
     *,
     validation_tier: str = "structural",
-    core_path: str | Path | None = None,
-    renderer_path: str | Path | None = None,
+    runtime_toolchain: Live2DRuntimeToolchain | None = None,
+    runtime_attestation: Live2DRuntimeAttestation | None = None,
 ):
     c_marker = root / Path(*manifest_relative_path("C").split("/"))
     return execute_stage_e(
@@ -49,9 +60,18 @@ def _run_stage_e(
             }
         ),
         validation_tier=validation_tier,
-        core_path=core_path,
-        renderer_path=renderer_path,
+        runtime_toolchain=runtime_toolchain,
+        runtime_attestation=runtime_attestation,
     )
+
+
+def test_stage_e_accepts_resolved_runtime_objects_not_public_binary_paths() -> None:
+    parameters = inspect.signature(execute_stage_e).parameters
+
+    assert "runtime_toolchain" in parameters
+    assert "runtime_attestation" in parameters
+    assert "core_path" not in parameters
+    assert "renderer_path" not in parameters
 
 
 def test_stage_e_structural_tier_commits_exact_live2d_inventory(
@@ -137,7 +157,7 @@ def test_stage_e_failure_invalidates_marker_and_writes_private_evidence(
     assert not (tmp_path / "rig/export_manifest.json").exists()
 
 
-def test_stage_e_release_tier_requires_core_and_renderer_before_commit(
+def test_stage_e_release_tier_requires_resolved_runtime_before_commit(
     stage_c_seed: Path,
     tmp_path: Path,
 ) -> None:
@@ -157,17 +177,24 @@ def test_stage_e_release_tier_commits_only_after_official_runtime_validation(
     stage_c_seed: Path,
     tmp_path: Path,
 ) -> None:
-    core_path = os.environ.get("LIVE2D_CUBISM_CORE_PATH")
-    renderer_path = os.environ.get("LIVE2D_E0_RENDERER_PATH")
-    if not core_path or not renderer_path:
-        pytest.skip("official Core and SDK renderer paths are required")
+    sdk_root = os.environ.get("CUBISM_SDK_ROOT") or os.environ.get("LIVE2D_SDK_ROOT")
+    if not sdk_root:
+        pytest.skip("CUBISM_SDK_ROOT is required")
     _copy_seed(stage_c_seed, tmp_path)
+    runtime_toolchain = ensure_live2d_runtime_toolchain(sdk_root=sdk_root)
+    runtime_attestation = select_runtime_attestation(
+        load_packaged_live2d_frame_attestation(),
+        platform_id=runtime_toolchain.platform_id,
+        backend_id=runtime_toolchain.backend_id,
+        core_sha256=runtime_toolchain.core_sha256,
+        validator_protocol_digest=LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+    )
 
     result = _run_stage_e(
         tmp_path,
         validation_tier="release",
-        core_path=core_path,
-        renderer_path=renderer_path,
+        runtime_toolchain=runtime_toolchain,
+        runtime_attestation=runtime_attestation,
     )
 
     assert result.release_validation is not None

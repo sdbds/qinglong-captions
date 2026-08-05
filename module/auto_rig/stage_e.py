@@ -23,6 +23,7 @@ from .export.live2d.artmesh import (
     Live2DArtMeshPlan,
     build_live2d_artmesh_plan,
 )
+from .export.live2d.attestation import Live2DRuntimeAttestation
 from .export.live2d.binding_plan import (
     Live2DBindingPlan,
     build_live2d_binding_plan,
@@ -50,6 +51,10 @@ from .export.live2d.runtime_assets import (
     build_live2d_runtime_asset_plan,
     encode_live2d_runtime_asset,
 )
+from .export.live2d.runtime_toolchain import (
+    Live2DRuntimeToolchain,
+    Live2DRuntimeToolchainError,
+)
 from .export.live2d.symbols import (
     Live2DSymbolView,
     build_live2d_symbol_view,
@@ -69,7 +74,7 @@ from .manifests import (
 from .rig_document import RigDocument, load_rig_document
 
 STAGE_E_SCHEMA_VERSION = 1
-STAGE_E_ALGORITHM_VERSION = "stage-e-live2d-moc3-v2"
+STAGE_E_ALGORITHM_VERSION = "stage-e-live2d-moc3-v3"
 STAGE_E_FAILURE_SCHEMA_VERSION = "stage-failure-v1"
 LIVE2D_EXPORT_REPORT_VERSION = "live2d-export-report-v1"
 LIVE2D_VALIDATION_TIERS = frozenset({"structural", "release"})
@@ -78,8 +83,9 @@ LIVE2D_VALIDATION_TIERS = frozenset({"structural", "release"})
 class StageEError(RuntimeError):
     """Raised when Stage E cannot publish a validated Live2D transaction."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, *, log_path: Path | None = None) -> None:
         self.code = code
+        self.log_path = log_path
         super().__init__(f"{code}: {message}")
 
 
@@ -112,6 +118,13 @@ def _sha256(payload: bytes) -> str:
 
 
 def _write_failure(item_root: Path, error: StageEError) -> None:
+    diagnostic: dict[str, object] = {
+        "code": error.code,
+        "stage": "E",
+        "message": str(error),
+    }
+    if error.log_path is not None:
+        diagnostic["log_path"] = str(error.log_path)
     atomic_write_json(
         item_root / "rig" / "cache" / "E" / "failure.json",
         {
@@ -119,15 +132,26 @@ def _write_failure(item_root: Path, error: StageEError) -> None:
             "status": "stage_failed",
             "stage_name": "E",
             "retryable": False,
-            "diagnostics": [
-                {
-                    "code": error.code,
-                    "stage": "E",
-                    "message": str(error),
-                }
-            ],
+            "diagnostics": [diagnostic],
         },
     )
+
+
+def publish_stage_e_toolchain_failure(
+    item_root: str | Path,
+    error: Live2DRuntimeToolchainError,
+) -> StageEError:
+    """Publish a pre-transaction Stage E toolchain failure and preserve its code."""
+
+    root = Path(item_root).resolve(strict=True)
+    _path(root, manifest_relative_path("E")).unlink(missing_ok=True)
+    wrapped = StageEError(
+        error.code,
+        str(error),
+        log_path=error.log_path,
+    )
+    _write_failure(root, wrapped)
+    return wrapped
 
 
 def _publish_file(staging_root: Path, item_root: Path, relative_path: str) -> None:
@@ -257,6 +281,7 @@ def _build_export_report(
     artifacts: Mapping[str, bytes],
     validation_tier: str,
     status: str,
+    runtime_attestation: Live2DRuntimeAttestation | None,
 ) -> dict[str, object]:
     payload = rig.to_dict()
     format_plans = payload["format_plans"]
@@ -274,8 +299,16 @@ def _build_export_report(
             "reason": "structural tier does not execute official Core/SDK gates",
         }
     else:
+        if runtime_attestation is None:
+            raise StageEError(
+                "stage_e_transaction_incomplete",
+                "release validation has no selected runtime attestation",
+            )
         release_record = {
             "status": "passed",
+            "platform_id": runtime_attestation.platform_id,
+            "backend_id": runtime_attestation.backend_id,
+            "attestation_record_sha256": runtime_attestation.record_sha256,
             "report": release_validation.to_dict(),
         }
     base = {
@@ -323,8 +356,8 @@ def execute_stage_e(
     upstream_manifests: Mapping[str, str],
     relevant_config_fingerprint: str,
     validation_tier: str = "release",
-    core_path: str | Path | None = None,
-    renderer_path: str | Path | None = None,
+    runtime_toolchain: Live2DRuntimeToolchain | None = None,
+    runtime_attestation: Live2DRuntimeAttestation | None = None,
 ) -> StageEResult:
     """Compile, validate, and commit E-owned Live2D files marker-last."""
 
@@ -339,10 +372,12 @@ def execute_stage_e(
                 "input_contract_mismatch",
                 "validation_tier must be structural or release",
             )
-        if validation_tier == "release" and (core_path is None or renderer_path is None):
+        if validation_tier == "release" and (
+            runtime_toolchain is None or runtime_attestation is None
+        ):
             raise StageEError(
                 "live2d_release_gate_unavailable",
-                "release tier requires configured Cubism Core and SDK renderer",
+                "release tier requires a resolved Cubism runtime toolchain and attestation",
             )
         c_manifest = _validate_c_upstream(root, upstream_manifests)
         rig = load_rig_document(root / "rig" / "rig.json")
@@ -401,8 +436,8 @@ def execute_stage_e(
             if validation_tier == "release":
                 release_validation = validate_live2d_release_bundle(
                     bundle_root,
-                    core_path=core_path,
-                    renderer_path=renderer_path,
+                    runtime_toolchain=runtime_toolchain,
+                    runtime_attestation=runtime_attestation,
                     rig=rig,
                     bindings=bindings,
                     coordinates=coordinates,
@@ -427,6 +462,7 @@ def execute_stage_e(
                 artifacts=artifact_bytes,
                 validation_tier=validation_tier,
                 status=status,
+                runtime_attestation=runtime_attestation,
             )
             report_bytes = jcs_bytes(report)
             if json.loads(report_bytes) != report:
@@ -498,4 +534,5 @@ __all__ = [
     "StageEError",
     "StageEResult",
     "execute_stage_e",
+    "publish_stage_e_toolchain_failure",
 ]

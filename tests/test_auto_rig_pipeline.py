@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,8 +8,10 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image, ImageDraw
 
+from module.auto_rig.export.live2d.runtime_toolchain import Live2DRuntimeToolchainError
 from module.auto_rig.pipeline import AutoRigPipelineError, run_auto_rig_item
 from module.auto_rig.pose.contracts import RawPoseResult, ScoredKeypoint
+from module.auto_rig.stage_e import StageEError
 from tests.test_auto_rig_contracts import _json_bytes, _write_item, _write_psd_payload
 
 
@@ -447,3 +450,57 @@ def test_pipeline_does_not_swallow_terminal_failure_publication_errors(
         )
 
     assert exc_info.value.__cause__ is original
+def test_auto_rig_public_entry_accepts_sdk_root_not_runtime_binary_paths() -> None:
+    parameters = inspect.signature(run_auto_rig_item).parameters
+
+    assert "sdk_root" in parameters
+    assert "core_path" not in parameters
+    assert "renderer_path" not in parameters
+
+
+def test_stage_d_commits_before_live2d_toolchain_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_pipeline_item(tmp_path)
+    spine_runtime = tmp_path / "spine-runtime.exe"
+    spine_runtime.write_bytes(b"official-runtime-probe")
+    monkeypatch.setattr(
+        "module.auto_rig.stage_d.validate_spine_runtime_bundle",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            to_dict=lambda: {
+                "validated": True,
+                "validator_version": "spine-runtime-validator-v3",
+                "runtime_version": "4.2",
+                "animation_count": 1,
+                "report_sha256": "sha256:" + ("2" * 64),
+            }
+        ),
+    )
+
+    def fail_toolchain(**_kwargs):
+        raise Live2DRuntimeToolchainError(
+            "live2d_sdk_not_found",
+            "fixture SDK missing",
+        )
+
+    monkeypatch.setattr(
+        "module.auto_rig.pipeline.ensure_live2d_runtime_toolchain",
+        fail_toolchain,
+    )
+
+    with pytest.raises(StageEError, match="live2d_sdk_not_found"):
+        run_auto_rig_item(
+            tmp_path,
+            profile_id="dual_runtime_core_v1",
+            validation_tier="release",
+            sdk_root=tmp_path / "missing-sdk",
+            spine_runtime_path=spine_runtime,
+            pose_mode="disabled",
+            finalize=False,
+        )
+
+    assert (tmp_path / "rig/spine/skeleton.json").is_file()
+    assert (tmp_path / "rig/cache/D/manifest.json").is_file()
+    failure = json.loads((tmp_path / "rig/cache/E/failure.json").read_text(encoding="utf-8"))
+    assert failure["diagnostics"][0]["code"] == "live2d_sdk_not_found"

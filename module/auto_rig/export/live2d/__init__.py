@@ -9,6 +9,7 @@ from .attestation import (
     Live2DStructuralAttestation,
     kernel_source_sha256,
     load_live2d_frame_attestation,
+    load_packaged_live2d_frame_attestation,
     select_runtime_attestation,
     validate_live2d_frame_attestation,
 )
@@ -221,6 +222,7 @@ __all__ = [
     "invert_similarity",
     "kernel_source_sha256",
     "load_live2d_frame_attestation",
+    "load_packaged_live2d_frame_attestation",
     "moc3_v400_layout_descriptor",
     "moc3_v400_sections_descriptor",
     "moc_to_canonical_top_left_uv",

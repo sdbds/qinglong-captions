@@ -13,12 +13,22 @@ from module.auto_rig.artifacts import (
     canonical_json_sha256,
     sha256_file,
 )
+from module.auto_rig.export.live2d.attestation import (
+    Live2DRuntimeAttestation,
+    load_packaged_live2d_frame_attestation,
+    select_runtime_attestation,
+)
 from module.auto_rig.export.live2d.cubism_renderer import (
     LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST,
 )
 from module.auto_rig.export.live2d.release_validator import (
     LIVE2D_RELEASE_REPORT_VERSION,
     LIVE2D_RELEASE_VALIDATOR_VERSION,
+)
+from module.auto_rig.export.live2d.runtime_toolchain import (
+    LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+    Live2DRuntimeToolchain,
+    ensure_live2d_runtime_toolchain,
 )
 from module.auto_rig.jcs import jcs_bytes, jcs_sha256
 from module.auto_rig.manifests import (
@@ -87,8 +97,8 @@ def _build_preterminal_graph(
     root: Path,
     *,
     live2d_validation_tier: str,
-    core_path: str | Path | None = None,
-    renderer_path: str | Path | None = None,
+    runtime_toolchain: Live2DRuntimeToolchain | None = None,
+    runtime_attestation: Live2DRuntimeAttestation | None = None,
 ) -> dict[str, StageManifest]:
     cache, controls, presets, capabilities, bindings, _candidates, _symbols = (
         _fixture(root)
@@ -139,8 +149,8 @@ def _build_preterminal_graph(
             f"E-config-{live2d_validation_tier}"
         ),
         validation_tier=live2d_validation_tier,
-        core_path=core_path,
-        renderer_path=renderer_path,
+        runtime_toolchain=runtime_toolchain,
+        runtime_attestation=runtime_attestation,
     )
     return {
         "A": stage_a,
@@ -348,15 +358,22 @@ def test_stage_g_derives_terminal_facts_from_current_c_d_e_graph(
 def test_stage_g_commits_real_official_sdk_validated_dual_runtime_item(
     tmp_path: Path,
 ) -> None:
-    core_path = os.environ.get("LIVE2D_CUBISM_CORE_PATH")
-    renderer_path = os.environ.get("LIVE2D_E0_RENDERER_PATH")
-    if not core_path or not renderer_path:
-        pytest.skip("official Core and SDK renderer paths are required")
+    sdk_root = os.environ.get("CUBISM_SDK_ROOT") or os.environ.get("LIVE2D_SDK_ROOT")
+    if not sdk_root:
+        pytest.skip("CUBISM_SDK_ROOT is required")
+    runtime_toolchain = ensure_live2d_runtime_toolchain(sdk_root=sdk_root)
+    runtime_attestation = select_runtime_attestation(
+        load_packaged_live2d_frame_attestation(),
+        platform_id=runtime_toolchain.platform_id,
+        backend_id=runtime_toolchain.backend_id,
+        core_sha256=runtime_toolchain.core_sha256,
+        validator_protocol_digest=LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+    )
     manifests = _build_preterminal_graph(
         tmp_path,
         live2d_validation_tier="release",
-        core_path=core_path,
-        renderer_path=renderer_path,
+        runtime_toolchain=runtime_toolchain,
+        runtime_attestation=runtime_attestation,
     )
     expected = _expected_fingerprints(manifests)
 

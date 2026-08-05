@@ -26,6 +26,16 @@ from .contracts import load_auto_rig_input_contract
 from .control_bindings import build_control_binding_plan
 from .control_registry import build_control_registry_plan
 from .draw_order import build_ordinary_draw_order
+from .export.live2d.attestation import (
+    Live2DAttestationError,
+    load_packaged_live2d_frame_attestation,
+    select_runtime_attestation,
+)
+from .export.live2d.runtime_toolchain import (
+    LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+    Live2DRuntimeToolchainError,
+    ensure_live2d_runtime_toolchain,
+)
 from .format_plans import load_capability_profile
 from .generic_variants import (
     GenericVariantSynthesisPlan,
@@ -82,6 +92,7 @@ from .stage_e import (
     STAGE_E_SCHEMA_VERSION,
     StageEResult,
     execute_stage_e,
+    publish_stage_e_toolchain_failure,
 )
 from .stage_g import execute_stage_g_success
 from .stage_graph import StageGraphValidator
@@ -101,7 +112,7 @@ from .texture_sources import (
     load_native_texture_regions,
 )
 
-AUTO_RIG_PIPELINE_VERSION = "auto-rig-item-runner-v2"
+AUTO_RIG_PIPELINE_VERSION = "auto-rig-item-runner-v3"
 STAGE_A_SCHEMA_VERSION = 2
 STAGE_A_ALGORITHM_VERSION = "stage-a-mask-joints-pose-v3"
 STAGE_A_OBSERVATIONS_PATH = "rig/cache/A/geometry_observations.json"
@@ -279,6 +290,32 @@ def _external_file_identity(value: str | Path | None) -> dict[str, object] | Non
         "path": str(resolved),
         "sha256": sha256_file(resolved) if resolved.is_file() else None,
     }
+
+
+def _resolve_stage_e_runtime(
+    root: Path,
+    *,
+    sdk_root: str | Path | None,
+):
+    try:
+        toolchain = ensure_live2d_runtime_toolchain(sdk_root=sdk_root)
+        attestation_payload = load_packaged_live2d_frame_attestation()
+        runtime_attestation = select_runtime_attestation(
+            attestation_payload,
+            platform_id=toolchain.platform_id,
+            backend_id=toolchain.backend_id,
+            core_sha256=toolchain.core_sha256,
+            validator_protocol_digest=LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+        )
+        return toolchain, runtime_attestation
+    except Live2DRuntimeToolchainError as exc:
+        raise publish_stage_e_toolchain_failure(root, exc) from exc
+    except (Live2DAttestationError, OSError) as exc:
+        toolchain_error = Live2DRuntimeToolchainError(
+            "live2d_coordinate_schema_unverified",
+            str(exc),
+        )
+        raise publish_stage_e_toolchain_failure(root, toolchain_error) from exc
 
 
 def _stage_reusable(
@@ -504,8 +541,7 @@ def _run_auto_rig_item_impl(
     *,
     profile_id: str = "dual_runtime_core_v1",
     validation_tier: str = "release",
-    core_path: str | Path | None = None,
-    renderer_path: str | Path | None = None,
+    sdk_root: str | Path | None = None,
     spine_runtime_path: str | Path | None = None,
     pose_mode: PoseMode = "auto",
     pose_providers: Mapping[str, object] | None = None,
@@ -942,14 +978,26 @@ def _run_auto_rig_item_impl(
 
     stage_e: StageEResult | None = None
     if "live2d_moc3_v4_00" in required_formats:
+        _set_active_stage(root, "E")
+        runtime_toolchain = None
+        runtime_attestation = None
+        if validation_tier == "release":
+            runtime_toolchain, runtime_attestation = _resolve_stage_e_runtime(
+                root,
+                sdk_root=sdk_root,
+            )
+            runtime_identity: object = runtime_toolchain.fingerprint_payload(
+                attestation_record_sha256=runtime_attestation.record_sha256,
+            )
+        else:
+            runtime_identity = "not-required"
         e_config = canonical_json_sha256(
             {
                 "pipeline_version": AUTO_RIG_PIPELINE_VERSION,
                 "profile_id": profile_id,
                 "exporter": "live2d_moc3_v4_00",
                 "validation_tier": validation_tier,
-                "core": _external_file_identity(core_path),
-                "renderer": _external_file_identity(renderer_path),
+                "runtime_toolchain": runtime_identity,
             }
         )
         e_fingerprint = build_stage_fingerprint(
@@ -966,7 +1014,6 @@ def _run_auto_rig_item_impl(
             status="stage_validated",
         )
         expected_fingerprints["E"] = e_fingerprint
-        _set_active_stage(root, "E")
         if _stage_reusable(
             root,
             target_stage="E",
@@ -981,8 +1028,8 @@ def _run_auto_rig_item_impl(
                 upstream_manifests={"C": c_marker},
                 relevant_config_fingerprint=e_config,
                 validation_tier=validation_tier,
-                core_path=core_path,
-                renderer_path=renderer_path,
+                runtime_toolchain=runtime_toolchain,
+                runtime_attestation=runtime_attestation,
             )
             e_manifest = stage_e.manifest
     else:
@@ -1036,8 +1083,7 @@ def run_auto_rig_item(
     *,
     profile_id: str = "dual_runtime_core_v1",
     validation_tier: str = "release",
-    core_path: str | Path | None = None,
-    renderer_path: str | Path | None = None,
+    sdk_root: str | Path | None = None,
     spine_runtime_path: str | Path | None = None,
     pose_mode: PoseMode = "auto",
     pose_providers: Mapping[str, object] | None = None,
@@ -1066,8 +1112,7 @@ def run_auto_rig_item(
         "pipeline_version": AUTO_RIG_PIPELINE_VERSION,
         "profile_id": profile_id,
         "validation_tier": validation_tier,
-        "core_path": str(core_path) if core_path is not None else None,
-        "renderer_path": str(renderer_path) if renderer_path is not None else None,
+        "sdk_root": str(sdk_root) if sdk_root is not None else None,
         "spine_runtime_path": (str(spine_runtime_path) if spine_runtime_path is not None else None),
         "pose_mode": pose_mode,
         "pose_device": pose_device,
@@ -1082,8 +1127,7 @@ def run_auto_rig_item(
             root,
             profile_id=profile_id,
             validation_tier=validation_tier,
-            core_path=core_path,
-            renderer_path=renderer_path,
+            sdk_root=sdk_root,
             spine_runtime_path=spine_runtime_path,
             pose_mode=pose_mode,
             pose_providers=pose_providers,
