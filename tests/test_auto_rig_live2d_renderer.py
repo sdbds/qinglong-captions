@@ -44,6 +44,30 @@ def test_native_validator_has_shared_and_platform_sources() -> None:
     assert "motion->SetFadeOutTime" not in common_source
 
 
+def test_linux_backend_uses_direct_surfaceless_egl_pbuffer() -> None:
+    root = Path(__file__).parents[1] / "tools" / "auto_rig_live2d_e0"
+    source_path = root / "linux" / "main_egl.cpp"
+    cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert source_path.is_file()
+    source = source_path.read_text(encoding="utf-8")
+    assert "EGL_PLATFORM_SURFACELESS_MESA" in source
+    assert "EGL_PBUFFER_BIT" in source
+    assert "eglCreatePbufferSurface" in source
+    assert "glGenerateMipmap(GL_TEXTURE_2D)" in source
+    assert "stbi_set_flip_vertically_on_load" not in source
+    assert "opengl-egl-headless" in source
+    assert 'getenv("DISPLAY")' not in source
+    assert 'getenv("WAYLAND_DISPLAY")' not in source
+    assert "glfw" not in cmake.lower()
+    assert "FRAMEWORK_SOURCE OpenGL" in cmake
+    assert "CSM_TARGET_LINUX_GL" in cmake
+    assert "GLEW_NO_GLU" in cmake
+    assert "d4fc82893cfb00109578d0a1a2337fb8ca335b3ceccf97b97e5cc7f08e4353e1" in cmake
+    assert "https://downloads.sourceforge.net/project/glew/glew/2.2.0/glew-2.2.0.tgz" in cmake
+    assert "DOWNLOAD_EXTRACT_TIMESTAMP" not in cmake
+
+
 def test_probe_is_exported_from_live2d_contract_package() -> None:
     import module.auto_rig.export.live2d as live2d
 
@@ -53,6 +77,10 @@ def test_probe_is_exported_from_live2d_contract_package() -> None:
 def _touch(path: Path, payload: bytes = b"fixture") -> Path:
     path.write_bytes(payload)
     return path
+
+
+def _runtime_backend() -> str:
+    return os.environ.get("LIVE2D_E0_RENDERER_BACKEND", "d3d11-warp")
 
 
 def test_renderer_accepts_expected_backend_and_v2_runtime_diagnostics(
@@ -154,7 +182,7 @@ def test_offscreen_harness_renders_uv_orientation_and_straight_alpha(tmp_path: P
         texture_path,
         width=512,
         height=512,
-        expected_backend="d3d11-warp",
+        expected_backend=_runtime_backend(),
     )
 
     assert evidence.width == 512
@@ -192,7 +220,7 @@ def test_offscreen_harness_applies_motion_then_full_weight_expression(tmp_path: 
         moc_path,
         texture_path,
         parameter_values=E0_BASE_PARAMETER_VALUES,
-        expected_backend="d3d11-warp",
+        expected_backend=_runtime_backend(),
     )
     evidence = render_moc_with_offscreen_harness(
         executable,
@@ -203,7 +231,7 @@ def test_offscreen_harness_applies_motion_then_full_weight_expression(tmp_path: 
         expression_path=expression_path,
         evaluation_time=1.0,
         observe_parameter_ids=("ParamBreath", "ParamOuter", "ParamInner"),
-        expected_backend="d3d11-warp",
+        expected_backend=_runtime_backend(),
     )
 
     assert evidence.parameter_values == pytest.approx(E0_EXPECTED_PARAMETER_VALUES, abs=1e-6)
@@ -237,7 +265,7 @@ def test_offscreen_harness_binds_ordered_multiple_texture_pages(
         executable,
         moc_path,
         (texture_0, texture_1),
-        expected_backend="d3d11-warp",
+        expected_backend=_runtime_backend(),
     )
     assert evidence.nonzero_alpha_pixels > 1000
     with pytest.raises(RuntimeError, match="texture.*count|failed"):
@@ -245,5 +273,5 @@ def test_offscreen_harness_binds_ordered_multiple_texture_pages(
             executable,
             moc_path,
             texture_0,
-            expected_backend="d3d11-warp",
+            expected_backend=_runtime_backend(),
         )

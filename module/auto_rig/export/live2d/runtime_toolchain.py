@@ -17,10 +17,8 @@ LIVE2D_VALIDATOR_PROTOCOL_DIGEST = "sha256:" + hashlib.sha256(
 ).hexdigest()
 
 DEFAULT_LINUX_DEPENDENCY_PINS: Mapping[str, str] = {
-    "glew_sha256": "f781d57097cdd076c6e34656d3aae239abaa03da7fd60e2249ee29df546e3d1e",
-    "glew_url": "https://github.com/nigels-com/glew/archive/refs/tags/glew-2.2.0.tar.gz",
-    "glfw_sha256": "c038d34200234d071fae9345bc455e4a8f2f544ab60150765d7704e08f3dac01",
-    "glfw_url": "https://github.com/glfw/glfw/archive/refs/tags/3.4.tar.gz",
+    "glew_sha256": "d4fc82893cfb00109578d0a1a2337fb8ca335b3ceccf97b97e5cc7f08e4353e1",
+    "glew_url": "https://downloads.sourceforge.net/project/glew/glew/2.2.0/glew-2.2.0.tgz",
 }
 
 _SUPPORTED_PLATFORMS = {
@@ -143,14 +141,16 @@ def _platform_layout(platform_id: str) -> Mapping[str, str]:
 
 def _sdk_missing_paths(sdk_root: Path, platform_id: str) -> tuple[str, ...]:
     layout = _platform_layout(platform_id)
-    required = (
+    required = [
         "cubism-info.yml",
         "Core/include",
         "Framework/CMakeLists.txt",
         "Framework/src",
         layout["core_runtime"],
         layout["core_link"],
-    )
+    ]
+    if platform_id == "linux-x86_64":
+        required.append("Samples/OpenGL/thirdParty/stb/stb_image.h")
     return tuple(relative for relative in required if not (sdk_root / relative).exists())
 
 
@@ -323,6 +323,13 @@ def _build_identity_payload(
         *core_headers,
         *framework_inventory,
     ]
+    if facts.platform_id == "linux-x86_64":
+        sdk_inventory.append(
+            _file_record(
+                "sdk/Samples/OpenGL/thirdParty/stb/stb_image.h",
+                sdk_root / "Samples" / "OpenGL" / "thirdParty" / "stb" / "stb_image.h",
+            )
+        )
     return {
         "schema_version": LIVE2D_RUNTIME_PLAN_VERSION,
         "platform_id": facts.platform_id,

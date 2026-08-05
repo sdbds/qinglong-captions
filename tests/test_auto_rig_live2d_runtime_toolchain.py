@@ -49,6 +49,7 @@ def _make_sdk(root: Path, *, platform_id: str, marker: str = "same") -> Path:
     elif platform_id == "linux-x86_64":
         _write(root / "Core" / "dll" / "linux" / "x86_64" / "libLive2DCubismCore.so", b"core-runtime")
         _write(root / "Core" / "lib" / "linux" / "x86_64" / "libLive2DCubismCore.a", b"core-link")
+        _write(root / "Samples" / "OpenGL" / "thirdParty" / "stb" / "stb_image.h", b"stb-image")
     else:
         raise AssertionError(platform_id)
     return root
@@ -152,6 +153,16 @@ def test_default_cache_root_uses_environment_then_home(tmp_path: Path) -> None:
     ).resolve()
 
 
+def test_linux_dependency_registry_uses_direct_content_addressed_archives() -> None:
+    assert DEFAULT_LINUX_DEPENDENCY_PINS["glew_url"] == (
+        "https://downloads.sourceforge.net/project/glew/glew/2.2.0/glew-2.2.0.tgz"
+    )
+    assert DEFAULT_LINUX_DEPENDENCY_PINS["glew_sha256"] == (
+        "d4fc82893cfb00109578d0a1a2337fb8ca335b3ceccf97b97e5cc7f08e4353e1"
+    )
+    assert not any(key.startswith("glfw_") for key in DEFAULT_LINUX_DEPENDENCY_PINS)
+
+
 @pytest.mark.parametrize(
     ("platform_id", "backend_id", "executable_name"),
     [
@@ -184,6 +195,22 @@ def test_build_plan_rejects_linux_arm64_before_reading_sdk(tmp_path: Path) -> No
     with pytest.raises(Live2DRuntimeToolchainError) as error:
         build_live2d_runtime_plan(tmp_path / "missing", facts=facts, cache_root=tmp_path / "cache")
     assert error.value.code == "live2d_platform_unsupported"
+
+
+def test_linux_build_plan_requires_and_hashes_sdk_stb_image(tmp_path: Path) -> None:
+    sdk = _make_sdk(tmp_path / "sdk", platform_id="linux-x86_64")
+    facts = _facts(tmp_path, platform_id="linux-x86_64")
+    baseline = build_live2d_runtime_plan(sdk, facts=facts, cache_root=tmp_path / "cache")
+
+    stb_path = sdk / "Samples" / "OpenGL" / "thirdParty" / "stb" / "stb_image.h"
+    stb_path.write_bytes(b"changed-stb-image")
+    changed = build_live2d_runtime_plan(sdk, facts=facts, cache_root=tmp_path / "cache")
+    assert changed.cache_key != baseline.cache_key
+
+    stb_path.unlink()
+    with pytest.raises(Live2DRuntimeToolchainError) as error:
+        build_live2d_runtime_plan(sdk, facts=facts, cache_root=tmp_path / "cache")
+    assert error.value.code == "live2d_sdk_layout_invalid"
 
 
 def test_build_plan_cache_key_is_path_independent(tmp_path: Path) -> None:
