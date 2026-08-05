@@ -12,12 +12,14 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
 
+from .runtime_toolchain import LIVE2D_VALIDATOR_PROTOCOL_DIGEST
+
 
 class CubismRendererError(RuntimeError):
     """Raised when the opt-in official SDK render harness rejects a request."""
 
 
-LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST = "sha256:df69c4a95ab40da12ce05deb7070edd76c58c8ec43a9c9a699cf9917dbfb8a21"
+LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST = LIVE2D_VALIDATOR_PROTOCOL_DIGEST
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +34,13 @@ class CubismRenderEvidence:
     premultiplied_alpha_input: bool
     validator_protocol_digest: str
     parameter_values: Mapping[str, float]
+    runtime_info: Mapping[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class CubismValidatorProbe:
+    backend_id: str
+    protocol_digest: str
 
 
 _PARAMETER_ID_PATTERN = re.compile(r"[A-Za-z0-9_.-]+")
@@ -104,6 +113,67 @@ def _validate_observed_parameters(parameter_ids: tuple[str, ...]) -> tuple[str, 
     return tuple(arguments)
 
 
+def _run_harness(command: tuple[str, ...], *, cwd: Path, timeout_seconds: float) -> None:
+    try:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CubismRendererError("official SDK render harness could not complete") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        raise CubismRendererError(
+            f"official SDK render harness failed with exit code {result.returncode}: {detail}"
+        )
+
+
+def probe_offscreen_harness(
+    executable: str | Path,
+    *,
+    expected_backend: str,
+    timeout_seconds: float = 30.0,
+) -> CubismValidatorProbe:
+    executable_file = _validated_path(executable, field="executable")
+    if not expected_backend:
+        raise CubismRendererError("expected_backend must be non-empty")
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)):
+        raise CubismRendererError("timeout_seconds must be a positive finite number")
+    timeout_seconds = float(timeout_seconds)
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0.0:
+        raise CubismRendererError("timeout_seconds must be a positive finite number")
+    with tempfile.TemporaryDirectory(prefix="auto-rig-live2d-probe-") as temporary_directory:
+        report_path = Path(temporary_directory) / "probe.json"
+        _run_harness(
+            (str(executable_file), "--probe-report", str(report_path)),
+            cwd=executable_file.parent,
+            timeout_seconds=timeout_seconds,
+        )
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise CubismRendererError("official SDK render harness omitted a valid probe report") from exc
+    expected_fields = {"backend_id", "protocol_digest", "schema_version"}
+    if type(report) is not dict or set(report) != expected_fields:
+        raise CubismRendererError("official SDK render probe fields do not match the contract")
+    if report["schema_version"] != "auto-rig-live2d-probe-v1":
+        raise CubismRendererError("official SDK render probe schema is unsupported")
+    if report["protocol_digest"] != LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST:
+        raise CubismRendererError("official SDK render harness protocol is not attested")
+    if report["backend_id"] != expected_backend:
+        raise CubismRendererError(
+            f"official SDK render harness backend mismatch: expected {expected_backend}, got {report['backend_id']}"
+        )
+    return CubismValidatorProbe(
+        backend_id=report["backend_id"],
+        protocol_digest=report["protocol_digest"],
+    )
+
+
 def _alpha_summary(rgba: bytes, width: int, height: int) -> tuple[int, tuple[int, int, int, int] | None]:
     nonzero = 0
     min_x = width
@@ -137,6 +207,7 @@ def render_moc_with_offscreen_harness(
     expression_path: str | Path | None = None,
     evaluation_time: float = 0.0,
     observe_parameter_ids: tuple[str, ...] = (),
+    expected_backend: str,
     timeout_seconds: float = 60.0,
 ) -> CubismRenderEvidence:
     executable_file = _validated_path(executable, field="executable")
@@ -183,20 +254,7 @@ def render_moc_with_offscreen_harness(
             f"{evaluation_time:.17g}",
             *observed_parameter_arguments,
         )
-        try:
-            result = subprocess.run(
-                command,
-                cwd=executable_file.parent,
-                capture_output=True,
-                check=False,
-                text=True,
-                timeout=timeout_seconds,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise CubismRendererError("official SDK render harness could not complete") from exc
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout).strip()
-            raise CubismRendererError(f"official SDK render harness failed with exit code {result.returncode}: {detail}")
+        _run_harness(command, cwd=executable_file.parent, timeout_seconds=timeout_seconds)
         try:
             report = json.loads(report_path.read_text(encoding="utf-8"))
             rgba = rgba_path.read_bytes()
@@ -210,13 +268,14 @@ def render_moc_with_offscreen_harness(
         "nonzero_alpha_pixels",
         "parameter_values",
         "premultiplied_alpha_input",
+        "runtime_info",
         "schema_version",
         "validator_protocol_digest",
         "width",
     }
     if type(report) is not dict or set(report) != expected_fields:
         raise CubismRendererError("official SDK render report fields do not match the contract")
-    if report["schema_version"] != "auto-rig-live2d-render-v1":
+    if report["schema_version"] != "auto-rig-live2d-render-v2":
         raise CubismRendererError("official SDK render report schema is unsupported")
     if report["validator_protocol_digest"] != LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST:
         raise CubismRendererError("official SDK render harness protocol is not attested")
@@ -229,8 +288,10 @@ def render_moc_with_offscreen_harness(
     normalized_reported_bbox = None if reported_bbox is None else tuple(reported_bbox)
     if report["nonzero_alpha_pixels"] != nonzero_alpha_pixels or normalized_reported_bbox != alpha_bbox:
         raise CubismRendererError("official SDK render summary does not match the raw RGBA evidence")
-    if report["driver_type"] != "d3d11-warp":
-        raise CubismRendererError("official SDK render harness did not use the D3D11 WARP driver")
+    if report["driver_type"] != expected_backend:
+        raise CubismRendererError(
+            f"official SDK render harness backend mismatch: expected {expected_backend}, got {report['driver_type']}"
+        )
     if type(report["premultiplied_alpha_input"]) is not bool:
         raise CubismRendererError("official SDK render alpha mode is invalid")
     reported_parameter_values = report["parameter_values"]
@@ -244,6 +305,13 @@ def render_moc_with_offscreen_harness(
         if not math.isfinite(normalized_value):
             raise CubismRendererError("official SDK render observed parameter value is invalid")
         normalized_parameter_values[parameter_id] = normalized_value
+    runtime_info = report["runtime_info"]
+    if (
+        type(runtime_info) is not dict
+        or not runtime_info
+        or any(not isinstance(key, str) or not isinstance(value, str) for key, value in runtime_info.items())
+    ):
+        raise CubismRendererError("official SDK render runtime diagnostics are invalid")
     return CubismRenderEvidence(
         width=width,
         height=height,
@@ -255,12 +323,15 @@ def render_moc_with_offscreen_harness(
         premultiplied_alpha_input=report["premultiplied_alpha_input"],
         validator_protocol_digest=report["validator_protocol_digest"],
         parameter_values=MappingProxyType(normalized_parameter_values),
+        runtime_info=MappingProxyType(dict(sorted(runtime_info.items()))),
     )
 
 
 __all__ = [
     "CubismRenderEvidence",
     "CubismRendererError",
+    "CubismValidatorProbe",
     "LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST",
+    "probe_offscreen_harness",
     "render_moc_with_offscreen_harness",
 ]

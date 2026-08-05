@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from module.auto_rig.export.live2d.cubism_renderer import render_moc_with_offscreen_harness
+from module.auto_rig.export.live2d import cubism_renderer
+from module.auto_rig.export.live2d.cubism_renderer import (
+    LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST,
+    probe_offscreen_harness,
+    render_moc_with_offscreen_harness,
+)
 from module.auto_rig.export.live2d.e0_assets import (
     E0_BASE_PARAMETER_VALUES,
     E0_EXPECTED_PARAMETER_VALUES,
@@ -25,11 +31,91 @@ from module.auto_rig.export.live2d.moc3_codec import (
 )
 
 
-def test_offscreen_harness_honors_serialized_motion_fade() -> None:
-    source = (Path(__file__).parents[1] / "tools" / "auto_rig_live2d_e0" / "main.cpp").read_text(encoding="utf-8")
+def test_native_validator_has_shared_and_platform_sources() -> None:
+    root = Path(__file__).parents[1] / "tools" / "auto_rig_live2d_e0"
 
-    assert "motion->SetFadeInTime" not in source
-    assert "motion->SetFadeOutTime" not in source
+    assert (root / "common" / "validator_common.hpp").is_file()
+    assert (root / "common" / "validator_common.cpp").is_file()
+    assert (root / "windows" / "main_d3d11.cpp").is_file()
+    assert not (root / "main.cpp").exists()
+
+    common_source = (root / "common" / "validator_common.cpp").read_text(encoding="utf-8")
+    assert "motion->SetFadeInTime" not in common_source
+    assert "motion->SetFadeOutTime" not in common_source
+
+
+def test_probe_is_exported_from_live2d_contract_package() -> None:
+    import module.auto_rig.export.live2d as live2d
+
+    assert live2d.probe_offscreen_harness is probe_offscreen_harness
+
+
+def _touch(path: Path, payload: bytes = b"fixture") -> Path:
+    path.write_bytes(payload)
+    return path
+
+
+def test_renderer_accepts_expected_backend_and_v2_runtime_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = _touch(tmp_path / "validator.exe")
+    moc = _touch(tmp_path / "fixture.moc3")
+    texture = _touch(tmp_path / "texture.png")
+
+    def fake_run(command, **_kwargs):
+        arguments = list(command)
+        output = Path(arguments[arguments.index("--output") + 1])
+        report = Path(arguments[arguments.index("--report") + 1])
+        output.write_bytes(bytes((10, 20, 30, 255)))
+        report.write_text(
+            "{"
+            '"alpha_bbox":[0,0,1,1],'
+            '"driver_type":"opengl-egl-headless",'
+            '"height":1,'
+            '"nonzero_alpha_pixels":1,'
+            '"parameter_values":{},'
+            '"premultiplied_alpha_input":false,'
+            '"runtime_info":{"api":"opengl","renderer":"llvmpipe"},'
+            '"schema_version":"auto-rig-live2d-render-v2",'
+            f'"validator_protocol_digest":"{LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST}",'
+            '"width":1}'
+            ,
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(cubism_renderer.subprocess, "run", fake_run)
+    evidence = render_moc_with_offscreen_harness(
+        executable,
+        moc,
+        texture,
+        width=1,
+        height=1,
+        expected_backend="opengl-egl-headless",
+    )
+
+    assert evidence.driver_type == "opengl-egl-headless"
+    assert evidence.runtime_info == {"api": "opengl", "renderer": "llvmpipe"}
+
+
+def test_probe_rejects_backend_mismatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    executable = _touch(tmp_path / "validator.exe")
+
+    def fake_run(command, **_kwargs):
+        report = Path(command[command.index("--probe-report") + 1])
+        report.write_text(
+            "{"
+            '"backend_id":"d3d11-warp",'
+            f'"protocol_digest":"{LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST}",'
+            '"schema_version":"auto-rig-live2d-probe-v1"}',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(cubism_renderer.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="backend"):
+        probe_offscreen_harness(executable, expected_backend="opengl-egl-headless")
 
 
 def _sample_near_vertex(
@@ -68,11 +154,12 @@ def test_offscreen_harness_renders_uv_orientation_and_straight_alpha(tmp_path: P
         texture_path,
         width=512,
         height=512,
+        expected_backend="d3d11-warp",
     )
 
     assert evidence.width == 512
     assert evidence.height == 512
-    assert evidence.validator_protocol_digest == ("sha256:df69c4a95ab40da12ce05deb7070edd76c58c8ec43a9c9a699cf9917dbfb8a21")
+    assert evidence.validator_protocol_digest == LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST
     assert evidence.nonzero_alpha_pixels > 1000
     assert evidence.alpha_bbox is not None
     samples = tuple(
@@ -105,6 +192,7 @@ def test_offscreen_harness_applies_motion_then_full_weight_expression(tmp_path: 
         moc_path,
         texture_path,
         parameter_values=E0_BASE_PARAMETER_VALUES,
+        expected_backend="d3d11-warp",
     )
     evidence = render_moc_with_offscreen_harness(
         executable,
@@ -115,6 +203,7 @@ def test_offscreen_harness_applies_motion_then_full_weight_expression(tmp_path: 
         expression_path=expression_path,
         evaluation_time=1.0,
         observe_parameter_ids=("ParamBreath", "ParamOuter", "ParamInner"),
+        expected_backend="d3d11-warp",
     )
 
     assert evidence.parameter_values == pytest.approx(E0_EXPECTED_PARAMETER_VALUES, abs=1e-6)
@@ -144,7 +233,17 @@ def test_offscreen_harness_binds_ordered_multiple_texture_pages(
     write_e0_orientation_texture(texture_0)
     write_e0_orientation_texture(texture_1)
 
-    evidence = render_moc_with_offscreen_harness(executable, moc_path, (texture_0, texture_1))
+    evidence = render_moc_with_offscreen_harness(
+        executable,
+        moc_path,
+        (texture_0, texture_1),
+        expected_backend="d3d11-warp",
+    )
     assert evidence.nonzero_alpha_pixels > 1000
     with pytest.raises(RuntimeError, match="texture.*count|failed"):
-        render_moc_with_offscreen_harness(executable, moc_path, texture_0)
+        render_moc_with_offscreen_harness(
+            executable,
+            moc_path,
+            texture_0,
+            expected_backend="d3d11-warp",
+        )

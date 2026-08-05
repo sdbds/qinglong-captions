@@ -33,19 +33,24 @@ set_target_properties(
 add_subdirectory("${CUBISM_FRAMEWORK_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/Framework")
 target_link_libraries(Framework PUBLIC Live2DCubismCore d3d11.lib d3dcompiler.lib)
 
-add_executable(auto_rig_live2d_e0 main.cpp)
-target_compile_definitions(auto_rig_live2d_e0 PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_compile_options(auto_rig_live2d_e0 PRIVATE /W4 /permissive- /MP)
+add_executable(
+  qinglong_live2d_validator
+  common/validator_common.cpp
+  windows/main_d3d11.cpp
+)
+target_include_directories(qinglong_live2d_validator PRIVATE common)
+target_compile_definitions(qinglong_live2d_validator PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_compile_options(qinglong_live2d_validator PRIVATE /W4 /permissive- /MP)
 target_link_libraries(
-  auto_rig_live2d_e0
+  qinglong_live2d_validator
   PRIVATE Framework d3d11.lib d3dcompiler.lib dxguid.lib windowscodecs.lib ole32.lib
 )
 
 add_custom_command(
-  TARGET auto_rig_live2d_e0
+  TARGET qinglong_live2d_validator
   POST_BUILD
   COMMAND
     ${CMAKE_COMMAND} -E copy_directory
     "${CUBISM_FRAMEWORK_ROOT}/src/Rendering/D3D11/Shaders"
-    "$<TARGET_FILE_DIR:auto_rig_live2d_e0>/FrameworkShaders"
+    "$<TARGET_FILE_DIR:qinglong_live2d_validator>/FrameworkShaders"
 )

@@ -31,6 +31,8 @@ from .cubism_core import (
 from .cubism_renderer import (
     CubismRendererError,
     CubismRenderEvidence,
+    CubismValidatorProbe,
+    probe_offscreen_harness,
     render_moc_with_offscreen_harness,
 )
 from .e0_assets import (
@@ -147,6 +149,7 @@ __all__ = [
     "CubismPartState",
     "CubismRenderEvidence",
     "CubismRendererError",
+    "CubismValidatorProbe",
     "DEFORMER_E0_CANVAS_SIZE",
     "DEFORMER_E0_DIRECT_LOCAL_VERTICES",
     "DEFORMER_E0_NESTED_LOCAL_VERTICES",
@@ -215,6 +218,7 @@ __all__ = [
     "moc3_v400_sections_descriptor",
     "moc_to_canonical_top_left_uv",
     "parse_moc3_v400_envelope",
+    "probe_offscreen_harness",
     "probe_cubism_core",
     "generate_live2d_e0_attestation",
     "render_moc_with_offscreen_harness",
