@@ -1,17 +1,33 @@
 from __future__ import annotations
 
+import base64
+import errno
 import hashlib
+import json
 import os
 import platform
 import re
+import shlex
+import shutil
 import subprocess
+import tempfile
+import time
+import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Mapping, Sequence
+from typing import Callable, Iterator, Literal, Mapping, Sequence
 
-from ...artifacts import canonical_json_bytes, sha256_file
+from ...artifacts import (
+    ArtifactContractError,
+    atomic_write_bytes,
+    canonical_json_bytes,
+    normalize_relative_path,
+    sha256_file,
+)
 
 LIVE2D_RUNTIME_PLAN_VERSION = "live2d-runtime-build-plan-v1"
+LIVE2D_RUNTIME_CACHE_SCHEMA_VERSION = "live2d-runtime-cache-v1"
 LIVE2D_VALIDATOR_PROTOCOL_DIGEST = "sha256:" + hashlib.sha256(
     b"qinglong-live2d-validator-protocol-v2"
 ).hexdigest()
@@ -41,6 +57,23 @@ _LEGACY_CORE_SUFFIXES = {
     "linux-x86_64": ("core", "dll", "linux", "x86_64", "liblive2dcubismcore.so"),
 }
 
+_CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
+_STAGING_MAX_AGE_SECONDS = 24 * 60 * 60
+_CONFIGURE_TIMEOUT_SECONDS = 15 * 60.0
+_BUILD_TIMEOUT_SECONDS = 30 * 60.0
+_PROBE_TIMEOUT_SECONDS = 30.0
+_RUNTIME_MANIFEST_FIELDS = {
+    "backend_id",
+    "cache_key",
+    "core_sha256",
+    "executable_path",
+    "identity_sha256",
+    "outputs",
+    "platform_id",
+    "protocol_digest",
+    "schema_version",
+}
+
 
 class Live2DRuntimeToolchainError(RuntimeError):
     def __init__(self, code: str, message: str, *, log_path: Path | None = None):
@@ -55,6 +88,7 @@ class Live2DRuntimeBuildFacts:
     validator_source_root: Path
     cmake_identity: str
     compiler_identity: str
+    generator_identity: str
     protocol_digest: str = LIVE2D_VALIDATOR_PROTOCOL_DIGEST
     dependency_pins: Mapping[str, str] = field(default_factory=dict)
     cmake_executable: str = "cmake"
@@ -71,6 +105,8 @@ class Live2DRuntimeBuildPlan:
     cache_key: str
     entry_root: Path
     executable_path: Path
+    transient_root: Path
+    built_executable_path: Path
     configure_command: tuple[str, ...]
     build_command: tuple[str, ...]
     identity_payload: Mapping[str, object]
@@ -268,15 +304,57 @@ def _command_identity(command: Sequence[str], *, fallback: str) -> str:
     return output[0].strip() if output else fallback
 
 
+def _windows_compiler_identity() -> str:
+    installer_root = Path(
+        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    ) / "Microsoft Visual Studio" / "Installer"
+    vswhere = installer_root / "vswhere.exe"
+    if not vswhere.is_file():
+        return "msvc-v143-undetected"
+    try:
+        result = subprocess.run(
+            (
+                str(vswhere),
+                "-latest",
+                "-products",
+                "*",
+                "-requires",
+                "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                "-property",
+                "installationPath",
+            ),
+            capture_output=True,
+            check=False,
+            text=True,
+            errors="replace",
+            timeout=10,
+        )
+        installation = Path(result.stdout.strip()).resolve()
+        version_file = installation / "VC" / "Auxiliary" / "Build" / "Microsoft.VCToolsVersion.default.txt"
+        toolset_version = version_file.read_text(encoding="utf-8").strip()
+        compiler = installation / "VC" / "Tools" / "MSVC" / toolset_version / "bin" / "Hostx64" / "x64" / "cl.exe"
+        if result.returncode != 0 or not compiler.is_file():
+            return "msvc-v143-undetected"
+        return f"msvc:{toolset_version}:{sha256_file(compiler)}"
+    except (ArtifactContractError, OSError, subprocess.SubprocessError, UnicodeError):
+        return "msvc-v143-undetected"
+
+
 def _default_build_facts(platform_id: str) -> Live2DRuntimeBuildFacts:
     repository_root = Path(__file__).resolve().parents[4]
-    compiler_command = ("cl",) if platform_id == "windows-x86_64" else ("c++", "--version")
-    compiler_fallback = "msvc-v143-via-cmake" if platform_id == "windows-x86_64" else "c++-unavailable"
+    if platform_id == "windows-x86_64":
+        compiler_identity = _windows_compiler_identity()
+        generator_identity = "Visual Studio 17 2022:x64"
+    else:
+        compiler_identity = _command_identity(("c++", "--version"), fallback="c++-unavailable")
+        ninja_identity = _command_identity(("ninja", "--version"), fallback="ninja-unavailable")
+        generator_identity = f"Ninja:{ninja_identity}"
     return Live2DRuntimeBuildFacts(
         platform_id=platform_id,
         validator_source_root=repository_root / "tools" / "auto_rig_live2d_e0",
         cmake_identity=_command_identity(("cmake", "--version"), fallback="cmake-unavailable"),
-        compiler_identity=_command_identity(compiler_command, fallback=compiler_fallback),
+        compiler_identity=compiler_identity,
+        generator_identity=generator_identity,
         dependency_pins=DEFAULT_LINUX_DEPENDENCY_PINS if platform_id == "linux-x86_64" else {},
     )
 
@@ -337,6 +415,7 @@ def _build_identity_payload(
         "protocol_digest": facts.protocol_digest,
         "cmake_identity": facts.cmake_identity,
         "compiler_identity": facts.compiler_identity,
+        "generator_identity": facts.generator_identity,
         "dependency_pins": dict(sorted(facts.dependency_pins.items())),
         "validator_inventory": validator_inventory,
         "sdk_inventory": sdk_inventory,
@@ -373,19 +452,35 @@ def build_live2d_runtime_plan(
     )
     cache_key = hashlib.sha256(canonical_json_bytes(identity_payload)).hexdigest()
     entry_root = resolved_cache / "live2d-validator" / selected_platform / cache_key
-    staging_root = resolved_cache / ".staging" / selected_platform / cache_key
-    build_root = staging_root / "build"
-    staged_bin = staging_root / "bin"
+    transient_identity = hashlib.sha256(
+        canonical_json_bytes(
+            {
+                "cache_root": str(resolved_cache),
+                "cache_key": cache_key,
+                "platform_id": selected_platform,
+            }
+        )
+    ).digest()
+    transient_name = base64.urlsafe_b64encode(transient_identity).decode("ascii").rstrip("=")
+    transient_root = Path(tempfile.gettempdir()).resolve() / "ql2d" / transient_name
+    build_root = transient_root / "build"
+    built_bin = transient_root / "bin"
+    generator_arguments = (
+        ("-G", "Visual Studio 17 2022", "-A", "x64")
+        if selected_platform == "windows-x86_64"
+        else ("-G", "Ninja")
+    )
     configure_command = (
         active_facts.cmake_executable,
         "-S",
         str(source_root),
         "-B",
         str(build_root),
+        *generator_arguments,
         f"-DCUBISM_SDK_ROOT={resolved_sdk}",
         "-DCMAKE_BUILD_TYPE=Release",
-        f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={staged_bin}",
-        f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE={staged_bin}",
+        f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={built_bin}",
+        f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE={built_bin}",
     )
     build_command: tuple[str, ...] = (
         active_facts.cmake_executable,
@@ -405,14 +500,575 @@ def build_live2d_runtime_plan(
         cache_key=cache_key,
         entry_root=entry_root,
         executable_path=entry_root / "bin" / layout["executable"],
+        transient_root=transient_root,
+        built_executable_path=built_bin / layout["executable"],
         configure_command=configure_command,
         build_command=build_command,
         identity_payload=identity_payload,
     )
 
 
+def _default_command_runner(
+    command: tuple[str, ...],
+    *,
+    cwd: Path,
+    timeout_seconds: float,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        capture_output=True,
+        check=False,
+        text=True,
+        errors="replace",
+        timeout=timeout_seconds,
+    )
+
+
+def _write_command_log(
+    log_path: Path,
+    command: tuple[str, ...],
+    *,
+    returncode: int | None,
+    stdout: str = "",
+    stderr: str = "",
+    exception: BaseException | None = None,
+) -> None:
+    lines = [f"command: {shlex.join(command)}"]
+    if returncode is not None:
+        lines.append(f"returncode: {returncode}")
+    if exception is not None:
+        lines.append(f"exception: {type(exception).__name__}: {exception}")
+    lines.extend(("stdout:", stdout.rstrip(), "stderr:", stderr.rstrip()))
+    atomic_write_bytes(log_path, ("\n".join(lines).rstrip() + "\n").encode("utf-8"))
+
+
+def _command_failure_code(*, phase: str, log_text: str) -> str:
+    if phase == "probe":
+        return "live2d_validator_probe_failed"
+    lowered = log_text.casefold()
+    if phase == "configure":
+        graphics_markers = (
+            "could not find opengl",
+            "could not find egl",
+            "opengl_egl_found",
+            "egl development",
+        )
+        if any(marker in lowered for marker in graphics_markers):
+            return "live2d_validator_graphics_dependency_missing"
+        dependency_markers = (
+            "download failed",
+            "each download failed",
+            "hash mismatch",
+            "url_hash",
+            "fetchcontent",
+        )
+        if any(marker in lowered for marker in dependency_markers):
+            return "live2d_validator_dependency_fetch_failed"
+        compiler_markers = (
+            "cmake_c_compiler not set",
+            "cmake_cxx_compiler not set",
+            "no cmake_c_compiler could be found",
+            "no cmake_cxx_compiler could be found",
+        )
+        if any(marker in lowered for marker in compiler_markers):
+            return "live2d_validator_build_tool_missing"
+    return "live2d_validator_build_failed"
+
+
+def _invoke_command(
+    runner: _CommandRunner,
+    command: tuple[str, ...],
+    *,
+    cwd: Path,
+    log_path: Path,
+    timeout_seconds: float,
+    phase: str,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        result = runner(command, cwd=cwd, timeout_seconds=timeout_seconds)
+    except (FileNotFoundError, PermissionError) as exc:
+        _write_command_log(log_path, command, returncode=None, exception=exc)
+        code = (
+            "live2d_validator_probe_failed"
+            if phase == "probe"
+            else "live2d_validator_build_tool_missing"
+        )
+        raise Live2DRuntimeToolchainError(code, f"{phase} command could not start", log_path=log_path) from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        _write_command_log(log_path, command, returncode=None, exception=exc)
+        code = "live2d_validator_probe_failed" if phase == "probe" else "live2d_validator_build_failed"
+        raise Live2DRuntimeToolchainError(code, f"{phase} command did not complete", log_path=log_path) from exc
+    if not isinstance(result, subprocess.CompletedProcess):
+        error = TypeError("command runner must return subprocess.CompletedProcess")
+        _write_command_log(log_path, command, returncode=None, exception=error)
+        raise Live2DRuntimeToolchainError(
+            "live2d_validator_build_failed",
+            "command runner violated the runtime build contract",
+            log_path=log_path,
+        ) from error
+    stdout = "" if result.stdout is None else str(result.stdout)
+    stderr = "" if result.stderr is None else str(result.stderr)
+    _write_command_log(
+        log_path,
+        command,
+        returncode=result.returncode,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    if result.returncode != 0:
+        code = _command_failure_code(phase=phase, log_text=f"{stdout}\n{stderr}")
+        raise Live2DRuntimeToolchainError(
+            code,
+            f"{phase} command failed with exit code {result.returncode}",
+            log_path=log_path,
+        )
+    return result
+
+
+@contextmanager
+def _exclusive_cache_lock(lock_path: Path) -> Iterator[None]:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as stream:
+        stream.seek(0, os.SEEK_END)
+        if stream.tell() == 0:
+            stream.write(b"\0")
+            stream.flush()
+        stream.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            while True:
+                try:
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as exc:
+                    if exc.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                        raise
+                    time.sleep(0.1)
+            try:
+                yield
+            finally:
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def _managed_remove_tree(path: Path, *, cache_root: Path) -> None:
+    if not path.exists() and not path.is_symlink():
+        return
+    if path.is_symlink():
+        path.unlink()
+        return
+    resolved = path.resolve()
+    root = cache_root.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise Live2DRuntimeToolchainError(
+            "live2d_validator_build_failed",
+            f"refusing to remove a path outside the runtime cache: {resolved}",
+        ) from exc
+    if resolved == root:
+        raise Live2DRuntimeToolchainError(
+            "live2d_validator_build_failed",
+            "refusing to remove the runtime cache root",
+        )
+    shutil.rmtree(path)
+
+
+def _staging_root(plan: Live2DRuntimeBuildPlan) -> Path:
+    return plan.cache_root / ".staging" / plan.platform_id / plan.cache_key
+
+
+def _lock_path(plan: Live2DRuntimeBuildPlan) -> Path:
+    return (
+        plan.cache_root
+        / "live2d-validator"
+        / ".locks"
+        / plan.platform_id
+        / f"{plan.cache_key}.lock"
+    )
+
+
+def _cleanup_stale_staging_attempts(plan: Live2DRuntimeBuildPlan) -> None:
+    staging_parent = _staging_root(plan).parent
+    if not staging_parent.is_dir():
+        return
+    cutoff = time.time() - _STAGING_MAX_AGE_SECONDS
+    for candidate in staging_parent.glob(f"{plan.cache_key}.*"):
+        try:
+            modified = candidate.lstat().st_mtime
+        except OSError:
+            continue
+        if modified < cutoff:
+            _managed_remove_tree(candidate, cache_root=plan.cache_root)
+
+
+def _probe_validator(
+    plan: Live2DRuntimeBuildPlan,
+    executable: Path,
+    *,
+    runner: _CommandRunner,
+    report_path: Path,
+    log_path: Path,
+) -> None:
+    _invoke_command(
+        runner,
+        (str(executable), "--probe-report", str(report_path)),
+        cwd=executable.parent,
+        log_path=log_path,
+        timeout_seconds=_PROBE_TIMEOUT_SECONDS,
+        phase="probe",
+    )
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise Live2DRuntimeToolchainError(
+            "live2d_validator_probe_failed",
+            "validator did not write a valid probe report",
+            log_path=log_path,
+        ) from exc
+    expected = {
+        "backend_id": plan.backend_id,
+        "protocol_digest": plan.identity_payload["protocol_digest"],
+        "schema_version": "auto-rig-live2d-probe-v1",
+    }
+    if type(payload) is not dict or payload != expected:
+        raise Live2DRuntimeToolchainError(
+            "live2d_validator_probe_failed",
+            "validator probe protocol or backend does not match the build plan",
+            log_path=log_path,
+        )
+
+
+def _manifest_output_records(root: Path) -> list[Mapping[str, object]]:
+    records: list[Mapping[str, object]] = []
+    for path in sorted((item for item in root.rglob("*") if item.is_file()), key=lambda item: item.as_posix()):
+        relative = path.relative_to(root).as_posix()
+        if relative == "runtime-manifest.json":
+            continue
+        records.append(
+            {
+                "path": relative,
+                "size": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+        )
+    return records
+
+
+def _runtime_manifest(plan: Live2DRuntimeBuildPlan, root: Path) -> Mapping[str, object]:
+    executable_path = f"bin/{plan.executable_path.name}"
+    outputs = _manifest_output_records(root)
+    output_paths = {str(record["path"]) for record in outputs}
+    if executable_path not in output_paths:
+        raise Live2DRuntimeToolchainError(
+            "live2d_validator_build_failed",
+            "native build did not produce the expected validator executable",
+        )
+    if not any(path.startswith("bin/FrameworkShaders/") for path in output_paths):
+        raise Live2DRuntimeToolchainError(
+            "live2d_validator_build_failed",
+            "native build did not publish the required Framework shader files",
+        )
+    return {
+        "schema_version": LIVE2D_RUNTIME_CACHE_SCHEMA_VERSION,
+        "cache_key": plan.cache_key,
+        "platform_id": plan.platform_id,
+        "backend_id": plan.backend_id,
+        "protocol_digest": plan.identity_payload["protocol_digest"],
+        "identity_sha256": f"sha256:{plan.cache_key}",
+        "core_sha256": sha256_file(plan.core_path),
+        "executable_path": executable_path,
+        "outputs": outputs,
+    }
+
+
+def _load_manifest_toolchain(
+    plan: Live2DRuntimeBuildPlan,
+    *,
+    root: Path,
+) -> Live2DRuntimeToolchain | None:
+    manifest_path = root / "runtime-manifest.json"
+    try:
+        raw = manifest_path.read_bytes()
+        payload = json.loads(raw.decode("ascii"))
+        if type(payload) is not dict or set(payload) != _RUNTIME_MANIFEST_FIELDS:
+            return None
+        if raw != canonical_json_bytes(payload) + b"\n":
+            return None
+        expected_scalars = {
+            "schema_version": LIVE2D_RUNTIME_CACHE_SCHEMA_VERSION,
+            "cache_key": plan.cache_key,
+            "platform_id": plan.platform_id,
+            "backend_id": plan.backend_id,
+            "protocol_digest": plan.identity_payload["protocol_digest"],
+            "identity_sha256": f"sha256:{plan.cache_key}",
+            "core_sha256": sha256_file(plan.core_path),
+            "executable_path": f"bin/{plan.executable_path.name}",
+        }
+        if any(payload[field] != value for field, value in expected_scalars.items()):
+            return None
+        if type(payload["outputs"]) is not list or not payload["outputs"]:
+            return None
+
+        declared_paths: set[str] = set()
+        validator_sha256: str | None = None
+        for record in payload["outputs"]:
+            if type(record) is not dict or set(record) != {"path", "size", "sha256"}:
+                return None
+            relative = normalize_relative_path(record["path"])
+            if relative in declared_paths or relative == "runtime-manifest.json":
+                return None
+            declared_paths.add(relative)
+            size = record["size"]
+            digest = record["sha256"]
+            if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+                return None
+            if not isinstance(digest, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
+                return None
+            candidate = root / Path(*relative.split("/"))
+            if candidate.is_symlink() or not candidate.is_file():
+                return None
+            resolved = candidate.resolve()
+            resolved.relative_to(root.resolve())
+            if candidate.stat().st_size != size or sha256_file(candidate) != digest:
+                return None
+            if relative == expected_scalars["executable_path"]:
+                validator_sha256 = digest
+
+        actual_paths: set[str] = set()
+        for candidate in root.rglob("*"):
+            if candidate.is_symlink():
+                return None
+            if candidate.is_file():
+                relative = candidate.relative_to(root).as_posix()
+                if relative != "runtime-manifest.json":
+                    actual_paths.add(relative)
+        if actual_paths != declared_paths:
+            return None
+        if validator_sha256 is None:
+            return None
+        if not any(path.startswith("bin/FrameworkShaders/") for path in declared_paths):
+            return None
+    except (
+        ArtifactContractError,
+        json.JSONDecodeError,
+        KeyError,
+        OSError,
+        TypeError,
+        UnicodeError,
+        ValueError,
+    ):
+        return None
+    return Live2DRuntimeToolchain(
+        sdk_root=plan.sdk_root,
+        core_path=plan.core_path,
+        validator_path=root / Path(*str(payload["executable_path"]).split("/")),
+        platform_id=plan.platform_id,
+        backend_id=plan.backend_id,
+        cache_key=plan.cache_key,
+        core_sha256=str(payload["core_sha256"]),
+        validator_sha256=validator_sha256,
+    )
+
+
+def _load_cached_toolchain(
+    plan: Live2DRuntimeBuildPlan,
+    *,
+    runner: _CommandRunner,
+    probe: bool = True,
+) -> Live2DRuntimeToolchain | None:
+    toolchain = _load_manifest_toolchain(plan, root=plan.entry_root)
+    if toolchain is None or not probe:
+        return toolchain
+    probe_root = plan.cache_root / ".probe"
+    probe_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f"{plan.cache_key[:12]}-", dir=probe_root) as temporary:
+        temporary_root = Path(temporary)
+        try:
+            _probe_validator(
+                plan,
+                toolchain.validator_path,
+                runner=runner,
+                report_path=temporary_root / "probe.json",
+                log_path=temporary_root / "probe.log",
+            )
+        except Live2DRuntimeToolchainError:
+            return None
+    return toolchain
+
+
+def _retain_failed_logs(
+    plan: Live2DRuntimeBuildPlan,
+    staging_root: Path,
+    error: Live2DRuntimeToolchainError,
+) -> Path:
+    attempt_id = f"{time.time_ns()}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    destination = (
+        plan.cache_root
+        / "live2d-validator"
+        / ".failures"
+        / plan.platform_id
+        / plan.cache_key
+        / attempt_id
+    )
+    destination.mkdir(parents=True, exist_ok=False)
+    for source in sorted(staging_root.glob("*.log")):
+        shutil.copy2(source, destination / source.name)
+    log_name = error.log_path.name if error.log_path is not None else "runtime.log"
+    retained = destination / log_name
+    if not retained.is_file():
+        atomic_write_bytes(retained, (str(error) + "\n").encode("utf-8"))
+    return retained
+
+
+def _build_and_publish_toolchain(
+    plan: Live2DRuntimeBuildPlan,
+    *,
+    runner: _CommandRunner,
+) -> Live2DRuntimeToolchain:
+    staging_root = _staging_root(plan)
+    transient_cache_root = Path(tempfile.gettempdir()).resolve() / "ql2d"
+    if staging_root.exists() or staging_root.is_symlink():
+        _managed_remove_tree(staging_root, cache_root=plan.cache_root)
+    if plan.transient_root.exists() or plan.transient_root.is_symlink():
+        _managed_remove_tree(plan.transient_root, cache_root=transient_cache_root)
+    if plan.entry_root.exists() or plan.entry_root.is_symlink():
+        _managed_remove_tree(plan.entry_root, cache_root=plan.cache_root)
+    staging_root.mkdir(parents=True, exist_ok=False)
+    plan.transient_root.mkdir(parents=True, exist_ok=False)
+    try:
+        _invoke_command(
+            runner,
+            plan.configure_command,
+            cwd=plan.transient_root,
+            log_path=staging_root / "configure.log",
+            timeout_seconds=_CONFIGURE_TIMEOUT_SECONDS,
+            phase="configure",
+        )
+        _invoke_command(
+            runner,
+            plan.build_command,
+            cwd=plan.transient_root,
+            log_path=staging_root / "build.log",
+            timeout_seconds=_BUILD_TIMEOUT_SECONDS,
+            phase="build",
+        )
+        if not plan.built_executable_path.is_file():
+            missing = Live2DRuntimeToolchainError(
+                "live2d_validator_build_failed",
+                "native build completed without the expected validator executable",
+                log_path=staging_root / "build.log",
+            )
+            raise missing
+        _probe_validator(
+            plan,
+            plan.built_executable_path,
+            runner=runner,
+            report_path=staging_root / "probe.json",
+            log_path=staging_root / "probe.log",
+        )
+
+        shutil.copytree(plan.built_executable_path.parent, staging_root / "bin")
+        _managed_remove_tree(plan.transient_root, cache_root=transient_cache_root)
+        for transient in (
+            staging_root / "configure.log",
+            staging_root / "build.log",
+            staging_root / "probe.log",
+            staging_root / "probe.json",
+        ):
+            transient.unlink(missing_ok=True)
+        manifest = _runtime_manifest(plan, staging_root)
+        atomic_write_bytes(
+            staging_root / "runtime-manifest.json",
+            canonical_json_bytes(manifest) + b"\n",
+        )
+        staged_toolchain = _load_manifest_toolchain(plan, root=staging_root)
+        if staged_toolchain is None:
+            raise Live2DRuntimeToolchainError(
+                "live2d_validator_build_failed",
+                "staged runtime cache entry failed its manifest validation",
+            )
+        plan.entry_root.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(staging_root, plan.entry_root)
+        return Live2DRuntimeToolchain(
+            sdk_root=staged_toolchain.sdk_root,
+            core_path=staged_toolchain.core_path,
+            validator_path=plan.executable_path,
+            platform_id=staged_toolchain.platform_id,
+            backend_id=staged_toolchain.backend_id,
+            cache_key=staged_toolchain.cache_key,
+            core_sha256=staged_toolchain.core_sha256,
+            validator_sha256=staged_toolchain.validator_sha256,
+        )
+    except Live2DRuntimeToolchainError as error:
+        retained_log = _retain_failed_logs(plan, staging_root, error)
+        if plan.transient_root.exists() or plan.transient_root.is_symlink():
+            _managed_remove_tree(plan.transient_root, cache_root=transient_cache_root)
+        if staging_root.exists() or staging_root.is_symlink():
+            _managed_remove_tree(staging_root, cache_root=plan.cache_root)
+        raise Live2DRuntimeToolchainError(
+            error.code,
+            str(error).split(": ", 1)[-1],
+            log_path=retained_log,
+        ) from error
+    except OSError as error:
+        wrapped = Live2DRuntimeToolchainError(
+            "live2d_validator_build_failed",
+            f"runtime cache transaction failed: {error}",
+        )
+        retained_log = _retain_failed_logs(plan, staging_root, wrapped)
+        if plan.transient_root.exists() or plan.transient_root.is_symlink():
+            _managed_remove_tree(plan.transient_root, cache_root=transient_cache_root)
+        if staging_root.exists() or staging_root.is_symlink():
+            _managed_remove_tree(staging_root, cache_root=plan.cache_root)
+        raise Live2DRuntimeToolchainError(
+            wrapped.code,
+            str(wrapped).split(": ", 1)[-1],
+            log_path=retained_log,
+        ) from error
+
+
+def ensure_live2d_runtime_toolchain(
+    *,
+    sdk_root: str | Path | None = None,
+    cache_root: str | Path | None = None,
+    _facts: Live2DRuntimeBuildFacts | None = None,
+    _command_runner: _CommandRunner | None = None,
+) -> Live2DRuntimeToolchain:
+    selected_platform = _facts.platform_id if _facts is not None else detect_live2d_runtime_platform()
+    resolved_sdk = resolve_cubism_sdk_root(sdk_root, platform_id=selected_platform)
+    plan = build_live2d_runtime_plan(
+        resolved_sdk,
+        facts=_facts,
+        cache_root=cache_root,
+    )
+    runner = _default_command_runner if _command_runner is None else _command_runner
+    plan.cache_root.mkdir(parents=True, exist_ok=True)
+    cached = _load_cached_toolchain(plan, runner=runner)
+    if cached is not None:
+        return cached
+
+    with _exclusive_cache_lock(_lock_path(plan)):
+        _cleanup_stale_staging_attempts(plan)
+        cached = _load_cached_toolchain(plan, runner=runner)
+        if cached is not None:
+            return cached
+        return _build_and_publish_toolchain(plan, runner=runner)
+
+
 __all__ = [
     "DEFAULT_LINUX_DEPENDENCY_PINS",
+    "LIVE2D_RUNTIME_CACHE_SCHEMA_VERSION",
     "LIVE2D_RUNTIME_PLAN_VERSION",
     "LIVE2D_VALIDATOR_PROTOCOL_DIGEST",
     "Live2DRuntimeBuildFacts",
@@ -422,5 +1078,6 @@ __all__ = [
     "build_live2d_runtime_plan",
     "default_live2d_runtime_cache_root",
     "detect_live2d_runtime_platform",
+    "ensure_live2d_runtime_toolchain",
     "resolve_cubism_sdk_root",
 ]

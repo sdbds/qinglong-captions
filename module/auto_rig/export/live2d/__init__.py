@@ -106,6 +106,7 @@ from .moc3_sections_kernel import (
 )
 from .runtime_toolchain import (
     DEFAULT_LINUX_DEPENDENCY_PINS,
+    LIVE2D_RUNTIME_CACHE_SCHEMA_VERSION,
     LIVE2D_RUNTIME_PLAN_VERSION,
     LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
     Live2DRuntimeBuildFacts,
@@ -115,6 +116,7 @@ from .runtime_toolchain import (
     build_live2d_runtime_plan,
     default_live2d_runtime_cache_root,
     detect_live2d_runtime_platform,
+    ensure_live2d_runtime_toolchain,
     resolve_cubism_sdk_root,
 )
 from .uv_kernel import (
@@ -132,6 +134,7 @@ __all__ = [
     "COORDINATE_SCHEMA_VERSION",
     "CUBISM_V400_UV_KERNEL_VERSION",
     "DEFAULT_LINUX_DEPENDENCY_PINS",
+    "LIVE2D_RUNTIME_CACHE_SCHEMA_VERSION",
     "E0_CORE_EXPORTS",
     "FRAME_KERNEL_VERSION",
     "KERNEL_SOURCE_DIGEST_VERSION",
@@ -205,6 +208,7 @@ __all__ = [
     "decode_moc3_v400",
     "default_live2d_runtime_cache_root",
     "detect_live2d_runtime_platform",
+    "ensure_live2d_runtime_toolchain",
     "empty_v400_sections",
     "encode_moc3_v400",
     "evaluate_deformer_e0_canvas",

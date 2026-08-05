@@ -172,6 +172,7 @@ from .export.live2d.runtime_assets import (
 )
 from .export.live2d.runtime_toolchain import (
     DEFAULT_LINUX_DEPENDENCY_PINS,
+    LIVE2D_RUNTIME_CACHE_SCHEMA_VERSION,
     LIVE2D_RUNTIME_PLAN_VERSION,
     LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
     Live2DRuntimeBuildFacts,
@@ -181,6 +182,7 @@ from .export.live2d.runtime_toolchain import (
     build_live2d_runtime_plan,
     default_live2d_runtime_cache_root,
     detect_live2d_runtime_platform,
+    ensure_live2d_runtime_toolchain,
     resolve_cubism_sdk_root,
 )
 from .export.live2d.symbols import (
@@ -1013,6 +1015,7 @@ __all__ = [
     "LIVE2D_RELEASE_VALIDATOR_VERSION",
     "LIVE2D_RUNTIME_ASSET_PLAN_VERSION",
     "LIVE2D_RUNTIME_PLAN_VERSION",
+    "LIVE2D_RUNTIME_CACHE_SCHEMA_VERSION",
     "LIVE2D_STRUCTURE_REPORT_VERSION",
     "LIVE2D_SYMBOL_VIEW_VERSION",
     "LIVE2D_VALIDATION_TIERS",
@@ -1052,6 +1055,7 @@ __all__ = [
     "build_rigid_driver_registry",
     "default_live2d_runtime_cache_root",
     "detect_live2d_runtime_platform",
+    "ensure_live2d_runtime_toolchain",
     "execute_stage_e",
     "execute_stage_g_success",
     "validate_live2d_animation_plan",
