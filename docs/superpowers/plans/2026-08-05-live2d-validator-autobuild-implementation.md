@@ -4,20 +4,23 @@
 
 **Goal:** Remove the user-selected Live2D validator executable and lazily build a reusable official-SDK validator on Windows x86_64 and headless Linux x86_64.
 
-**Architecture:** A new Python runtime-toolchain manager resolves the user-installed Cubism SDK, derives the platform Core and renderer backend, builds into a content-addressed per-user cache under a cross-process lock, and returns immutable Core/validator identities to Stage E. The native validator shares protocol/model logic while selecting D3D11 WARP on Windows and GLFW Null Platform plus EGL/OpenGL on Linux. Stage D remains independent and Stage E alone owns toolchain failures.
+**Architecture:** A new Python runtime-toolchain manager resolves the user-installed Cubism SDK, derives the platform Core and renderer backend, builds into a content-addressed per-user cache under a cross-process lock, and returns immutable Core/validator identities to Stage E. The native validator shares protocol/model logic while selecting D3D11 WARP on Windows and direct surfaceless EGL/OpenGL on Linux. Stage D remains independent and Stage E alone owns toolchain failures.
 
-**Tech Stack:** Python 3.10+, pytest, CMake 3.20+, C++17, Cubism SDK for Native 5-r.5, D3D11/WIC on Windows, EGL/OpenGL/GLEW/GLFW on Linux.
+**Tech Stack:** Python 3.10+, pytest, CMake 3.20+, C++17, Cubism SDK for Native 5-r.5, D3D11/WIC on Windows, EGL/OpenGL/GLEW on Linux.
 
 ## Global Constraints
 
 - The GUI, persisted config, public see-through CLI, and standalone auto-rig CLI must not accept or display a validator executable path.
 - The project must not download or redistribute Cubism Core or the Cubism SDK.
-- Windows x86_64 uses D3D11 WARP; Linux x86_64 uses EGL plus GLFW Null Platform and must run with `DISPLAY` and `WAYLAND_DISPLAY` unset.
+- Windows x86_64 uses D3D11 WARP; Linux x86_64 uses direct surfaceless EGL and must run with `DISPLAY` and `WAYLAND_DISPLAY` unset.
 - Linux arm64 and macOS remain unsupported by this change.
 - The validator is built lazily only for release-tier Live2D Stage E and is never copied into exported model artifacts.
 - A valid Spine Stage D transaction must remain available when toolchain construction or Live2D Stage E fails.
 - The cache key must be content-based and must not include repository, worktree, SDK, cache, or executable absolute paths.
-- Linux dependency pins are GLFW 3.4 archive SHA-256 `c038d34200234d071fae9345bc455e4a8f2f544ab60150765d7704e08f3dac01` and GLEW 2.2.0 archive SHA-256 `f781d57097cdd076c6e34656d3aae239abaa03da7fd60e2249ee29df546e3d1e`.
+- E0 runtime selection must additionally bind the active native validator
+  source inventory digest; protocol strings alone are not sufficient source
+  identity.
+- The Linux dependency pin is GLEW 2.2.0 from SourceForge with archive SHA-256 `d4fc82893cfb00109578d0a1a2337fb8ca335b3ceccf97b97e5cc7f08e4353e1`.
 - No production code is written before its focused regression test has been observed failing for the intended reason.
 - Existing uncommitted GUI auto-rig work must be edited in place and must not be reverted.
 
@@ -43,7 +46,7 @@
 - Consumes: existing GUI auto-rig sub-options and `SeeThroughRunConfig`.
 - Produces: `auto_rig_sdk_root: Path | None`, CLI flag `--auto_rig_sdk_root`, environment variable `CUBISM_SDK_ROOT`; removes the public renderer path.
 
-- [ ] **Step 1: Write failing public-contract tests**
+- [x] **Step 1: Write failing public-contract tests**
 
 Update the CLI and GUI assertions to require one SDK directory and forbid every validator path:
 
@@ -68,7 +71,7 @@ def test_tools_step_never_emits_live2d_validator_path(captured, step, sdk_root):
 
 Add a config-schema assertion that `[see_through]` has `auto_rig_sdk_root` and lacks `auto_rig_core_path` and `auto_rig_renderer_path`. Update `tests/test_auto_rig_cli.py` so `CUBISM_SDK_ROOT` is forwarded and `LIVE2D_RENDERER_PATH` is ignored.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run:
 
@@ -78,7 +81,7 @@ python -m pytest tests/test_see_through_cli.py tests/test_see_through_config.py 
 
 Expected: failures mention missing `auto_rig_sdk_root` and existing renderer-path fields/arguments.
 
-- [ ] **Step 3: Implement the minimal public-contract change**
+- [x] **Step 3: Implement the minimal public-contract change**
 
 Change `SeeThroughRunConfig` to:
 
@@ -88,11 +91,11 @@ auto_rig_sdk_root: Path | None = None
 
 Remove `auto_rig_core_path` and `auto_rig_renderer_path` from the public config. Replace the two Live2D file selectors with a single directory selector labeled `Cubism SDK for Native directory`. Keep the optional Spine validator field unchanged. Pass `sdk_root` through `_run_auto_rig_phase` and the standalone CLI. Preserve `LIVE2D_CORE_PATH` only inside the future SDK resolver as a migration input, not as a public GUI or CLI output.
 
-- [ ] **Step 4: Run focused tests and verify GREEN**
+- [x] **Step 4: Run focused tests and verify GREEN**
 
 Run the command from Step 2. Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit the public contract**
+- [x] **Step 5: Commit the public contract**
 
 ```powershell
 git add config/model.toml gui/utils/i18n.py gui/wizard/step6_tools.py module/see_through/cli.py module/see_through/runner.py module/auto_rig/cli.py tests/test_see_through_cli.py tests/test_see_through_config.py tests/test_see_through_fingerprint.py tests/test_see_through_runner.py tests/test_see_through_tools_step.py tests/test_auto_rig_cli.py
@@ -113,7 +116,7 @@ git commit -m "feat: hide Live2D validator behind SDK configuration"
 - Consumes: an optional SDK root, environment mapping, platform/architecture facts, repository validator sources, and compiler probe results.
 - Produces: `Live2DRuntimeBuildPlan`, `Live2DRuntimeToolchain`, `resolve_cubism_sdk_root()`, and stable `Live2DRuntimeToolchainError.code` values.
 
-- [ ] **Step 1: Write failing discovery and cache-key tests**
+- [x] **Step 1: Write failing discovery and cache-key tests**
 
 Create fixtures with minimal SDK layouts for both platforms and assert:
 
@@ -145,7 +148,7 @@ def test_build_plan_cache_key_changes_for_semantic_input(tmp_path):
 
 Also assert exact legacy Core suffix conversion, deterministic discovery ties, Linux arm64 rejection, and no absolute paths in the canonical key payload.
 
-- [ ] **Step 2: Run the new tests and verify RED**
+- [x] **Step 2: Run the new tests and verify RED**
 
 ```powershell
 python -m pytest tests/test_auto_rig_live2d_runtime_toolchain.py -q
@@ -153,7 +156,7 @@ python -m pytest tests/test_auto_rig_live2d_runtime_toolchain.py -q
 
 Expected: import failure for the new module.
 
-- [ ] **Step 3: Implement immutable plans and deterministic hashing**
+- [x] **Step 3: Implement immutable plans and deterministic hashing**
 
 Define:
 
@@ -205,13 +208,13 @@ class Live2DRuntimeToolchainError(RuntimeError):
 
 Use canonical sorted JSON and streamed SHA-256. Hash the exact validator source inventory, supported Framework source/shader inventory, `cubism-info.yml`, Core runtime/static libraries, backend dependency pins, and compiler/CMake identities. Default the cache to `QINGLONG_CAPTIONS_RUNTIME_CACHE` or `~/.cache/qinglong-captions/runtimes`.
 
-- [ ] **Step 4: Run the new tests and verify GREEN**
+- [x] **Step 4: Run the new tests and verify GREEN**
 
 ```powershell
 python -m pytest tests/test_auto_rig_live2d_runtime_toolchain.py -q
 ```
 
-- [ ] **Step 5: Commit discovery and planning**
+- [x] **Step 5: Commit discovery and planning**
 
 ```powershell
 git add module/auto_rig/export/live2d/runtime_toolchain.py module/auto_rig/export/live2d/__init__.py module/auto_rig/__init__.py tests/test_auto_rig_live2d_runtime_toolchain.py
@@ -235,7 +238,7 @@ git commit -m "feat: plan content-addressed Live2D validator builds"
 - Consumes: existing validator CLI arguments and Cubism Framework.
 - Produces: `qinglong_live2d_validator`, report schema `auto-rig-live2d-render-v2`, and a side-effect-free `--probe-report <path>` command.
 
-- [ ] **Step 1: Write failing source/protocol tests**
+- [x] **Step 1: Write failing source/protocol tests**
 
 Require the platform split and protocol probe:
 
@@ -260,13 +263,13 @@ def test_renderer_accepts_attested_backend_and_v2_diagnostics(tmp_path, fake_har
 
 Add a real probe invocation test guarded by `LIVE2D_E0_RENDERER_PATH` until the new binary is built.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 ```powershell
 python -m pytest tests/test_auto_rig_live2d_renderer.py -q
 ```
 
-- [ ] **Step 3: Split common model logic and retain D3D11 behavior**
+- [x] **Step 3: Split common model logic and retain D3D11 behavior**
 
 Move parsing, file I/O, Framework lifetime, MOC/model creation, parameter/motion/expression application, alpha summary, JSON reporting, and protocol constants into `validator_common`. Keep WIC texture upload, D3D11 WARP creation, shader setup, draw, and staging readback in `main_d3d11.cpp`.
 
@@ -282,7 +285,7 @@ The probe report contains exactly:
 
 The render report v2 adds `runtime_info` while retaining all v1 semantic fields. `render_moc_with_offscreen_harness()` requires an explicit expected backend and rejects a mismatch.
 
-- [ ] **Step 4: Build and run the Windows validator**
+- [x] **Step 4: Build and run the Windows validator**
 
 ```powershell
 cmake -S tools/auto_rig_live2d_e0 -B .cache/live2d-validator-windows-check -DCUBISM_SDK_ROOT=E:/CubismSdkForNative-5-r.5
@@ -292,7 +295,7 @@ python -m pytest tests/test_auto_rig_live2d_renderer.py -q
 
 Expected: CMake/build exit 0 and renderer tests pass with the new executable supplied through the integration-test environment.
 
-- [ ] **Step 5: Commit the Windows protocol refactor**
+- [x] **Step 5: Commit the Windows protocol refactor**
 
 ```powershell
 git add tools/auto_rig_live2d_e0 module/auto_rig/export/live2d/cubism_renderer.py tests/test_auto_rig_live2d_renderer.py
@@ -310,46 +313,45 @@ git commit -m "refactor: share Live2D validator runtime protocol"
 - Modify: `tests/test_auto_rig_live2d_runtime_toolchain.py`
 
 **Interfaces:**
-- Consumes: shared validator protocol, Cubism Framework OpenGL renderer, SDK `stb_image.h`, EGL/OpenGL, pinned GLFW 3.4 and GLEW 2.2.0.
+- Consumes: shared validator protocol, Cubism Framework OpenGL renderer, SDK `stb_image.h`, EGL/OpenGL, and pinned GLEW 2.2.0.
 - Produces: backend `opengl-egl-headless` with canonical top-left straight-alpha RGBA evidence.
 
-- [ ] **Step 1: Write failing Linux backend contract tests**
+- [x] **Step 1: Write failing Linux backend contract tests**
 
 Assert the CMake and source prohibit display-system coupling:
 
 ```python
-def test_linux_backend_is_null_platform_egl():
+def test_linux_backend_is_direct_surfaceless_egl():
     source = (TOOLS / "linux" / "main_egl.cpp").read_text("utf-8")
     cmake = (TOOLS / "CMakeLists.txt").read_text("utf-8")
-    assert "GLFW_PLATFORM_NULL" in source
-    assert "GLFW_EGL_CONTEXT_API" in source
-    assert "GLFW_BUILD_X11 OFF" in cmake
-    assert "GLFW_BUILD_WAYLAND OFF" in cmake
+    assert "EGL_PLATFORM_SURFACELESS_MESA" in source
+    assert "eglCreatePbufferSurface" in source
+    assert "glfw" not in source.casefold()
+    assert "glfw" not in cmake.casefold()
     assert "opengl-egl-headless" in source
     assert "DISPLAY" not in source
 ```
 
 Add a Linux-only integration test that unsets `DISPLAY` and `WAYLAND_DISPLAY`, invokes `--probe-report`, and renders the static orientation fixture.
 
-- [ ] **Step 2: Run source tests and verify RED**
+- [x] **Step 2: Run source tests and verify RED**
 
 ```powershell
 python -m pytest tests/test_auto_rig_live2d_renderer.py tests/test_auto_rig_live2d_runtime_toolchain.py -q
 ```
 
-- [ ] **Step 3: Implement the EGL/OpenGL renderer**
+- [x] **Step 3: Implement the EGL/OpenGL renderer**
 
-On Linux, CMake imports `Core/lib/linux/x86_64/libLive2DCubismCore.a`, selects `FRAMEWORK_SOURCE OpenGL`, defines `CSM_TARGET_LINUX_GL`, and builds pinned GLFW/GLEW inside the cache. `main_egl.cpp` must:
+On Linux, CMake imports `Core/lib/linux/x86_64/libLive2DCubismCore.a`, selects `FRAMEWORK_SOURCE OpenGL`, defines `CSM_TARGET_LINUX_GL`, and builds pinned GLEW inside the cache. `main_egl.cpp` must require the Mesa surfaceless extension and request a pbuffer directly; it must not fall back to a default display:
 
 ```cpp
-glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL);
-glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
-glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+eglGetPlatformDisplayEXT(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, nullptr);
+eglCreatePbufferSurface(display, config, pbufferAttributes);
 ```
 
 Create an explicit RGBA8 framebuffer, upload straight-alpha PNG pages through `stb_image`, bind them to `CubismRenderer_OpenGLES2`, draw, `glReadPixels`, flip rows, and emit OpenGL vendor/renderer/version diagnostics.
 
-- [ ] **Step 4: Build and test inside WSL2 without a display**
+- [x] **Step 4: Build and test inside WSL2 without a display**
 
 Run from WSL2 after installing the documented non-project system prerequisites:
 
@@ -366,7 +368,7 @@ python -m pytest tests/test_auto_rig_live2d_renderer.py -q
 
 Expected: build and test exit 0 while both display variables are unset.
 
-- [ ] **Step 5: Commit the Linux backend**
+- [x] **Step 5: Commit the Linux backend**
 
 ```powershell
 git add tools/auto_rig_live2d_e0 tests/test_auto_rig_live2d_renderer.py tests/test_auto_rig_live2d_runtime_toolchain.py
@@ -385,7 +387,7 @@ git commit -m "feat: add headless EGL Live2D validation"
 - Consumes: `Live2DRuntimeBuildPlan` and the native `--probe-report` protocol.
 - Produces: `ensure_live2d_runtime_toolchain()` with atomic content-addressed reuse.
 
-- [ ] **Step 1: Write failing cache lifecycle tests**
+- [x] **Step 1: Write failing cache lifecycle tests**
 
 Cover cache hits, corruption, locking, and failed builds:
 
@@ -427,17 +429,17 @@ def test_failed_build_never_publishes_manifest(tmp_path, sdk_root, failing_runne
 
 Use an injected command runner only at the subprocess boundary; exercise real hashing, locking, staging, manifest validation, and atomic rename logic.
 
-- [ ] **Step 2: Run cache tests and verify RED**
+- [x] **Step 2: Run cache tests and verify RED**
 
 ```powershell
 python -m pytest tests/test_auto_rig_live2d_runtime_toolchain.py -q
 ```
 
-- [ ] **Step 3: Implement the cache transaction**
+- [x] **Step 3: Implement the cache transaction**
 
 Implement `msvcrt.locking`/`fcntl.flock`, waiter recheck, 24-hour staging cleanup under lock, configure/build log capture, probe validation, canonical `runtime-manifest.json`, output rehash on every reuse, and final directory rename. Map configure, dependency fetch, graphics dependency, compiler, build, and probe failures to the exact design codes.
 
-- [ ] **Step 4: Run cache tests and warm-cache integration**
+- [x] **Step 4: Run cache tests and warm-cache integration**
 
 ```powershell
 python -m pytest tests/test_auto_rig_live2d_runtime_toolchain.py -q
@@ -445,7 +447,7 @@ python -m pytest tests/test_auto_rig_live2d_runtime_toolchain.py -q
 
 Then call `ensure_live2d_runtime_toolchain()` twice against `E:\CubismSdkForNative-5-r.5` and assert the second call does not change the executable or manifest timestamps.
 
-- [ ] **Step 5: Commit runtime cache management**
+- [x] **Step 5: Commit runtime cache management**
 
 ```powershell
 git add module/auto_rig/export/live2d/runtime_toolchain.py tests/test_auto_rig_live2d_runtime_toolchain.py
@@ -465,8 +467,8 @@ git commit -m "feat: cache native Live2D validator builds"
 - Modify: `tests/test_auto_rig_live2d_release_validator.py`
 
 **Interfaces:**
-- Consumes: exact platform, backend, Core, validator protocol, and E0 fixture evidence.
-- Produces: `Live2DRuntimeAttestation`, `select_runtime_attestation()`, and one signed runtime record per Windows D3D11 or Linux EGL tuple.
+- Consumes: exact platform, backend, Core, validator protocol, active native validator source inventory, and E0 fixture evidence.
+- Produces: `Live2DRuntimeAttestation`, `select_runtime_attestation()`, and one signed runtime record per Windows D3D11 or Linux EGL runtime identity.
 
 The immutable selection result is:
 
@@ -477,11 +479,12 @@ class Live2DRuntimeAttestation:
     backend_id: str
     core_sha256: str
     validator_protocol_digest: str
+    validator_source_sha256: str
     record_sha256: str
     payload: Mapping[str, object]
 ```
 
-- [ ] **Step 1: Write failing schema and selection tests**
+- [x] **Step 1: Write failing schema and selection tests**
 
 ```python
 def test_attestation_selects_exact_runtime_tuple():
@@ -491,6 +494,7 @@ def test_attestation_selects_exact_runtime_tuple():
         backend_id="opengl-egl-headless",
         core_sha256=LINUX_CORE_SHA256,
         validator_protocol_digest=PROTOCOL,
+        validator_source_sha256=LINUX_SOURCE,
     )
     assert record["backend_id"] == "opengl-egl-headless"
 
@@ -503,22 +507,23 @@ def test_windows_record_cannot_attest_linux_backend():
             backend_id="opengl-egl-headless",
             core_sha256=WINDOWS_CORE_SHA256,
             validator_protocol_digest=PROTOCOL,
+            validator_source_sha256=LINUX_SOURCE,
         )
 ```
 
 Require runtime records to have unique tuple keys and backend-specific E0 evidence.
 
-- [ ] **Step 2: Run attestation tests and verify RED**
+- [x] **Step 2: Run attestation tests and verify RED**
 
 ```powershell
 python -m pytest tests/test_auto_rig_live2d_attestation.py tests/test_auto_rig_live2d_release_validator.py -q
 ```
 
-- [ ] **Step 3: Implement tuple selection and backend-aware generation**
+- [x] **Step 3: Implement tuple selection and backend-aware generation**
 
 Move `approved_core_binaries` and renderer fixture hashes into canonical `runtime_attestations[]`. Keep shared coordinate/layout kernels outside the records. Update `generate_live2d_e0_attestation()` to merge or replace exactly one runtime tuple without changing another backend's record.
 
-- [ ] **Step 4: Regenerate and verify Windows and Linux E0 records**
+- [x] **Step 4: Regenerate and verify Windows and Linux E0 records**
 
 Run the generator against the newly cached Windows validator and official Windows DLL. In WSL2, run it against the cached EGL validator and Linux `.so`. Merge both exact records, then run:
 
@@ -528,7 +533,7 @@ python -m pytest tests/test_auto_rig_live2d_attestation.py tests/test_auto_rig_l
 
 Expected: both runtime records validate and a cross-platform mismatch is rejected.
 
-- [ ] **Step 5: Commit platform attestations**
+- [x] **Step 5: Commit platform attestations**
 
 ```powershell
 git add module/auto_rig/export/live2d/attestation.py module/auto_rig/export/live2d/e0_attestation.py module/auto_rig/export/live2d/release_validator.py module/auto_rig/export/live2d/attestations/live2d-frames-v1.json tests/test_auto_rig_live2d_attestation.py tests/test_auto_rig_live2d_release_validator.py
@@ -552,7 +557,7 @@ git commit -m "feat: attest Live2D runtimes per platform backend"
 - Consumes: `sdk_root`, `ensure_live2d_runtime_toolchain()`, and `select_runtime_attestation()`.
 - Produces: Stage E fingerprints based on toolchain and attestation identities rather than paths, while Stage D commits before any toolchain resolution.
 
-- [ ] **Step 1: Write failing pipeline-order and fingerprint tests**
+- [x] **Step 1: Write failing pipeline-order and fingerprint tests**
 
 ```python
 def test_stage_d_commits_before_live2d_toolchain_failure(monkeypatch, item_root):
@@ -593,13 +598,13 @@ def test_stage_e_fingerprint_ignores_toolchain_absolute_paths(toolchain, tmp_pat
 
 Update runner tests to assert it passes `sdk_root` only.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 ```powershell
 python -m pytest tests/test_auto_rig_stage_e.py tests/test_auto_rig_pipeline.py tests/test_auto_rig_stage_g.py tests/test_see_through_runner.py -q
 ```
 
-- [ ] **Step 3: Resolve after Stage D and map failures in Stage E**
+- [x] **Step 3: Resolve after Stage D and map failures in Stage E**
 
 Replace the `core_path` and `renderer_path` keyword parameters on `run_auto_rig_item()` with `sdk_root: str | Path | None = None`. After Stage D commits, resolve the toolchain and exact attestation record before constructing the Stage E fingerprint. Pass the immutable toolchain and attestation into `execute_stage_e()`; do not rebuild or reselect inside the writer transaction. When resolution fails, call a new `publish_stage_e_toolchain_failure(root, error)` helper so `rig/cache/E/failure.json` retains the stable toolchain code before the exception is re-raised.
 
@@ -613,11 +618,11 @@ toolchain.fingerprint_payload(
 
 Do not include `sdk_root`, `core_path`, or `validator_path`. Structural tier uses `{"runtime_toolchain": "not-required"}` and never resolves the SDK.
 
-- [ ] **Step 4: Run focused tests and verify GREEN**
+- [x] **Step 4: Run focused tests and verify GREEN**
 
 Run the command from Step 2.
 
-- [ ] **Step 5: Commit pipeline integration**
+- [x] **Step 5: Commit pipeline integration**
 
 ```powershell
 git add module/auto_rig/stage_e.py module/auto_rig/pipeline.py module/auto_rig/export/live2d/release_validator.py tests/test_auto_rig_stage_e.py tests/test_auto_rig_pipeline.py tests/test_auto_rig_stage_g.py tests/test_see_through_runner.py
@@ -637,41 +642,49 @@ git commit -m "feat: resolve Live2D validator lazily after Spine"
 - Consumes: completed Windows/Linux toolchains and the real upstream PSD fixtures.
 - Produces: verified operating instructions and release evidence.
 
-- [ ] **Step 1: Run the complete targeted Python suite**
+- [x] **Step 1: Run the complete targeted Python suite**
 
 ```powershell
 python -m pytest tests/test_auto_rig_live2d_runtime_toolchain.py tests/test_auto_rig_live2d_renderer.py tests/test_auto_rig_live2d_attestation.py tests/test_auto_rig_live2d_release_validator.py tests/test_auto_rig_stage_e.py tests/test_auto_rig_pipeline.py tests/test_auto_rig_stage_g.py tests/test_see_through_cli.py tests/test_see_through_runner.py tests/test_see_through_tools_step.py -q
 ```
 
-- [ ] **Step 2: Run a clean-cache Windows production item**
+Final targeted result: `139 passed, 7 skipped`.
+
+- [x] **Step 2: Run a clean-cache Windows production item**
 
 Use `E:\CubismSdkForNative-5-r.5` and a previously accepted real PSD fixture. Delete only the dedicated new runtime cache entry, run formal auto-rig, record build/cache paths, and verify the exported Live2D model in the same runtime gate used by Stage E.
 
-- [ ] **Step 3: Run warm-cache and worktree-independence checks**
+Verified with `Snipaste_2025-12-24_15-16-19.png/final.psd`. The v2 cache key is `b5cfe2e97056fb9ab4e0a4ea7801db25ed1f5404125b44d5ac6442c5d089bf1a`; the D3D11 WARP validator SHA-256 is `sha256:566bc00bf8f90cc60f746bafeabf6615ec7f0dc5955c67c0c73427d972cad10b`.
+
+- [x] **Step 3: Run warm-cache and worktree-independence checks**
 
 Run the same item again and verify no configure/build command is emitted. Invoke from the main checkout with identical source content or copy the source identity fixture to a second worktree and verify the cache entry is reused by digest, not path.
 
-- [ ] **Step 4: Run WSL2 headless release validation**
+The warm item reused `A/B/C/D/E/G`. A byte-identical validator source copy under a different absolute root selected the same cache key and left both executable and manifest timestamps unchanged.
+
+- [x] **Step 4: Run WSL2 headless release validation**
 
 Unset both display variables, run the E0 and release fixture through the Linux cache, and capture the backend diagnostics proving `opengl-egl-headless`. Do not claim Linux support if this step is skipped or only the Python planning tests pass.
 
-- [ ] **Step 5: Update documentation and spec revision notes**
+Verified with both display variables unset against the same real bundle. The Linux key is `a4a4d4295021ed2a4d4204ff7894095749ce02332de11ea96d031d9679b363d8`; the EGL validator SHA-256 is `sha256:a8b006cefcbe506f3a2cf67a4fad6eff26e0143502c0cec3dd0882dca2a75225`; the release gate exercised 13 parameters, 9 motions, and 6 expressions.
+
+- [x] **Step 5: Update documentation and spec revision notes**
 
 Document `CUBISM_SDK_ROOT`, cache location, first-build prerequisites, failure codes, cache invalidation, and the fact that no validator executable is user-configurable. Update the parent spec revision table with the supplementary design decisions.
 
-- [ ] **Step 6: Run formatting, static checks, and full relevant regression**
+- [x] **Step 6: Run formatting, static checks, and full relevant regression**
 
 ```powershell
 python -m compileall module/auto_rig module/see_through gui/wizard/step6_tools.py
-python -m ruff check module/auto_rig module/see_through gui/wizard/step6_tools.py tests/test_auto_rig_live2d_runtime_toolchain.py tests/test_auto_rig_live2d_renderer.py
+python -m ruff check module/auto_rig gui/wizard/step6_tools.py tests/test_auto_rig*.py tests/test_see_through_tools_step.py
 git diff --check
 ```
 
-Then run the repository's established auto-rig and see-through test selection. Record the exact pass/fail count.
+Then run the repository's established auto-rig and see-through test selection. Record the exact pass/fail count. The final partitioned regression is auto-rig `796 passed, 37 skipped` and see-through `64 passed`. The vendored/extracted see-through source retains its pre-existing broad Ruff baseline and is intentionally outside this change's lint gate; compiling it and running its full test selection remain required.
 
-- [ ] **Step 7: Commit documentation and final verification fixes**
+- [x] **Step 7: Commit documentation and final verification fixes**
 
 ```powershell
-git add docs/tools/auto_rig.en.md docs/superpowers/specs/2026-07-31-auto-rig-from-see-through-layers-design.md docs/superpowers/specs/2026-08-05-live2d-validator-autobuild-design.md
-git commit -m "docs: document automatic Live2D validator builds"
+git add docs module gui tests
+git commit -m "fix: harden automatic Live2D runtime validation"
 ```

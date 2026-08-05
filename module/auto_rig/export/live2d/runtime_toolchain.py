@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import ctypes
 import errno
 import hashlib
 import json
@@ -9,6 +10,7 @@ import platform
 import re
 import shlex
 import shutil
+import string
 import subprocess
 import tempfile
 import time
@@ -26,8 +28,9 @@ from ...artifacts import (
     sha256_file,
 )
 
-LIVE2D_RUNTIME_PLAN_VERSION = "live2d-runtime-build-plan-v1"
-LIVE2D_RUNTIME_CACHE_SCHEMA_VERSION = "live2d-runtime-cache-v1"
+LIVE2D_RUNTIME_PLAN_VERSION = "live2d-runtime-build-plan-v2"
+LIVE2D_RUNTIME_CACHE_SCHEMA_VERSION = "live2d-runtime-cache-v2"
+LIVE2D_VALIDATOR_SOURCE_IDENTITY_VERSION = "live2d-validator-source-inventory-v1"
 LIVE2D_VALIDATOR_PROTOCOL_DIGEST = "sha256:" + hashlib.sha256(
     b"qinglong-live2d-validator-protocol-v2"
 ).hexdigest()
@@ -72,6 +75,7 @@ _RUNTIME_MANIFEST_FIELDS = {
     "platform_id",
     "protocol_digest",
     "schema_version",
+    "validator_source_sha256",
 }
 
 
@@ -92,6 +96,8 @@ class Live2DRuntimeBuildFacts:
     protocol_digest: str = LIVE2D_VALIDATOR_PROTOCOL_DIGEST
     dependency_pins: Mapping[str, str] = field(default_factory=dict)
     cmake_executable: str = "cmake"
+    c_compiler_executable: str | None = None
+    cxx_compiler_executable: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +116,7 @@ class Live2DRuntimeBuildPlan:
     configure_command: tuple[str, ...]
     build_command: tuple[str, ...]
     identity_payload: Mapping[str, object]
+    validator_source_sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +129,7 @@ class Live2DRuntimeToolchain:
     cache_key: str
     core_sha256: str
     validator_sha256: str
+    validator_source_sha256: str
 
     def fingerprint_payload(self, *, attestation_record_sha256: str) -> Mapping[str, str]:
         return {
@@ -131,6 +139,7 @@ class Live2DRuntimeToolchain:
             "validator_sha256": self.validator_sha256,
             "runtime_cache_key": self.cache_key,
             "attestation_record_sha256": attestation_record_sha256,
+            "validator_source_sha256": self.validator_source_sha256,
         }
 
 
@@ -221,12 +230,29 @@ def _sdk_version_key(root: Path) -> tuple[int, ...]:
     return tuple(int(value) for value in re.findall(r"\d+", match.group(1)))
 
 
+def _windows_discovery_roots(drive_mask: int, *, current_drive: str) -> tuple[Path, ...]:
+    if drive_mask:
+        return tuple(
+            Path(f"{letter}:\\")
+            for index, letter in enumerate(string.ascii_uppercase)
+            if drive_mask & (1 << index)
+        )
+    return (Path(f"{current_drive}\\"),) if current_drive else ()
+
+
 def _default_discovery_roots() -> tuple[Path, ...]:
     roots = [Path.home(), Path.home() / ".local" / "share", Path("/opt")]
     if os.name == "nt":
-        drive = Path.cwd().drive
-        if drive:
-            roots.append(Path(f"{drive}\\"))
+        try:
+            drive_mask = int(ctypes.windll.kernel32.GetLogicalDrives())
+        except (AttributeError, OSError, ValueError):
+            drive_mask = 0
+        roots.extend(
+            _windows_discovery_roots(
+                drive_mask,
+                current_drive=Path.cwd().drive,
+            )
+        )
     return tuple(roots)
 
 
@@ -304,6 +330,27 @@ def _command_identity(command: Sequence[str], *, fallback: str) -> str:
     return output[0].strip() if output else fallback
 
 
+def _resolve_compiler_executable(configured: str | None, fallback: str) -> str:
+    requested = str(configured or fallback).strip()
+    candidate = Path(requested).expanduser()
+    if candidate.is_file():
+        return str(candidate.resolve())
+    located = shutil.which(requested)
+    return str(Path(located).resolve()) if located else requested
+
+
+def _compiler_executable_identity(role: str, executable: str) -> str:
+    path = Path(executable)
+    digest = "sha256:unavailable"
+    if path.is_file():
+        try:
+            digest = sha256_file(path)
+        except (ArtifactContractError, OSError):
+            pass
+    version = _command_identity((executable, "--version"), fallback="version-unavailable")
+    return f"{role}:{path.name or executable}:{version}:{digest}"
+
+
 def _windows_compiler_identity() -> str:
     installer_root = Path(
         os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
@@ -346,7 +393,14 @@ def _default_build_facts(platform_id: str) -> Live2DRuntimeBuildFacts:
         compiler_identity = _windows_compiler_identity()
         generator_identity = "Visual Studio 17 2022:x64"
     else:
-        compiler_identity = _command_identity(("c++", "--version"), fallback="c++-unavailable")
+        c_compiler = _resolve_compiler_executable(os.environ.get("CC"), "cc")
+        cxx_compiler = _resolve_compiler_executable(os.environ.get("CXX"), "c++")
+        compiler_identity = ";".join(
+            (
+                _compiler_executable_identity("cc", c_compiler),
+                _compiler_executable_identity("cxx", cxx_compiler),
+            )
+        )
         ninja_identity = _command_identity(("ninja", "--version"), fallback="ninja-unavailable")
         generator_identity = f"Ninja:{ninja_identity}"
     return Live2DRuntimeBuildFacts(
@@ -356,6 +410,8 @@ def _default_build_facts(platform_id: str) -> Live2DRuntimeBuildFacts:
         compiler_identity=compiler_identity,
         generator_identity=generator_identity,
         dependency_pins=DEFAULT_LINUX_DEPENDENCY_PINS if platform_id == "linux-x86_64" else {},
+        c_compiler_executable=(c_compiler if platform_id == "linux-x86_64" else None),
+        cxx_compiler_executable=(cxx_compiler if platform_id == "linux-x86_64" else None),
     )
 
 
@@ -380,6 +436,77 @@ def _inventory_tree(root: Path, *, label_root: str) -> list[Mapping[str, object]
     return records
 
 
+def _validator_source_inventory(
+    root: Path,
+    *,
+    platform_id: str,
+) -> list[Mapping[str, object]]:
+    if not root.is_dir():
+        raise Live2DRuntimeToolchainError(
+            "live2d_validator_source_invalid",
+            f"required source directory is missing: {root}",
+        )
+    platform_source = {
+        "windows-x86_64": "windows",
+        "linux-x86_64": "linux",
+    }.get(platform_id)
+    if platform_source is None:
+        _platform_layout(platform_id)
+        raise AssertionError("unreachable")
+
+    candidates = [root / "CMakeLists.txt"]
+    for source_dir in (root / "common", root / platform_source):
+        if source_dir.is_dir():
+            candidates.extend(path for path in source_dir.rglob("*") if path.is_file())
+    native_suffixes = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inl", ".cmake"}
+    candidates.extend(
+        path
+        for path in root.iterdir()
+        if path.is_file() and path.suffix.casefold() in native_suffixes
+    )
+
+    unique = {path.resolve(): path for path in candidates if path.is_file()}
+    return [
+        _file_record(f"validator/{path.relative_to(root).as_posix()}", path)
+        for path in sorted(unique.values(), key=lambda item: item.relative_to(root).as_posix())
+    ]
+
+
+def live2d_validator_source_inventory(
+    source_root: str | Path,
+    *,
+    platform_id: str,
+) -> tuple[Mapping[str, object], ...]:
+    return tuple(
+        _validator_source_inventory(
+            Path(source_root).expanduser().resolve(),
+            platform_id=platform_id,
+        )
+    )
+
+
+def _validator_source_sha256(
+    inventory: Sequence[Mapping[str, object]],
+    *,
+    platform_id: str,
+) -> str:
+    payload = {
+        "schema_version": LIVE2D_VALIDATOR_SOURCE_IDENTITY_VERSION,
+        "platform_id": platform_id,
+        "files": list(inventory),
+    }
+    return f"sha256:{hashlib.sha256(canonical_json_bytes(payload)).hexdigest()}"
+
+
+def live2d_validator_source_sha256(
+    source_root: str | Path,
+    *,
+    platform_id: str,
+) -> str:
+    inventory = live2d_validator_source_inventory(source_root, platform_id=platform_id)
+    return _validator_source_sha256(inventory, platform_id=platform_id)
+
+
 def _build_identity_payload(
     *,
     sdk_root: Path,
@@ -388,7 +515,14 @@ def _build_identity_payload(
     core_link_path: Path,
     backend_id: str,
 ) -> Mapping[str, object]:
-    validator_inventory = _inventory_tree(facts.validator_source_root.resolve(), label_root="validator")
+    validator_inventory = _validator_source_inventory(
+        facts.validator_source_root.resolve(),
+        platform_id=facts.platform_id,
+    )
+    validator_source_sha256 = _validator_source_sha256(
+        validator_inventory,
+        platform_id=facts.platform_id,
+    )
     framework_inventory = _inventory_tree(sdk_root / "Framework" / "src", label_root="sdk/Framework/src")
     framework_inventory.append(
         _file_record("sdk/Framework/CMakeLists.txt", sdk_root / "Framework" / "CMakeLists.txt")
@@ -417,6 +551,7 @@ def _build_identity_payload(
         "compiler_identity": facts.compiler_identity,
         "generator_identity": facts.generator_identity,
         "dependency_pins": dict(sorted(facts.dependency_pins.items())),
+        "validator_source_sha256": validator_source_sha256,
         "validator_inventory": validator_inventory,
         "sdk_inventory": sdk_inventory,
     }
@@ -470,6 +605,16 @@ def build_live2d_runtime_plan(
         if selected_platform == "windows-x86_64"
         else ("-G", "Ninja")
     )
+    compiler_arguments = (
+        (
+            f"-DCMAKE_C_COMPILER={active_facts.c_compiler_executable}",
+            f"-DCMAKE_CXX_COMPILER={active_facts.cxx_compiler_executable}",
+        )
+        if selected_platform == "linux-x86_64"
+        and active_facts.c_compiler_executable
+        and active_facts.cxx_compiler_executable
+        else ()
+    )
     configure_command = (
         active_facts.cmake_executable,
         "-S",
@@ -477,6 +622,7 @@ def build_live2d_runtime_plan(
         "-B",
         str(build_root),
         *generator_arguments,
+        *compiler_arguments,
         f"-DCUBISM_SDK_ROOT={resolved_sdk}",
         "-DCMAKE_BUILD_TYPE=Release",
         f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={built_bin}",
@@ -505,6 +651,7 @@ def build_live2d_runtime_plan(
         configure_command=configure_command,
         build_command=build_command,
         identity_payload=identity_payload,
+        validator_source_sha256=str(identity_payload["validator_source_sha256"]),
     )
 
 
@@ -630,10 +777,6 @@ def _invoke_command(
 def _exclusive_cache_lock(lock_path: Path) -> Iterator[None]:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as stream:
-        stream.seek(0, os.SEEK_END)
-        if stream.tell() == 0:
-            stream.write(b"\0")
-            stream.flush()
         stream.seek(0)
         if os.name == "nt":
             import msvcrt
@@ -787,6 +930,7 @@ def _runtime_manifest(plan: Live2DRuntimeBuildPlan, root: Path) -> Mapping[str, 
         "protocol_digest": plan.identity_payload["protocol_digest"],
         "identity_sha256": f"sha256:{plan.cache_key}",
         "core_sha256": sha256_file(plan.core_path),
+        "validator_source_sha256": plan.validator_source_sha256,
         "executable_path": executable_path,
         "outputs": outputs,
     }
@@ -813,6 +957,7 @@ def _load_manifest_toolchain(
             "protocol_digest": plan.identity_payload["protocol_digest"],
             "identity_sha256": f"sha256:{plan.cache_key}",
             "core_sha256": sha256_file(plan.core_path),
+            "validator_source_sha256": plan.validator_source_sha256,
             "executable_path": f"bin/{plan.executable_path.name}",
         }
         if any(payload[field] != value for field, value in expected_scalars.items()):
@@ -878,6 +1023,7 @@ def _load_manifest_toolchain(
         cache_key=plan.cache_key,
         core_sha256=str(payload["core_sha256"]),
         validator_sha256=validator_sha256,
+        validator_source_sha256=str(payload["validator_source_sha256"]),
     )
 
 
@@ -1009,6 +1155,7 @@ def _build_and_publish_toolchain(
             cache_key=staged_toolchain.cache_key,
             core_sha256=staged_toolchain.core_sha256,
             validator_sha256=staged_toolchain.validator_sha256,
+            validator_source_sha256=staged_toolchain.validator_source_sha256,
         )
     except Live2DRuntimeToolchainError as error:
         retained_log = _retain_failed_logs(plan, staging_root, error)
@@ -1071,6 +1218,7 @@ __all__ = [
     "LIVE2D_RUNTIME_CACHE_SCHEMA_VERSION",
     "LIVE2D_RUNTIME_PLAN_VERSION",
     "LIVE2D_VALIDATOR_PROTOCOL_DIGEST",
+    "LIVE2D_VALIDATOR_SOURCE_IDENTITY_VERSION",
     "Live2DRuntimeBuildFacts",
     "Live2DRuntimeBuildPlan",
     "Live2DRuntimeToolchain",
@@ -1079,5 +1227,7 @@ __all__ = [
     "default_live2d_runtime_cache_root",
     "detect_live2d_runtime_platform",
     "ensure_live2d_runtime_toolchain",
+    "live2d_validator_source_inventory",
+    "live2d_validator_source_sha256",
     "resolve_cubism_sdk_root",
 ]

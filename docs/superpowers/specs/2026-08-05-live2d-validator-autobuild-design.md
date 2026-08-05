@@ -1,10 +1,10 @@
 # Live2D Validator Auto-Build Design
 
-**Status:** Approved design direction
+**Status:** Implemented and verified on Windows x86_64 and WSL2 Linux x86_64
 
 **Date:** 2026-08-05
 
-**Parent specification:** `2026-07-31-auto-rig-from-see-through-layers-design.md` Revision 41
+**Parent specification:** `2026-07-31-auto-rig-from-see-through-layers-design.md` Revision 45
 
 ## Goal
 
@@ -70,7 +70,8 @@ def ensure_live2d_runtime_toolchain(
     ...
 ```
 
-Stage E calls this function only when all of the following are true:
+The pipeline runner calls this function after Stage D has committed and before
+opening the Stage E transaction, and only when all of the following are true:
 
 - the selected profile requests Live2D;
 - `validation_tier == "release"`;
@@ -98,12 +99,14 @@ The cache key is SHA-256 over canonical JSON containing exactly:
 - runtime builder schema version;
 - validator protocol version;
 - platform ID, architecture, and backend ID;
-- validator CMake and all validator source file SHA-256 values;
+- validator root CMake file, common native sources, and the active platform
+  backend source SHA-256 values; Python attestation helpers, bytecode caches,
+  logs, and the inactive platform backend are deliberately excluded;
 - Cubism Core binary/static-library SHA-256 values used by that platform;
 - the SHA-256 inventory of Framework `CMakeLists.txt`, `.cpp`, `.c`, `.hpp`, `.h`, and shader files;
 - `cubism-info.yml` SHA-256;
 - CMake version, generator ID, C/C++ compiler identity, and compiler version;
-- pinned GLFW and GLEW source release identifiers and archive SHA-256 values on Linux.
+- the pinned GLEW source release identifier and archive SHA-256 value on Linux.
 
 Absolute repository, SDK, worktree, and cache paths do not enter the key. Moving an identical SDK or checking out another worktree must reuse the same build.
 
@@ -130,13 +133,17 @@ Build logs are retained as `configure.log`, `build.log`, and `probe.log` in a fa
 
 Windows retains the existing official Framework D3D11 renderer and WARP software device. The build uses the SDK's `Core/lib/windows/x86_64/143/Live2DCubismCore_MD.lib`, Framework sources, D3D11, D3DCompiler, WIC, and the Framework D3D11 shaders.
 
-The builder requires CMake 3.20 or newer and MSVC toolset 141, 142, or 143. It selects the SDK static library matching the active compiler toolset and rejects an unsupported or mismatched toolset before configure. It invokes configure and build non-interactively and produces `qinglong_live2d_validator.exe`.
+The builder requires CMake 3.20 or newer, Visual Studio 2022, and the v143
+MSVC platform toolset. Revision 45 deliberately supports only the SDK's
+`Core/lib/windows/x86_64/143` import library; v141/v142 are not claimed. It
+invokes configure and build non-interactively and produces
+`qinglong_live2d_validator.exe`.
 
 ### Linux x86_64
 
-Linux uses the SDK's stable `Core/lib/linux/x86_64/libLive2DCubismCore.a` and official Framework OpenGL renderer. It creates a headless OpenGL context through EGL with GLFW 3.4 Null Platform, so neither X11, Wayland, `DISPLAY`, nor `xvfb` is required.
+Linux uses the SDK's stable `Core/lib/linux/x86_64/libLive2DCubismCore.a` and official Framework OpenGL renderer. It creates a headless OpenGL context directly through EGL, so neither X11, Wayland, `DISPLAY`, nor `xvfb` is required.
 
-The build pins GLFW 3.4 from `https://github.com/glfw/glfw/archive/refs/tags/3.4.tar.gz` with SHA-256 `c038d34200234d071fae9345bc455e4a8f2f544ab60150765d7704e08f3dac01`, and GLEW 2.2.0 from `https://github.com/nigels-com/glew/archive/refs/tags/glew-2.2.0.tar.gz` with SHA-256 `f781d57097cdd076c6e34656d3aae239abaa03da7fd60e2249ee29df546e3d1e`. Dependencies are fetched into the build cache, never into the SDK tree. CMake disables GLFW X11 and Wayland backends. The runtime initializes `GLFW_PLATFORM_NULL`, requests `GLFW_EGL_CONTEXT_API`, creates an invisible pbuffer-backed context, initializes GLEW, and renders into an explicit framebuffer object.
+The build pins GLEW 2.2.0 from `https://downloads.sourceforge.net/project/glew/glew/2.2.0/glew-2.2.0.tgz` with SHA-256 `d4fc82893cfb00109578d0a1a2337fb8ca335b3ceccf97b97e5cc7f08e4353e1`. It is fetched into the build cache, never into the SDK tree. The runtime requires `EGL_MESA_platform_surfaceless`, requests `EGL_PLATFORM_SURFACELESS_MESA` through `eglGetPlatformDisplayEXT`, creates an EGL pbuffer, initializes GLEW, and renders into an explicit framebuffer object. It intentionally has no `eglGetDisplay(EGL_DEFAULT_DISPLAY)` fallback because that could silently reintroduce a window-system/display-server dependency.
 
 Textures are decoded with the SDK sample's `stb_image.h`. Readback rows are flipped into the canonical top-left RGBA convention before evidence is written. The report backend is `opengl-egl-headless` and includes the OpenGL vendor, renderer, and version for diagnostics.
 
@@ -172,9 +179,9 @@ The executable name is platform-neutral at the source level: `qinglong_live2d_va
 
 ## Attestation
 
-The frame contract remains shared, but runtime rendering evidence becomes platform-specific. The packaged attestation contains one record per `(platform_id, architecture, backend_id, Core SHA-256, validator protocol)` tuple.
+The frame contract remains shared, but runtime rendering evidence becomes platform-specific. The packaged attestation contains one record per `(platform_id, backend_id, Core SHA-256, validator protocol digest, active native validator source inventory digest)` tuple.
 
-Windows D3D11 WARP and Linux EGL/OpenGL may produce different RGBA hashes. Each backend receives its own E0 fixture hashes and alpha bounds. Cross-platform acceptance compares semantic invariants, not byte-identical rendered pixels:
+Windows D3D11 WARP and Linux EGL/OpenGL may produce different RGBA hashes. Each backend receives its own E0 fixture hashes and alpha bounds. A native source change requires fresh E0 even when a developer forgets to bump the protocol. Cross-platform acceptance compares semantic invariants, not byte-identical rendered pixels:
 
 - Core consistency passes;
 - default state matches rest state within 0.1 canvas pixel;
@@ -184,15 +191,18 @@ Windows D3D11 WARP and Linux EGL/OpenGL may produce different RGBA hashes. Each 
 - UV orientation and straight-alpha edge fixtures pass;
 - every render is finite and has nonzero alpha.
 
-Changing common protocol code or a platform backend invalidates only the affected runtime attestation record plus the shared protocol digest when applicable. A Linux build is not formally releasable until its exact Core and backend tuple has passed E0 on Linux.
+Changing common protocol code or a platform backend invalidates the affected runtime attestation record through the protocol and active-source digests. A Linux build is not formally releasable until its exact platform/backend/Core/protocol/active-source tuple has passed E0 on Linux.
 
 ## Pipeline And Fingerprints
 
-Public pipeline entry points accept `sdk_root`, not `renderer_path`. Stage E resolves the toolchain internally. The Stage E fingerprint records:
+Public pipeline entry points accept `sdk_root`, not `renderer_path`. The runner
+resolves the toolchain after Stage D and before the Stage E transaction. The
+Stage E fingerprint records:
 
 - platform and backend IDs;
 - Core SHA-256;
 - validator SHA-256;
+- active validator source inventory SHA-256;
 - runtime cache key;
 - applicable attestation record digest.
 
@@ -217,13 +227,14 @@ Stable failures are:
 
 - `live2d_sdk_not_found`: no supported SDK root was resolved;
 - `live2d_sdk_layout_invalid`: required Core, Framework, metadata, or shader files are missing;
-- `live2d_validator_platform_unsupported`: OS or architecture is outside Windows/Linux x86_64;
+- `live2d_platform_unsupported`: OS or architecture is outside Windows/Linux x86_64;
+- `live2d_validator_source_invalid`: packaged native validator build inputs are incomplete;
 - `live2d_validator_build_tool_missing`: CMake or a supported compiler is absent;
 - `live2d_validator_graphics_dependency_missing`: Linux EGL/OpenGL prerequisites are absent;
-- `live2d_validator_dependency_fetch_failed`: a pinned GLFW or GLEW archive could not be downloaded or failed its SHA-256 check;
+- `live2d_validator_dependency_fetch_failed`: the pinned GLEW archive could not be downloaded or failed its SHA-256 check;
 - `live2d_validator_build_failed`: configure or compilation failed;
 - `live2d_validator_probe_failed`: the completed executable failed its protocol/backend smoke probe;
-- `live2d_runtime_attestation_missing`: the exact platform/Core/backend tuple has no signed E0 record.
+- `live2d_runtime_attestation_missing`: the exact platform/backend/Core/protocol/active-source tuple has no signed E0 record.
 
 These failures occur at Stage E. Existing Spine output remains independently available, but a required dual-runtime profile cannot receive `completed` status.
 
@@ -234,14 +245,15 @@ Unit tests must cover:
 - the GUI and emitted see-through command contain no validator path;
 - SDK resolution precedence and exact legacy Core-to-root conversion on Windows and Linux;
 - platform/architecture rejection;
-- cache keys are path-independent and change for source, Framework, Core, compiler, protocol, or dependency changes;
+- cache keys are path-independent and change for active-backend source, Framework, Core, actual C/C++ compiler, protocol, or dependency changes; Python helpers and the inactive backend do not invalidate the current platform;
 - valid cache reuse performs no configure/build command;
 - corrupt outputs, missing shaders, and protocol probe mismatches rebuild;
 - two concurrent callers produce one committed cache entry;
 - failed builds never publish a reusable entry and preserve diagnostic logs;
 - Stage D can commit before a Stage E toolchain failure;
 - Stage E fingerprints are stable when an identical cache is moved;
-- Linux command planning disables X11/Wayland and selects the EGL Null Platform backend.
+- Linux command planning selects direct surfaceless EGL and contains no GLFW,
+  X11, or Wayland dependency.
 
 Integration gates must cover:
 
@@ -259,5 +271,9 @@ Windows verification can run locally. Linux verification runs in WSL2 or a nativ
 **Python-only renderer:** rejected because it would reproduce Live2D runtime semantics in the same implementation family as the writer instead of exercising the official Framework.
 
 **Hidden GLFW X11/Wayland window:** rejected because production batch workers may have no display server and `xvfb` would become an undeclared runtime dependency.
+
+**GLFW Null Platform plus EGL:** rejected after a real no-display WSL2 run failed
+at EGL initialization. Direct surfaceless EGL succeeded on the same host and
+removes an unnecessary window-system abstraction from this batch validator.
 
 **Build at GUI startup:** rejected because users who never request formal Live2D output should not pay compiler, network, or cache costs.

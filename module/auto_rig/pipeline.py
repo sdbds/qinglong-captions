@@ -299,20 +299,29 @@ def _resolve_stage_e_runtime(
 ):
     try:
         toolchain = ensure_live2d_runtime_toolchain(sdk_root=sdk_root)
+    except Live2DRuntimeToolchainError as exc:
+        raise publish_stage_e_toolchain_failure(root, exc) from exc
+    try:
         attestation_payload = load_packaged_live2d_frame_attestation()
+    except (Live2DAttestationError, OSError) as exc:
+        toolchain_error = Live2DRuntimeToolchainError(
+            "live2d_coordinate_schema_unverified",
+            str(exc),
+        )
+        raise publish_stage_e_toolchain_failure(root, toolchain_error) from exc
+    try:
         runtime_attestation = select_runtime_attestation(
             attestation_payload,
             platform_id=toolchain.platform_id,
             backend_id=toolchain.backend_id,
             core_sha256=toolchain.core_sha256,
             validator_protocol_digest=LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+            validator_source_sha256=toolchain.validator_source_sha256,
         )
         return toolchain, runtime_attestation
-    except Live2DRuntimeToolchainError as exc:
-        raise publish_stage_e_toolchain_failure(root, exc) from exc
-    except (Live2DAttestationError, OSError) as exc:
+    except Live2DAttestationError as exc:
         toolchain_error = Live2DRuntimeToolchainError(
-            "live2d_coordinate_schema_unverified",
+            "live2d_runtime_attestation_missing",
             str(exc),
         )
         raise publish_stage_e_toolchain_failure(root, toolchain_error) from exc

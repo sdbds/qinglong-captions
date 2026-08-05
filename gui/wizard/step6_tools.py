@@ -12,6 +12,10 @@ from gui.components.advanced_inputs import editable_slider, styled_input, styled
 from gui.components.path_selector import create_path_selector
 from gui.theme import COLORS, get_classes
 from gui.utils.i18n import t
+from module.auto_rig.export.live2d.runtime_toolchain import (
+    Live2DRuntimeToolchainError,
+    resolve_cubism_sdk_root,
+)
 from module.muscriptor_tool.batch_profiles import (
     InsufficientVRAMError,
     get_batch_profile_catalog,
@@ -62,22 +66,10 @@ def _default_runtime_path(env_name: str, *candidates: Path) -> str:
 
 
 def _default_live2d_sdk_root() -> str:
-    configured = str(os.environ.get("CUBISM_SDK_ROOT", "") or "").strip()
-    if configured:
-        return configured
-    if os.name == "nt":
-        candidates = sorted(Path(PROJECT_ROOT.anchor).glob("CubismSdkForNative-*"), reverse=True)
-    else:
-        home = Path.home()
-        candidates = sorted(
-            (
-                *home.glob("CubismSdkForNative-*"),
-                *(home / ".local" / "share").glob("CubismSdkForNative-*"),
-                *Path("/opt").glob("CubismSdkForNative-*"),
-            ),
-            reverse=True,
-        )
-    return str(next((candidate for candidate in candidates if candidate.is_dir()), ""))
+    try:
+        return str(resolve_cubism_sdk_root(None))
+    except Live2DRuntimeToolchainError:
+        return ""
 
 GAME_ONNX_MODEL_LABELS: dict[str, str] = {
     "bdsqlsz/GAME-1.0-small-ONNX": "GAME-1.0-small-ONNX",

@@ -608,6 +608,8 @@ def validate_live2d_release_bundle(
         or runtime_toolchain.backend_id != runtime_attestation.backend_id
         or runtime_toolchain.core_sha256 != runtime_attestation.core_sha256
         or runtime_attestation.validator_protocol_digest != LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST
+        or runtime_toolchain.validator_source_sha256
+        != runtime_attestation.validator_source_sha256
     ):
         raise _error("runtime toolchain and attestation identities differ")
     renderer_file = _resolve_file(runtime_toolchain.validator_path, field="official SDK renderer")

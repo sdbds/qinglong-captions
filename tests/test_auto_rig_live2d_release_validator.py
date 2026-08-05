@@ -36,6 +36,7 @@ from module.auto_rig.export.live2d.runtime_assets import (
 )
 from module.auto_rig.export.live2d.runtime_toolchain import (
     LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+    Live2DRuntimeToolchain,
     ensure_live2d_runtime_toolchain,
 )
 from module.auto_rig.export.live2d.symbols import build_live2d_symbol_view
@@ -289,6 +290,58 @@ def test_release_gate_requires_resolved_toolchain_and_attestation(release_fixtur
         )
 
 
+def test_release_gate_rejects_validator_source_attestation_mismatch(release_fixture) -> None:
+    (
+        bundle,
+        rig,
+        bindings,
+        coordinates,
+        artmeshes,
+        keyforms,
+        animations,
+        runtime,
+        structure,
+    ) = release_fixture
+    payload = load_packaged_live2d_frame_attestation()
+    record = payload["runtime_attestations"][0]
+    runtime_attestation = select_runtime_attestation(
+        payload,
+        platform_id=record["platform_id"],
+        backend_id=record["backend_id"],
+        core_sha256=record["core_sha256"],
+        validator_protocol_digest=record["validator_protocol_digest"],
+        validator_source_sha256=record["validator_source_sha256"],
+    )
+    wrong_source = "sha256:" + ("0" * 64)
+    assert wrong_source != runtime_attestation.validator_source_sha256
+    runtime_toolchain = Live2DRuntimeToolchain(
+        sdk_root=bundle,
+        core_path=bundle / "model.moc3",
+        validator_path=bundle / "model.moc3",
+        platform_id=runtime_attestation.platform_id,
+        backend_id=runtime_attestation.backend_id,
+        cache_key="test-runtime-cache-key",
+        core_sha256=runtime_attestation.core_sha256,
+        validator_sha256="sha256:" + ("1" * 64),
+        validator_source_sha256=wrong_source,
+    )
+
+    with pytest.raises(Live2DReleaseGateError, match="identities differ"):
+        validate_live2d_release_bundle(
+            bundle,
+            runtime_toolchain=runtime_toolchain,
+            runtime_attestation=runtime_attestation,
+            rig=rig,
+            bindings=bindings,
+            coordinates=coordinates,
+            artmeshes=artmeshes,
+            keyforms=keyforms,
+            animations=animations,
+            runtime_assets=runtime,
+            structure_report=structure,
+        )
+
+
 def test_blink_release_samples_rest_before_motion_completion(release_fixture) -> None:
     animations = release_fixture[6]
     blink = next(asset for asset in animations.motion_assets if asset.preset_id == "blink")
@@ -323,6 +376,7 @@ def test_official_sdk_validates_every_parameter_motion_and_expression(
         backend_id=runtime_toolchain.backend_id,
         core_sha256=runtime_toolchain.core_sha256,
         validator_protocol_digest=LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+        validator_source_sha256=runtime_toolchain.validator_source_sha256,
     )
     report = validate_live2d_release_bundle(
         bundle,

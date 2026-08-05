@@ -188,6 +188,7 @@ def test_stage_e_release_tier_commits_only_after_official_runtime_validation(
         backend_id=runtime_toolchain.backend_id,
         core_sha256=runtime_toolchain.core_sha256,
         validator_protocol_digest=LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+        validator_source_sha256=runtime_toolchain.validator_source_sha256,
     )
 
     result = _run_stage_e(

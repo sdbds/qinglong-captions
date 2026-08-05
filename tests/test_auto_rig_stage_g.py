@@ -368,6 +368,7 @@ def test_stage_g_commits_real_official_sdk_validated_dual_runtime_item(
         backend_id=runtime_toolchain.backend_id,
         core_sha256=runtime_toolchain.core_sha256,
         validator_protocol_digest=LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+        validator_source_sha256=runtime_toolchain.validator_source_sha256,
     )
     manifests = _build_preterminal_graph(
         tmp_path,

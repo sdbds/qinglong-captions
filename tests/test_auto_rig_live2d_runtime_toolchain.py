@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -17,6 +18,8 @@ from module.auto_rig.export.live2d.runtime_toolchain import (
     Live2DRuntimeBuildPlan,
     Live2DRuntimeToolchain,
     Live2DRuntimeToolchainError,
+    _default_build_facts,
+    _windows_discovery_roots,
     build_live2d_runtime_plan,
     default_live2d_runtime_cache_root,
     ensure_live2d_runtime_toolchain,
@@ -36,7 +39,10 @@ def _write(path: Path, payload: bytes | str) -> Path:
 def _make_source(root: Path) -> Path:
     source = root / "tools" / "auto_rig_live2d_e0"
     _write(source / "CMakeLists.txt", "project(qinglong_live2d_validator)\n")
-    _write(source / "main.cpp", "int main() { return 0; }\n")
+    _write(source / "common" / "validator_common.cpp", "int common_validator() { return 0; }\n")
+    _write(source / "common" / "validator_common.hpp", "int common_validator();\n")
+    _write(source / "windows" / "main_d3d11.cpp", "int main() { return 0; }\n")
+    _write(source / "linux" / "main_egl.cpp", "int main() { return 0; }\n")
     return source
 
 
@@ -217,6 +223,13 @@ def test_resolve_sdk_discovery_is_deterministic_for_equal_versions(tmp_path: Pat
     assert actual == expected.resolve()
 
 
+def test_windows_sdk_discovery_enumerates_every_logical_drive() -> None:
+    roots = _windows_discovery_roots((1 << 2) | (1 << 4), current_drive="Z:")
+
+    assert roots == (Path("C:\\"), Path("E:\\"))
+    assert _windows_discovery_roots(0, current_drive="Z:") == (Path("Z:\\"),)
+
+
 def test_resolve_sdk_rejects_explicit_invalid_layout_without_fallback(tmp_path: Path) -> None:
     fallback = _make_sdk(tmp_path / "fallback", platform_id="windows-x86_64")
     invalid = tmp_path / "invalid"
@@ -335,6 +348,55 @@ def test_build_plan_cache_key_is_path_independent(tmp_path: Path) -> None:
     assert left_plan.identity_payload == right_plan.identity_payload
 
 
+def test_build_plan_cache_key_only_hashes_native_inputs_for_active_backend(tmp_path: Path) -> None:
+    sdk = _make_sdk(tmp_path / "sdk", platform_id="windows-x86_64")
+    facts = _facts(tmp_path, platform_id="windows-x86_64")
+    baseline = build_live2d_runtime_plan(sdk, facts=facts, cache_root=tmp_path / "cache")
+
+    _write(facts.validator_source_root / "generate_attestation.py", "print('changed helper')\n")
+    _write(facts.validator_source_root / "__pycache__" / "helper.pyc", b"generated-bytecode")
+    _write(facts.validator_source_root / "linux" / "main_egl.cpp", "changed inactive backend")
+    irrelevant = build_live2d_runtime_plan(sdk, facts=facts, cache_root=tmp_path / "cache")
+
+    assert irrelevant.cache_key == baseline.cache_key
+    assert irrelevant.identity_payload == baseline.identity_payload
+    serialized = json.dumps(irrelevant.identity_payload, sort_keys=True)
+    assert "generate_attestation.py" not in serialized
+    assert "__pycache__" not in serialized
+    assert "linux/main_egl.cpp" not in serialized
+
+    _write(facts.validator_source_root / "windows" / "main_d3d11.cpp", "changed active backend")
+    active_backend_changed = build_live2d_runtime_plan(
+        sdk,
+        facts=facts,
+        cache_root=tmp_path / "cache",
+    )
+    assert active_backend_changed.cache_key != baseline.cache_key
+
+
+def test_linux_default_facts_pin_cmake_to_the_compilers_whose_identity_is_hashed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    compiler = str(Path(sys.executable).resolve())
+    monkeypatch.setenv("CC", compiler)
+    monkeypatch.setenv("CXX", compiler)
+    facts = replace(
+        _default_build_facts("linux-x86_64"),
+        validator_source_root=_make_source(tmp_path / "repository"),
+        cmake_identity="cmake-test",
+        generator_identity="Ninja:test",
+    )
+    sdk = _make_sdk(tmp_path / "sdk", platform_id="linux-x86_64")
+    plan = build_live2d_runtime_plan(sdk, facts=facts, cache_root=tmp_path / "cache")
+
+    assert facts.c_compiler_executable == compiler
+    assert facts.cxx_compiler_executable == compiler
+    assert f"-DCMAKE_C_COMPILER={compiler}" in plan.configure_command
+    assert f"-DCMAKE_CXX_COMPILER={compiler}" in plan.configure_command
+    assert compiler not in json.dumps(plan.identity_payload, sort_keys=True)
+
+
 @pytest.mark.parametrize(
     "semantic_change",
     ["core", "framework", "validator", "compiler", "cmake", "generator", "protocol", "dependency"],
@@ -353,7 +415,7 @@ def test_build_plan_cache_key_changes_for_every_semantic_input(
     elif semantic_change == "framework":
         _write(sdk / "Framework" / "src" / "Model" / "CubismModel.cpp", "changed")
     elif semantic_change == "validator":
-        _write(facts.validator_source_root / "main.cpp", "changed")
+        _write(facts.validator_source_root / "common" / "validator_common.cpp", "changed")
     elif semantic_change == "compiler":
         facts = replace(facts, compiler_identity="compiler changed")
     elif semantic_change == "cmake":
@@ -394,6 +456,7 @@ def test_toolchain_fingerprint_excludes_all_absolute_paths(tmp_path: Path) -> No
         cache_key="a" * 64,
         core_sha256="sha256:" + "b" * 64,
         validator_sha256="sha256:" + "c" * 64,
+        validator_source_sha256="sha256:" + "e" * 64,
     )
     right = replace(
         left,
@@ -405,6 +468,7 @@ def test_toolchain_fingerprint_excludes_all_absolute_paths(tmp_path: Path) -> No
     expected = left.fingerprint_payload(attestation_record_sha256="sha256:" + "d" * 64)
     assert right.fingerprint_payload(attestation_record_sha256="sha256:" + "d" * 64) == expected
     assert str(tmp_path.resolve()) not in json.dumps(expected, sort_keys=True)
+    assert expected["validator_source_sha256"] == "sha256:" + "e" * 64
 
 
 def test_valid_cache_hit_rehashes_and_probes_without_rebuilding(tmp_path: Path) -> None:
@@ -602,6 +666,7 @@ def test_runtime_manifest_is_canonical_and_path_independent(tmp_path: Path) -> N
     assert str(tmp_path.resolve()) not in serialized
     assert payload["cache_key"] == toolchain.cache_key
     assert payload["executable_path"] == f"bin/{toolchain.validator_path.name}"
+    assert payload["validator_source_sha256"] == toolchain.validator_source_sha256
 
 
 def test_runtime_toolchain_contract_is_exported_from_public_auto_rig_package() -> None:

@@ -2,7 +2,7 @@
 
 ## Status
 
-**Revision 44，A-E/G 双格式产物流水线已实现，并由真实 Lucy2 `final.psd` 以 SDPose Body17、Live2D release gate 和官方 Spine 4.2 Runtime 重新实载。生产姿态源冻结为官方 `teemosliang/SDPose-Body` 的 17 点权重，并在首次下载校验后生成本地单文件 FP16 bundle；`DETRPose_X_CROWDPOSE` 作为同坐标/同质量门对照。Revision 38 冻结 merged 四肢与交叉腿的几何绑链粒度以及诚实的合并 HitArea；Revision 39 冻结 explicit-blink-only runtime 策略；Revision 40 冻结眼睛 expression 的乘法合成；Revision 41 冻结 Blink 的闭眼/睁眼保持段；Revision 42 冻结真实 stage resume、公共失败终态、批次姿态 provider 复用以及尺度归一化的 Spine 动作门；Revision 43 补上 preflight/cache-repair 边界；Revision 44 禁止静态表情把开眼/闭眼 replacement crossfade 长期停在中间透明度。Comfy 的 133 点 WholeBody checkpoint 与 RT-DETR detector 都不进入默认路径。模型量化不在本轮范围。Spine/Cubism SDK、Core、Runtime 源码和二进制均不随 Python 包或 item 分发。**
+**Revision 45，Live2D 官方 runtime validator 已改为只接受 Cubism SDK 根目录、首次使用自动构建并按内容复用；Windows x86_64 使用 D3D11 WARP，Linux x86_64 使用无 X11/Wayland 的 surfaceless EGL。E0 attestation v3 精确绑定 platform/backend/Core/protocol/active native source inventory，Stage D 在 toolchain 解析前独立提交。A-E/G 双格式产物流水线已实现，并由真实 `final.psd`、Live2D release gate 和官方 Spine 4.2 Runtime 实载。生产姿态源冻结为官方 `teemosliang/SDPose-Body` 的 17 点权重，并在首次下载校验后生成本地单文件 FP16 bundle；`DETRPose_X_CROWDPOSE` 作为同坐标/同质量门对照。Revision 38 冻结 merged 四肢与交叉腿的几何绑链粒度以及诚实的合并 HitArea；Revision 39 冻结 explicit-blink-only runtime 策略；Revision 40 冻结眼睛 expression 的乘法合成；Revision 41 冻结 Blink 的闭眼/睁眼保持段；Revision 42 冻结真实 stage resume、公共失败终态、批次姿态 provider 复用以及尺度归一化的 Spine 动作门；Revision 43 补上 preflight/cache-repair 边界；Revision 44 禁止静态表情把开眼/闭眼 replacement crossfade 长期停在中间透明度。Comfy 的 133 点 WholeBody checkpoint 与 RT-DETR detector 都不进入默认路径。模型量化不在本轮范围。Spine/Cubism SDK、Core、Runtime 源码和二进制均不随 Python 包或 item 分发。**
 
 本文覆盖三件事：
 
@@ -809,6 +809,17 @@ inventories 和发布图，不重新执行已认证的 exporter/runtime gate。
 | `happy` / `unimpressed` 为什么出现眼睛半透明重影 | 真实产物把 open-eye base 与 closed-eye replacement 分别固定在 `0.8/0.2` 和 `0.55/0.45`。这不是纹理 loader 错误，而是把只适合短暂 blink 过渡的离散 crossfade 当成长期保持的半睁眼姿态 | `motion-core-v6` 从两个静态表情中删除双侧 `eye_open` control；`happy` / `unimpressed` 只由 mouth-form 与双眉表达。只有显式 `blink` 的时间曲线和取值严格为 `0/1` 的两个 wink 可以驱动 closed-eye replacement |
 | 缺眼睛图层是否应连带删除 `happy` / `unimpressed` | **不应。** 修订后的两个 descriptor 不再引用 eye control，继续要求 blink evidence 会制造虚假依赖 | capability 从实际 descriptor 对齐：缺眼睛只移除 blink 与两个 wink；mouth-form 和双眉齐全时仍可发布 happy/unimpressed。Live2D ROI gate 同步取消 unimpressed 的 eye-change 要求，继续硬验 mouth 与至少一侧 brow |
 | 为什么不把 crossfade 改成阶跃或继续调 `0.55` | 两张离散 replacement 没有半睁眼几何事实；任何阈值都只是在 open/closed 间跳变，不能凭空产生可靠的 held half-lid | 若以后需要半睁眼，必须新增独立 `eye_half_closed.{side}` NativeVariant role、质量门和 target，而不是复用 blink opacity channel |
+
+### Revision 45 Live2D validator 自动构建、跨平台无头门与统一 runtime identity
+
+| 实现项 | 核对结论 | Revision 45 处理 |
+|---|---|---|
+| GUI/CLI 是否需要用户选择 validator EXE | **不需要。** EXE 是内部官方 runtime gate 的平台构建物，不是用户素材或导出格式 | GUI 与公共 CLI 只接受 Cubism SDK 根目录；Stage E 首次需要 release gate 时构建，缓存到 `QINGLONG_CAPTIONS_RUNTIME_CACHE` 或用户 `~/.cache/qinglong-captions/runtimes`，以后按摘要复用 |
+| Spine 是否被 Live2D 编译环境阻塞 | **不应。** Spine 开放格式与 Live2D 私有 MOC3 的证据门不同 | runner 在 D 成功提交后才解析/构建 Live2D toolchain；SDK、编译器或 EGL 缺失只使 E/双格式终态失败，已验证的 Spine 文件继续保留 |
+| Linux worker 是否需要 X11/Wayland/xvfb | **不需要。** GLFW Null Platform 在真实 WSL2 无显示环境曾于 EGL 初始化失败，直接 surfaceless EGL 成功 | Linux x86_64 固定 `opengl-egl-headless`：要求 `EGL_MESA_platform_surfaceless`，创建 EGL pbuffer 与显式 framebuffer；禁止 default-display fallback，`DISPLAY`/`WAYLAND_DISPLAY` 均为空时完成 E0 与真实 bundle release gate |
+| Cache identity 能否只是源码目录快照 | **不能。** Python attestation helper、`__pycache__` 或另一平台后端不参与当前 native 构建 | cache 只哈希根 CMake、common native sources、当前 backend、Core/Framework/SDK inventory、实际 C/C++ compiler 与依赖 pins；绝对 worktree/SDK/cache 路径不入 key。双调用的 EXE/manifest 时间戳保持不变 |
+| protocol 未 bump 时源码变化会不会复用旧 E0 | **会，若只按 protocol 选记录。** 这是独立审查发现的发布门漏洞 | attestation schema 升为 v3，精确键加入 active validator source inventory SHA；release validator 同时核对 toolchain 与 record，源码变化必须重新 E0 |
+| 实机证据 | Windows D3D11 WARP 与 Linux surfaceless EGL 都使用 SDK 5-r.5 Core `06.00.0001` | 同一真实 `Snipaste_2025-12-24_15-16-19.png/final.psd` bundle 在两平台均通过 13 个 parameter、9 个 motion、6 个 expression 的 release gate；Windows 后续运行复用 A-E/G。该 item 的 `completed_with_degradation` 来自腕/踝等关节几何未解析后采用刚性 fallback，Live2D/Spine 格式门本身通过 |
 
 ### 决策摘要
 

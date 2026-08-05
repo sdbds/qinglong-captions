@@ -27,7 +27,7 @@ from .uv_kernel import (
     moc_to_canonical_top_left_uv,
 )
 
-ATTESTATION_SCHEMA_VERSION = "live2d-frame-attestation-v2"
+ATTESTATION_SCHEMA_VERSION = "live2d-frame-attestation-v3"
 COORDINATE_SCHEMA_VERSION = "live2d-frames-v1"
 KERNEL_SOURCE_DIGEST_VERSION = "kernel-source-digest-v1"
 
@@ -68,6 +68,7 @@ _RUNTIME_ATTESTATION_FIELDS = {
     "platform_id",
     "runtime_provenance",
     "validator_protocol_digest",
+    "validator_source_sha256",
 }
 _VECTOR_PAYLOAD_FIELDS = {"input", "expected", "tolerance"}
 _EXPECTED_FRAME_KINDS = (
@@ -90,7 +91,7 @@ class Live2DStructuralAttestation:
     contract_digest: str
     kernel_ids: tuple[str, ...]
     vector_ids: tuple[str, ...]
-    runtime_keys: tuple[tuple[str, str, str, str], ...]
+    runtime_keys: tuple[tuple[str, str, str, str, str], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +100,7 @@ class Live2DRuntimeAttestation:
     backend_id: str
     core_sha256: str
     validator_protocol_digest: str
+    validator_source_sha256: str
     record_sha256: str
     payload: Mapping[str, object]
 
@@ -396,9 +398,9 @@ def _validate_payload_records(
 
 def _validate_runtime_attestations(
     value: Any,
-) -> tuple[tuple[tuple[str, str, str, str], ...], tuple[dict[str, Any], ...]]:
+) -> tuple[tuple[tuple[str, str, str, str, str], ...], tuple[dict[str, Any], ...]]:
     records = _require_list(value, field="runtime_attestations")
-    keys: list[tuple[str, str, str, str]] = []
+    keys: list[tuple[str, str, str, str, str]] = []
     normalized: list[dict[str, Any]] = []
     for index, raw in enumerate(records):
         record = _require_object(
@@ -422,6 +424,10 @@ def _validate_runtime_attestations(
         protocol_digest = _require_digest(
             record["validator_protocol_digest"],
             field=f"runtime_attestations[{index}].validator_protocol_digest",
+        )
+        source_digest = _require_digest(
+            record["validator_source_sha256"],
+            field=f"runtime_attestations[{index}].validator_source_sha256",
         )
         _require_payload_object(
             record["runtime_provenance"],
@@ -449,7 +455,7 @@ def _validate_runtime_attestations(
             fixture_ids.append(fixture_id)
         _require_unique(fixture_ids, field=f"runtime_attestations[{index}].e0_fixtures")
         _require_sorted(fixture_ids, field=f"runtime_attestations[{index}].e0_fixtures")
-        keys.append((platform_id, backend_id, core_sha256, protocol_digest))
+        keys.append((platform_id, backend_id, core_sha256, protocol_digest, source_digest))
         normalized.append(record)
     _require_unique(keys, field="runtime_attestations")
     _require_sorted(keys, field="runtime_attestations")
@@ -612,8 +618,9 @@ def select_runtime_attestation(
     backend_id: str,
     core_sha256: str,
     validator_protocol_digest: str,
+    validator_source_sha256: str,
 ) -> Live2DRuntimeAttestation:
-    """Select one exact platform/backend/Core/protocol E0 record.
+    """Select one exact platform/backend/Core/protocol/source E0 record.
 
     Full callers must run :func:`validate_live2d_frame_attestation` first so the
     semantic-kernel sources are checked. Selection repeats the signed envelope
@@ -639,6 +646,7 @@ def select_runtime_attestation(
         _require_id(backend_id, field="backend_id"),
         _require_digest(core_sha256, field="core_sha256"),
         _require_digest(validator_protocol_digest, field="validator_protocol_digest"),
+        _require_digest(validator_source_sha256, field="validator_source_sha256"),
     )
     _keys, records = _validate_runtime_attestations(root["runtime_attestations"])
     matches = [
@@ -649,6 +657,7 @@ def select_runtime_attestation(
             record["backend_id"],
             record["core_sha256"],
             record["validator_protocol_digest"],
+            record["validator_source_sha256"],
         )
         == requested_key
     ]
@@ -660,6 +669,7 @@ def select_runtime_attestation(
         backend_id=requested_key[1],
         core_sha256=requested_key[2],
         validator_protocol_digest=requested_key[3],
+        validator_source_sha256=requested_key[4],
         record_sha256=jcs_sha256(record),
         payload=record,
     )

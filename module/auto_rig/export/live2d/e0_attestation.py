@@ -43,9 +43,14 @@ from .e0_fixture import (
 )
 from .moc3 import moc3_v400_layout_descriptor
 from .moc3_codec import moc3_v400_sections_descriptor
-from .runtime_toolchain import LIVE2D_VALIDATOR_PROTOCOL_DIGEST, detect_live2d_runtime_platform
+from .runtime_toolchain import (
+    LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+    detect_live2d_runtime_platform,
+    live2d_validator_source_inventory,
+    live2d_validator_source_sha256,
+)
 
-E0_ATTESTATION_GENERATOR_VERSION = "live2d-e0-attestation-generator-v3"
+E0_ATTESTATION_GENERATOR_VERSION = "live2d-e0-attestation-generator-v4"
 E0_VALIDATOR_PROTOCOL_VERSION = "live2d-e0-validator-semantics-v4"
 EXPECTED_CORE_VERSION = "06.00.0001"
 EXPECTED_CORE_SHA256 = "d883c00d114fdf6cef61f439feb23e02d000fdf683e092803010470b80dfaf09"
@@ -490,24 +495,16 @@ def generate_live2d_e0_attestation(
     sources = _kernel_sources()
     repository_root = Path(__file__).resolve().parents[4]
     validator_source_root = repository_root / "tools" / "auto_rig_live2d_e0"
-    platform_source = (
-        "windows/main_d3d11.cpp"
-        if selected_platform == "windows-x86_64"
-        else "linux/main_egl.cpp"
+    validator_source_inventory = list(
+        live2d_validator_source_inventory(
+            validator_source_root,
+            platform_id=selected_platform,
+        )
     )
-    validator_source_files = (
-        "CMakeLists.txt",
-        "common/validator_common.cpp",
-        "common/validator_common.hpp",
-        platform_source,
+    validator_source_digest = live2d_validator_source_sha256(
+        validator_source_root,
+        platform_id=selected_platform,
     )
-    validator_source_inventory = [
-        {
-            "path": relative_path,
-            "sha256": _sha256_file(validator_source_root / Path(*relative_path.split("/"))),
-        }
-        for relative_path in validator_source_files
-    ]
     runtime_fixtures = [
         {
             "fixture_id": "deformer-runtime-v1",
@@ -627,6 +624,7 @@ def generate_live2d_e0_attestation(
             "validator_source_files": validator_source_inventory,
         },
         "validator_protocol_digest": renderer_probe.protocol_digest,
+        "validator_source_sha256": validator_source_digest,
     }
     runtime_records: list[dict[str, Any]] = []
     if existing_attestation is not None:
@@ -652,6 +650,7 @@ def generate_live2d_e0_attestation(
             record["backend_id"],
             record["core_sha256"],
             record["validator_protocol_digest"],
+            record["validator_source_sha256"],
         )
     )
     payload = {

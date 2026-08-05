@@ -1,13 +1,27 @@
 import asyncio
-from pathlib import Path
-import sys
 from types import SimpleNamespace
-
-ROOT = Path(__file__).resolve().parent.parent
 
 from gui.wizard import step6_tools
 
 ToolsStep = step6_tools.ToolsStep
+
+
+def test_default_live2d_sdk_root_uses_the_runtime_manager_resolver(
+    monkeypatch,
+    tmp_path,
+):
+    expected = (tmp_path / "CubismSdkForNative-5-r.10").resolve()
+    monkeypatch.delenv("CUBISM_SDK_ROOT", raising=False)
+    calls = []
+
+    def resolve(explicit):
+        calls.append(explicit)
+        return expected
+
+    monkeypatch.setattr(step6_tools, "resolve_cubism_sdk_root", resolve)
+
+    assert step6_tools._default_live2d_sdk_root() == str(expected)
+    assert calls == [None]
 
 
 def test_tools_step_see_through_maps_args(monkeypatch, tmp_path):
