@@ -2,6 +2,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 
 from module.see_through.cli import build_parser, build_run_config
@@ -25,6 +27,10 @@ def test_see_through_parser_defaults_from_config():
     assert args.skip_completed is True
     assert args.save_to_psd is True
     assert args.output_dir == "workspace/see_through_output"
+    assert args.auto_rig is False
+    assert args.auto_rig_profile == "dual_runtime_core_v1"
+    assert args.auto_rig_pose_mode == "auto"
+    assert args.auto_rig_pose_fa2 is True
 
 
 def test_build_run_config_switches_known_repo_family_for_nf4():
@@ -54,6 +60,43 @@ def test_build_run_config_preserves_seed_and_depth_steps():
     assert config.inference_steps_depth == 7
 
 
+def test_build_run_config_maps_auto_rig_followup_options(tmp_path):
+    sdk_root = tmp_path / "CubismSdkForNative-5-r.5"
+    spine_path = tmp_path / "auto_rig_spine_runtime.exe"
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "--input_dir=foo",
+            "--auto_rig",
+            "--auto_rig_profile=dual_runtime_avatar_v1",
+            "--auto_rig_pose_mode=compare",
+            "--auto_rig_pose_device=cuda",
+            "--no-auto_rig_pose_fa2",
+            f"--auto_rig_sdk_root={sdk_root}",
+            f"--auto_rig_spine_runtime_path={spine_path}",
+        ]
+    )
+    config = build_run_config(args)
+
+    assert config.auto_rig is True
+    assert config.auto_rig_profile == "dual_runtime_avatar_v1"
+    assert config.auto_rig_pose_mode == "compare"
+    assert config.auto_rig_pose_device == "cuda"
+    assert config.auto_rig_pose_fa2 is False
+    assert config.auto_rig_sdk_root == sdk_root
+    assert not hasattr(config, "auto_rig_renderer_path")
+    assert config.auto_rig_spine_runtime_path == spine_path
+
+
+def test_build_run_config_rejects_auto_rig_without_psd_output():
+    parser = build_parser()
+    args = parser.parse_args(["--input_dir=foo", "--auto_rig", "--no-save_to_psd"])
+
+    with pytest.raises(ValueError, match="save_to_psd"):
+        build_run_config(args)
+
+
 def test_see_through_script_help_runs_from_script_path():
     result = subprocess.run(
         [sys.executable, str(ROOT / "module" / "see_through" / "cli.py"), "--help"],
@@ -72,6 +115,7 @@ def test_see_through_script_help_runs_from_script_path():
     assert "inference_steps_depth" in result.stdout
     assert "seed" in result.stdout
     assert "group_offload" in result.stdout
+    assert "auto_rig" in result.stdout
 
 
 def test_see_through_module_directory_does_not_shadow_stdlib_profile():

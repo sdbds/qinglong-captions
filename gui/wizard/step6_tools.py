@@ -1,6 +1,7 @@
 """步骤 6: 实用工具 - 对应 watermark_detect, preprocess, reward_model 等脚本"""
 
 import asyncio
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict
@@ -47,6 +48,36 @@ DEFAULT_VOCAL_MIDI_NSTEPS = 8
 DEFAULT_VOCAL_MIDI_EST_THRESHOLD = 0.2
 DEFAULT_VOCAL_MIDI_OUTPUT_FORMATS = "mid"
 DEFAULT_SHEET_MUSIC_PDF_DPI = 144
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _default_runtime_path(env_name: str, *candidates: Path) -> str:
+    configured = str(os.environ.get(env_name, "") or "").strip()
+    if configured:
+        return configured
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return ""
+
+
+def _default_live2d_sdk_root() -> str:
+    configured = str(os.environ.get("CUBISM_SDK_ROOT", "") or "").strip()
+    if configured:
+        return configured
+    if os.name == "nt":
+        candidates = sorted(Path(PROJECT_ROOT.anchor).glob("CubismSdkForNative-*"), reverse=True)
+    else:
+        home = Path.home()
+        candidates = sorted(
+            (
+                *home.glob("CubismSdkForNative-*"),
+                *(home / ".local" / "share").glob("CubismSdkForNative-*"),
+                *Path("/opt").glob("CubismSdkForNative-*"),
+            ),
+            reverse=True,
+        )
+    return str(next((candidate for candidate in candidates if candidate.is_dir()), ""))
 
 GAME_ONNX_MODEL_LABELS: dict[str, str] = {
     "bdsqlsz/GAME-1.0-small-ONNX": "GAME-1.0-small-ONNX",
@@ -275,6 +306,23 @@ class ToolsStep:
         "delete": "see_through_offload_delete",
         "cpu": "see_through_offload_cpu",
     }
+    AUTO_RIG_PROFILE_LABEL_KEYS = {
+        "dual_runtime_core_v1": "auto_rig_profile_dual_core",
+        "dual_runtime_avatar_v1": "auto_rig_profile_dual_avatar",
+        "spine_4_2_dev": "auto_rig_profile_spine",
+    }
+    AUTO_RIG_POSE_MODE_LABEL_KEYS = {
+        "auto": "auto_rig_pose_auto",
+        "sdpose": "auto_rig_pose_sdpose",
+        "detrpose": "auto_rig_pose_detrpose",
+        "compare": "auto_rig_pose_compare",
+        "disabled": "auto_rig_pose_disabled",
+    }
+    AUTO_RIG_POSE_DEVICE_LABELS = {
+        "auto": "Auto",
+        "cuda": "CUDA",
+        "cpu": "CPU",
+    }
     SHEET_MUSIC_OUTPUT_FORMAT_LABEL_KEYS = {
         "musicxml": "sheet_music_output_musicxml",
         "midi": "sheet_music_output_midi",
@@ -420,6 +468,20 @@ class ToolsStep:
             "see_through_save_to_psd": True,
             "see_through_tblr_split": False,
             "see_through_force_eager_attention": False,
+            "see_through_auto_rig": False,
+            "see_through_auto_rig_profile": "dual_runtime_core_v1",
+            "see_through_auto_rig_pose_mode": "auto",
+            "see_through_auto_rig_pose_device": "auto",
+            "see_through_auto_rig_pose_fa2": True,
+            "see_through_auto_rig_sdk_root": _default_live2d_sdk_root(),
+            "see_through_auto_rig_spine_runtime_path": _default_runtime_path(
+                "SPINE_RUNTIME_VALIDATOR_PATH",
+                PROJECT_ROOT
+                / ".cache"
+                / "auto_rig_spine_runtime_4_2_build"
+                / "Release"
+                / "auto_rig_spine_runtime.exe",
+            ),
         }
         self.panel: "ExecutionPanel | None" = None
         self._tool_tab_containers: Dict[str, Any] = {}
@@ -444,6 +506,8 @@ class ToolsStep:
         self._audio_separator_muscriptor_container = None
         self._audio_separator_muscriptor_other_container = None
         self._audio_separator_muscriptor_preview_container = None
+        self._see_through_auto_rig_container = None
+        self._see_through_auto_rig_live2d_container = None
         self._music_transcription_instrument_container = None
         self._music_transcription_sampling_container = None
         self._music_transcription_beam_container = None
@@ -571,6 +635,29 @@ class ToolsStep:
             option: t(label_key)
             for option, label_key in self.SEE_THROUGH_OFFLOAD_POLICY_LABEL_KEYS.items()
         }
+
+    def _auto_rig_profile_options(self) -> dict[str, str]:
+        return {
+            option: t(label_key)
+            for option, label_key in self.AUTO_RIG_PROFILE_LABEL_KEYS.items()
+        }
+
+    def _auto_rig_pose_mode_options(self) -> dict[str, str]:
+        return {
+            option: t(label_key)
+            for option, label_key in self.AUTO_RIG_POSE_MODE_LABEL_KEYS.items()
+        }
+
+    def _auto_rig_pose_device_options(self) -> dict[str, str]:
+        options = dict(self.AUTO_RIG_POSE_DEVICE_LABELS)
+        if self.gpu_probe is not None:
+            for device in self.gpu_probe.devices:
+                total_vram_bytes = int(getattr(device, "total_vram_bytes", 0))
+                memory_suffix = f" ({total_vram_bytes / 1024**3:.1f} GB)" if total_vram_bytes > 0 else ""
+                options[f"cuda:{device.index}"] = f"CUDA {device.index} - {device.name}{memory_suffix}"
+        selected = str(self.config.get("see_through_auto_rig_pose_device") or "auto")
+        options.setdefault(selected, selected.upper())
+        return options
 
     def _sheet_music_output_format_options(self) -> dict[str, str]:
         return {
@@ -2087,8 +2174,119 @@ class ToolsStep:
                 toggle_switch("skip_completed", self.config, "see_through_skip_completed")
 
             with ui.row().classes("w-full gap-4 q-mt-md"):
-                toggle_switch("save_to_psd", self.config, "see_through_save_to_psd")
+                self.see_through_save_to_psd_toggle = toggle_switch(
+                    "save_to_psd",
+                    self.config,
+                    "see_through_save_to_psd",
+                )
                 toggle_switch("tblr_split", self.config, "see_through_tblr_split")
+
+            with ui.row().classes("w-full gap-4 q-mt-md"):
+                self.see_through_auto_rig_toggle = toggle_switch(
+                    "auto_rig",
+                    self.config,
+                    "see_through_auto_rig",
+                    on_change=self._on_see_through_auto_rig_toggle,
+                )
+
+            self._see_through_auto_rig_container = ui.column().classes("w-full q-mt-sm")
+            self._see_through_auto_rig_container.set_visibility(self.config["see_through_auto_rig"])
+            with self._see_through_auto_rig_container:
+                with (
+                    ui.element("div")
+                    .classes("w-full q-pa-md")
+                    .style("background: var(--ql-inset-bg); border: 1px solid var(--ql-inset-border); border-radius: 6px;")
+                ):
+                    with ui.row().classes("w-full items-center gap-2 q-mb-sm"):
+                        ui.icon("account_tree", size="18px").style(f"color: {COLORS['secondary']};")
+                        (
+                            ui.label(t("auto_rig_settings"))
+                            .classes("text-body1 text-weight-medium")
+                            .style("color: var(--color-text);")
+                        )
+
+                    with ui.row().classes("w-full gap-4 q-mt-sm"):
+                        self.see_through_auto_rig_profile = styled_select(
+                            options=self._auto_rig_profile_options(),
+                            value=self.config["see_through_auto_rig_profile"],
+                            label=t("auto_rig_profile"),
+                            icon="deployed_code",
+                            icon_color=COLORS["secondary"],
+                            on_change=self._on_see_through_auto_rig_profile_change,
+                            flex=1,
+                        )
+                        self.see_through_auto_rig_pose_mode = styled_select(
+                            options=self._auto_rig_pose_mode_options(),
+                            value=self.config["see_through_auto_rig_pose_mode"],
+                            label=t("auto_rig_pose_mode"),
+                            icon="accessibility_new",
+                            icon_color=COLORS["info"],
+                            on_change=lambda value: self.config.__setitem__(
+                                "see_through_auto_rig_pose_mode",
+                                value,
+                            ),
+                            flex=1,
+                        )
+
+                    with ui.row().classes("w-full gap-4 q-mt-md items-center"):
+                        self.see_through_auto_rig_pose_device = styled_select(
+                            options=self._auto_rig_pose_device_options(),
+                            value=self.config["see_through_auto_rig_pose_device"],
+                            label=t("auto_rig_pose_device"),
+                            icon="memory",
+                            icon_color=COLORS["primary"],
+                            on_change=lambda value: self.config.__setitem__(
+                                "see_through_auto_rig_pose_device",
+                                value,
+                            ),
+                            flex=1,
+                        )
+                        toggle_switch(
+                            "auto_rig_pose_fa2",
+                            self.config,
+                            "see_through_auto_rig_pose_fa2",
+                        )
+
+                    self._see_through_auto_rig_live2d_container = ui.column().classes("w-full q-mt-sm gap-3")
+                    self._see_through_auto_rig_live2d_container.set_visibility(
+                        self.config["see_through_auto_rig_profile"] != "spine_4_2_dev"
+                    )
+                    with self._see_through_auto_rig_live2d_container:
+                        self.see_through_auto_rig_sdk_root = create_path_selector(
+                            label=t("auto_rig_sdk_root"),
+                            default_path=self.config["see_through_auto_rig_sdk_root"],
+                            selection_type="dir",
+                            on_change=lambda value: self.config.__setitem__(
+                                "see_through_auto_rig_sdk_root",
+                                value,
+                            ),
+                        )
+
+                    self.see_through_auto_rig_spine_runtime_path = create_path_selector(
+                        label=t("auto_rig_spine_runtime_path"),
+                        default_path=self.config["see_through_auto_rig_spine_runtime_path"],
+                        selection_type="file",
+                        on_change=lambda value: self.config.__setitem__(
+                            "see_through_auto_rig_spine_runtime_path",
+                            value,
+                        ),
+                    )
+
+    def _on_see_through_auto_rig_toggle(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        self.config["see_through_auto_rig"] = enabled
+        if self._see_through_auto_rig_container is not None:
+            self._see_through_auto_rig_container.set_visibility(enabled)
+        if enabled:
+            self.config["see_through_save_to_psd"] = True
+            save_toggle = getattr(self, "see_through_save_to_psd_toggle", None)
+            if save_toggle is not None:
+                save_toggle.set_toggle_value(True)
+
+    def _on_see_through_auto_rig_profile_change(self, profile_id: str) -> None:
+        self.config["see_through_auto_rig_profile"] = profile_id
+        if self._see_through_auto_rig_live2d_container is not None:
+            self._see_through_auto_rig_live2d_container.set_visibility(profile_id != "spine_4_2_dev")
 
     def _on_audio_separator_vocal_midi_toggle(self, enabled: bool) -> None:
         if hasattr(self, "_audio_separator_vocal_midi_container"):
@@ -2320,6 +2518,81 @@ class ToolsStep:
         args.append("--save_to_psd" if self.config["see_through_save_to_psd"] else "--no-save_to_psd")
         args.append("--tblr_split" if self.config["see_through_tblr_split"] else "--no-tblr_split")
 
+        runner_kwargs = None
+        if self.config["see_through_auto_rig"]:
+            profile_id = str(
+                getattr(
+                    getattr(self, "see_through_auto_rig_profile", None),
+                    "value",
+                    self.config["see_through_auto_rig_profile"],
+                )
+            )
+            pose_mode = str(
+                getattr(
+                    getattr(self, "see_through_auto_rig_pose_mode", None),
+                    "value",
+                    self.config["see_through_auto_rig_pose_mode"],
+                )
+            )
+            pose_device = str(
+                getattr(
+                    getattr(self, "see_through_auto_rig_pose_device", None),
+                    "value",
+                    self.config["see_through_auto_rig_pose_device"],
+                )
+                or "auto"
+            )
+            sdk_root = str(
+                getattr(
+                    getattr(self, "see_through_auto_rig_sdk_root", None),
+                    "value",
+                    self.config["see_through_auto_rig_sdk_root"],
+                )
+                or ""
+            ).strip()
+            spine_runtime_path = str(
+                getattr(
+                    getattr(self, "see_through_auto_rig_spine_runtime_path", None),
+                    "value",
+                    self.config["see_through_auto_rig_spine_runtime_path"],
+                )
+                or ""
+            ).strip()
+
+            if not self.config["see_through_save_to_psd"]:
+                ui.notify(t("auto_rig_requires_psd"), type="warning")
+                return
+            sdk_root_valid = bool(sdk_root and Path(sdk_root).expanduser().is_dir())
+            if profile_id != "spine_4_2_dev" and not sdk_root_valid:
+                ui.notify(t("auto_rig_live2d_runtime_unavailable"), type="warning")
+            if not sdk_root_valid:
+                sdk_root = ""
+            if spine_runtime_path and not Path(spine_runtime_path).expanduser().is_file():
+                ui.notify(t("auto_rig_invalid_spine_runtime"), type="warning")
+                spine_runtime_path = ""
+
+            args.extend(
+                [
+                    "--auto_rig",
+                    f"--auto_rig_profile={profile_id}",
+                    "--auto_rig_validation_tier=release",
+                    f"--auto_rig_pose_mode={pose_mode}",
+                    (
+                        "--auto_rig_pose_fa2"
+                        if self.config["see_through_auto_rig_pose_fa2"]
+                        else "--no-auto_rig_pose_fa2"
+                    ),
+                ]
+            )
+            if pose_device != "auto":
+                args.append(f"--auto_rig_pose_device={pose_device}")
+            if sdk_root:
+                args.append(f"--auto_rig_sdk_root={sdk_root}")
+            if spine_runtime_path:
+                args.append(f"--auto_rig_spine_runtime_path={spine_runtime_path}")
+            auto_rig_extra = "auto-rig-pose" if pose_mode in {"detrpose", "compare"} else "auto-rig"
+            runner_kwargs = {"uv_extra_args": ["--extra", auto_rig_extra]}
+
         def pre_log(lv):
             lv.info(t("log_start_see_through"))
             lv.info(f"{t('log_input_path')}: {input_path}")
@@ -2331,6 +2604,7 @@ class ToolsStep:
             "module.see_through.cli",
             args,
             name=t("job_name_see_through"),
+            runner_kwargs=runner_kwargs,
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("see_through_success"), type="positive"),
             on_failure=lambda r: ui.notify(t("see_through_failed"), type="negative"),

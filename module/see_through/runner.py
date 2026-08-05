@@ -43,6 +43,7 @@ PHASE_DISPLAY_NAMES = {
     "layerdiff": "LayerDiff",
     "marigold": "Marigold",
     "postprocess": "Postprocess",
+    "auto_rig": "Auto Rig",
 }
 
 console = Console(color_system="truecolor", force_terminal=True)
@@ -363,8 +364,82 @@ def _log_plan_summary(console_obj: Console, plan: list[ExecutionItem]) -> None:
             console_obj.print(f"[yellow]Skipping completed item:[/yellow] {item.relative_key.as_posix()}")
 
 
+def _load_auto_rig_components():
+    from module.auto_rig.format_plans import load_capability_profile
+    from module.auto_rig.pipeline import run_auto_rig_item
+    from module.auto_rig.pose.factory import make_builtin_pose_resolver
+
+    return run_auto_rig_item, load_capability_profile, make_builtin_pose_resolver
+
+
+def _select_auto_rig_items(plan: list[ExecutionItem]) -> list[ExecutionItem]:
+    """Select every complete PSD, including items skipped by see-through resume."""
+
+    return [item for item in plan if postprocess_outputs_complete(item.item_dir, save_to_psd=True)]
+
+
+def _run_auto_rig_phase(
+    *,
+    config: "SeeThroughRunConfig",
+    items: list[ExecutionItem],
+    console_obj: Console | None = None,
+) -> tuple[list[ExecutionItem], int]:
+    if not items:
+        return [], 0
+
+    run_auto_rig_item, load_capability_profile, make_builtin_pose_resolver = _load_auto_rig_components()
+    profile_id = str(getattr(config, "auto_rig_profile", "dual_runtime_core_v1"))
+    profile = load_capability_profile(profile_id)
+    pose_mode = str(getattr(config, "auto_rig_pose_mode", "auto"))
+    model_cache_dir = getattr(config, "auto_rig_model_cache_dir", None)
+    sdpose_bundle_path = getattr(config, "auto_rig_sdpose_bundle_path", None)
+    detrpose_weights_path = getattr(config, "auto_rig_detrpose_weights_path", None)
+    pose_device = getattr(config, "auto_rig_pose_device", None)
+    prefer_pose_fa2 = bool(getattr(config, "auto_rig_pose_fa2", True))
+
+    pose_pool = None
+    if pose_mode != "disabled":
+        pose_pool = make_builtin_pose_resolver(
+            model_cache_dir=model_cache_dir,
+            sdpose_bundle_path=sdpose_bundle_path,
+            detrpose_weights_path=detrpose_weights_path,
+            device=pose_device,
+            prefer_fa2=prefer_pose_fa2,
+        )
+
+    try:
+        return _process_phase_items(
+            phase_name="auto_rig",
+            items=items,
+            handler=lambda item: run_auto_rig_item(
+                item.item_dir,
+                profile_id=profile_id,
+                validation_tier=str(getattr(config, "auto_rig_validation_tier", "release")),
+                sdk_root=getattr(config, "auto_rig_sdk_root", None),
+                spine_runtime_path=getattr(config, "auto_rig_spine_runtime_path", None),
+                pose_mode=pose_mode,
+                pose_provider_pool=pose_pool,
+                pose_model_cache_dir=model_cache_dir,
+                sdpose_bundle_path=sdpose_bundle_path,
+                detrpose_weights_path=detrpose_weights_path,
+                pose_device=pose_device,
+                prefer_pose_fa2=prefer_pose_fa2,
+                finalize=bool(profile.terminal_delivery),
+            ),
+            continue_on_error=bool(getattr(config, "continue_on_error", True)),
+            console_obj=console_obj,
+        )
+    finally:
+        if pose_pool is not None:
+            pose_pool.close()
+
+
 def run_see_through_batch(config: "SeeThroughRunConfig", *, console_obj: Console | None = None) -> int:
     resolved_console = console_obj or console
+    auto_rig_enabled = bool(getattr(config, "auto_rig", False))
+    if auto_rig_enabled and not bool(getattr(config, "save_to_psd", True)):
+        resolved_console.print("[red]Auto Rig requires PSD output.[/red]")
+        return 1
     try:
         config_fingerprint = build_config_fingerprint(config)
         prepared = prepare_output_dir(config.output_dir, config.input_dir, config_fingerprint)
@@ -483,11 +558,32 @@ def run_see_through_batch(config: "SeeThroughRunConfig", *, console_obj: Console
         failures += postprocess_failures
 
         completed += len(postprocess_success)
-        partial = max(len(discovered_items) - completed - failures, 0)
+        auto_rig_completed = 0
+        auto_rig_failures = 0
+        see_through_failures = failures
+        if auto_rig_enabled:
+            # Pose inference may need the same GPU. Release every see-through
+            # model before constructing the lazy pose-provider pool.
+            model_manager.release_all()
+            auto_rig_items = _select_auto_rig_items(plan)
+            auto_rig_success, auto_rig_failures = _run_auto_rig_phase(
+                config=config,
+                items=auto_rig_items,
+                console_obj=resolved_console,
+            )
+            auto_rig_completed = len(auto_rig_success)
+            failures += auto_rig_failures
+
+        partial = max(len(discovered_items) - completed - see_through_failures, 0)
+        auto_rig_summary = (
+            f" auto_rig_completed={auto_rig_completed} auto_rig_failed={auto_rig_failures}"
+            if auto_rig_enabled
+            else ""
+        )
         resolved_console.print(
             f"[bold]See-through finished.[/bold] total={len(discovered_items)} "
-            f"completed={completed} partial={partial} failed={failures} "
-            f"backend={runtime_context.attention_backend}"
+            f"completed={completed} partial={partial} failed={see_through_failures} "
+            f"backend={runtime_context.attention_backend}{auto_rig_summary}"
         )
         return 1 if failures else 0
     except Exception as exc:

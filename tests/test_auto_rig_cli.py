@@ -14,8 +14,8 @@ def test_auto_rig_cli_has_one_positional_item_argument(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     calls: list[tuple[Path, dict[str, object]]] = []
-    monkeypatch.setenv("LIVE2D_CORE_PATH", "C:/sdk/Live2DCubismCore.dll")
-    monkeypatch.setenv("LIVE2D_RENDERER_PATH", "C:/tools/auto_rig_live2d_e0.exe")
+    monkeypatch.setenv("CUBISM_SDK_ROOT", "C:/sdk/CubismSdkForNative-5-r.5")
+    monkeypatch.setenv("LIVE2D_RENDERER_PATH", "C:/ignored/legacy-validator.exe")
     monkeypatch.setattr(
         cli,
         "run_auto_rig_item",
@@ -37,8 +37,7 @@ def test_auto_rig_cli_has_one_positional_item_argument(
             {
                 "profile_id": "dual_runtime_core_v1",
                 "validation_tier": "release",
-                "core_path": "C:/sdk/Live2DCubismCore.dll",
-                "renderer_path": "C:/tools/auto_rig_live2d_e0.exe",
+                "sdk_root": "C:/sdk/CubismSdkForNative-5-r.5",
                 "spine_runtime_path": None,
                 "pose_mode": "auto",
                 "pose_model_cache_dir": None,

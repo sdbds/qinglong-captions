@@ -263,6 +263,14 @@ tblr_split = false
 limit_images = 0
 force_eager_attention = false
 output_dir = "workspace/see_through_output"
+auto_rig = false
+auto_rig_profile = "dual_runtime_core_v1"
+auto_rig_validation_tier = "release"
+auto_rig_pose_mode = "auto"
+auto_rig_pose_device = ""
+auto_rig_pose_fa2 = true
+auto_rig_sdk_root = ""
+auto_rig_spine_runtime_path = ""
 
 [musvit]
 repo_id = "bdsqlsz/qinglong-musvit-1.0"

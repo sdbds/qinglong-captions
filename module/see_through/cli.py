@@ -52,6 +52,22 @@ class SeeThroughRunConfig:
     force_eager_attention: bool
     vae_ckpt: str | None = None
     unet_ckpt: str | None = None
+    auto_rig: bool = False
+    auto_rig_profile: str = "dual_runtime_core_v1"
+    auto_rig_validation_tier: str = "release"
+    auto_rig_pose_mode: str = "auto"
+    auto_rig_pose_device: str | None = None
+    auto_rig_pose_fa2: bool = True
+    auto_rig_sdk_root: Path | None = None
+    auto_rig_spine_runtime_path: Path | None = None
+    auto_rig_model_cache_dir: Path | None = None
+    auto_rig_sdpose_bundle_path: Path | None = None
+    auto_rig_detrpose_weights_path: Path | None = None
+
+
+def _optional_path(value: object) -> Path | None:
+    text = str(value or "").strip()
+    return Path(text).expanduser() if text else None
 
 
 def build_parser(config_dir: str | Path = CONFIG_DIR) -> argparse.ArgumentParser:
@@ -104,6 +120,53 @@ def build_parser(config_dir: str | Path = CONFIG_DIR) -> argparse.ArgumentParser
     parser.add_argument("--force_eager_attention", action=argparse.BooleanOptionalAction, default=bool(defaults.get("force_eager_attention", False)))
     parser.add_argument("--vae_ckpt", default=defaults.get("vae_ckpt"))
     parser.add_argument("--unet_ckpt", default=defaults.get("unet_ckpt"))
+    parser.add_argument(
+        "--auto_rig",
+        action=argparse.BooleanOptionalAction,
+        default=bool(defaults.get("auto_rig", False)),
+        help="Run automatic Spine/Live2D rigging after each completed PSD.",
+    )
+    parser.add_argument(
+        "--auto_rig_profile",
+        choices=["dual_runtime_core_v1", "dual_runtime_avatar_v1", "spine_4_2_dev"],
+        default=str(defaults.get("auto_rig_profile", "dual_runtime_core_v1")),
+    )
+    parser.add_argument(
+        "--auto_rig_validation_tier",
+        choices=["structural", "release"],
+        default=str(defaults.get("auto_rig_validation_tier", "release")),
+    )
+    parser.add_argument(
+        "--auto_rig_pose_mode",
+        choices=["disabled", "auto", "sdpose", "detrpose", "compare"],
+        default=str(defaults.get("auto_rig_pose_mode", "auto")),
+    )
+    parser.add_argument("--auto_rig_pose_device", default=defaults.get("auto_rig_pose_device"))
+    parser.add_argument(
+        "--auto_rig_pose_fa2",
+        action=argparse.BooleanOptionalAction,
+        default=bool(defaults.get("auto_rig_pose_fa2", True)),
+    )
+    parser.add_argument(
+        "--auto_rig_sdk_root",
+        default=defaults.get("auto_rig_sdk_root") or os.environ.get("CUBISM_SDK_ROOT"),
+    )
+    parser.add_argument(
+        "--auto_rig_spine_runtime_path",
+        default=defaults.get("auto_rig_spine_runtime_path") or os.environ.get("SPINE_RUNTIME_VALIDATOR_PATH"),
+    )
+    parser.add_argument(
+        "--auto_rig_model_cache_dir",
+        default=defaults.get("auto_rig_model_cache_dir") or os.environ.get("QINGLONG_CAPTIONS_MODEL_CACHE"),
+    )
+    parser.add_argument(
+        "--auto_rig_sdpose_bundle_path",
+        default=defaults.get("auto_rig_sdpose_bundle_path") or os.environ.get("AUTO_RIG_SDPOSE_BUNDLE"),
+    )
+    parser.add_argument(
+        "--auto_rig_detrpose_weights_path",
+        default=defaults.get("auto_rig_detrpose_weights_path") or os.environ.get("AUTO_RIG_DETRPOSE_WEIGHTS"),
+    )
     return parser
 
 
@@ -117,6 +180,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def build_run_config(args: argparse.Namespace) -> SeeThroughRunConfig:
     quant_mode = normalize_quant_mode(args.quant_mode)
+    if bool(args.auto_rig) and not bool(args.save_to_psd):
+        raise ValueError("auto_rig requires save_to_psd")
     resolved_repos = resolve_see_through_repo_ids(
         quant_mode=quant_mode,
         repo_id_layerdiff=args.repo_id_layerdiff,
@@ -143,6 +208,17 @@ def build_run_config(args: argparse.Namespace) -> SeeThroughRunConfig:
         force_eager_attention=bool(args.force_eager_attention),
         vae_ckpt=args.vae_ckpt,
         unet_ckpt=args.unet_ckpt,
+        auto_rig=bool(args.auto_rig),
+        auto_rig_profile=str(args.auto_rig_profile),
+        auto_rig_validation_tier=str(args.auto_rig_validation_tier),
+        auto_rig_pose_mode=str(args.auto_rig_pose_mode),
+        auto_rig_pose_device=(str(args.auto_rig_pose_device).strip() if args.auto_rig_pose_device else None),
+        auto_rig_pose_fa2=bool(args.auto_rig_pose_fa2),
+        auto_rig_sdk_root=_optional_path(args.auto_rig_sdk_root),
+        auto_rig_spine_runtime_path=_optional_path(args.auto_rig_spine_runtime_path),
+        auto_rig_model_cache_dir=_optional_path(args.auto_rig_model_cache_dir),
+        auto_rig_sdpose_bundle_path=_optional_path(args.auto_rig_sdpose_bundle_path),
+        auto_rig_detrpose_weights_path=_optional_path(args.auto_rig_detrpose_weights_path),
     )
 
 

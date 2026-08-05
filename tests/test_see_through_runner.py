@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 import module.see_through.runner as runner_module
 from module.see_through.runner import (
+    ExecutionItem,
     backup_input_dataset_to_lance,
     detect_resume_stage,
     make_item_dir,
@@ -107,6 +108,185 @@ def test_runner_duplicate_stems_do_not_collide(tmp_path):
     item_dir_b = make_item_dir(output_dir, Path("bar/a.png"))
 
     assert item_dir_a != item_dir_b
+
+
+def test_runner_auto_rig_phase_reuses_one_lazy_pose_pool(monkeypatch, tmp_path):
+    item_a = ExecutionItem(tmp_path / "a.png", Path("a.png"), tmp_path / "out" / "a.png", "completed")
+    item_b = ExecutionItem(tmp_path / "b.png", Path("b.png"), tmp_path / "out" / "b.png", "completed")
+    for item in (item_a, item_b):
+        item.item_dir.mkdir(parents=True)
+        (item.item_dir / "final.psd").write_bytes(b"psd")
+
+    calls = []
+
+    class FakePool:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    pool = FakePool()
+
+    def fake_run_auto_rig_item(item_root, **kwargs):
+        calls.append((Path(item_root), kwargs))
+        return SimpleNamespace()
+
+    monkeypatch.setattr(
+        runner_module,
+        "_load_auto_rig_components",
+        lambda: (
+            fake_run_auto_rig_item,
+            lambda profile_id: SimpleNamespace(terminal_delivery=True),
+            lambda **kwargs: pool,
+        ),
+    )
+    config = SimpleNamespace(
+        auto_rig_profile="dual_runtime_core_v1",
+        auto_rig_validation_tier="release",
+        auto_rig_sdk_root="C:/sdk/CubismSdkForNative-5-r.5",
+        auto_rig_spine_runtime_path="C:/bin/spine.exe",
+        auto_rig_pose_mode="auto",
+        auto_rig_pose_device="cuda",
+        auto_rig_pose_fa2=True,
+        auto_rig_model_cache_dir=None,
+        auto_rig_sdpose_bundle_path=None,
+        auto_rig_detrpose_weights_path=None,
+        continue_on_error=True,
+    )
+
+    successes, failures = runner_module._run_auto_rig_phase(
+        config=config,
+        items=[item_a, item_b],
+        console_obj=Console(file=io.StringIO(), force_terminal=False, color_system=None),
+    )
+
+    assert failures == 0
+    assert successes == [item_a, item_b]
+    assert pool.closed is True
+    assert [call[0] for call in calls] == [item_a.item_dir, item_b.item_dir]
+    assert all(call[1]["pose_provider_pool"] is pool for call in calls)
+    assert all(call[1]["profile_id"] == "dual_runtime_core_v1" for call in calls)
+    assert all(call[1]["sdk_root"] == "C:/sdk/CubismSdkForNative-5-r.5" for call in calls)
+    assert all("renderer_path" not in call[1] for call in calls)
+    assert all(call[1]["finalize"] is True for call in calls)
+
+
+def test_runner_auto_rig_ready_set_includes_previously_completed_psd(tmp_path):
+    ready = ExecutionItem(tmp_path / "a.png", Path("a.png"), tmp_path / "out" / "a.png", "completed")
+    partial = ExecutionItem(tmp_path / "b.png", Path("b.png"), tmp_path / "out" / "b.png", "postprocess")
+    (ready.item_dir / "optimized").mkdir(parents=True)
+    (ready.item_dir / "layerdiff").mkdir()
+    (ready.item_dir / "depth").mkdir()
+    (ready.item_dir / "src_img.png").write_bytes(b"png")
+    (ready.item_dir / "layerdiff" / "manifest.json").write_text("{}", encoding="utf-8")
+    (ready.item_dir / "depth" / "depth.png").write_bytes(b"png")
+    (ready.item_dir / "optimized" / "manifest.json").write_text("{}", encoding="utf-8")
+    (ready.item_dir / "final.psd").write_bytes(b"psd")
+
+    selected = runner_module._select_auto_rig_items([ready, partial])
+
+    assert selected == [ready]
+
+
+def test_runner_runs_auto_rig_for_resumed_completed_items(monkeypatch, tmp_path):
+    input_dir = tmp_path / "inputs"
+    output_dir = tmp_path / "outputs"
+    input_dir.mkdir()
+    source_path = input_dir / "a.png"
+    write_png(source_path)
+    config = SimpleNamespace(
+        input_dir=input_dir,
+        output_dir=output_dir,
+        repo_id_layerdiff="layerdiff/repo",
+        repo_id_depth="marigold/repo",
+        resolution=1024,
+        resolution_depth=768,
+        inference_steps_depth=-1,
+        seed=1026,
+        dtype="float16",
+        quant_mode="none",
+        offload_policy="delete",
+        skip_completed=True,
+        continue_on_error=True,
+        save_to_psd=True,
+        tblr_split=False,
+        limit_images=0,
+        force_eager_attention=False,
+        vae_ckpt=None,
+        unet_ckpt=None,
+        auto_rig=True,
+    )
+    runner_module.prepare_output_dir(output_dir, input_dir, runner_module.build_config_fingerprint(config))
+    item_dir = output_dir / "a.png"
+    (item_dir / "optimized").mkdir(parents=True)
+    (item_dir / "layerdiff").mkdir()
+    (item_dir / "depth").mkdir()
+    (item_dir / "src_img.png").write_bytes(b"png")
+    (item_dir / "layerdiff" / "manifest.json").write_text("{}", encoding="utf-8")
+    (item_dir / "depth" / "depth.png").write_bytes(b"png")
+    (item_dir / "optimized" / "manifest.json").write_text("{}", encoding="utf-8")
+    (item_dir / "final.psd").write_bytes(b"psd")
+
+    release_events = []
+
+    class FakeManager:
+        def __init__(self, **kwargs):
+            pass
+
+        def log_vram(self, stage_name):
+            return {"stage": stage_name, "device": "cpu"}
+
+        def release_layerdiff(self):
+            pass
+
+        def release_marigold(self):
+            pass
+
+        def release_all(self):
+            release_events.append("release_all")
+
+    class EmptyPhase:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run_item(self, *args, **kwargs):
+            raise AssertionError("completed see-through item must not rerun")
+
+    captured = []
+
+    def fake_auto_rig_phase(*, config, items, console_obj):
+        captured.extend(items)
+        return list(items), 0
+
+    monkeypatch.setattr(
+        runner_module,
+        "backup_input_dataset_to_lance",
+        lambda **kwargs: {"dataset_path": "dataset.lance", "tag": "raw.test", "version": 1},
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "resolve_attention_backend",
+        lambda **kwargs: SimpleNamespace(
+            attention_backend="eager",
+            device="cpu",
+            dtype="float32",
+            reason="test",
+        ),
+    )
+    monkeypatch.setattr(runner_module, "SeeThroughModelManager", FakeManager)
+    monkeypatch.setattr(runner_module, "LayerDiffPhase", EmptyPhase)
+    monkeypatch.setattr(runner_module, "MarigoldPhase", EmptyPhase)
+    monkeypatch.setattr(runner_module, "run_postprocess", lambda **kwargs: (_ for _ in ()).throw(AssertionError()))
+    monkeypatch.setattr(runner_module, "_run_auto_rig_phase", fake_auto_rig_phase)
+
+    exit_code = runner_module.run_see_through_batch(
+        config,
+        console_obj=Console(file=io.StringIO(), force_terminal=False, color_system=None),
+    )
+
+    assert exit_code == 0
+    assert [item.item_dir for item in captured] == [item_dir]
+    assert release_events
 
 
 def test_runner_detects_stage_from_existing_outputs(tmp_path):

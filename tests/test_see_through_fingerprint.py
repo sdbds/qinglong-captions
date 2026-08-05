@@ -72,6 +72,18 @@ def test_build_config_fingerprint_ignores_group_offload_runtime_only_switch(buil
     assert build_config_fingerprint(baseline) == build_config_fingerprint(changed_group_offload)
 
 
+def test_build_config_fingerprint_ignores_auto_rig_followup_options(build_config_fingerprint):
+    baseline = _make_config(auto_rig=False)
+    changed_followup = _make_config(
+        auto_rig=True,
+        auto_rig_profile="dual_runtime_avatar_v1",
+        auto_rig_pose_mode="compare",
+        auto_rig_sdk_root="C:/sdk/CubismSdkForNative-5-r.5",
+    )
+
+    assert build_config_fingerprint(baseline) == build_config_fingerprint(changed_followup)
+
+
 def test_build_config_fingerprint_uses_current_depth_resolution_when_legacy_config_omits_it(
     build_config_fingerprint,
 ):

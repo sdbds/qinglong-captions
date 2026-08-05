@@ -263,6 +263,9 @@ def test_tools_step_see_through_option_labels_follow_current_language():
             "cpu": "CPU",
         }
         assert step._see_through_depth_resolution_options()["-1"] == "跟随 layerdiff"
+        assert step._auto_rig_profile_options()["dual_runtime_core_v1"] == "Spine 4.2 + Live2D（基础动作）"
+        assert step._auto_rig_profile_options()["spine_4_2_dev"] == "仅 Spine 4.2（开发）"
+        assert step._auto_rig_pose_mode_options()["auto"] == "自动（需要时使用 SDPose）"
     finally:
         set_language(original_lang)
 

@@ -20,6 +20,13 @@ def test_model_toml_contains_see_through_section():
     assert parsed["see_through"]["seed"] == 1026
     assert parsed["see_through"]["quant_mode"] == "none"
     assert parsed["see_through"]["group_offload"] is False
+    assert parsed["see_through"]["auto_rig"] is False
+    assert parsed["see_through"]["auto_rig_profile"] == "dual_runtime_core_v1"
+    assert parsed["see_through"]["auto_rig_pose_mode"] == "auto"
+    assert parsed["see_through"]["auto_rig_pose_fa2"] is True
+    assert parsed["see_through"]["auto_rig_sdk_root"] == ""
+    assert "auto_rig_core_path" not in parsed["see_through"]
+    assert "auto_rig_renderer_path" not in parsed["see_through"]
 
 
 def test_model_toml_contains_musvit_section():
