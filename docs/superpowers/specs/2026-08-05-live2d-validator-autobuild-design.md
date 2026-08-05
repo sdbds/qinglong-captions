@@ -136,7 +136,7 @@ The builder requires CMake 3.20 or newer and MSVC toolset 141, 142, or 143. It s
 
 Linux uses the SDK's stable `Core/lib/linux/x86_64/libLive2DCubismCore.a` and official Framework OpenGL renderer. It creates a headless OpenGL context through EGL with GLFW 3.4 Null Platform, so neither X11, Wayland, `DISPLAY`, nor `xvfb` is required.
 
-The build pins GLFW 3.4 and GLEW 2.2.0 by release archive and SHA-256. Dependencies are fetched into the build cache, never into the SDK tree. CMake disables GLFW X11 and Wayland backends. The runtime initializes `GLFW_PLATFORM_NULL`, requests `GLFW_EGL_CONTEXT_API`, creates an invisible pbuffer-backed context, initializes GLEW, and renders into an explicit framebuffer object.
+The build pins GLFW 3.4 from `https://github.com/glfw/glfw/archive/refs/tags/3.4.tar.gz` with SHA-256 `c038d34200234d071fae9345bc455e4a8f2f544ab60150765d7704e08f3dac01`, and GLEW 2.2.0 from `https://github.com/nigels-com/glew/archive/refs/tags/glew-2.2.0.tar.gz` with SHA-256 `f781d57097cdd076c6e34656d3aae239abaa03da7fd60e2249ee29df546e3d1e`. Dependencies are fetched into the build cache, never into the SDK tree. CMake disables GLFW X11 and Wayland backends. The runtime initializes `GLFW_PLATFORM_NULL`, requests `GLFW_EGL_CONTEXT_API`, creates an invisible pbuffer-backed context, initializes GLEW, and renders into an explicit framebuffer object.
 
 Textures are decoded with the SDK sample's `stb_image.h`. Readback rows are flipped into the canonical top-left RGBA convention before evidence is written. The report backend is `opengl-egl-headless` and includes the OpenGL vendor, renderer, and version for diagnostics.
 
