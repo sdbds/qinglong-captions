@@ -13,10 +13,15 @@ from .attestation import (
     COORDINATE_SCHEMA_VERSION,
     KERNEL_SOURCE_DIGEST_VERSION,
     kernel_source_sha256,
+    load_live2d_frame_attestation,
     validate_live2d_frame_attestation,
 )
 from .cubism_core import CubismModelState, exercise_moc_with_core, probe_cubism_core
-from .cubism_renderer import CubismRenderEvidence, render_moc_with_offscreen_harness
+from .cubism_renderer import (
+    CubismRenderEvidence,
+    probe_offscreen_harness,
+    render_moc_with_offscreen_harness,
+)
 from .e0_assets import (
     E0_BASE_PARAMETER_VALUES,
     E0_EXPECTED_PARAMETER_VALUES,
@@ -38,11 +43,20 @@ from .e0_fixture import (
 )
 from .moc3 import moc3_v400_layout_descriptor
 from .moc3_codec import moc3_v400_sections_descriptor
+from .runtime_toolchain import LIVE2D_VALIDATOR_PROTOCOL_DIGEST, detect_live2d_runtime_platform
 
-E0_ATTESTATION_GENERATOR_VERSION = "live2d-e0-attestation-generator-v2"
-E0_VALIDATOR_PROTOCOL_VERSION = "live2d-e0-validator-protocol-v3"
+E0_ATTESTATION_GENERATOR_VERSION = "live2d-e0-attestation-generator-v3"
+E0_VALIDATOR_PROTOCOL_VERSION = "live2d-e0-validator-semantics-v4"
 EXPECTED_CORE_VERSION = "06.00.0001"
 EXPECTED_CORE_SHA256 = "d883c00d114fdf6cef61f439feb23e02d000fdf683e092803010470b80dfaf09"
+EXPECTED_CORE_SHA256_BY_PLATFORM = {
+    "linux-x86_64": "f741b043ae01a2821824412e3aa498b96564904fbf38cb40a9036f8372f3d77f",
+    "windows-x86_64": EXPECTED_CORE_SHA256,
+}
+EXPECTED_BACKEND_BY_PLATFORM = {
+    "linux-x86_64": "opengl-egl-headless",
+    "windows-x86_64": "d3d11-warp",
+}
 
 _GEOMETRY_CASES = (
     {},
@@ -166,7 +180,7 @@ def _protocol() -> dict[str, Any]:
             "evaluate-motion-at-one-second-with-serialized-zero-fade",
             "apply-zero-fade-expression-at-full-weight",
             "update-model",
-            "render-d3d11-warp",
+            "render-platform-offscreen-backend",
         ],
         "thresholds": {
             "default_rest_max_px": 0.1,
@@ -323,13 +337,31 @@ def generate_live2d_e0_attestation(
     *,
     sdk_release: str,
     license_policy_acknowledged: bool,
+    platform_id: str | None = None,
+    backend_id: str | None = None,
+    existing_attestation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if sdk_release != "5-r.5":
         raise E0AttestationGenerationError("this generator is pinned to Cubism SDK 5-r.5")
     if license_policy_acknowledged is not True:
         raise E0AttestationGenerationError("license policy acknowledgement is required")
+    selected_platform = platform_id or detect_live2d_runtime_platform()
+    expected_backend = EXPECTED_BACKEND_BY_PLATFORM.get(selected_platform)
+    expected_core_sha256 = EXPECTED_CORE_SHA256_BY_PLATFORM.get(selected_platform)
+    if expected_backend is None or expected_core_sha256 is None:
+        raise E0AttestationGenerationError("the requested runtime platform is not supported")
+    selected_backend = backend_id or expected_backend
+    if selected_backend != expected_backend:
+        raise E0AttestationGenerationError("runtime backend does not match the selected platform")
+    renderer_probe = probe_offscreen_harness(
+        renderer_path,
+        expected_backend=selected_backend,
+    )
+    if renderer_probe.protocol_digest != LIVE2D_VALIDATOR_PROTOCOL_DIGEST:
+        raise E0AttestationGenerationError("validator protocol does not match the reviewed protocol")
+
     core_probe = probe_cubism_core(core_path)
-    if core_probe.version.label != EXPECTED_CORE_VERSION or core_probe.sha256 != EXPECTED_CORE_SHA256:
+    if core_probe.version.label != EXPECTED_CORE_VERSION or core_probe.sha256 != expected_core_sha256:
         raise E0AttestationGenerationError("Cubism Core identity does not match the reviewed SDK binary")
     if not core_probe.capabilities.attestation_candidate:
         raise E0AttestationGenerationError("Cubism Core lacks the complete E0 API/consistency gate")
@@ -421,6 +453,7 @@ def generate_live2d_e0_attestation(
             renderer_path,
             static_path,
             texture_path,
+            expected_backend=selected_backend,
         )
         orientation_passed = _orientation_passed(static_render)
         straight_alpha_edge_passed = any(0 < alpha < 255 for alpha in static_render.rgba[3::4])
@@ -432,6 +465,7 @@ def generate_live2d_e0_attestation(
             deformer_path,
             texture_path,
             parameter_values=E0_BASE_PARAMETER_VALUES,
+            expected_backend=selected_backend,
         )
         effect_render = render_moc_with_offscreen_harness(
             renderer_path,
@@ -442,6 +476,7 @@ def generate_live2d_e0_attestation(
             expression_path=expression_path,
             evaluation_time=1.0,
             observe_parameter_ids=tuple(E0_EXPECTED_PARAMETER_VALUES),
+            expected_backend=selected_backend,
         )
         for parameter_id, expected in E0_EXPECTED_PARAMETER_VALUES.items():
             actual = effect_render.parameter_values[parameter_id]
@@ -454,8 +489,62 @@ def generate_live2d_e0_attestation(
     protocol = _protocol()
     sources = _kernel_sources()
     repository_root = Path(__file__).resolve().parents[4]
-    renderer_source = repository_root / "tools" / "auto_rig_live2d_e0" / "main.cpp"
-    renderer_cmake = repository_root / "tools" / "auto_rig_live2d_e0" / "CMakeLists.txt"
+    validator_source_root = repository_root / "tools" / "auto_rig_live2d_e0"
+    platform_source = (
+        "windows/main_d3d11.cpp"
+        if selected_platform == "windows-x86_64"
+        else "linux/main_egl.cpp"
+    )
+    validator_source_files = (
+        "CMakeLists.txt",
+        "common/validator_common.cpp",
+        "common/validator_common.hpp",
+        platform_source,
+    )
+    validator_source_inventory = [
+        {
+            "path": relative_path,
+            "sha256": _sha256_file(validator_source_root / Path(*relative_path.split("/"))),
+        }
+        for relative_path in validator_source_files
+    ]
+    runtime_fixtures = [
+        {
+            "fixture_id": "deformer-runtime-v1",
+            "payload": {
+                "baseline_rgba_sha256": baseline_render.rgba_sha256,
+                "core_default_vertex_sha256": f"sha256:{positive_state.vertex_position_sha256}",
+                "deformer_moc_sha256": _sha256_bytes(deformer_moc),
+                "effect_rgba_sha256": effect_render.rgba_sha256,
+                "expression_sha256": _sha256_bytes(expression_bytes),
+                "geometry_case_count": len(geometry_matrix),
+                "geometry_matrix_sha256": jcs_sha256(geometry_matrix),
+                "max_geometry_residual_px": round(max_geometry_residual, 9),
+                "missing_default_moc_sha256": _sha256_bytes(negative_moc),
+                "motion_expression_pixel_changed": motion_expression_pixel_changed,
+                "motion_sha256": _sha256_bytes(motion_bytes),
+                "negative_default_residual_px": round(negative_residual, 9),
+                "noncommuting_stack_delta_px": round(noncommuting_delta, 9),
+                "observed_parameter_values": dict(effect_render.parameter_values),
+                "runtime_asset_version": E0_RUNTIME_ASSET_VERSION,
+            },
+        },
+        {
+            "fixture_id": "static-uv-alpha-v1",
+            "payload": {
+                "alpha_bbox": list(static_render.alpha_bbox) if static_render.alpha_bbox else None,
+                "canonical_texture_rgba_sha256": _sha256_bytes(build_e0_orientation_rgba()),
+                "core_uv_sha256": f"sha256:{static_state.vertex_uv_sha256}",
+                "driver_type": static_render.driver_type,
+                "nonzero_alpha_pixels": static_render.nonzero_alpha_pixels,
+                "orientation_passed": orientation_passed,
+                "premultiplied_alpha_input": static_render.premultiplied_alpha_input,
+                "render_rgba_sha256": static_render.rgba_sha256,
+                "static_moc_sha256": _sha256_bytes(static_moc),
+                "straight_alpha_edge_passed": straight_alpha_edge_passed,
+            },
+        },
+    ]
     descriptor: dict[str, Any] = {
         "coordinate_schema_version": COORDINATE_SCHEMA_VERSION,
         "frame_kinds": [
@@ -500,43 +589,6 @@ def generate_live2d_e0_attestation(
             moc3_v400_sections_descriptor(),
         ],
         "pure_vectors": _pure_vectors(),
-        "e0_fixtures": [
-            {
-                "fixture_id": "deformer-runtime-v1",
-                "payload": {
-                    "baseline_rgba_sha256": baseline_render.rgba_sha256,
-                    "core_default_vertex_sha256": f"sha256:{positive_state.vertex_position_sha256}",
-                    "deformer_moc_sha256": _sha256_bytes(deformer_moc),
-                    "effect_rgba_sha256": effect_render.rgba_sha256,
-                    "expression_sha256": _sha256_bytes(expression_bytes),
-                    "geometry_case_count": len(geometry_matrix),
-                    "geometry_matrix_sha256": jcs_sha256(geometry_matrix),
-                    "max_geometry_residual_px": round(max_geometry_residual, 9),
-                    "missing_default_moc_sha256": _sha256_bytes(negative_moc),
-                    "motion_expression_pixel_changed": motion_expression_pixel_changed,
-                    "motion_sha256": _sha256_bytes(motion_bytes),
-                    "negative_default_residual_px": round(negative_residual, 9),
-                    "noncommuting_stack_delta_px": round(noncommuting_delta, 9),
-                    "observed_parameter_values": dict(effect_render.parameter_values),
-                    "runtime_asset_version": E0_RUNTIME_ASSET_VERSION,
-                },
-            },
-            {
-                "fixture_id": "static-uv-alpha-v1",
-                "payload": {
-                    "alpha_bbox": list(static_render.alpha_bbox) if static_render.alpha_bbox else None,
-                    "canonical_texture_rgba_sha256": _sha256_bytes(build_e0_orientation_rgba()),
-                    "core_uv_sha256": f"sha256:{static_state.vertex_uv_sha256}",
-                    "driver_type": static_render.driver_type,
-                    "nonzero_alpha_pixels": static_render.nonzero_alpha_pixels,
-                    "orientation_passed": orientation_passed,
-                    "premultiplied_alpha_input": static_render.premultiplied_alpha_input,
-                    "render_rgba_sha256": static_render.rgba_sha256,
-                    "static_moc_sha256": _sha256_bytes(static_moc),
-                    "straight_alpha_edge_passed": straight_alpha_edge_passed,
-                },
-            },
-        ],
         "invariants": [
             {
                 "invariant_id": "default-rest",
@@ -560,35 +612,63 @@ def generate_live2d_e0_attestation(
                 },
             },
         ],
-        "approved_core_binaries": [
-            {
-                "arch": "x86_64",
-                "core_sha256": f"sha256:{core_probe.sha256}",
-                "core_version": core_probe.version.label,
-                "platform": "windows",
-            }
-        ],
-        "e0_validator_protocol_digest": jcs_sha256(protocol),
     }
+    runtime_record = {
+        "backend_id": selected_backend,
+        "core_sha256": f"sha256:{core_probe.sha256}",
+        "core_version": core_probe.version.label,
+        "e0_fixtures": runtime_fixtures,
+        "platform_id": selected_platform,
+        "runtime_provenance": {
+            "core_latest_moc_version": core_probe.latest_moc_version,
+            "generator_version": E0_ATTESTATION_GENERATOR_VERSION,
+            "renderer_sha256": _sha256_file(Path(renderer_path).resolve()),
+            "sdk_release": sdk_release,
+            "validator_source_files": validator_source_inventory,
+        },
+        "validator_protocol_digest": renderer_probe.protocol_digest,
+    }
+    runtime_records: list[dict[str, Any]] = []
+    if existing_attestation is not None:
+        validate_live2d_frame_attestation(existing_attestation, kernel_sources=sources)
+        if existing_attestation["contract_descriptor"] != descriptor:
+            raise E0AttestationGenerationError(
+                "existing attestation uses a different shared frame contract"
+            )
+        raw_records = existing_attestation["runtime_attestations"]
+        if not isinstance(raw_records, list):
+            raise E0AttestationGenerationError("existing runtime attestations are malformed")
+        runtime_records.extend(
+            dict(record)
+            for record in raw_records
+            if isinstance(record, dict)
+            and (record.get("platform_id"), record.get("backend_id"))
+            != (selected_platform, selected_backend)
+        )
+    runtime_records.append(runtime_record)
+    runtime_records.sort(
+        key=lambda record: (
+            record["platform_id"],
+            record["backend_id"],
+            record["core_sha256"],
+            record["validator_protocol_digest"],
+        )
+    )
     payload = {
         "schema_version": ATTESTATION_SCHEMA_VERSION,
         "contract_descriptor": descriptor,
         "live2d_frame_contract_digest": jcs_sha256(descriptor),
         "provenance": {
-            "core_latest_moc_version": core_probe.latest_moc_version,
-            "core_sha256": f"sha256:{core_probe.sha256}",
-            "core_version": core_probe.version.label,
             "generator_version": E0_ATTESTATION_GENERATOR_VERSION,
             "license_policy": {
                 "acknowledged": True,
                 "core_or_sdk_redistributed_by_package": False,
                 "organizational_release_license": "external-gate-not-asserted-by-code",
             },
-            "renderer_cmake_sha256": _sha256_file(renderer_cmake),
-            "renderer_source_sha256": _sha256_file(renderer_source),
             "sdk_release": sdk_release,
-            "spec_revision": 41,
+            "spec_revision": 45,
         },
+        "runtime_attestations": runtime_records,
     }
     validate_live2d_frame_attestation(payload, kernel_sources=sources)
     return payload
@@ -601,14 +681,24 @@ def write_live2d_e0_attestation(
     *,
     sdk_release: str,
     license_policy_acknowledged: bool,
+    platform_id: str | None = None,
+    backend_id: str | None = None,
 ) -> None:
+    output = Path(output_path)
+    existing: Mapping[str, Any] | None = None
+    if output.is_file():
+        loaded = load_live2d_frame_attestation(output.read_bytes())
+        if loaded.get("schema_version") == ATTESTATION_SCHEMA_VERSION:
+            existing = loaded
     payload = generate_live2d_e0_attestation(
         core_path,
         renderer_path,
         sdk_release=sdk_release,
         license_policy_acknowledged=license_policy_acknowledged,
+        platform_id=platform_id,
+        backend_id=backend_id,
+        existing_attestation=existing,
     )
-    output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(jcs_bytes(payload))
 
@@ -618,6 +708,7 @@ __all__ = [
     "E0_VALIDATOR_PROTOCOL_VERSION",
     "E0AttestationGenerationError",
     "EXPECTED_CORE_SHA256",
+    "EXPECTED_CORE_SHA256_BY_PLATFORM",
     "EXPECTED_CORE_VERSION",
     "generate_live2d_e0_attestation",
     "write_live2d_e0_attestation",

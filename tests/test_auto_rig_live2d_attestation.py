@@ -18,10 +18,12 @@ from module.auto_rig.export.live2d.attestation import (
     Live2DAttestationError,
     kernel_source_sha256,
     load_live2d_frame_attestation,
+    select_runtime_attestation,
     validate_live2d_frame_attestation,
 )
 from module.auto_rig.export.live2d.e0_attestation import generate_live2d_e0_attestation
 from module.auto_rig.export.live2d.moc3 import moc3_v400_layout_descriptor
+from module.auto_rig.export.live2d.runtime_toolchain import LIVE2D_VALIDATOR_PROTOCOL_DIGEST
 from module.auto_rig.jcs import jcs_bytes, jcs_sha256
 
 
@@ -173,15 +175,6 @@ def _attestation() -> tuple[dict[str, object], dict[str, bytes]]:
         ],
         "layout_descriptors": [layout],
         "pure_vectors": _pure_vectors(),
-        "e0_fixtures": [
-            {
-                "fixture_id": "synthetic-structural-v1",
-                "payload": {
-                    "fixture_sha256": _digest("synthetic-structural-v1"),
-                    "scope": "parser-and-pure-vectors-only",
-                },
-            }
-        ],
         "invariants": [
             {
                 "invariant_id": "default-rest",
@@ -196,26 +189,128 @@ def _attestation() -> tuple[dict[str, object], dict[str, bytes]]:
                 "payload": {"minimum_noncommuting_delta_px": 0.1},
             },
         ],
-        "approved_core_binaries": [
-            {
-                "arch": "x86_64",
-                "core_sha256": _digest("test-core"),
-                "core_version": "test-only",
-                "platform": "windows",
-            }
-        ],
-        "e0_validator_protocol_digest": jcs_sha256(protocol),
     }
+    runtime_attestations: list[dict[str, object]] = [
+        {
+            "backend_id": "opengl-egl-headless",
+            "core_sha256": _digest("linux-test-core"),
+            "core_version": "test-only",
+            "e0_fixtures": [
+                {
+                    "fixture_id": "deformer-runtime-v1",
+                    "payload": {"render_rgba_sha256": _digest("linux-deformer")},
+                },
+                {
+                    "fixture_id": "static-uv-alpha-v1",
+                    "payload": {"render_rgba_sha256": _digest("linux-static")},
+                },
+            ],
+            "platform_id": "linux-x86_64",
+            "runtime_provenance": {"generator": "test-only"},
+            "validator_protocol_digest": _digest("test-validator-protocol"),
+        },
+        {
+            "backend_id": "d3d11-warp",
+            "core_sha256": _digest("windows-test-core"),
+            "core_version": "test-only",
+            "e0_fixtures": [
+                {
+                    "fixture_id": "deformer-runtime-v1",
+                    "payload": {"render_rgba_sha256": _digest("windows-deformer")},
+                },
+                {
+                    "fixture_id": "static-uv-alpha-v1",
+                    "payload": {"render_rgba_sha256": _digest("windows-static")},
+                },
+            ],
+            "platform_id": "windows-x86_64",
+            "runtime_provenance": {"generator": "test-only"},
+            "validator_protocol_digest": _digest("test-validator-protocol"),
+        },
+    ]
     payload: dict[str, object] = {
-        "schema_version": "live2d-frame-attestation-v1",
+        "schema_version": "live2d-frame-attestation-v2",
         "contract_descriptor": descriptor,
         "live2d_frame_contract_digest": jcs_sha256(descriptor),
         "provenance": {
             "compiler_version": "test-only",
             "source_date_epoch": "1785542400",
         },
+        "runtime_attestations": runtime_attestations,
     }
     return payload, sources
+
+
+def _windows_runtime_record(payload: dict[str, object]) -> dict[str, object]:
+    records = payload["runtime_attestations"]
+    assert isinstance(records, list)
+    record = records[1]
+    assert isinstance(record, dict)
+    return record
+
+
+def test_attestation_selects_exact_runtime_tuple() -> None:
+    payload, _sources = _attestation()
+
+    record = select_runtime_attestation(
+        payload,
+        platform_id="linux-x86_64",
+        backend_id="opengl-egl-headless",
+        core_sha256=_digest("linux-test-core"),
+        validator_protocol_digest=_digest("test-validator-protocol"),
+    )
+
+    assert record.platform_id == "linux-x86_64"
+    assert record.backend_id == "opengl-egl-headless"
+    assert record.record_sha256 == jcs_sha256(record.payload)
+
+
+def test_windows_record_cannot_attest_linux_backend() -> None:
+    payload, _sources = _attestation()
+
+    with pytest.raises(Live2DAttestationError, match="exact runtime tuple"):
+        select_runtime_attestation(
+            payload,
+            platform_id="linux-x86_64",
+            backend_id="opengl-egl-headless",
+            core_sha256=_digest("windows-test-core"),
+            validator_protocol_digest=_digest("test-validator-protocol"),
+        )
+
+
+def test_validate_attestation_rejects_duplicate_runtime_tuple() -> None:
+    payload, sources = _attestation()
+    records = payload["runtime_attestations"]
+    assert isinstance(records, list)
+    records.append(copy.deepcopy(records[0]))
+
+    with pytest.raises(Live2DAttestationError, match="runtime_attestations"):
+        validate_live2d_frame_attestation(payload, kernel_sources=sources)
+
+
+def test_runtime_record_digest_is_independent_of_machine_paths() -> None:
+    payload, _sources = _attestation()
+    record = _windows_runtime_record(payload)
+    selected = select_runtime_attestation(
+        payload,
+        platform_id="windows-x86_64",
+        backend_id="d3d11-warp",
+        core_sha256=_digest("windows-test-core"),
+        validator_protocol_digest=_digest("test-validator-protocol"),
+    )
+
+    changed = copy.deepcopy(payload)
+    changed["provenance"] = {"build_path": "D:/different/worktree"}
+    changed_selected = select_runtime_attestation(
+        changed,
+        platform_id="windows-x86_64",
+        backend_id="d3d11-warp",
+        core_sha256=_digest("windows-test-core"),
+        validator_protocol_digest=_digest("test-validator-protocol"),
+    )
+
+    assert selected.record_sha256 == jcs_sha256(record)
+    assert changed_selected.record_sha256 == selected.record_sha256
 
 
 def test_validate_live2d_frame_attestation_runs_structural_gate() -> None:
@@ -223,7 +318,7 @@ def test_validate_live2d_frame_attestation_runs_structural_gate() -> None:
 
     result = validate_live2d_frame_attestation(payload, kernel_sources=sources)
 
-    assert result.schema_version == "live2d-frame-attestation-v1"
+    assert result.schema_version == "live2d-frame-attestation-v2"
     assert result.coordinate_schema_version == "live2d-frames-v1"
     assert result.contract_digest == payload["live2d_frame_contract_digest"]
     assert result.kernel_ids == ("frame-kernel-v1", "moc3-layout-kernel-v1", "uv-kernel-v1")
@@ -234,7 +329,20 @@ def test_validate_live2d_frame_attestation_runs_structural_gate() -> None:
         "rotation-stack-round-trip",
         "similarity-round-trip",
     )
-    assert result.approved_core_keys == (("windows", "x86_64", _digest("test-core")),)
+    assert result.runtime_keys == (
+        (
+            "linux-x86_64",
+            "opengl-egl-headless",
+            _digest("linux-test-core"),
+            _digest("test-validator-protocol"),
+        ),
+        (
+            "windows-x86_64",
+            "d3d11-warp",
+            _digest("windows-test-core"),
+            _digest("test-validator-protocol"),
+        ),
+    )
 
 
 def test_packaged_live2d_frame_attestation_is_current_and_release_attested() -> None:
@@ -257,27 +365,38 @@ def test_packaged_live2d_frame_attestation_is_current_and_release_attested() -> 
 
     result = validate_live2d_frame_attestation(payload, kernel_sources=sources)
 
-    assert result.approved_core_keys == (
+    assert result.runtime_keys == (
         (
-            "windows",
-            "x86_64",
+            "linux-x86_64",
+            "opengl-egl-headless",
+            "sha256:f741b043ae01a2821824412e3aa498b96564904fbf38cb40a9036f8372f3d77f",
+            LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
+        ),
+        (
+            "windows-x86_64",
+            "d3d11-warp",
             "sha256:d883c00d114fdf6cef61f439feb23e02d000fdf683e092803010470b80dfaf09",
+            LIVE2D_VALIDATOR_PROTOCOL_DIGEST,
         ),
     )
-    descriptor = payload["contract_descriptor"]
-    assert isinstance(descriptor, dict)
-    fixtures = {
-        fixture["fixture_id"]: fixture["payload"] for fixture in descriptor["e0_fixtures"]
+    records = payload["runtime_attestations"]
+    assert isinstance(records, list)
+    assert {record["backend_id"] for record in records} == {
+        "d3d11-warp",
+        "opengl-egl-headless",
     }
-    assert fixtures["deformer-runtime-v1"]["max_geometry_residual_px"] <= 0.1
-    assert fixtures["deformer-runtime-v1"]["negative_default_residual_px"] > 0.1
-    assert fixtures["deformer-runtime-v1"]["motion_expression_pixel_changed"] is True
-    assert fixtures["static-uv-alpha-v1"]["orientation_passed"] is True
-    assert fixtures["static-uv-alpha-v1"]["straight_alpha_edge_passed"] is True
+    for record in records:
+        fixtures = {
+            fixture["fixture_id"]: fixture["payload"] for fixture in record["e0_fixtures"]
+        }
+        assert fixtures["deformer-runtime-v1"]["max_geometry_residual_px"] <= 0.1
+        assert fixtures["deformer-runtime-v1"]["negative_default_residual_px"] > 0.1
+        assert fixtures["deformer-runtime-v1"]["motion_expression_pixel_changed"] is True
+        assert fixtures["static-uv-alpha-v1"]["orientation_passed"] is True
+        assert fixtures["static-uv-alpha-v1"]["straight_alpha_edge_passed"] is True
     provenance = payload["provenance"]
     assert isinstance(provenance, dict)
     assert provenance["sdk_release"] == "5-r.5"
-    assert provenance["core_version"] == "06.00.0001"
 
 
 @pytest.mark.optional_runtime
@@ -295,12 +414,14 @@ def test_packaged_attestation_reproduces_from_fresh_official_e0_evidence() -> No
         / "attestations"
         / "live2d-frames-v1.json"
     )
+    payload = load_live2d_frame_attestation(attestation_path.read_bytes())
 
     regenerated = generate_live2d_e0_attestation(
         core_path,
         renderer_path,
         sdk_release="5-r.5",
         license_policy_acknowledged=True,
+        existing_attestation=payload,
     )
 
     assert jcs_bytes(regenerated) == attestation_path.read_bytes()
@@ -362,14 +483,18 @@ def test_validate_attestation_rejects_descriptor_digest_mismatch() -> None:
 
 
 def test_validate_attestation_rejects_validator_protocol_digest_mismatch() -> None:
-    payload, sources = _attestation()
-    descriptor = payload["contract_descriptor"]
-    assert isinstance(descriptor, dict)
-    descriptor["e0_validator_protocol_digest"] = _digest("wrong-protocol")
-    payload["live2d_frame_contract_digest"] = jcs_sha256(descriptor)
+    payload, _sources = _attestation()
+    record = _windows_runtime_record(payload)
+    record["validator_protocol_digest"] = _digest("wrong-protocol")
 
-    with pytest.raises(Live2DAttestationError, match="validator protocol digest mismatch"):
-        validate_live2d_frame_attestation(payload, kernel_sources=sources)
+    with pytest.raises(Live2DAttestationError, match="exact runtime tuple"):
+        select_runtime_attestation(
+            payload,
+            platform_id="windows-x86_64",
+            backend_id="d3d11-warp",
+            core_sha256=_digest("windows-test-core"),
+            validator_protocol_digest=_digest("test-validator-protocol"),
+        )
 
 
 def test_validate_attestation_rejects_unsorted_or_duplicate_records() -> None:
@@ -385,12 +510,13 @@ def test_validate_attestation_rejects_unsorted_or_duplicate_records() -> None:
         validate_live2d_frame_attestation(payload, kernel_sources=sources)
 
     payload, sources = _attestation()
-    descriptor = payload["contract_descriptor"]
-    assert isinstance(descriptor, dict)
-    fixtures = descriptor["e0_fixtures"]
+    records = payload["runtime_attestations"]
+    assert isinstance(records, list)
+    runtime = records[0]
+    assert isinstance(runtime, dict)
+    fixtures = runtime["e0_fixtures"]
     assert isinstance(fixtures, list)
     fixtures.append(copy.deepcopy(fixtures[0]))
-    payload["live2d_frame_contract_digest"] = jcs_sha256(descriptor)
 
     with pytest.raises(Live2DAttestationError):
         validate_live2d_frame_attestation(payload, kernel_sources=sources)

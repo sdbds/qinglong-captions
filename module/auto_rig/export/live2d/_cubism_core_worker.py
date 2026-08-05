@@ -40,7 +40,7 @@ def _aligned_zero(size: int, alignment: int) -> tuple[ctypes.Array[ctypes.c_char
     return owner, ctypes.c_void_p(address)
 
 
-def _bind(library: ctypes.WinDLL, name: str, restype: object, *argtypes: object) -> object:
+def _bind(library: object, name: str, restype: object, *argtypes: object) -> object:
     function = getattr(library, name)
     function.restype = restype
     function.argtypes = list(argtypes)
@@ -111,8 +111,6 @@ def _exercise(
     capture_model_state: bool,
     requested_parameter_values: tuple[tuple[str, float], ...],
 ) -> dict[str, object]:
-    if os.name != "nt" or not hasattr(ctypes, "WinDLL"):
-        raise RuntimeError("the native Cubism Core worker currently supports Windows only")
     core_path = core_path.resolve(strict=True)
     moc_path = moc_path.resolve(strict=True)
     moc_payload = moc_path.read_bytes()
@@ -121,7 +119,7 @@ def _exercise(
     if len(moc_payload) > 0xFFFFFFFF:
         raise RuntimeError("MOC payload exceeds the Core uint32 size limit")
 
-    library = ctypes.WinDLL(str(core_path))
+    library = ctypes.WinDLL(str(core_path)) if os.name == "nt" else ctypes.CDLL(str(core_path))
     get_version = _bind(library, "csmGetVersion", ctypes.c_uint32)
     get_latest_moc_version = _bind(library, "csmGetLatestMocVersion", ctypes.c_uint32)
     get_moc_version = _bind(library, "csmGetMocVersion", ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32)

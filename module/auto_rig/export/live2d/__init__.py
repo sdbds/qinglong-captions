@@ -5,9 +5,11 @@ from .attestation import (
     COORDINATE_SCHEMA_VERSION,
     KERNEL_SOURCE_DIGEST_VERSION,
     Live2DAttestationError,
+    Live2DRuntimeAttestation,
     Live2DStructuralAttestation,
     kernel_source_sha256,
     load_live2d_frame_attestation,
+    select_runtime_attestation,
     validate_live2d_frame_attestation,
 )
 from .cubism_core import (
@@ -165,6 +167,7 @@ __all__ = [
     "E0_VALIDATOR_PROTOCOL_VERSION",
     "E0AttestationGenerationError",
     "Live2DAttestationError",
+    "Live2DRuntimeAttestation",
     "LIVE2D_RUNTIME_PLAN_VERSION",
     "LIVE2D_VALIDATOR_PROTOCOL_DIGEST",
     "Live2DRuntimeBuildFacts",
@@ -229,6 +232,7 @@ __all__ = [
     "resolve_cubism_sdk_root",
     "root_to_canvas",
     "rotation_stack_rank_conflict",
+    "select_runtime_attestation",
     "validate_live2d_frame_attestation",
     "write_e0_orientation_texture",
     "write_live2d_e0_attestation",

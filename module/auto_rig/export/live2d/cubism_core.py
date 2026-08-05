@@ -213,13 +213,11 @@ def _sha256_file(path: Path) -> str:
 
 
 def probe_cubism_core(core_path: str | os.PathLike[str]) -> CubismCoreProbe:
-    """Load a trusted local Core DLL and inspect the exact API needed by E0."""
+    """Load a trusted local Core shared library and inspect the E0 API."""
 
-    if os.name != "nt" or not hasattr(ctypes, "WinDLL"):
-        raise CubismCoreError("the native Cubism Core probe currently supports Windows only")
     path = _resolve_file(core_path, field="Cubism Core path")
     try:
-        library = ctypes.WinDLL(str(path))
+        library = ctypes.WinDLL(str(path)) if os.name == "nt" else ctypes.CDLL(str(path))
     except OSError as exc:
         raise CubismCoreError(f"failed to load Cubism Core: {path}") from exc
 

@@ -267,7 +267,7 @@ def test_release_gate_requires_configured_attested_core_and_renderer(release_fix
     ) = release_fixture
     fake_core = tmp_path / "Live2DCubismCore.dll"
     fake_core.write_bytes(b"not-a-core")
-    with pytest.raises(Live2DReleaseGateError, match="Core|attest|release gate"):
+    with pytest.raises(Live2DReleaseGateError, match="Core|attest|release gate|renderer"):
         validate_live2d_release_bundle(
             bundle,
             core_path=fake_core,

@@ -26,7 +26,7 @@ from .uv_kernel import (
     moc_to_canonical_top_left_uv,
 )
 
-ATTESTATION_SCHEMA_VERSION = "live2d-frame-attestation-v1"
+ATTESTATION_SCHEMA_VERSION = "live2d-frame-attestation-v2"
 COORDINATE_SCHEMA_VERSION = "live2d-frames-v1"
 KERNEL_SOURCE_DIGEST_VERSION = "kernel-source-digest-v1"
 
@@ -37,6 +37,7 @@ _TOP_LEVEL_FIELDS = {
     "contract_descriptor",
     "live2d_frame_contract_digest",
     "provenance",
+    "runtime_attestations",
 }
 _DESCRIPTOR_FIELDS = {
     "coordinate_schema_version",
@@ -44,10 +45,7 @@ _DESCRIPTOR_FIELDS = {
     "semantic_kernels",
     "layout_descriptors",
     "pure_vectors",
-    "e0_fixtures",
     "invariants",
-    "approved_core_binaries",
-    "e0_validator_protocol_digest",
 }
 _FRAME_FIELDS = {"frame_kind_id", "ordinal", "semantics"}
 _KERNEL_FIELDS = {
@@ -61,7 +59,15 @@ _LAYOUT_FIELDS = {"descriptor_id", "descriptor_version", "section_index", "paylo
 _VECTOR_FIELDS = {"vector_id", "kernel_id", "operation", "payload"}
 _FIXTURE_FIELDS = {"fixture_id", "payload"}
 _INVARIANT_FIELDS = {"invariant_id", "payload"}
-_CORE_FIELDS = {"platform", "arch", "core_version", "core_sha256"}
+_RUNTIME_ATTESTATION_FIELDS = {
+    "backend_id",
+    "core_sha256",
+    "core_version",
+    "e0_fixtures",
+    "platform_id",
+    "runtime_provenance",
+    "validator_protocol_digest",
+}
 _VECTOR_PAYLOAD_FIELDS = {"input", "expected", "tolerance"}
 _EXPECTED_FRAME_KINDS = (
     (0, "CANVAS_PIXEL"),
@@ -76,14 +82,24 @@ class Live2DAttestationError(ValueError):
     """Raised when a Live2D frame attestation fails its structural gate."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Live2DStructuralAttestation:
     schema_version: str
     coordinate_schema_version: str
     contract_digest: str
     kernel_ids: tuple[str, ...]
     vector_ids: tuple[str, ...]
-    approved_core_keys: tuple[tuple[str, str, str], ...]
+    runtime_keys: tuple[tuple[str, str, str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class Live2DRuntimeAttestation:
+    platform_id: str
+    backend_id: str
+    core_sha256: str
+    validator_protocol_digest: str
+    record_sha256: str
+    payload: Mapping[str, object]
 
 
 def _require_object(value: Any, *, field: str, fields: set[str] | None = None) -> dict[str, Any]:
@@ -377,22 +393,66 @@ def _validate_payload_records(
     return tuple(identifiers)
 
 
-def _validate_approved_cores(value: Any) -> tuple[tuple[str, str, str], ...]:
-    records = _require_list(value, field="contract_descriptor.approved_core_binaries", allow_empty=True)
-    keys: list[tuple[str, str, str]] = []
+def _validate_runtime_attestations(
+    value: Any,
+) -> tuple[tuple[tuple[str, str, str, str], ...], tuple[dict[str, Any], ...]]:
+    records = _require_list(value, field="runtime_attestations")
+    keys: list[tuple[str, str, str, str]] = []
+    normalized: list[dict[str, Any]] = []
     for index, raw in enumerate(records):
-        record = _require_object(raw, field=f"approved_core_binaries[{index}]", fields=_CORE_FIELDS)
-        platform = _require_id(record["platform"], field=f"approved_core_binaries[{index}].platform")
-        arch = _require_id(record["arch"], field=f"approved_core_binaries[{index}].arch")
-        _require_string(record["core_version"], field=f"approved_core_binaries[{index}].core_version")
+        record = _require_object(
+            raw,
+            field=f"runtime_attestations[{index}]",
+            fields=_RUNTIME_ATTESTATION_FIELDS,
+        )
+        platform_id = _require_id(
+            record["platform_id"],
+            field=f"runtime_attestations[{index}].platform_id",
+        )
+        backend_id = _require_id(
+            record["backend_id"],
+            field=f"runtime_attestations[{index}].backend_id",
+        )
+        _require_string(record["core_version"], field=f"runtime_attestations[{index}].core_version")
         core_sha256 = _require_digest(
             record["core_sha256"],
-            field=f"approved_core_binaries[{index}].core_sha256",
+            field=f"runtime_attestations[{index}].core_sha256",
         )
-        keys.append((platform, arch, core_sha256))
-    _require_unique(keys, field="approved_core_binaries")
-    _require_sorted(keys, field="approved_core_binaries")
-    return tuple(keys)
+        protocol_digest = _require_digest(
+            record["validator_protocol_digest"],
+            field=f"runtime_attestations[{index}].validator_protocol_digest",
+        )
+        _require_payload_object(
+            record["runtime_provenance"],
+            field=f"runtime_attestations[{index}].runtime_provenance",
+        )
+        fixtures = _require_list(
+            record["e0_fixtures"],
+            field=f"runtime_attestations[{index}].e0_fixtures",
+        )
+        fixture_ids: list[str] = []
+        for fixture_index, raw_fixture in enumerate(fixtures):
+            fixture = _require_object(
+                raw_fixture,
+                field=f"runtime_attestations[{index}].e0_fixtures[{fixture_index}]",
+                fields=_FIXTURE_FIELDS,
+            )
+            fixture_id = _require_id(
+                fixture["fixture_id"],
+                field=f"runtime_attestations[{index}].e0_fixtures[{fixture_index}].fixture_id",
+            )
+            _require_payload_object(
+                fixture["payload"],
+                field=f"runtime_attestations[{index}].e0_fixtures[{fixture_index}].payload",
+            )
+            fixture_ids.append(fixture_id)
+        _require_unique(fixture_ids, field=f"runtime_attestations[{index}].e0_fixtures")
+        _require_sorted(fixture_ids, field=f"runtime_attestations[{index}].e0_fixtures")
+        keys.append((platform_id, backend_id, core_sha256, protocol_digest))
+        normalized.append(record)
+    _require_unique(keys, field="runtime_attestations")
+    _require_sorted(keys, field="runtime_attestations")
+    return tuple(keys), tuple(normalized)
 
 
 def kernel_source_sha256(source: bytes | str) -> str:
@@ -485,22 +545,11 @@ def validate_live2d_frame_attestation(
         root["live2d_frame_contract_digest"],
         field="live2d_frame_contract_digest",
     )
-    validator_protocol_digest = _require_digest(
-        descriptor["e0_validator_protocol_digest"],
-        field="contract_descriptor.e0_validator_protocol_digest",
-    )
-
     _validate_frame_kinds(descriptor["frame_kinds"])
     kernels = _validate_semantic_kernels(descriptor["semantic_kernels"])
     kernel_ids = tuple(record["kernel_id"] for record in kernels)
     _validate_layout_descriptors(descriptor["layout_descriptors"])
     vector_ids, pure_vectors = _validate_pure_vectors(descriptor["pure_vectors"], kernel_ids)
-    _validate_payload_records(
-        descriptor["e0_fixtures"],
-        field="e0_fixtures",
-        id_field="fixture_id",
-        expected_fields=_FIXTURE_FIELDS,
-    )
     invariant_records = descriptor["invariants"]
     _validate_payload_records(
         invariant_records,
@@ -508,14 +557,7 @@ def validate_live2d_frame_attestation(
         id_field="invariant_id",
         expected_fields=_INVARIANT_FIELDS,
     )
-    protocols = [
-        record["payload"]
-        for record in invariant_records
-        if record["invariant_id"] == "e0-validator-protocol"
-    ]
-    if len(protocols) != 1 or jcs_sha256(protocols[0]) != validator_protocol_digest:
-        raise Live2DAttestationError("validator protocol digest mismatch")
-    approved_core_keys = _validate_approved_cores(descriptor["approved_core_binaries"])
+    runtime_keys, _runtime_records = _validate_runtime_attestations(root["runtime_attestations"])
 
     try:
         computed_digest = jcs_sha256(descriptor)
@@ -539,7 +581,67 @@ def validate_live2d_frame_attestation(
         contract_digest=computed_digest,
         kernel_ids=kernel_ids,
         vector_ids=vector_ids,
-        approved_core_keys=approved_core_keys,
+        runtime_keys=runtime_keys,
+    )
+
+
+def select_runtime_attestation(
+    payload: Mapping[str, Any],
+    *,
+    platform_id: str,
+    backend_id: str,
+    core_sha256: str,
+    validator_protocol_digest: str,
+) -> Live2DRuntimeAttestation:
+    """Select one exact platform/backend/Core/protocol E0 record.
+
+    Full callers must run :func:`validate_live2d_frame_attestation` first so the
+    semantic-kernel sources are checked. Selection repeats the signed envelope
+    and runtime-record checks to prevent a malformed or ambiguous lookup.
+    """
+
+    root = _require_object(payload, field="attestation", fields=_TOP_LEVEL_FIELDS)
+    if root["schema_version"] != ATTESTATION_SCHEMA_VERSION:
+        raise Live2DAttestationError("attestation schema version mismatch")
+    descriptor = _require_object(
+        root["contract_descriptor"],
+        field="contract_descriptor",
+        fields=_DESCRIPTOR_FIELDS,
+    )
+    declared_digest = _require_digest(
+        root["live2d_frame_contract_digest"],
+        field="live2d_frame_contract_digest",
+    )
+    if jcs_sha256(descriptor) != declared_digest:
+        raise Live2DAttestationError("live2d frame contract digest mismatch")
+    requested_key = (
+        _require_id(platform_id, field="platform_id"),
+        _require_id(backend_id, field="backend_id"),
+        _require_digest(core_sha256, field="core_sha256"),
+        _require_digest(validator_protocol_digest, field="validator_protocol_digest"),
+    )
+    _keys, records = _validate_runtime_attestations(root["runtime_attestations"])
+    matches = [
+        record
+        for record in records
+        if (
+            record["platform_id"],
+            record["backend_id"],
+            record["core_sha256"],
+            record["validator_protocol_digest"],
+        )
+        == requested_key
+    ]
+    if len(matches) != 1:
+        raise Live2DAttestationError("attestation has no unique exact runtime tuple")
+    record = matches[0]
+    return Live2DRuntimeAttestation(
+        platform_id=requested_key[0],
+        backend_id=requested_key[1],
+        core_sha256=requested_key[2],
+        validator_protocol_digest=requested_key[3],
+        record_sha256=jcs_sha256(record),
+        payload=record,
     )
 
 
@@ -548,8 +650,10 @@ __all__ = [
     "COORDINATE_SCHEMA_VERSION",
     "KERNEL_SOURCE_DIGEST_VERSION",
     "Live2DAttestationError",
+    "Live2DRuntimeAttestation",
     "Live2DStructuralAttestation",
     "kernel_source_sha256",
     "load_live2d_frame_attestation",
+    "select_runtime_attestation",
     "validate_live2d_frame_attestation",
 ]
