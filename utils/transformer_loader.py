@@ -274,6 +274,12 @@ def hf_download_reporting(console: Optional[Any] = None):
                     if progress is None and callable(original_factory):
                         return original_factory(*args, **kwargs)
 
+                    progress_cls = kwargs.get("cls", args[0] if args else None)
+                    if callable(getattr(progress_cls, "update_transfer", None)) and callable(original_factory):
+                        # Newer Hub versions use this class as a facade for their
+                        # snapshot-level transfer and reconstruction progress bars.
+                        return original_factory(*args, **kwargs)
+
                     bar = _RichHFDownloadProgress(
                         progress,
                         desc=_console_safe_text(

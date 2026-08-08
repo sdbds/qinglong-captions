@@ -44,7 +44,7 @@ from .validator import (
     evaluate_live2d_moc3_state,
 )
 
-LIVE2D_RELEASE_VALIDATOR_VERSION = "live2d-release-validator-v7"
+LIVE2D_RELEASE_VALIDATOR_VERSION = "live2d-release-validator-v8"
 LIVE2D_RELEASE_REPORT_VERSION = "live2d-release-report-v6"
 LIVE2D_RENDER_WIDTH = 512
 LIVE2D_RENDER_HEIGHT = 512
@@ -93,12 +93,12 @@ _RENDER_SEMANTIC_REQUIREMENTS: dict[str, tuple[tuple[str, str | None, float, int
     ),
     "talk": (("mouth", None, 0.20, 4),),
     "happy": (
-        ("mouth", None, 0.08, 2),
+        ("mouth", None, 0.08, 1),
         ("brow", "xmin", 0.05, 1),
         ("brow", "xmax", 0.05, 1),
     ),
     "sad": (
-        ("mouth", None, 0.08, 2),
+        ("mouth", None, 0.08, 1),
         ("brow", "xmin", 0.05, 1),
         ("brow", "xmax", 0.05, 1),
     ),
@@ -108,7 +108,7 @@ _RENDER_SEMANTIC_REQUIREMENTS: dict[str, tuple[tuple[str, str | None, float, int
         ("brow", "xmax", 0.05, 1),
     ),
     "unimpressed": (
-        ("mouth", None, 0.08, 2),
+        ("mouth", None, 0.08, 1),
         ("brow", "xmin", 0.05, 1),
         ("brow", "xmax", 0.05, 1),
     ),

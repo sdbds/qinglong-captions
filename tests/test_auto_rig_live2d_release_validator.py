@@ -141,6 +141,39 @@ def test_facial_semantics_accepts_emotion_when_one_symmetric_brow_is_occluded() 
     assert by_roi["brow.xmax"].passed is True
 
 
+@pytest.mark.parametrize("preset_id", ("happy", "sad", "unimpressed"))
+def test_mouth_form_semantics_accepts_one_substantial_raster_row(
+    preset_id: str,
+) -> None:
+    width = height = 64
+    parts = (
+        {"base_tag": "mouth", "side": None, "xyxy": [12, 20, 20, 24]},
+        {"base_tag": "eyebrow", "side": "xmin", "xyxy": [8, 8, 12, 10]},
+        {"base_tag": "eyebrow", "side": "xmax", "xyxy": [20, 8, 24, 10]},
+    )
+    changed = {
+        *((x, 36) for x in range(28, 36)),
+        *((x, 24) for x in range(36, 40)),
+    }
+
+    metrics, passed = evaluate_facial_render_semantics(
+        preset_id,
+        baseline_rgba=_rgba(width, height),
+        effect_rgba=_rgba(width, height, changed),
+        render_width=width,
+        render_height=height,
+        canvas_width=32,
+        canvas_height=32,
+        parts=parts,
+    )
+
+    by_roi = {metric.roi_id: metric for metric in metrics}
+    assert passed is True
+    assert by_roi["mouth"].changed_bbox_height == 1
+    assert by_roi["mouth"].changed_fraction >= 0.08
+    assert by_roi["brow.xmax"].passed is True
+
+
 def test_unimpressed_semantics_do_not_require_a_held_eye_crossfade() -> None:
     width = height = 64
     parts = (

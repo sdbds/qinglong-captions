@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import struct
 from dataclasses import replace
+from importlib.metadata import version as distribution_version
 from pathlib import Path
 
 import pytest
@@ -217,13 +218,16 @@ def test_canonical_page_materialization_preserves_content_extrusion_and_transpar
 
     assert page_set.schema_version == CANONICAL_TEXTURE_PAGE_SET_VERSION
     assert page_set.encoder.schema_version == CANONICAL_PNG_ENCODER_VERSION
+    assert page_set.encoder.pillow_version == distribution_version("Pillow")
     assert len(page_set.pages) == 1
     page = page_set.pages[0]
     payload = (tmp_path / Path(*page.file.path.split("/"))).read_bytes()
     assert page.encoded_png_sha256 == f"sha256:{hashlib.sha256(payload).hexdigest()}"
     assert _png_chunks(payload) == (b"IHDR", b"IDAT", b"IEND")
 
-    from PIL import Image
+    from PIL import Image, features
+
+    assert page_set.encoder.zlib_runtime_version == features.version_codec("zlib")
 
     with Image.open(tmp_path / Path(*page.file.path.split("/"))) as image:
         decoded = image.convert("RGBA")

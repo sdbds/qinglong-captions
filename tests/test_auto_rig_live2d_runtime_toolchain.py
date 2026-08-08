@@ -23,6 +23,8 @@ from module.auto_rig.export.live2d.runtime_toolchain import (
     build_live2d_runtime_plan,
     default_live2d_runtime_cache_root,
     ensure_live2d_runtime_toolchain,
+    live2d_validator_source_inventory,
+    live2d_validator_source_sha256,
     resolve_cubism_sdk_root,
 )
 
@@ -44,6 +46,36 @@ def _make_source(root: Path) -> Path:
     _write(source / "windows" / "main_d3d11.cpp", "int main() { return 0; }\n")
     _write(source / "linux" / "main_egl.cpp", "int main() { return 0; }\n")
     return source
+
+
+def test_validator_source_identity_normalizes_checkout_line_endings(tmp_path: Path) -> None:
+    relative_payloads = {
+        "CMakeLists.txt": b"line one\nline two\n",
+        "common/validator_common.cpp": b"common one\ncommon two\n",
+        "common/validator_common.hpp": b"header one\nheader two\n",
+        "windows/main_d3d11.cpp": b"windows one\nwindows two\n",
+    }
+    roots = []
+    for directory, newline in (("lf", b"\n"), ("crlf", b"\r\n")):
+        root = tmp_path / directory
+        for relative_path, payload in relative_payloads.items():
+            _write(root / relative_path, payload.replace(b"\n", newline))
+        roots.append(root)
+
+    assert live2d_validator_source_inventory(
+        roots[0],
+        platform_id="windows-x86_64",
+    ) == live2d_validator_source_inventory(
+        roots[1],
+        platform_id="windows-x86_64",
+    )
+    assert live2d_validator_source_sha256(
+        roots[0],
+        platform_id="windows-x86_64",
+    ) == live2d_validator_source_sha256(
+        roots[1],
+        platform_id="windows-x86_64",
+    )
 
 
 def _make_sdk(root: Path, *, platform_id: str, marker: str = "same") -> Path:

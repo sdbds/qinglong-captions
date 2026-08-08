@@ -85,6 +85,8 @@ series_exclude_list = [
     "mooncancer",
     "post shibuya",
     "new year",
+    "enlightened state",
+    "springbloom missive",
 ]
 
 [reward_model]

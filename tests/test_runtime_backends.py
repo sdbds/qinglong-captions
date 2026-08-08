@@ -1275,6 +1275,56 @@ def test_hf_download_reporting_wraps_xet_progress_factory(monkeypatch):
     assert fake_xet_progress._create_progress_bar is original_xet_progress_factory
 
 
+def test_hf_download_reporting_preserves_xet_aggregated_transfer_routing():
+    from huggingface_hub.utils._xet_progress_reporting import XetDownloadProgressReporter
+
+    from utils.transformer_loader import hf_download_reporting
+
+    updates = {"reconstruction": [], "transfer": []}
+
+    class AggregatedProgress:
+        def __init__(self, *, total=None, **_kwargs):
+            self.total = total
+
+        def update(self, advance):
+            updates["reconstruction"].append(advance)
+
+        def update_transfer(self, advance):
+            updates["transfer"].append(advance)
+
+        def set_postfix_str(self, _postfix, refresh=False):
+            pass
+
+        def set_transfer_postfix_str(self, _postfix, refresh=False):
+            pass
+
+        def refresh(self):
+            pass
+
+        def close(self):
+            pass
+
+    group_report = SimpleNamespace(
+        total_bytes_completed=10,
+        total_transfer_bytes_completed=20,
+        total_bytes_completion_rate=1.0,
+        total_transfer_bytes_completion_rate=2.0,
+        total_bytes=100,
+    )
+
+    with hf_download_reporting(Console(file=io.StringIO(), force_terminal=False)):
+        reporter = XetDownloadProgressReporter(
+            reconstruction_desc="model.safetensors: reconstructing file",
+            total=100,
+            log_level=20,
+            tqdm_class=AggregatedProgress,
+        )
+        reporter.update_progress(group_report)
+        reporter.close()
+
+    assert updates == {"reconstruction": [10], "transfer": [20]}
+
+
 def test_hf_download_reporting_sanitizes_xet_descriptions_for_gbk_console(monkeypatch):
     from contextlib import contextmanager
 

@@ -32,7 +32,7 @@ from scenedetect import (
     open_video,
     split_video_ffmpeg,
 )
-from scenedetect.scene_manager import save_images, write_scene_list_html
+from scenedetect.output import save_images, write_scene_list_html
 
 from config.config import BASE_VIDEO_EXTENSIONS
 from utils.console_util import print_exception

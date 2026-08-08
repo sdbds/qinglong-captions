@@ -423,6 +423,15 @@ def _file_record(label: str, path: Path) -> Mapping[str, object]:
     }
 
 
+def _source_file_record(label: str, path: Path) -> Mapping[str, object]:
+    payload = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return {
+        "path": label,
+        "size": len(payload),
+        "sha256": f"sha256:{hashlib.sha256(payload).hexdigest()}",
+    }
+
+
 def _inventory_tree(root: Path, *, label_root: str) -> list[Mapping[str, object]]:
     if not root.is_dir():
         raise Live2DRuntimeToolchainError(
@@ -467,7 +476,7 @@ def _validator_source_inventory(
 
     unique = {path.resolve(): path for path in candidates if path.is_file()}
     return [
-        _file_record(f"validator/{path.relative_to(root).as_posix()}", path)
+        _source_file_record(f"validator/{path.relative_to(root).as_posix()}", path)
         for path in sorted(unique.values(), key=lambda item: item.relative_to(root).as_posix())
     ]
 

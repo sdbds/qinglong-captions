@@ -4,7 +4,6 @@ import hashlib
 import numbers
 import re
 import struct
-import zlib
 from dataclasses import dataclass
 from importlib.metadata import version as distribution_version
 from io import BytesIO
@@ -22,10 +21,8 @@ TEXTURE_PAGE_SIZE = 2048
 TEXTURE_MAX_PAGES = 4
 TEXTURE_EXTRUSION_PX = 2
 TEXTURE_SAFETY_GAP_PX = 2
-CANONICAL_PNG_ENCODER_VERSION = "canonical-png-encoder-v1"
+CANONICAL_PNG_ENCODER_VERSION = "canonical-png-encoder-v2"
 CANONICAL_TEXTURE_PAGE_SET_VERSION = "canonical-texture-page-set-v1"
-CANONICAL_PNG_PILLOW_VERSION = "12.3.0"
-CANONICAL_PNG_ZLIB_RUNTIME_VERSION = "1.2.13"
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PAGE_NAME_PATTERN = re.compile(r"^page_(0|[1-9][0-9]*)\.png$")
 
@@ -628,17 +625,14 @@ def _png_chunk_types(payload: bytes) -> tuple[bytes, ...]:
 
 
 def _canonical_encoder_descriptor() -> CanonicalPngEncoderDescriptor:
+    from PIL import features
+
     pillow_version = distribution_version("Pillow")
-    zlib_runtime_version = zlib.ZLIB_RUNTIME_VERSION
-    if pillow_version != CANONICAL_PNG_PILLOW_VERSION:
+    zlib_runtime_version = features.version_codec("zlib")
+    if not zlib_runtime_version:
         raise _error(
             "invalid_texture_materialization",
-            f"canonical PNG encoder requires Pillow {CANONICAL_PNG_PILLOW_VERSION}",
-        )
-    if zlib_runtime_version != CANONICAL_PNG_ZLIB_RUNTIME_VERSION:
-        raise _error(
-            "invalid_texture_materialization",
-            f"canonical PNG encoder requires zlib {CANONICAL_PNG_ZLIB_RUNTIME_VERSION}",
+            "canonical PNG encoder requires Pillow zlib codec support",
         )
     return CanonicalPngEncoderDescriptor(
         schema_version=CANONICAL_PNG_ENCODER_VERSION,
@@ -785,8 +779,6 @@ def materialize_canonical_texture_pages(
 
 __all__ = [
     "CANONICAL_PNG_ENCODER_VERSION",
-    "CANONICAL_PNG_PILLOW_VERSION",
-    "CANONICAL_PNG_ZLIB_RUNTIME_VERSION",
     "CANONICAL_TEXTURE_PAGE_SET_VERSION",
     "TEXTURE_EXTRUSION_PX",
     "TEXTURE_MAX_PAGES",

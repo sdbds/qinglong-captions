@@ -74,7 +74,7 @@ from .manifests import (
 from .rig_document import RigDocument, load_rig_document
 
 STAGE_E_SCHEMA_VERSION = 1
-STAGE_E_ALGORITHM_VERSION = "stage-e-live2d-moc3-v3"
+STAGE_E_ALGORITHM_VERSION = "stage-e-live2d-moc3-v4"
 STAGE_E_FAILURE_SCHEMA_VERSION = "stage-failure-v1"
 LIVE2D_EXPORT_REPORT_VERSION = "live2d-export-report-v1"
 LIVE2D_VALIDATION_TIERS = frozenset({"structural", "release"})

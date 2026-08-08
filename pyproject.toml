@@ -33,7 +33,7 @@ dependencies = [
     "wheel_stub",
     "setuptools",
     "opencv-python",
-    "scenedetect>=0.7",
+    "scenedetect>=0.7.1",
     "nicegui[native]",
     "tomlkit",
 ]
