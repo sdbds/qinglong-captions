@@ -38,6 +38,12 @@ from module.muscriptor_tool.options import (
     PreviewRequest,
     TranscriptionOptions,
 )
+from module.reward_policy import (
+    DEFAULT_SCORER,
+    RewardPolicy,
+    load_reward_policy,
+    save_threshold_profile,
+)
 
 if TYPE_CHECKING:
     from gui.components.execution_panel import ExecutionPanel
@@ -53,6 +59,8 @@ DEFAULT_VOCAL_MIDI_EST_THRESHOLD = 0.2
 DEFAULT_VOCAL_MIDI_OUTPUT_FORMATS = "mid"
 DEFAULT_SHEET_MUSIC_PDF_DPI = 144
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+REWARD_CONFIG_DIR = PROJECT_ROOT / "config"
+REWARD_MODEL_TOML = REWARD_CONFIG_DIR / "model.toml"
 
 
 def _default_runtime_path(env_name: str, *candidates: Path) -> str:
@@ -333,19 +341,6 @@ class ToolsStep:
         "bdsqlsz/Watermark-Detection-SigLIP2-onnx",
     ]
 
-    # 评分模型
-    REWARD_MODELS = [
-        "RE-N-Y/hpsv3",
-        "RE-N-Y/aesthetic-shadow-v2",
-        "RE-N-Y/clipscore-vit-large-patch14",
-        "RE-N-Y/pickscore",
-        "yuvalkirstain/PickScore_v1",
-        "RE-N-Y/mpsv1",
-        "RE-N-Y/hpsv21",
-        "RE-N-Y/ImageReward",
-        "RE-N-Y/laion-aesthetic",
-    ]
-
     # 变换类型
     TRANSFORM_TYPES = ["auto", "none"]
 
@@ -475,6 +470,23 @@ class ToolsStep:
                 / "auto_rig_spine_runtime.exe",
             ),
         }
+        try:
+            self.reward_policy = load_reward_policy(REWARD_CONFIG_DIR)
+        except (OSError, TypeError, ValueError):
+            self.reward_policy = RewardPolicy(DEFAULT_SCORER, {})
+        self.reward_active_scorer = self.reward_policy.default_scorer
+        self.reward_threshold_draft = [
+            row.as_dict()
+            for row in self.reward_policy.thresholds_for(self.reward_active_scorer)
+        ]
+        self.reward_threshold_dirty = False
+        self.reward_threshold_container = None
+        self.reward_threshold_dirty_label = None
+        self.reward_discovery_status_label = None
+        self.reward_scorer = None
+        self.reward_checkpoint = None
+        self._reward_scorer_switching = False
+        self._tool_tabs = None
         self.panel: "ExecutionPanel | None" = None
         self._tool_tab_containers: Dict[str, Any] = {}
         self._rendered_tool_tabs: set[str] = set()
@@ -577,6 +589,26 @@ class ToolsStep:
         self._active_tool_tab = tab_key
         self._ensure_tool_panel_rendered(tab_key)
         self._sync_execution_action()
+
+    async def _on_tool_tab_change(self, event: Any) -> None:
+        tab_key = str(event.value)
+        if (
+            self._active_tool_tab == "reward"
+            and tab_key != "reward"
+            and self.reward_threshold_dirty
+        ):
+            action = await self._ask_reward_draft_action()
+            if action == "save":
+                resolved = self._save_reward_threshold_draft()
+            elif action == "discard":
+                self._discard_reward_threshold_draft()
+                resolved = True
+            else:
+                resolved = False
+            if not resolved:
+                self._set_reward_control_value(self._tool_tabs, "reward")
+                return
+        self._handle_tool_tab_change(tab_key)
 
     def _build_see_through_summary(self) -> str:
         recommendation = self.see_through_recommendation
@@ -1077,7 +1109,8 @@ class ToolsStep:
                 for tab_key, label_key, icon in self.TOOL_TABS:
                     ui.tab(tab_key, t(label_key), icon=icon)
 
-            tabs.on_value_change(lambda e: self._handle_tool_tab_change(str(e.value)))
+            self._tool_tabs = tabs
+            tabs.on_value_change(self._on_tool_tab_change)
 
             with ui.tab_panels(tabs, value="watermark").classes("w-full"):
                 for tab_key, _label_key, _icon in self.TOOL_TABS:
@@ -1221,6 +1254,318 @@ class ToolsStep:
                 toggle_switch("recursive", self.config, "preprocess_recursive")
                 toggle_switch("crop_transparent", self.config, "crop_transparent")
 
+    @staticmethod
+    def _reward_swatch_color(style: object) -> str:
+        value = str(style or "").strip().lower()
+        if value.startswith("bold "):
+            value = value[5:].strip()
+        if value.startswith("#") and len(value) in {4, 7, 9}:
+            return value
+        return {
+            "red": "#f44336",
+            "green": "#4caf50",
+            "blue": "#2196f3",
+            "yellow": "#fbc02d",
+            "white": "#ffffff",
+            "black": "#000000",
+        }.get(value, "#607d8b")
+
+    @staticmethod
+    def _reward_rich_color(value: object) -> str:
+        color = str(value or "#607d8b").strip()
+        return color if color.startswith("bold ") else f"bold {color}"
+
+    @staticmethod
+    def _set_reward_control_value(control: Any, value: Any) -> None:
+        if control is None:
+            return
+        if hasattr(control, "set_value"):
+            control.set_value(value)
+        else:
+            control.value = value
+
+    @staticmethod
+    def _notify_reward(message: str, *, notification_type: str = "info") -> None:
+        try:
+            ui.notify(message, type=notification_type)
+        except RuntimeError:
+            pass
+
+    def _fallback_reward_scorers(self) -> tuple[str, ...]:
+        names = {
+            self.reward_policy.default_scorer,
+            *self.reward_policy.scorer_names,
+        }
+        default = self.reward_policy.default_scorer
+        return (default, *sorted(names - {default}))
+
+    def _refresh_reward_checkpoints(
+        self,
+        scorer: str,
+        *,
+        qscore_module: Any | None = None,
+        preserve_selection: bool = False,
+    ) -> None:
+        options = {"": t("reward_checkpoint_default")}
+        try:
+            if qscore_module is None:
+                import qinglong_score as qscore_module
+
+            for row in qscore_module.list_checkpoints(scorer):
+                tags = []
+                if row.is_default:
+                    tags.append(t("reward_checkpoint_default_tag"))
+                if row.tracks_updates:
+                    tags.append(t("reward_checkpoint_tracking_tag"))
+                suffix = f" ({', '.join(tags)})" if tags else ""
+                options[row.identifier] = f"{row.identifier}{suffix}"
+        except Exception:
+            pass
+
+        control = self.reward_checkpoint
+        if control is not None:
+            current = str(getattr(control, "value", "") or "").strip()
+            selected = current if preserve_selection and current else ""
+            if selected:
+                options.setdefault(selected, selected)
+            control.set_options(options, value=selected)
+
+    def _refresh_reward_discovery(self, _event: Any = None) -> None:
+        names = set(self._fallback_reward_scorers())
+        qscore_module = None
+        discovery_error = None
+        try:
+            import qinglong_score as qscore_module
+
+            names.update(qscore_module.list_scorers())
+        except Exception as error:
+            discovery_error = error
+
+        default = self.reward_policy.default_scorer
+        current = str(getattr(self.reward_scorer, "value", "") or default).strip()
+        if current:
+            names.add(current)
+        ordered = (default, *sorted(names - {default}))
+        if self.reward_scorer is not None:
+            self.reward_scorer.set_options(
+                {name: name for name in ordered},
+                value=current or default,
+            )
+        self._refresh_reward_checkpoints(
+            current or default,
+            qscore_module=qscore_module,
+            preserve_selection=True,
+        )
+
+        status = self.reward_discovery_status_label
+        if status is not None:
+            status.set_text(
+                t("reward_discovery_unavailable") if discovery_error else ""
+            )
+
+    def _set_reward_threshold_dirty(self, dirty: bool) -> None:
+        self.reward_threshold_dirty = bool(dirty)
+        label = self.reward_threshold_dirty_label
+        if label is not None:
+            label.set_text(t("reward_threshold_dirty") if dirty else "")
+
+    def _load_reward_threshold_draft(self, scorer: str) -> None:
+        try:
+            self.reward_policy = load_reward_policy(REWARD_CONFIG_DIR)
+        except (OSError, TypeError, ValueError) as error:
+            self._notify_reward(
+                f"{t('reward_threshold_invalid')}: {error}",
+                notification_type="negative",
+            )
+        self.reward_active_scorer = scorer
+        self.reward_threshold_draft = [
+            row.as_dict() for row in self.reward_policy.thresholds_for(scorer)
+        ]
+        self._set_reward_threshold_dirty(False)
+        self._render_reward_threshold_grid()
+
+    def _update_reward_threshold(self, index: int, key: str, value: Any) -> None:
+        if index >= len(self.reward_threshold_draft):
+            return
+        if key == "color":
+            value = self._reward_rich_color(value)
+        self.reward_threshold_draft[index][key] = value
+        self._set_reward_threshold_dirty(True)
+
+    def _add_reward_threshold(self, _event: Any = None) -> None:
+        existing_names = {str(row.get("name", "")) for row in self.reward_threshold_draft}
+        index = 1
+        while f"tier_{index}" in existing_names:
+            index += 1
+        previous_max = max(
+            (
+                float(row["max_score"])
+                for row in self.reward_threshold_draft
+                if isinstance(row.get("max_score"), (int, float))
+            ),
+            default=0.0,
+        )
+        self.reward_threshold_draft.append(
+            {
+                "name": f"tier_{index}",
+                "max_score": previous_max + 1.0,
+                "color": "bold #4caf50",
+            }
+        )
+        self._set_reward_threshold_dirty(True)
+        self._render_reward_threshold_grid()
+
+    def _delete_reward_threshold(self, index: int) -> None:
+        if index >= len(self.reward_threshold_draft):
+            return
+        del self.reward_threshold_draft[index]
+        self._set_reward_threshold_dirty(True)
+        self._render_reward_threshold_grid()
+
+    def _render_reward_threshold_grid(self) -> None:
+        container = self.reward_threshold_container
+        if container is None:
+            return
+        container.clear()
+        with container:
+            for index, row in enumerate(self.reward_threshold_draft):
+                with ui.row().classes(
+                    "w-full items-end gap-2 flex-wrap reward-threshold-row"
+                ):
+                    name_input = (
+                        ui.input(
+                            label=t("reward_threshold_name"),
+                            value=str(row.get("name", "")),
+                        )
+                        .props("dense outlined")
+                        .classes("modern-input")
+                        .style("flex: 2 1 180px;")
+                    )
+                    name_input.on_value_change(
+                        lambda event, row_index=index: self._update_reward_threshold(
+                            row_index, "name", event.value
+                        )
+                    )
+                    score_input = (
+                        ui.number(
+                            label=t("reward_threshold_max_score"),
+                            value=row.get("max_score"),
+                            step=0.1,
+                            precision=6,
+                        )
+                        .props("dense outlined")
+                        .classes("modern-input")
+                        .style("flex: 1 1 150px;")
+                    )
+                    score_input.on_value_change(
+                        lambda event, row_index=index: self._update_reward_threshold(
+                            row_index, "max_score", event.value
+                        )
+                    )
+                    color_input = (
+                        ui.color_input(
+                            label=t("reward_threshold_color"),
+                            value=self._reward_swatch_color(row.get("color")),
+                            preview=True,
+                        )
+                        .props("dense outlined")
+                        .classes("modern-input")
+                        .style("flex: 1 1 150px;")
+                    )
+                    color_input.on_value_change(
+                        lambda event, row_index=index: self._update_reward_threshold(
+                            row_index, "color", event.value
+                        )
+                    )
+                    delete_button = ui.button(
+                        icon="delete",
+                        on_click=lambda _event, row_index=index: self._delete_reward_threshold(
+                            row_index
+                        ),
+                    ).props("flat round dense")
+                    delete_button.tooltip(t("reward_threshold_delete"))
+
+    def _save_reward_threshold_draft(self) -> bool:
+        try:
+            rows = save_threshold_profile(
+                REWARD_MODEL_TOML,
+                self.reward_active_scorer,
+                self.reward_threshold_draft,
+            )
+        except (OSError, TypeError, ValueError) as error:
+            self._notify_reward(
+                f"{t('reward_threshold_invalid')}: {error}",
+                notification_type="negative",
+            )
+            return False
+        self.reward_threshold_draft = [row.as_dict() for row in rows]
+        self._set_reward_threshold_dirty(False)
+        self._render_reward_threshold_grid()
+        self._notify_reward(t("reward_threshold_saved"), notification_type="positive")
+        return True
+
+    def _discard_reward_threshold_draft(self) -> None:
+        self._load_reward_threshold_draft(self.reward_active_scorer)
+
+    async def _ask_reward_draft_action(self) -> str:
+        with ui.dialog() as dialog, ui.card().classes("q-pa-md"):
+            ui.label(t("reward_threshold_dirty_message")).classes(
+                "text-body1 text-weight-medium"
+            )
+            with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
+                ui.button(
+                    t("cancel"),
+                    icon="close",
+                    on_click=lambda: dialog.submit("cancel"),
+                ).props("flat")
+                ui.button(
+                    t("reward_threshold_discard"),
+                    icon="undo",
+                    on_click=lambda: dialog.submit("discard"),
+                ).props("flat")
+                ui.button(
+                    t("save"),
+                    icon="save",
+                    on_click=lambda: dialog.submit("save"),
+                )
+        dialog.open()
+        return await dialog
+
+    async def _switch_reward_scorer(self, scorer: object) -> bool:
+        requested = str(scorer or "").strip()
+        previous = self.reward_active_scorer
+        if not requested:
+            self._set_reward_control_value(self.reward_scorer, previous)
+            return False
+        if requested == previous:
+            return True
+
+        if self.reward_threshold_dirty:
+            action = await self._ask_reward_draft_action()
+            if action == "save":
+                if not self._save_reward_threshold_draft():
+                    self._set_reward_control_value(self.reward_scorer, previous)
+                    return False
+            elif action == "discard":
+                self._discard_reward_threshold_draft()
+            else:
+                self._set_reward_control_value(self.reward_scorer, previous)
+                return False
+
+        self._load_reward_threshold_draft(requested)
+        self._refresh_reward_checkpoints(requested)
+        self._set_reward_control_value(self.reward_scorer, requested)
+        return True
+
+    async def _on_reward_scorer_change(self, event: Any) -> None:
+        if self._reward_scorer_switching:
+            return
+        self._reward_scorer_switching = True
+        try:
+            await self._switch_reward_scorer(event.value)
+        finally:
+            self._reward_scorer_switching = False
+
     def _render_reward_tool(self):
         """渲染图像评分工具"""
         with ui.card().classes(get_classes("card") + " w-full q-pa-md"):
@@ -1235,14 +1580,39 @@ class ToolsStep:
                 label=t("train_data_dir"), selection_type="dir", placeholder=t("input_path_placeholder")
             )
 
-            # 模型选择 - 带图标的现代化下拉框
-            self.reward_model = styled_select(
-                options=dict(zip(self.REWARD_MODELS, self.REWARD_MODELS)),
-                value=self.REWARD_MODELS[0],
-                label=t("reward_model_select"),
-                icon="stars",
-                icon_color=COLORS["warning"],
-            )
+            with ui.row().classes("w-full items-end gap-2 flex-wrap"):
+                self.reward_scorer = styled_select(
+                    options={
+                        name: name for name in self._fallback_reward_scorers()
+                    },
+                    value=self.reward_active_scorer,
+                    label=t("reward_scorer"),
+                    icon="stars",
+                    icon_color=COLORS["warning"],
+                    flex=1,
+                    new_value_mode="add-unique",
+                    searchable=True,
+                )
+                self.reward_scorer.on_value_change(self._on_reward_scorer_change)
+                self.reward_checkpoint = styled_select(
+                    options={"": t("reward_checkpoint_default")},
+                    value="",
+                    label=t("reward_checkpoint"),
+                    icon="inventory_2",
+                    icon_color=COLORS["primary"],
+                    flex=1,
+                    new_value_mode="add-unique",
+                    searchable=True,
+                )
+                refresh_button = ui.button(
+                    icon="refresh",
+                    on_click=self._refresh_reward_discovery,
+                ).props("flat round dense")
+                refresh_button.tooltip(t("reward_discovery_refresh"))
+
+            self.reward_discovery_status_label = ui.label("").classes(
+                "text-caption"
+            ).style("color: var(--color-text-secondary);")
 
             # 使用可编辑滑块
             editable_slider(
@@ -1275,6 +1645,35 @@ class ToolsStep:
                     icon_color=COLORS["primary"],
                     flex=1,
                 )
+
+            with ui.row().classes("w-full items-center justify-between q-mt-md"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon("view_list", size="18px").style(
+                        f"color: {COLORS['primary']};"
+                    )
+                    ui.label(t("reward_thresholds")).classes(
+                        "text-subtitle2 text-weight-bold"
+                    )
+                    self.reward_threshold_dirty_label = ui.label("").classes(
+                        "text-caption"
+                    ).style(f"color: {COLORS['warning']};")
+                with ui.row().classes("items-center gap-1"):
+                    add_button = ui.button(
+                        icon="add",
+                        on_click=self._add_reward_threshold,
+                    ).props("flat round dense")
+                    add_button.tooltip(t("reward_threshold_add"))
+                    save_button = ui.button(
+                        icon="save",
+                        on_click=self._save_reward_threshold_draft,
+                    ).props("flat round dense")
+                    save_button.tooltip(t("reward_threshold_save"))
+
+            self.reward_threshold_container = ui.column().classes(
+                "w-full gap-2 q-mt-xs"
+            )
+            self._render_reward_threshold_grid()
+            self._refresh_reward_discovery()
 
     def _render_audio_separator_tool(self):
         """渲染音频分轨工具"""
@@ -2744,9 +3143,24 @@ class ToolsStep:
             ui.notify(t("select_valid_input"), type="warning")
             return
 
-        # 构建参数
+        scorer = str(getattr(self.reward_scorer, "value", "") or "").strip()
+        if not scorer:
+            self._notify_reward(t("reward_scorer_required"), notification_type="warning")
+            return
+        if self.reward_threshold_dirty and scorer == self.reward_active_scorer:
+            self._notify_reward(
+                t("reward_threshold_dirty_message"),
+                notification_type="warning",
+            )
+            return
+
         args = [input_path]
-        args.append(f"--repo_id={self.reward_model.value}")
+        args.append(f"--scorer={scorer}")
+        checkpoint = str(
+            getattr(self.reward_checkpoint, "value", "") or ""
+        ).strip()
+        if checkpoint:
+            args.append(f"--checkpoint={checkpoint}")
         args.append(f"--batch_size={int(self.config['reward_batch_size'])}")
         args.append(f"--device={self.reward_device.value}")
         args.append(f"--dtype={self.reward_dtype.value}")
@@ -2754,7 +3168,9 @@ class ToolsStep:
         def pre_log(lv):
             lv.info(t("log_start_scoring"))
             lv.info(f"{t('log_input_path')}: {input_path}")
-            lv.info(f"{t('log_model')}: {self.reward_model.value}")
+            lv.info(f"{t('log_model')}: {scorer}")
+            if checkpoint:
+                lv.info(f"{t('reward_checkpoint')}: {checkpoint}")
 
         panel = self._ensure_execution_panel()
         await panel.run_job(

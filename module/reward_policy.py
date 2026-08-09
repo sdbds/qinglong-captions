@@ -80,18 +80,25 @@ def normalize_thresholds(rows: object, *, scorer: str) -> tuple[Threshold, ...]:
             raise ValueError(
                 f"threshold row {index} for scorer {scorer!r} needs max_score"
             )
-        row = Threshold(
-            name=raw["name"],
-            max_score=raw["max_score"],
-            color=raw.get("color", DEFAULT_THRESHOLD_COLOR),
-        )
+        try:
+            row = Threshold(
+                name=raw["name"],
+                max_score=raw["max_score"],
+                color=raw.get("color", DEFAULT_THRESHOLD_COLOR),
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"invalid threshold row {index} for scorer {scorer!r}: {error}"
+            ) from error
         if row.name in names:
             raise ValueError(
-                f"duplicate threshold name {row.name!r} for scorer {scorer!r}"
+                f"duplicate threshold name {row.name!r} at row {index} "
+                f"for scorer {scorer!r}"
             )
         if row.max_score in scores:
             raise ValueError(
-                f"duplicate max_score {row.max_score!r} for scorer {scorer!r}"
+                f"duplicate max_score {row.max_score!r} at row {index} "
+                f"for scorer {scorer!r}"
             )
         names.add(row.name)
         scores.add(row.max_score)
