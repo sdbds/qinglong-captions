@@ -256,20 +256,38 @@ def test_run_uses_public_loader_without_mutating_the_scorer(
         default_compute_dtype: torch.dtype
 
     @dataclass(frozen=True, slots=True)
+    class FakeArtifact:
+        provider: str
+        repository: str
+        revision: str
+        filename: str | None
+        sha256: str | None
+        role: str
+
+    @dataclass(frozen=True, slots=True)
     class FakeCheckpoint:
         adapter: str
         identifier: str
         format: str
-        artifacts: tuple[object, ...]
+        artifacts: tuple[FakeArtifact, ...]
         is_default: bool
         tracks_updates: bool = False
+
+    artifact = FakeArtifact(
+        provider="huggingface",
+        repository="owner/model",
+        revision="a" * 40,
+        filename="model.safetensors",
+        sha256="b" * 64,
+        role="weights",
+    )
 
     class ImmutableScorer(FakeScorer):
         checkpoint_identity = FakeCheckpoint(
             adapter="aesthetic_predictor_v2_5",
             identifier="owner/resolved",
             format="safetensors",
-            artifacts=(object(),),
+            artifacts=(artifact,),
             is_default=True,
         )
         attention_backend = None
@@ -287,7 +305,7 @@ def test_run_uses_public_loader_without_mutating_the_scorer(
         adapter="aesthetic_predictor_v2_5",
         identifier="owner/default",
         format="safetensors",
-        artifacts=(object(),),
+        artifacts=(artifact,),
         is_default=True,
     )
     fake_module = types.ModuleType("qinglong_score")
