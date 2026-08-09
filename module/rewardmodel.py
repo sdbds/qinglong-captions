@@ -15,800 +15,426 @@
 #   "imscore",
 # ]
 # ///
+"""Score image datasets through the public Qinglong Score contract."""
+
+from __future__ import annotations
+
 import argparse
 import concurrent.futures
-import gc
-import inspect
-import json
-import math
-import shutil
+from collections import defaultdict
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Literal
 
-import lance
 import numpy as np
-import toml
 import torch
-from imscore.aesthetic.model import (
-    CLIPAestheticScorer,
-    Dinov2AestheticScorer,
-    LAIONAestheticScorer,
-    ShadowAesthetic,
-    SiglipAestheticScorer,
-)
-from imscore.cyclereward.model import CycleReward
-from imscore.evalmuse.model import EvalMuse
-from imscore.hps.model import HPSv2
-from imscore.hpsv3.model import HPSv3
-from imscore.imreward.model import ImageReward
-from imscore.mps.model import MPS
-from imscore.pickscore.model import PickScorer
-from imscore.preference.model import (
-    CLIPPreferenceScorer,
-    CLIPScore,
-    SiglipPreferenceScorer,
-)
-from imscore.vqascore.model import VQAScore
 from PIL import Image
-from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    SpinnerColumn,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-    TransferSpeedColumn,
-)
-from rich.tree import Tree
 
-from module.lanceImport import transform2lance
-from utils.console_util import print_exception
-
-console = Console(color_system="truecolor", force_terminal=True)
-
-HPSV3_MAX_ASPECT_RATIO = 199.0
-
-
-def preprocess_image(image):
-    """将输入统一转换为 RGB 的 np.ndarray（uint8, H×W×C）。其余预处理交由各模型内部完成。
-
-    返回：np.ndarray 或 None
-    """
-    try:
-        # 统一为 PIL Image RGB
-        if isinstance(image, np.ndarray):
-            image = Image.fromarray(image).convert("RGB")
-        elif isinstance(image, (str, Path)):
-            image = Image.open(image).convert("RGB")
-        elif isinstance(image, Image.Image):
-            image = image.convert("RGB")
-        else:
-            raise TypeError("Input must be a PIL image, numpy array, or file path")
-        return np.array(image)
-    except Exception as e:
-        print_exception(console, e, prefix="preprocess_image error")
-        return None
-
-
-def load_and_preprocess_batch(uris):
-    """并行加载和预处理一批图像，返回 List[np.ndarray] 和有效索引。
-
-    每张图像：RGB、dtype=uint8、H×W×C。
-    """
-
-    def load_single_image(uri):
-        try:
-            # 直接传入路径，在preprocess_image中处理转换
-            return preprocess_image(uri)
-        except Exception as e:
-            print_exception(console, e, prefix=f"Error processing {uri}")
-            return None
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
-        batch_images = list(executor.map(load_single_image, uris))
-
-    # 过滤掉加载失败的图像
-    valid_images = [(i, img) for i, img in enumerate(batch_images) if img is not None]
-    images = [img for _, img in valid_images]
-    indices = [i for i, _ in valid_images]
-
-    return images, indices
-
-
-def _pixel_input_description(px) -> str:
-    if isinstance(px, np.ndarray):
-        return f"ndarray shape={px.shape}, dtype={px.dtype}"
-    if isinstance(px, torch.Tensor):
-        return f"tensor shape={tuple(px.shape)}, dtype={px.dtype}, device={px.device}"
-    if isinstance(px, Image.Image):
-        return f"PIL size={px.size}, mode={px.mode}"
-    return f"type={type(px).__name__}"
-
-
-def _aspect_ratio(width: int, height: int) -> float:
-    if width <= 0 or height <= 0:
-        raise ValueError(f"Invalid image size: {width}x{height}")
-    return max(width / height, height / width)
-
-
-def _array_to_rgb_pil(arr: np.ndarray) -> Image.Image:
-    arr = np.asarray(arr)
-    if arr.ndim == 3 and arr.shape[0] in (1, 3, 4) and arr.shape[-1] not in (1, 3, 4):
-        arr = np.moveaxis(arr, 0, -1)
-    if arr.ndim not in (2, 3):
-        raise ValueError(f"Expected image array with 2 or 3 dims, got shape={arr.shape}")
-    if arr.ndim == 3 and arr.shape[-1] not in (1, 3, 4):
-        raise ValueError(f"Expected image array channels in last dim, got shape={arr.shape}")
-
-    if arr.dtype == np.uint8:
-        arr8 = arr
-    elif np.issubdtype(arr.dtype, np.floating):
-        arr = np.nan_to_num(arr.astype(np.float32, copy=False), nan=0.0, posinf=255.0, neginf=0.0)
-        if arr.size and float(arr.max()) <= 1.0:
-            arr = arr * 255.0
-        arr8 = np.clip(arr, 0, 255).astype(np.uint8)
-    elif np.issubdtype(arr.dtype, np.integer):
-        arr8 = np.clip(arr, 0, 255).astype(np.uint8)
-    else:
-        raise TypeError(f"Unsupported image array dtype: {arr.dtype}")
-
-    if arr8.ndim == 3 and arr8.shape[-1] == 1:
-        arr8 = arr8[..., 0]
-    return Image.fromarray(np.ascontiguousarray(arr8)).convert("RGB")
-
-
-def _tensor_to_rgb_pil(tensor: torch.Tensor) -> Image.Image:
-    tensor = tensor.detach()
-    if tensor.dim() == 4:
-        if tensor.shape[0] < 1:
-            raise ValueError(f"Expected non-empty tensor batch, got shape={tuple(tensor.shape)}")
-        tensor = tensor[0]
-    if tensor.dim() not in (2, 3):
-        raise ValueError(f"Expected image tensor CHW/HWC or HW, got shape={tuple(tensor.shape)}")
-
-    tensor = tensor.to(device="cpu", dtype=torch.float32)
-    if tensor.dim() == 3:
-        shape = tuple(tensor.shape)
-        if shape[0] in (1, 3, 4) and shape[-1] not in (1, 3, 4):
-            tensor = tensor.permute(1, 2, 0)
-        elif shape[-1] not in (1, 3, 4):
-            raise ValueError(f"Expected tensor channels in CHW or HWC layout, got shape={shape}")
-
-    return _array_to_rgb_pil(tensor.contiguous().numpy())
-
-
-def _normalize_hpsv3_image(px) -> Image.Image:
-    """Return an RGB PIL image before converting to HPSv3's tensor contract."""
-    if isinstance(px, Image.Image):
-        return px.convert("RGB")
-    if isinstance(px, np.ndarray):
-        return _array_to_rgb_pil(px)
-    if isinstance(px, torch.Tensor):
-        return _tensor_to_rgb_pil(px)
-    raise TypeError(f"Unsupported pixel type for HPSv3: {type(px)}")
-
-
-def _constrain_hpsv3_aspect_ratio(image: Image.Image, max_ratio: float = HPSV3_MAX_ASPECT_RATIO) -> Image.Image:
-    """Pad extreme images so Qwen2-VL's image processor accepts them."""
-    image = image.convert("RGB")
-    width, height = image.size
-    if _aspect_ratio(width, height) <= max_ratio:
-        return image
-
-    if width >= height:
-        new_width = width
-        new_height = max(height, math.ceil(width / max_ratio))
-    else:
-        new_width = max(width, math.ceil(height / max_ratio))
-        new_height = height
-
-    fill = image.resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))
-    padded = Image.new("RGB", (new_width, new_height), fill)
-    padded.paste(image, ((new_width - width) // 2, (new_height - height) // 2))
-    return padded
-
-
-def _hpsv3_tensor_from_image(image: Image.Image) -> torch.Tensor:
-    arr = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
-    return torch.from_numpy(arr).permute(2, 0, 1).contiguous()
-
-
-def _prepare_hpsv3_score_input(px):
-    original_desc = _pixel_input_description(px)
-    image = _normalize_hpsv3_image(px)
-    original_size = image.size
-    original_ratio = _aspect_ratio(*original_size)
-    image = _constrain_hpsv3_aspect_ratio(image)
-    final_size = image.size
-    final_ratio = _aspect_ratio(*final_size)
-    return _hpsv3_tensor_from_image(image), {
-        "input": original_desc,
-        "original_size": original_size,
-        "original_aspect_ratio": original_ratio,
-        "final_pil_size": final_size,
-        "final_aspect_ratio": final_ratio,
-    }
-
-
-@torch.inference_mode()
-def process_batch(pixel_tensors, model, prompts):
-    """使用奖励模型计算分数（逐张处理，避免尺寸不一致拼接）。
-
-    pixel_tensors: List[np.ndarray]（RGB、uint8、H×W×C）
-    prompts: List[str]，与 pixel_tensors 对齐
-    返回：list 或 np.ndarray，分数（logits）
-    """
-    try:
-        if not pixel_tensors:
-            return []
-        out = []
-        # 推断目标设备
-        try:
-            model_device = next(model.parameters()).device  # type: ignore[attr-defined]
-        except Exception:
-            model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        for px, pr in zip(pixel_tensors, prompts):
-            # sanitize prompt: ensure non-empty string for models that require text
-            model_name = type(model).__name__
-            if not isinstance(pr, str):
-                pr = "" if pr is None else str(pr)
-            if not pr.strip():
-                pr = " "
-            score_debug = None
-            try:
-                if model_name == "HPSv3":
-                    t, score_debug = _prepare_hpsv3_score_input(px)
-                    if score_debug["original_size"] != score_debug["final_pil_size"]:
-                        console.print(
-                            "[yellow]HPSv3 padded extreme aspect ratio "
-                            f"{score_debug['original_aspect_ratio']:.3f} -> "
-                            f"{score_debug['final_aspect_ratio']:.3f}, "
-                            f"size {score_debug['original_size']} -> {score_debug['final_pil_size']}[/yellow]"
-                        )
-                    s = model.score([t], [pr])
-                else:
-                    # 统一为 torch.FloatTensor [C,H,W] on model_device, 0..1
-                    if isinstance(px, torch.Tensor):
-                        t = px
-                        if t.dim() == 3 and t.shape[-1] == 3:
-                            # HWC -> CHW
-                            t = t.permute(2, 0, 1)
-                        elif t.dim() == 4:
-                            # [N,C,H,W] -> take first
-                            t = t[0]
-                        t = t.to(dtype=torch.float32)
-                        if t.max() > 1.0:
-                            t = t / 255.0
-                    elif isinstance(px, np.ndarray):
-                        if px.ndim != 3 or px.shape[2] != 3:
-                            raise ValueError(f"Expected ndarray HxWx3, got shape={px.shape}")
-                        t = torch.from_numpy(px).permute(2, 0, 1).contiguous().to(dtype=torch.float32) / 255.0
-                    elif isinstance(px, Image.Image):
-                        arr = np.array(px.convert("RGB"), dtype=np.float32)
-                        t = torch.from_numpy(arr).permute(2, 0, 1).contiguous() / 255.0
-                    else:
-                        raise TypeError(f"Unsupported pixel type: {type(px)}")
-
-                    # align dtype with model parameters to avoid mixed precision issues
-                    try:
-                        target_dtype = next(model.parameters()).dtype  # type: ignore[attr-defined]
-                    except Exception:
-                        target_dtype = t.dtype
-                    t = t.to(model_device, dtype=target_dtype, non_blocking=True)
-                    # 增加 batch 维度 -> [1,C,H,W]
-                    if t.dim() == 3:
-                        t = t.unsqueeze(0)
-                    s = model.score(t, pr)
-            except Exception as e:
-                print_exception(
-                    console,
-                    e,
-                    prefix=(
-                        "score(single) failed "
-                        f"model={type(model).__name__}, px_type={type(px).__name__}, "
-                        f"pr_type={type(pr).__name__}, device={model_device}"
-                    ),
-                )
-                if score_debug:
-                    console.print(
-                        "[yellow]HPSv3 input="
-                        f"{score_debug['input']}, "
-                        f"original_size={score_debug['original_size']}, "
-                        f"original_aspect_ratio={score_debug['original_aspect_ratio']:.3f}, "
-                        f"final_pil_size={score_debug['final_pil_size']}, "
-                        f"final_aspect_ratio={score_debug['final_aspect_ratio']:.3f}[/yellow]"
-                    )
-                else:
-                    console.print(f"[yellow]{_pixel_input_description(px)}[/yellow]")
-                if model_name == "HPSv3":
-                    raise
-                # 最后兜底：再尝试原始对象（可能某些实现内部做转换）
-                try:
-                    s = model.score(px, pr)
-                except Exception:
-                    raise
-            console.print(f"[bold green]Score: {s}[/bold green]")
-            if isinstance(s, torch.Tensor):
-                s = (
-                    float(s.detach().to("cpu").squeeze().item())
-                    if s.numel() == 1
-                    else float(s.detach().to("cpu").flatten()[0].item())
-                )
-            elif isinstance(s, (list, tuple)):
-                s = float(s[0])
-            else:
-                s = float(s)
-            out.append(s)
-
-            del px, pr
-
-            if torch.cuda.is_available() and (len(out) % 32 == 0):
-                torch.cuda.empty_cache()
-
-        return np.array(out, dtype=np.float32)
-    except Exception as e:
-        print_exception(console, e, prefix="Batch processing error")
-        return None
-
-
-def _normalize_device_dtype(args):
-    raw_device = str(getattr(args, "device", "auto") or "auto").strip().lower()
-    if raw_device == "auto":
-        device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    elif raw_device == "cuda":
-        device = "cuda:0"
-    elif raw_device == "cpu":
-        device = "cpu"
-    elif raw_device.startswith("cuda:"):
-        device = raw_device
-    else:
-        raise ValueError(f"Unsupported device: {raw_device}. Use auto, cpu, cuda, or cuda:<index>.")
-
-    if device.startswith("cuda"):
-        if not torch.cuda.is_available():
-            raise ValueError(f"CUDA device requested but CUDA is not available: {device}")
-        cuda_device = torch.device(device)
-        cuda_index = 0 if cuda_device.index is None else cuda_device.index
-        cuda_count = torch.cuda.device_count()
-        if cuda_index < 0 or cuda_index >= cuda_count:
-            raise ValueError(f"CUDA device index out of range: {device}; available count={cuda_count}")
-        torch.cuda.set_device(cuda_index)
-
-    dtype_opt = getattr(args, "dtype", "auto")
-    repo_id = getattr(args, "repo_id", "") or ""
-    if dtype_opt in ("auto", None):
-        if repo_id.endswith("hpsv3"):
-            inferred = torch.bfloat16 if device != "cpu" else torch.float32
-        else:
-            inferred = torch.float16 if device.startswith("cuda") else torch.float32
-    elif dtype_opt in ("float16", "fp16"):
-        inferred = torch.float16
-    elif dtype_opt in ("bfloat16", "bf16"):
-        inferred = torch.bfloat16
-    elif dtype_opt in ("float32", "fp32"):
-        inferred = torch.float32
-    else:
-        inferred = torch.float32
-
-    return device, inferred
-
-
-def load_model(args, device, dtype):
-    """加载模型和标签"""
-    registry = {
-        "RE-N-Y/aesthetic-shadow-v2": ShadowAesthetic,
-        "RE-N-Y/clipscore-vit-large-patch14": CLIPScore,
-        "RE-N-Y/pickscore": PickScorer,
-        "yuvalkirstain/PickScore_v1": PickScorer,
-        "RE-N-Y/mpsv1": MPS,
-        "RE-N-Y/hpsv21": HPSv2,
-        "RE-N-Y/ImageReward": ImageReward,
-        "RE-N-Y/laion-aesthetic": LAIONAestheticScorer,
-        "NagaSaiAbhinay/CycleReward-Combo": CycleReward,
-        "NagaSaiAbhinay/CycleReward-T2I": CycleReward,
-        "NagaSaiAbhinay/CycleReward-I2T": CycleReward,
-        "RE-N-Y/clip-t5-xxl": VQAScore,
-        "RE-N-Y/evalmuse": EvalMuse,
-        "RE-N-Y/hpsv3": HPSv3,
-        "RE-N-Y/pickscore-siglip": SiglipPreferenceScorer,
-        "RE-N-Y/pickscore-clip": CLIPPreferenceScorer,
-        # imreward fidelity rating (pixel only)
-        "RE-N-Y/imreward-fidelity_rating-siglip": SiglipAestheticScorer,
-        "RE-N-Y/imreward-fidelity_rating-clip": CLIPAestheticScorer,
-        "RE-N-Y/imreward-fidelity_rating-dinov2": Dinov2AestheticScorer,
-        # imreward overall rating (pixel only)
-        "RE-N-Y/imreward-overall_rating-siglip": SiglipAestheticScorer,
-        "RE-N-Y/imreward-overall_rating-clip": CLIPAestheticScorer,
-        "RE-N-Y/imreward-overall_rating-dinov2": Dinov2AestheticScorer,
-        # AVA dataset (pixel only)
-        "RE-N-Y/ava-rating-clip-sampled-True": CLIPAestheticScorer,
-        "RE-N-Y/ava-rating-clip-sampled-False": CLIPAestheticScorer,
-        "RE-N-Y/ava-rating-siglip-sampled-True": SiglipAestheticScorer,
-        "RE-N-Y/ava-rating-siglip-sampled-False": SiglipAestheticScorer,
-        "RE-N-Y/ava-rating-dinov2-sampled-True": Dinov2AestheticScorer,
-        "RE-N-Y/ava-rating-dinov2-sampled-False": Dinov2AestheticScorer,
-    }
-
-    cls = registry.get(args.repo_id)
-    if cls is None:
-        console.print(f"[red]Invalid model repo ID: {args.repo_id}[/red]")
-        return None
-
-    model = None
-    orig_torch_load = torch.load
-
-    def _torch_load_with_defaults(*a, **k):
-        if "map_location" not in k:
-            try:
-                k["map_location"] = torch.device(device)
-            except Exception:
-                k["map_location"] = device
-        try:
-            _sig = inspect.signature(orig_torch_load)
-            if "weights_only" in _sig.parameters:
-                k.setdefault("weights_only", True)
-        except Exception:
-            pass
-        return orig_torch_load(*a, **k)
-
-    torch.load = _torch_load_with_defaults
-    try:
-        sig = inspect.signature(cls.from_pretrained)
-        kw = {}
-        if "torch_dtype" in sig.parameters:
-            kw["torch_dtype"] = dtype
-        if "dtype" in sig.parameters:
-            kw["dtype"] = dtype
-        if "device" in sig.parameters:
-            kw["device"] = device
-        if "map_location" in sig.parameters:
-            try:
-                kw["map_location"] = torch.device(device)
-            except Exception:
-                kw["map_location"] = device
-        if "low_cpu_mem_usage" in sig.parameters:
-            kw["low_cpu_mem_usage"] = True
-        if "device_map" in sig.parameters:
-            kw["device_map"] = {"": device}
-        model = cls.from_pretrained(args.repo_id, **kw)
-    except Exception:
-        model = cls.from_pretrained(args.repo_id)
-    finally:
-        torch.load = orig_torch_load
-
-    gc.collect()
-    return model
-
-
-def main(args):
-    global console
-
-    # 从 config 目录读取质量阈值并创建对应文件夹
-    project_root = Path(__file__).resolve().parents[1]
-    config_dir = project_root / "config"
-    try:
-        from config.loader import load_config
-
-        cfg = load_config(str(config_dir))
-        rm_cfg = cfg.get("reward_model", {}) if isinstance(cfg, dict) else {}
-
-        # 新格式：reward_model.quality = [{ name, score, color }]
-        quality_cfg = rm_cfg.get("quality")
-        if isinstance(quality_cfg, list) and quality_cfg:
-            # 保留原始顺序或按得分排序（与旧逻辑一致，按 score 升序）
-            quality_cfg = sorted(
-                [q for q in quality_cfg if isinstance(q, dict) and "name" in q and "score" in q],
-                key=lambda x: float(x["score"]),
-            )
-            thresholds_cfg = [{"name": str(q["name"]), "score": float(q["score"])} for q in quality_cfg]
-            # 颜色序列与阈值一一对应；缺失则给默认
-            default_palette = ["bold red", "bold yellow", "bold blue", "bold green"]
-            colors_by_rank = [
-                str(q.get("color", default_palette[min(i, len(default_palette) - 1)])) for i, q in enumerate(quality_cfg)
-            ]
-        else:
-            # 旧格式回退：quality_threshold + colors_by_rank
-            thresholds_cfg = rm_cfg.get("quality_threshold", [])
-            colors_by_rank = rm_cfg.get("colors_by_rank", ["bold red", "bold yellow", "bold blue", "bold green"])
-            if not isinstance(colors_by_rank, list) or not all(isinstance(c, str) and c for c in colors_by_rank):
-                colors_by_rank = ["bold red", "bold yellow", "bold blue", "bold green"]
-    except Exception as e:
-        print_exception(console, e, prefix="Failed to read config")
-        thresholds_cfg = []
-        colors_by_rank = ["bold red", "bold yellow", "bold blue", "bold green"]
-
-    # 组装阈值与目录：按 score 升序排序；目录名用 name 将下划线替换为空格
-    thresholds_cfg = sorted(
-        [t for t in thresholds_cfg if isinstance(t, dict) and "name" in t and "score" in t],
-        key=lambda x: float(x["score"]),
-    )
-    quality_dirs = []  # List[Tuple[name, score, Path]]
-    for t in thresholds_cfg:
-        name = str(t["name"])  # e.g. worst_quality
-        score = float(t["score"])  # e.g. 3.0
-        folder = Path(args.train_data_dir) / name.replace("_", " ")
-        quality_dirs.append((name, score, folder))
-
-    # 若配置缺失，回退到默认四档
-    if not quality_dirs:
-        defaults = [
-            ("worst_quality", 3.0),
-            ("bad_quality", 5.0),
-            ("normal_quality", 7.5),
-            ("best_quality", 9.0),
-        ]
-        quality_dirs = [(n, s, Path(args.train_data_dir) / n.replace("_", " ")) for n, s in defaults]
-
-    # 清理已有软链接并确保目录存在
-    for _, _, root in quality_dirs:
-        root.mkdir(parents=True, exist_ok=True)
-        for symlink in root.rglob("*"):
-            if symlink.is_symlink():
-                symlink.unlink()
-
-    # 初始化 Lance 数据集
-    if not isinstance(args.train_data_dir, lance.LanceDataset):
-        if args.train_data_dir.endswith(".lance"):
-            dataset = lance.dataset(args.train_data_dir)
-        elif any(file.suffix == ".lance" for file in Path(args.train_data_dir).glob("*")):
-            lance_file = next(file for file in Path(args.train_data_dir).glob("*") if file.suffix == ".lance")
-            dataset = lance.dataset(str(lance_file))
-        else:
-            console.print("[yellow]Converting dataset to Lance format...[/yellow]")
-            dataset = transform2lance(
-                args.train_data_dir,
-                output_name="dataset",
-                save_binary=False,
-                not_save_disk=False,
-                tag="RewardModel",
-            )
-            console.print("[green]Dataset converted to Lance format[/green]")
-
-    else:
-        dataset = args.train_data_dir
-        console.print("[green]Using existing Lance dataset[/green]")
-
-    # 加载奖励模型（先确定 device/dtype 再加载，避免 CPU FP32 峰值）
-    dev, dt = _normalize_device_dtype(args)
-    model = load_model(args, dev, dt)
-    args.device = dev
-    args.dtype = dt
-    console.print(f"[green]Using device: {args.device}[/green]")
-    console.print(f"[green]Using dtype: {args.dtype}[/green]")
-    if model is None:
-        return
-    try:
-        p0 = next(model.parameters())
-        if p0.device.type != torch.device(args.device).type or p0.dtype != args.dtype:
-            model.to(device=args.device, dtype=args.dtype)
-    except Exception:
-        if hasattr(model, "to"):
-            try:
-                model.to(device=args.device, dtype=args.dtype)
-            except Exception:
-                pass
-    model.eval()
-
-    # 先计算图片总数
-    total_images = len(
-        dataset.to_table(
-            columns=["mime"],
-            filter=("mime LIKE 'image/%'"),
+from module.reward_policy import load_reward_policy
+
+PromptSource = Literal["override", "caption", "empty"]
+CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
+
+
+@dataclass(frozen=True, slots=True)
+class SourceImage:
+    path: str
+    caption: object = None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedImage:
+    path: str
+    tensor: torch.Tensor
+    prompt: str | None
+    prompt_source: PromptSource | None
+
+
+@dataclass(frozen=True, slots=True)
+class ScoredImage:
+    path: str
+    prompt: str | None
+    prompt_source: PromptSource | None
+    score: float
+
+
+@dataclass(frozen=True, slots=True)
+class RunError:
+    scope: Literal["item", "batch"]
+    stage: Literal["decode", "score"]
+    error_type: str
+    message: str
+    path: str | None = None
+    paths: tuple[str, ...] = ()
+
+    @classmethod
+    def item(cls, path: str, error: Exception) -> RunError:
+        return cls(
+            scope="item",
+            stage="decode",
+            error_type=type(error).__name__,
+            message=str(error),
+            path=path,
         )
+
+    @classmethod
+    def batch(cls, paths: Sequence[str], error: Exception) -> RunError:
+        return cls(
+            scope="batch",
+            stage="score",
+            error_type=type(error).__name__,
+            message=str(error),
+            paths=tuple(paths),
+        )
+
+
+def resolve_dtype(value: str) -> torch.dtype | None:
+    try:
+        return {
+            "auto": None,
+            "float32": torch.float32,
+            "float16": torch.float16,
+            "bfloat16": torch.bfloat16,
+        }[value]
+    except KeyError as error:
+        raise ValueError(f"unsupported dtype: {value!r}") from error
+
+
+def resolve_device(value: str) -> torch.device:
+    normalized = str(value or "auto").strip().lower()
+    if normalized == "auto":
+        normalized = "cuda:0" if torch.cuda.is_available() else "cpu"
+    elif normalized == "cuda":
+        normalized = "cuda:0"
+
+    if normalized == "cpu":
+        return torch.device("cpu")
+    if not normalized.startswith("cuda:"):
+        raise ValueError(
+            f"unsupported device {value!r}; use auto, cpu, cuda, or cuda:<index>"
+        )
+    if not torch.cuda.is_available():
+        raise ValueError(f"CUDA device requested but CUDA is unavailable: {normalized}")
+    try:
+        device = torch.device(normalized)
+    except (RuntimeError, ValueError) as error:
+        raise ValueError(f"invalid CUDA device: {normalized}") from error
+    index = 0 if device.index is None else device.index
+    if index < 0 or index >= torch.cuda.device_count():
+        raise ValueError(
+            f"CUDA device index out of range: {normalized}; "
+            f"available count={torch.cuda.device_count()}"
+        )
+    return torch.device(f"cuda:{index}")
+
+
+def _caption_text(caption: object) -> str:
+    if isinstance(caption, str):
+        return caption.strip()
+    if isinstance(caption, Sequence) and not isinstance(caption, (bytes, bytearray)):
+        values = [value.strip() for value in caption if isinstance(value, str) and value.strip()]
+        return "\n".join(values)
+    return ""
+
+
+def select_prompt(
+    caption: object,
+    override: str | None,
+    requires_prompts: bool,
+) -> tuple[str | None, PromptSource | None]:
+    if not requires_prompts:
+        return None, None
+    if isinstance(override, str) and override.strip():
+        return override, "override"
+    normalized_caption = _caption_text(caption)
+    if normalized_caption:
+        return normalized_caption, "caption"
+    return "", "empty"
+
+
+def decode_image(path: str | Path) -> torch.Tensor:
+    with Image.open(path) as image:
+        array = np.asarray(image.convert("RGB"), dtype=np.uint8).copy()
+    return (
+        torch.from_numpy(array)
+        .permute(2, 0, 1)
+        .contiguous()
+        .to(dtype=torch.float32)
+        .div_(255.0)
     )
 
-    # 然后创建带columns的scanner处理数据
+
+def _prepare_image(
+    record: SourceImage,
+    *,
+    prompt_override: str | None,
+    requires_prompts: bool,
+) -> PreparedImage | RunError:
+    try:
+        tensor = decode_image(record.path)
+    except Exception as error:
+        return RunError.item(record.path, error)
+    prompt, source = select_prompt(
+        record.caption,
+        prompt_override,
+        requires_prompts,
+    )
+    return PreparedImage(
+        path=record.path,
+        tensor=tensor,
+        prompt=prompt,
+        prompt_source=source,
+    )
+
+
+def _validate_scores(scores: Any, *, batch_size: int) -> torch.Tensor:
+    if not isinstance(scores, torch.Tensor):
+        raise RuntimeError("scorer output must be a torch.Tensor")
+    if scores.shape != (batch_size,):
+        raise RuntimeError(
+            f"scorer output must have shape [{batch_size}], got {list(scores.shape)}"
+        )
+    if not bool(torch.isfinite(scores).all().item()):
+        raise RuntimeError("scorer output must contain only finite values")
+    return scores
+
+
+def score_source_batch(
+    records: Sequence[SourceImage],
+    *,
+    scorer: Any,
+    requires_prompts: bool,
+    prompt_override: str | None,
+    max_workers: int = 16,
+) -> tuple[list[ScoredImage], list[RunError]]:
+    if not records:
+        return [], []
+
+    worker_count = max(1, min(max_workers, len(records)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+        prepared_or_errors = list(
+            executor.map(
+                lambda record: _prepare_image(
+                    record,
+                    prompt_override=prompt_override,
+                    requires_prompts=requires_prompts,
+                ),
+                records,
+            )
+        )
+
+    errors = [value for value in prepared_or_errors if isinstance(value, RunError)]
+    prepared = [
+        value for value in prepared_or_errors if isinstance(value, PreparedImage)
+    ]
+    groups: dict[tuple[int, int], list[PreparedImage]] = defaultdict(list)
+    for image in prepared:
+        groups[tuple(image.tensor.shape[1:])].append(image)
+
+    items: list[ScoredImage] = []
+    for group in groups.values():
+        paths = [image.path for image in group]
+        try:
+            images = torch.stack([image.tensor for image in group]).to(
+                device=scorer.device,
+                dtype=scorer.input_dtype,
+            )
+            prompts = [image.prompt or "" for image in group] if requires_prompts else None
+            with torch.inference_mode():
+                scores = _validate_scores(
+                    scorer.score(images, prompts),
+                    batch_size=len(group),
+                )
+            host_scores = scores.detach().to(device="cpu", dtype=torch.float32).tolist()
+        except Exception as error:
+            errors.append(RunError.batch(paths, error))
+            continue
+
+        items.extend(
+            ScoredImage(
+                path=image.path,
+                prompt=image.prompt,
+                prompt_source=image.prompt_source,
+                score=float(score),
+            )
+            for image, score in zip(group, host_scores, strict=True)
+        )
+    return items, errors
+
+
+def source_images_from_batch(batch: Any) -> list[SourceImage]:
+    names = tuple(batch.schema.names)
+    if "uris" not in names:
+        raise ValueError("Lance image batch is missing the uris column")
+    paths = batch["uris"].to_pylist()
+    captions = (
+        batch["captions"].to_pylist()
+        if "captions" in names
+        else [None] * len(paths)
+    )
+    if len(captions) != len(paths):
+        raise ValueError("Lance captions cardinality does not match uris")
+    return [
+        SourceImage(path=str(path), caption=caption)
+        for path, caption in zip(paths, captions, strict=True)
+    ]
+
+
+def _resolve_dataset(input_path: str | Path) -> Any:
+    import lance
+
+    path = Path(input_path)
+    if path.suffix.lower() == ".lance":
+        return lance.dataset(str(path))
+    if not path.is_dir():
+        raise ValueError(f"input must be an image directory or Lance dataset: {path}")
+
+    lance_paths = sorted(
+        path.glob("*.lance"),
+        key=lambda candidate: candidate.name.casefold(),
+    )
+    if lance_paths:
+        preferred = path / "dataset.lance"
+        selected = preferred if preferred in lance_paths else lance_paths[0]
+        return lance.dataset(str(selected))
+
+    from module.lanceImport import transform2lance
+
+    dataset = transform2lance(
+        str(path),
+        output_name="dataset",
+        save_binary=False,
+        not_save_disk=False,
+        tag="RewardScoring",
+    )
+    if dataset is None:
+        raise RuntimeError(f"failed to create Lance dataset from {path}")
+    return dataset
+
+
+def _select_checkpoint_row(checkpoints: Sequence[Any], requested: str | None) -> Any:
+    if requested is None:
+        defaults = [row for row in checkpoints if row.is_default]
+        if len(defaults) != 1:
+            raise RuntimeError("scorer must expose exactly one default checkpoint")
+        return defaults[0]
+    if not requested.strip():
+        raise ValueError("checkpoint identifier must be nonempty")
+    for row in checkpoints:
+        if row.identifier == requested:
+            return row
+    raise ValueError(f"unregistered checkpoint: {requested!r}")
+
+
+def run(args: argparse.Namespace) -> int:
+    policy = load_reward_policy(CONFIG_DIR)
+    scorer_name = args.scorer or policy.default_scorer
+    policy.thresholds_for(scorer_name)
+
+    import qinglong_score
+
+    spec = qinglong_score.get_scorer_spec(scorer_name)
+    checkpoints = qinglong_score.list_checkpoints(scorer_name)
+    _select_checkpoint_row(checkpoints, args.checkpoint)
+    device = resolve_device(args.device)
+    dtype = resolve_dtype(args.dtype)
+    scorer = qinglong_score.load_scorer(
+        name=scorer_name,
+        checkpoint=args.checkpoint,
+        device=str(device),
+        dtype=dtype,
+        attention_backend="auto",
+    )
+
+    dataset = _resolve_dataset(args.train_data_dir)
+    schema_names = set(dataset.schema.names)
+    missing = {"uris", "mime"} - schema_names
+    if missing:
+        raise ValueError(
+            "Lance image dataset is missing columns: " + ", ".join(sorted(missing))
+        )
+    columns = ["uris", "mime"]
+    if "captions" in schema_names:
+        columns.append("captions")
     scanner = dataset.scanner(
-        columns=["uris", "mime", "captions"],
-        filter=("mime LIKE 'image/%'"),
+        columns=columns,
+        filter="mime LIKE 'image/%'",
         scan_in_order=True,
         batch_size=args.batch_size,
         batch_readahead=16,
         fragment_readahead=4,
-        io_buffer_size=32 * 1024 * 1024,  # 32MB buffer
+        io_buffer_size=32 * 1024 * 1024,
         late_materialization=True,
     )
 
-    with Progress(
-        "[progress.description]{task.description}",
-        SpinnerColumn(spinner_name="dots"),
-        MofNCompleteColumn(separator="/"),
-        BarColumn(bar_width=40, complete_style="green", finished_style="bold green"),
-        TextColumn("•"),
-        TaskProgressColumn(),
-        TextColumn("•"),
-        TransferSpeedColumn(),
-        TextColumn("•"),
-        TimeElapsedColumn(),
-        TextColumn("•"),
-        TimeRemainingColumn(),
-        expand=True,
-    ) as progress:
-        task = progress.add_task("[bold cyan]Processing images...", total=total_images)
+    items: list[ScoredImage] = []
+    errors: list[RunError] = []
+    for batch in scanner.to_batches():
+        batch_items, batch_errors = score_source_batch(
+            source_images_from_batch(batch),
+            scorer=scorer,
+            requires_prompts=spec.requires_prompts,
+            prompt_override=args.prompt,
+        )
+        items.extend(batch_items)
+        errors.extend(batch_errors)
 
-        console = progress.console
+    if items and errors:
+        print(
+            f"Scored {len(items)} image(s); "
+            f"{sum(len(error.paths) or 1 for error in errors)} failed."
+        )
+    return 0 if items else 1
 
-        # 用于收集结果的列表
-        detection_results = []
 
-        for batch in scanner.to_batches():
-            uris = batch["uris"].to_pylist()  # 获取文件路径
-
-            # prompts：优先使用 --prompt，否则使用 captions 字段（为空则置空字符串）
-            if hasattr(args, "prompt") and args.prompt:
-                prompts = [args.prompt] * len(uris)
-            else:
-                if "captions" in batch.schema.names:
-                    raw_caps = batch["captions"].to_pylist()
-                    captions_list = raw_caps[0] if raw_caps and len(raw_caps) > 0 else []
-                    # 确保 captions 长度与 uris 匹配
-                    if len(captions_list) >= len(uris):
-                        prompts = [c if isinstance(c, str) and c.strip() else "" for c in captions_list[: len(uris)]]
-                    else:
-                        # captions 长度不足，用空字符串填充
-                        prompts = [c if isinstance(c, str) and c.strip() else "" for c in captions_list] + [""] * (
-                            len(uris) - len(captions_list)
-                        )
-                else:
-                    prompts = [""] * len(uris)
-
-            # 使用并行处理加载和预处理图像（像素张量）
-            batch_pixels, valid_idx = load_and_preprocess_batch(uris)
-
-            if not batch_pixels:
-                progress.update(task, advance=len(uris))
-                continue
-
-            # 处理批次：计算奖励分数
-            eff_prompts = [prompts[i] for i in valid_idx]
-            eff_uris = [uris[i] for i in valid_idx]
-            scores = process_batch(batch_pixels, model, eff_prompts)
-            if scores is not None:
-                for path, prompt, score in zip(eff_uris, eff_prompts, scores):
-                    detection_results.append((path, prompt, float(score)))
-
-            progress.update(task, advance=len(batch["uris"].to_pylist()))
-
-    # 统计数量
-    total_count = len(detection_results)
-
-    # 按配置阈值分配质量并创建软链接/拷贝
-    if total_count:
-        for path, _, score in detection_results:
-            source_path = Path(path).absolute()
-            relative_path = source_path.relative_to(Path(args.train_data_dir).absolute())
-
-            # 找到第一个 score <= 阈值 的档位；若都不满足，归到最后一个（最高档）
-            target_root = None
-            for _, thr, root in quality_dirs:
-                if score <= thr:
-                    target_root = root
-                    break
-            if target_root is None:
-                target_root = quality_dirs[-1][2]
-
-            target_path = target_root / relative_path
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                target_path.symlink_to(source_path)
-            except (FileExistsError, PermissionError) as e:
-                print_exception(console, e, prefix=f"Unable to create symlink for {path}")
-                try:
-                    shutil.copy2(source_path, target_path)
-                    console.print(f"[yellow]Created copy instead of symlink for {path}[/yellow]")
-                except Exception as copy_err:
-                    print_exception(console, copy_err, prefix="Failed to copy file")
-
-    # 按路径层次结构组织结果
-    path_tree = {}
-    for path, prompt, score in detection_results:
-        parts = Path(path).relative_to(Path(args.train_data_dir).absolute()).parts
-        current = path_tree
-        for i, part in enumerate(parts):
-            if i == len(parts) - 1:
-                # 最后一层是文件名，存储分数
-                current[part] = f"{score:.4f}|{prompt}"
-            else:
-                if part not in current:
-                    current[part] = {}
-                current = current[part]
-
-    # 使用 Tree 打印结果树（带颜色）
-    console.print("\n[bold green]Reward Scores：[/bold green]")
-
-    # 基于质量阈值选择颜色：按阈值档位由差到优映射为配置中的颜色序列
-
-    def color_for_score(s: float) -> str:
-        # 找到属于的档位索引
-        idx = None
-        for i, (_, thr, _) in enumerate(quality_dirs):
-            if s <= thr:
-                idx = i
-                break
-        if idx is None:
-            idx = len(quality_dirs) - 1
-        # 映射到颜色表
-        return colors_by_rank[min(idx, len(colors_by_rank) - 1)]
-
-    # 构建目录树
-    root = Tree("[bold]Reward Scores[/]")
-    nodes = {(): root}  # key: 累积路径元组 -> Tree 节点
-
-    for path, prompt, score in detection_results:
-        rel_parts = Path(path).relative_to(Path(args.train_data_dir).absolute()).parts
-        acc = ()
-        parent = root
-        for i, part in enumerate(rel_parts):
-            acc = acc + (part,)
-            if acc not in nodes:
-                if i < len(rel_parts) - 1:
-                    nodes[acc] = parent.add(part)
-                else:
-                    style = color_for_score(score)
-                    # 叶子节点：文件名 + 颜色分数 + prompt
-                    nodes[acc] = parent.add(f"{part}  [bold {style}]{score:.4f}[/] | {prompt}")
-            parent = nodes[acc]
-
-    console.print(root)
-    # 保存检测结果树到JSON文件
-    result_json_path = Path(args.train_data_dir) / "reward_scores.json"
-    with open(result_json_path, "w", encoding="utf-8") as f:
-        json.dump(path_tree, f, ensure_ascii=False, indent=2)
-    console.print(f"[bold green]Results saved to:[/bold green] {result_json_path}")
-
-    # 打印简单统计
-    if total_count:
-        console.print(f"[bold]Total scored images:[/bold] {total_count}")
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("batch_size must be positive")
+    return parsed
 
 
 def setup_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Score image datasets")
+    parser.add_argument("train_data_dir", help="Image directory or Lance dataset")
+    parser.add_argument("--scorer", default=None, help="Registered scorer name")
     parser.add_argument(
-        "train_data_dir",
-        type=str,
-        help="Directory containing images to process",
+        "--checkpoint",
+        default=None,
+        help="Registered checkpoint identifier; omit for the scorer default",
     )
-    parser.add_argument(
-        "--repo_id",
-        type=str,
-        default="RE-N-Y/pickscore",
-        help="Repository ID for Reward Model on Hugging Face",
-    )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=1,
-        help="Batch size for inference",
-    )
-    parser.add_argument(
-        "--prompt",
-        type=str,
-        default="",
-        help="Text prompt used by reward models (if not provided, captions column will be used)",
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="auto",
-        help="Device to use for inference: auto, cpu, cuda, or cuda:<index>",
-    )
+    parser.add_argument("--batch_size", type=_positive_int, default=1)
+    parser.add_argument("--prompt", default="")
+    parser.add_argument("--device", default="auto")
     parser.add_argument(
         "--dtype",
-        type=str,
+        choices=("auto", "float32", "float16", "bfloat16"),
         default="auto",
-        choices=["auto", "float32", "float16", "bfloat16", "fp16", "fp32", "bf16"],
-        help="Data type for inference",
     )
-
     return parser
 
 
+def main(argv: Sequence[str] | None = None) -> int:
+    return run(setup_parser().parse_args(argv))
+
+
+__all__ = [
+    "PreparedImage",
+    "PromptSource",
+    "RunError",
+    "ScoredImage",
+    "SourceImage",
+    "decode_image",
+    "resolve_device",
+    "resolve_dtype",
+    "run",
+    "score_source_batch",
+    "select_prompt",
+    "source_images_from_batch",
+    "setup_parser",
+]
+
+
 if __name__ == "__main__":
-    parser = setup_parser()
-
-    args = parser.parse_args()
-
-    main(args)
+    raise SystemExit(main())
