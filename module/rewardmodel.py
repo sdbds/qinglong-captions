@@ -7,12 +7,12 @@
 #   "imageio>=2.31.1",
 #   "imageio-ffmpeg>=0.4.8",
 #   "toml",
+#   "tomlkit",
 #   "huggingface_hub[hf_xet]>=0.35.2",
-#   "torch==2.11.0",
+#   "torch==2.13.0",
 #   "transformers[serving]==4.57.6",
 #   "torchvision",
-#   "scipy",
-#   "imscore",
+#   "qinglong-score>=0.2.2",
 # ]
 # ///
 """Score image datasets through the public Qinglong Score contract."""

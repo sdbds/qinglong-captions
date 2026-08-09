@@ -73,8 +73,7 @@ reward-model = [
     "qinglong-captions[torch-base]",
     "pillow>=11.3",
     "transformers[serving]==4.57.6",
-    "scipy",
-    "imscore",
+    "qinglong-score>=0.2.2",
 ]
 translate = [
     "docling",
