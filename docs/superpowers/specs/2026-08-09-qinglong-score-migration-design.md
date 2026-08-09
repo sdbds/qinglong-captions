@@ -158,29 +158,26 @@ converted to `None` or hidden behind a generic success exit.
 The implementation should keep boundaries small rather than adding more policy
 to the already large `main()` function.
 
-### 7.1 Catalog access
+Runtime and GUI code call `list_scorers()`, `get_scorer_spec()`, and
+`list_checkpoints()` directly at their use sites. There is no application catalog
+facade, copied registry, or wrapper around values that Qinglong Score already
+returns as immutable objects. GUI imports remain lazy to preserve optional
+dependency isolation.
 
-A small helper calls only the public discovery API and returns application-facing
-immutable values:
+### 7.1 Reward policy validation
 
-- ordered scorer names;
-- one scorer's `ScorerSpec`;
-- one scorer's registered checkpoints;
-- the default checkpoint row.
-
-This helper does not copy registry tables and does not know adapter classes.
-
-### 7.2 Reward configuration
-
-A focused parser reads the `[reward_model]` section and returns:
+The existing project config loader parses TOML. Reward-model code reads its
+`[reward_model]` mapping and normalizes:
 
 - `default_scorer`;
 - zero or more threshold profiles keyed by scorer name.
 
-It validates configuration independently of model loading so invalid folder
-names or duplicate thresholds fail before a checkpoint download.
+Application-owned threshold rules are validated independently of model loading
+so invalid folder names or duplicate thresholds fail before a checkpoint
+download. This is policy validation over the parsed mapping, not a second TOML
+parser.
 
-### 7.3 Image conversion and batching
+### 7.2 Image conversion and batching
 
 Each image is decoded through Pillow's RGB conversion to an unsigned 8-bit
 array, then converted to a contiguous tensor by division by 255. This
@@ -205,10 +202,11 @@ unrelated images merely to create a batch.
 The code does not retain the old HPSv3 class-name branch or its silent aspect
 ratio padding. Model-specific shape limits belong to the Qinglong Score adapter.
 
-Group results are restored to input order before collection. Final ranking is
-separate from processing order.
+Each group result is paired with that group's paths and prompts and appended
+directly to the result collection. No intermediate global input-order list is
+rebuilt; the final deterministic score/path sort defines report order.
 
-### 7.4 Prompt construction
+### 7.3 Prompt construction
 
 Prompt source precedence is:
 
@@ -218,12 +216,15 @@ Prompt source precedence is:
 
 For `ScorerSpec.requires_prompts=True`, the scorer receives exactly one string
 per image. Missing, null, non-string, and blank captions become `""`.
+Qinglong Score's public contract accepts empty strings; the application exposes
+this deliberate fallback as `prompt_source="empty"` rather than silently
+skipping the image or inventing text.
 
 For image-only scorers, the scorer receives `prompts=None`. The report records
 both `prompt` and `prompt_source` as `null`; it does not pretend that ignored
 captions participated in the score.
 
-### 7.5 Scoring failures
+### 7.4 Scoring failures
 
 If a same-shape group call fails, the application records one batch-scoped error
 containing the ordered paths in that group. It does not silently retry the same
@@ -255,11 +256,13 @@ are checkpoint formats supported by Qinglong Score; exposing them does not
 restore the removed `imscore` Python dependency or its removed scorer classes.
 
 Discovery rows with `tracks_updates=True` are presented as tracking checkpoints.
-The report stores both the selected discovery row as `checkpoint_source` and the
-post-load `scorer.checkpoint_identity`. For a tracking row, the former preserves
-the mutable reference requested at run time, while the latter preserves the
-resolved commit. `requested_checkpoint` separately records whether the CLI used
-an explicit identifier or the scorer default.
+The report always stores the post-load `scorer.checkpoint_identity` once as
+`checkpoint`. `tracking_source` is `null` for a pinned checkpoint and contains
+the pre-load discovery row with the mutable reference for a tracking selection.
+`requested_checkpoint` separately records whether the CLI used an explicit
+identifier or the scorer default. Pinned checkpoints therefore do not duplicate
+identical source and resolved structures, while tracking runs preserve both
+debugging context and a reproducible commit.
 
 ## 9. TOML Configuration
 
@@ -381,15 +384,8 @@ output directory.
     "qinglong_score_version": "0.2.2",
     "scorer": "aesthetic_predictor_v2_5",
     "requested_checkpoint": null,
-    "checkpoint_source": {
-      "adapter": "aesthetic_predictor_v2_5",
-      "identifier": "discus0434/aesthetic-predictor-v2-5",
-      "format": "official",
-      "is_default": true,
-      "tracks_updates": false,
-      "artifacts": []
-    },
-    "checkpoint_identity": {
+    "tracking_source": null,
+    "checkpoint": {
       "kind": "remote",
       "adapter": "aesthetic_predictor_v2_5",
       "identifier": "discus0434/aesthetic-predictor-v2-5",
@@ -424,12 +420,14 @@ output directory.
 }
 ```
 
-The actual remote `artifacts` arrays contain every public provenance field from
-their `RemoteCheckpointSpec`: provider, repository, revision, filename, SHA-256,
-and role. They are shown empty above only to keep the example short. Registry
-context such as `is_default`, `format`, and `tracks_updates` is retained because
-it describes the selection at the recorded Qinglong Score package version; it
-does not replace the resolved artifact identity.
+The actual remote `checkpoint.artifacts` array contains every public provenance
+field from its resolved `RemoteCheckpointSpec`: provider, repository, revision,
+filename, SHA-256, and role. It is shown empty above only to keep the example
+short. Registry context such as `is_default`, `format`, and `tracks_updates` is
+retained because it describes the selection at the recorded Qinglong Score
+package version; it does not replace the resolved artifact identity. For a
+tracking run, `tracking_source` uses the same public structure before resolution;
+otherwise it is `null`.
 
 Items are sorted by descending score. Ties are resolved by normalized relative
 path in ascending order. `rank` is assigned after this deterministic sort.
@@ -500,21 +498,22 @@ grid for the selected scorer. Each stable row contains:
 A plus button adds a row. A save button uses the familiar save icon. There are
 no active rows by default; zero rows means partitioning is disabled.
 
-The GUI keeps visibly marked per-scorer drafts in memory. Switching scorer does
-not discard valid or invalid unsaved edits. The save button is the only action
-that persists edits: it validates and writes every dirty profile, sorts rows by
-`max_score`, and updates only the corresponding
-`reward_model.scorers.<name>.thresholds` values.
+The GUI keeps one visibly marked in-memory draft for the loaded reward-model
+configuration file, not a separate draft state machine per scorer. Switching
+scorer changes which portion of that same draft is displayed and does not
+discard edits. The save button is the only action that persists edits: it
+validates all changed profiles, sorts their rows by `max_score`, and updates only
+the corresponding `reward_model.scorers.<name>.thresholds` values.
 
 `tomlkit` is used for persistence so unrelated `model.toml` ordering, comments,
 and formatting survive. The file replacement is atomic. Deleting the final row
 removes or empties that scorer's thresholds and therefore disables partitioning.
 
-Starting a scoring job never writes configuration. If the selected scorer's
-draft differs from its on-disk profile, start is blocked and the user is directed
-to save or discard it; an invalid draft also identifies the affected row.
-Unrelated dirty drafts remain in memory and do not block a run for a clean
-selected scorer.
+Starting a scoring job never writes configuration. If the file draft is dirty,
+start is blocked and the user is directed to save or discard it; an invalid
+draft also identifies the affected row. This gives the editor one persistence
+model and prevents a run from observing a mixture of on-disk and in-memory
+reward policy.
 
 The editor uses color swatches rather than requiring users to type Rich color
 syntax. Persisted values remain valid Rich styles, for example `bold red` or
@@ -598,7 +597,7 @@ This is an intentional breaking migration.
 
 - NumPy, PIL, and tensor inputs become exact `[B,3,H,W]` float inputs in range;
 - same-sized images batch together;
-- mixed sizes form separate groups and restore original order;
+- mixed sizes form separate groups without rebuilding global input order;
 - a failed group produces one batch-scoped error and is not retried as
   singletons;
 - partial image failures are reported without discarding successes;
@@ -623,7 +622,8 @@ This is an intentional breaking migration.
 - schema version 1 contains required run, summary, item, and error fields;
 - items sort by descending score and path tie-breaker;
 - remote checkpoint provenance is serialized from public dataclasses;
-- tracking source references and their resolved revisions are both stored;
+- pinned checkpoints are stored once, while tracking checkpoints add their
+  mutable source reference beside the resolved checkpoint;
 - batch failure counts paths rather than error objects;
 - JSON replacement is atomic;
 - output contains no delimiter-encoded score/prompt leaf strings.
@@ -633,9 +633,9 @@ This is an intentional breaking migration.
 - discovery-present and discovery-absent GUI states both render;
 - editable fallback values reach the CLI;
 - checkpoint choices change with scorer;
-- per-scorer threshold drafts survive switching;
+- one file-level threshold draft survives scorer switching;
 - save persists threshold changes, while start never persists and blocks on a
-  dirty selected profile;
+  dirty file draft;
 - PowerShell and GUI emit `--scorer` and optional `--checkpoint`;
 - no wrapper emits `--repo_id`.
 
@@ -659,8 +659,9 @@ The migration is complete when all of these are true:
 8. Prompt-required scorers preserve the selected empty-string behavior.
 9. No configured thresholds means no partitioning filesystem side effects.
 10. GUI users can create, edit, color, delete, and save thresholds per scorer.
-11. JSON schema version 1 records package version, checkpoint source and resolved
-    identity, and ranks scores deterministically.
+11. JSON schema version 1 records package version and one resolved checkpoint,
+    adds source metadata only for tracking selections, and ranks scores
+    deterministically.
 12. A tracking checkpoint's requested reference and resolved revision are both
     auditable from the report.
 13. Unit, GUI, wrapper, dependency, and metadata smoke tests pass without a real
