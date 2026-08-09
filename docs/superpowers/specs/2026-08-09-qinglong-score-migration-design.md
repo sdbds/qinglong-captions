@@ -1,6 +1,6 @@
 # Qinglong Score Migration Design
 
-**Status:** Approved in conversation; written specification pending user review
+**Status:** Approved and implemented
 
 **Date:** 2026-08-09
 

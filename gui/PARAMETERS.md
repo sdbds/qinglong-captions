@@ -139,6 +139,21 @@ python -m <module> --help
 
 WaterDetect 使用脚本内的 PEP 723 依赖声明，应运行 `uv run module/waterdetect.py --help`。[PSD Export](../docs/tools/psd_export.md) 是脚本专用入口，当前不属于 GUI Tools 页面。
 
+### 图像评分
+
+| GUI 字段 | CLI / 配置 | 说明 |
+| --- | --- | --- |
+| Scorer | `--scorer` | 默认读取 `reward_model.default_scorer`，当前为 `aesthetic_predictor_v2_5`；支持搜索和手动输入 |
+| Checkpoint | `--checkpoint` | “注册表默认检查点”不传参数；选择或输入其他标识时才传递 |
+| Batch Size | `--batch_size` | 每个 Lance 扫描批次的图片数；不同尺寸会在批次内分别评分 |
+| Device | `--device` | `auto`、`cpu`、`cuda` 或 `cuda:N` |
+| Data Type | `--dtype` | `auto`、`float16`、`float32` 或 `bfloat16` |
+| 评分阈值 | `reward_model.scorers.<scorer>.thresholds` | 每个评分器独立保存；空列表表示不分档 |
+
+Scorer 和 checkpoint 选项由 Qinglong Score 的公开目录提供。GUI 基础环境未安装该可选包时仍显示配置中的 scorer，并允许手动输入；刷新按钮不会自动安装模型依赖。
+
+阈值表的名称、最高分和颜色只有点击保存按钮后才写入 `config/model.toml`。切换评分器或离开工具前，未保存的当前表会要求保存、放弃或取消。当前选中评分器仍有未保存阈值时不能启动评分；其他评分器不存在隐藏草稿。
+
 ### 音频分轨后的 MuScriptor MIDI
 
 “全部分轨转 MIDI”是音频分轨页的二级选项。人声和鼓使用唯一音色约束；贝斯、吉他、钢琴使用各自音色家族约束，由 MuScriptor 判断原声/电声子类；只有 `other` 提供自动识别或手动多选。模型、Device 和 5 秒块批大小独立于音乐转录页配置。
