@@ -4,11 +4,15 @@
 
 ## 运行
 
-依赖 profile 为 `reward-model`。可使用 GUI 的“工具 / 图像评分”，也可运行：
+依赖 profile 为 `reward-model`。可使用 GUI 的“工具 / 图像评分”，也可任选一种命令运行：
 
 ```powershell
+# 推荐：PowerShell 包装脚本
 .\2.3.image_reward_model.ps1
-uv run --extra reward-model python -m module.rewardmodel .\datasets `
+
+# 或直接运行带 PEP 723 依赖声明的 Python 脚本
+$env:PYTHONPATH = (Get-Location).Path
+uv run --no-project .\module\rewardmodel.py .\datasets `
   --scorer aesthetic_predictor_v2_5 `
   --batch_size 4 `
   --device auto `

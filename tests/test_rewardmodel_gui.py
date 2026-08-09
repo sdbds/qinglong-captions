@@ -133,6 +133,39 @@ def test_save_threshold_draft_persists_only_active_scorer(monkeypatch):
     assert step.reward_threshold_dirty is False
 
 
+def test_discard_threshold_draft_does_not_rerender_during_tab_transition(
+    monkeypatch,
+):
+    step = step6_tools.ToolsStep()
+    step.reward_active_scorer = "alpha"
+    step.reward_threshold_dirty = True
+    renders = []
+    policy = RewardPolicy(
+        default_scorer="alpha",
+        profiles={"alpha": (Threshold("saved", 1.0, "red"),)},
+    )
+    monkeypatch.setattr(step6_tools, "load_reward_policy", lambda _path: policy)
+    monkeypatch.setattr(step, "_render_reward_threshold_grid", lambda: renders.append(True))
+    monkeypatch.setattr(step, "_ensure_tool_panel_rendered", lambda _tab: None)
+    monkeypatch.setattr(step, "_sync_execution_action", lambda: None)
+
+    step._discard_reward_threshold_draft()
+
+    assert renders == []
+    assert step.reward_threshold_draft == [
+        {"name": "saved", "max_score": 1.0, "color": "red"}
+    ]
+    assert step.reward_threshold_dirty is False
+    assert step._reward_threshold_render_pending is True
+
+    step._handle_tool_tab_change("preprocess")
+    assert renders == []
+
+    step._handle_tool_tab_change("reward")
+    assert renders == [True]
+    assert step._reward_threshold_render_pending is False
+
+
 @pytest.mark.parametrize(
     ("action", "switched", "save_calls", "discard_calls"),
     [

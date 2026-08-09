@@ -81,8 +81,8 @@ else {
 Write-Output "uv run target environment: $UvEnvName"
 Write-Output "uv dependency profile: reward-model"
 
-# Run tagger
-uv run --extra reward-model "./module/rewardmodel.py" `
+# Run scorer
+uv run --no-project "./module/rewardmodel.py" `
     $Config.train_data_dir `
     $ExtArgs
 

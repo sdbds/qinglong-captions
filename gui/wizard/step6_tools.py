@@ -486,6 +486,7 @@ class ToolsStep:
         self.reward_scorer = None
         self.reward_checkpoint = None
         self._reward_scorer_switching = False
+        self._reward_threshold_render_pending = False
         self._tool_tabs = None
         self.panel: "ExecutionPanel | None" = None
         self._tool_tab_containers: Dict[str, Any] = {}
@@ -588,6 +589,9 @@ class ToolsStep:
     def _handle_tool_tab_change(self, tab_key: str) -> None:
         self._active_tool_tab = tab_key
         self._ensure_tool_panel_rendered(tab_key)
+        if tab_key == "reward" and self._reward_threshold_render_pending:
+            self._render_reward_threshold_grid()
+            self._reward_threshold_render_pending = False
         self._sync_execution_action()
 
     async def _on_tool_tab_change(self, event: Any) -> None:
@@ -1369,7 +1373,12 @@ class ToolsStep:
         if label is not None:
             label.set_text(t("reward_threshold_dirty") if dirty else "")
 
-    def _load_reward_threshold_draft(self, scorer: str) -> None:
+    def _load_reward_threshold_draft(
+        self,
+        scorer: str,
+        *,
+        render: bool = True,
+    ) -> None:
         try:
             self.reward_policy = load_reward_policy(REWARD_CONFIG_DIR)
         except (OSError, TypeError, ValueError) as error:
@@ -1382,7 +1391,11 @@ class ToolsStep:
             row.as_dict() for row in self.reward_policy.thresholds_for(scorer)
         ]
         self._set_reward_threshold_dirty(False)
-        self._render_reward_threshold_grid()
+        if render:
+            self._render_reward_threshold_grid()
+            self._reward_threshold_render_pending = False
+        else:
+            self._reward_threshold_render_pending = True
 
     def _update_reward_threshold(self, index: int, key: str, value: Any) -> None:
         if index >= len(self.reward_threshold_draft):
@@ -1501,11 +1514,15 @@ class ToolsStep:
         self.reward_threshold_draft = [row.as_dict() for row in rows]
         self._set_reward_threshold_dirty(False)
         self._render_reward_threshold_grid()
+        self._reward_threshold_render_pending = False
         self._notify_reward(t("reward_threshold_saved"), notification_type="positive")
         return True
 
     def _discard_reward_threshold_draft(self) -> None:
-        self._load_reward_threshold_draft(self.reward_active_scorer)
+        self._load_reward_threshold_draft(
+            self.reward_active_scorer,
+            render=False,
+        )
 
     async def _ask_reward_draft_action(self) -> str:
         with ui.dialog() as dialog, ui.card().classes("q-pa-md"):

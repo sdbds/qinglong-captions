@@ -47,5 +47,6 @@ def test_powershell_wrapper_uses_scorer_checkpoint_and_reward_extra():
     assert 'if ($Config.checkpoint)' in wrapper
     assert '--checkpoint=$($Config.checkpoint)' in wrapper
     assert "uv dependency profile: reward-model" in wrapper
-    assert "uv run --extra reward-model" in wrapper
+    assert 'uv run --no-project "./module/rewardmodel.py"' in wrapper
+    assert "uv run --extra reward-model" not in wrapper
     assert "--repo_id" not in wrapper

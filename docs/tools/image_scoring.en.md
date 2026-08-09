@@ -4,11 +4,15 @@ Image scoring uses Qinglong Score to produce model-preference scores for ranking
 
 ## Run
 
-The dependency profile is `reward-model`. Use Tools / Image Scoring in the GUI, or run:
+The dependency profile is `reward-model`. Use Tools / Image Scoring in the GUI, or choose one command:
 
 ```powershell
+# Recommended: PowerShell wrapper
 .\2.3.image_reward_model.ps1
-uv run --extra reward-model python -m module.rewardmodel .\datasets `
+
+# Or run the Python script with its PEP 723 dependencies
+$env:PYTHONPATH = (Get-Location).Path
+uv run --no-project .\module\rewardmodel.py .\datasets `
   --scorer aesthetic_predictor_v2_5 `
   --batch_size 4 `
   --device auto `
