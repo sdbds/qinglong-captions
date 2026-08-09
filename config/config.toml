@@ -633,12 +633,7 @@ series_exclude_list = [
 ]
 
 [reward_model]
-quality = [
-    { name = "worst_quality", score = 3, color = "bold red" },
-    { name = "bad_quality", score = 5, color = "bold yellow" },
-    { name = "normal_quality", score = 8.7, color = "bold blue" },
-    { name = "best_quality", score = 10, color = "bold green" },
-]
+default_scorer = "aesthetic_predictor_v2_5"
 
 [olmocr]
 model_id = "allenai/olmOCR-2-7B-1025"

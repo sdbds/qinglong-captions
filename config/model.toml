@@ -506,3 +506,6 @@ recursive = true
 skip_completed = true
 fail_fast = false
 print_notes = false
+
+[reward_model]
+default_scorer = "aesthetic_predictor_v2_5"
