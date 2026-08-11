@@ -170,6 +170,8 @@ _HF_PROGRESS_PATCH_ORIGINAL: Any = None
 _HF_PROGRESS_PATCH_PROGRESS: Optional[Progress] = None
 _HF_XET_PROGRESS_MODULE: Any = None
 _HF_XET_PROGRESS_PATCH_ORIGINAL: Any = None
+_HF_SNAPSHOT_PROGRESS_MODULE: Any = None
+_HF_SNAPSHOT_TQDM_ORIGINAL: Any = None
 
 
 @contextmanager
@@ -216,6 +218,7 @@ def hf_download_reporting(console: Optional[Any] = None):
 
     global _HF_PROGRESS_PATCH_DEPTH, _HF_PROGRESS_PATCH_ORIGINAL, _HF_PROGRESS_PATCH_PROGRESS
     global _HF_XET_PROGRESS_MODULE, _HF_XET_PROGRESS_PATCH_ORIGINAL
+    global _HF_SNAPSHOT_PROGRESS_MODULE, _HF_SNAPSHOT_TQDM_ORIGINAL
 
     try:
         from huggingface_hub import file_download
@@ -257,6 +260,19 @@ def hf_download_reporting(console: Optional[Any] = None):
                 )
 
             file_download._get_progress_bar_context = _rich_progress_context
+
+            # Transformers reaches snapshot_download indirectly, so patch the
+            # tqdm class bound inside the Hub module for this loading context.
+            try:
+                snapshot_progress_module = importlib.import_module("huggingface_hub._snapshot_download")
+            except Exception:
+                snapshot_progress_module = None
+
+            snapshot_tqdm = getattr(snapshot_progress_module, "hf_tqdm", None)
+            if snapshot_progress_module is not None and isinstance(snapshot_tqdm, type):
+                _HF_SNAPSHOT_PROGRESS_MODULE = snapshot_progress_module
+                _HF_SNAPSHOT_TQDM_ORIGINAL = snapshot_tqdm
+                snapshot_progress_module.hf_tqdm = _single_line_snapshot_tqdm_class()
 
             try:
                 xet_progress_module = importlib.import_module("huggingface_hub.utils._xet_progress_reporting")
@@ -301,6 +317,8 @@ def hf_download_reporting(console: Optional[Any] = None):
             _HF_PROGRESS_PATCH_DEPTH -= 1
             if _HF_PROGRESS_PATCH_DEPTH == 0:
                 file_download._get_progress_bar_context = _HF_PROGRESS_PATCH_ORIGINAL
+                if _HF_SNAPSHOT_PROGRESS_MODULE is not None and _HF_SNAPSHOT_TQDM_ORIGINAL is not None:
+                    _HF_SNAPSHOT_PROGRESS_MODULE.hf_tqdm = _HF_SNAPSHOT_TQDM_ORIGINAL
                 if _HF_XET_PROGRESS_MODULE is not None and _HF_XET_PROGRESS_PATCH_ORIGINAL is not None:
                     _HF_XET_PROGRESS_MODULE._create_progress_bar = _HF_XET_PROGRESS_PATCH_ORIGINAL
                 if _HF_PROGRESS_PATCH_PROGRESS is not None:
@@ -309,6 +327,8 @@ def hf_download_reporting(console: Optional[Any] = None):
                 _HF_PROGRESS_PATCH_PROGRESS = None
                 _HF_XET_PROGRESS_MODULE = None
                 _HF_XET_PROGRESS_PATCH_ORIGINAL = None
+                _HF_SNAPSHOT_PROGRESS_MODULE = None
+                _HF_SNAPSHOT_TQDM_ORIGINAL = None
 
 
 def load_pretrained_component(

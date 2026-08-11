@@ -1459,6 +1459,86 @@ def test_snapshot_download_with_reporting_avoids_multiline_cursor_controls(monke
     assert "\x1b[A" not in state["progress_output"]
 
 
+def test_load_pretrained_component_avoids_snapshot_cursor_controls():
+    from huggingface_hub import _snapshot_download
+
+    from utils.transformer_loader import load_pretrained_component
+
+    progress_output = io.StringIO()
+    original_tqdm = _snapshot_download.hf_tqdm
+    state = {}
+
+    class FakeLoader:
+        @staticmethod
+        def from_pretrained(model_id, **_kwargs):
+            tqdm_class = _snapshot_download.hf_tqdm
+            state["patched_during_call"] = tqdm_class is not original_tqdm
+            download_bar = tqdm_class(total=1, desc="Downloading bytes", file=progress_output)
+            reconstruct_bar = tqdm_class(total=1, desc="Reconstructing", file=progress_output)
+            fetch_bar = tqdm_class(total=4, desc="Fetching 4 files", file=progress_output)
+            fetch_bar.update(1)
+            fetch_bar.close()
+            reconstruct_bar.close()
+            download_bar.close()
+            return {"model_id": model_id}
+
+    result = load_pretrained_component(
+        FakeLoader,
+        "Qwen/Qwen3.5-9B",
+        console=Console(file=io.StringIO(), force_terminal=False),
+    )
+
+    assert result == {"model_id": "Qwen/Qwen3.5-9B"}
+    output = progress_output.getvalue()
+    assert state["patched_during_call"] is True
+    assert "Downloading bytes" in output
+    assert "Reconstructing" in output
+    assert "Fetching 4 files" in output
+    assert "\x1b[A" not in output
+    assert _snapshot_download.hf_tqdm is original_tqdm
+
+
+def test_load_pretrained_component_restores_snapshot_tqdm_after_failure():
+    from huggingface_hub import _snapshot_download
+
+    from utils.transformer_loader import load_pretrained_component
+
+    original_tqdm = _snapshot_download.hf_tqdm
+
+    class FailingLoader:
+        @staticmethod
+        def from_pretrained(_model_id, **_kwargs):
+            assert _snapshot_download.hf_tqdm is not original_tqdm
+            raise RuntimeError("download failed")
+
+    with pytest.raises(RuntimeError, match="download failed"):
+        load_pretrained_component(
+            FailingLoader,
+            "Qwen/Qwen3.5-9B",
+            console=Console(file=io.StringIO(), force_terminal=False),
+        )
+
+    assert _snapshot_download.hf_tqdm is original_tqdm
+
+
+def test_hf_download_reporting_keeps_snapshot_tqdm_patched_until_outer_exit():
+    from huggingface_hub import _snapshot_download
+
+    from utils.transformer_loader import hf_download_reporting
+
+    original_tqdm = _snapshot_download.hf_tqdm
+    console = Console(file=io.StringIO(), force_terminal=False)
+
+    with hf_download_reporting(console):
+        patched_tqdm = _snapshot_download.hf_tqdm
+        assert patched_tqdm is not original_tqdm
+        with hf_download_reporting(console):
+            assert _snapshot_download.hf_tqdm is patched_tqdm
+        assert _snapshot_download.hf_tqdm is patched_tqdm
+
+    assert _snapshot_download.hf_tqdm is original_tqdm
+
+
 def test_load_pretrained_component_temporarily_disables_library_progress_bars(monkeypatch):
     from utils.transformer_loader import load_pretrained_component
 
