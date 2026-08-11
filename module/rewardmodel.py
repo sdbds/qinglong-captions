@@ -27,8 +27,8 @@ import os
 import shutil
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, is_dataclass
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 import numpy as np
@@ -281,6 +281,88 @@ def _log_scored_items(items: Sequence[ScoredImage], *, console: Any) -> None:
         )
 
 
+def _failed_image_count(errors: Sequence[RunError]) -> int:
+    return sum(1 if error.scope == "item" else len(error.paths) for error in errors)
+
+
+def _log_run_configuration(
+    *,
+    console: Any,
+    qinglong_score_version: str,
+    scorer_name: str,
+    selected_checkpoint: Any,
+    scorer: Any,
+    compute_dtype: torch.dtype,
+    thresholds: Sequence[Threshold],
+) -> None:
+    console.print(f"[cyan]Qinglong Score: {escape(str(qinglong_score_version))}[/cyan]")
+    console.print(f"[cyan]Scorer: {escape(scorer_name)}[/cyan]")
+    console.print(
+        f"[cyan]Checkpoint: {escape(str(selected_checkpoint.identifier))}[/cyan]"
+    )
+    console.print(
+        "[cyan]Runtime: "
+        f"device={escape(str(scorer.device))}, "
+        f"compute_dtype={escape(str(compute_dtype))}, "
+        f"input_dtype={escape(str(scorer.input_dtype))}, "
+        f"attention_backend={escape(str(scorer.attention_backend))}[/cyan]"
+    )
+    if thresholds:
+        profile = ", ".join(
+            f"{escape(row.name)}<={row.max_score:g}" for row in thresholds
+        )
+        console.print(f"[cyan]Thresholds: {profile}[/cyan]")
+    else:
+        console.print("[cyan]Thresholds: disabled[/cyan]")
+
+    checkpoint_identity = scorer.checkpoint_identity
+    for artifact in getattr(checkpoint_identity, "artifacts", ()):
+        filename = f"/{artifact.filename}" if artifact.filename else ""
+        console.print(
+            "[dim]Artifact: "
+            f"{escape(str(artifact.provider))}:"
+            f"{escape(str(artifact.repository))}@"
+            f"{escape(str(artifact.revision))}"
+            f"{escape(filename)}[/dim]"
+        )
+    local_path = getattr(checkpoint_identity, "path", None)
+    if local_path is not None:
+        console.print(f"[dim]Artifact: {escape(str(local_path))}[/dim]")
+
+
+def _log_run_errors(errors: Sequence[RunError], *, console: Any) -> None:
+    for error in errors:
+        paths = (error.path,) if error.scope == "item" else error.paths
+        for path in paths:
+            console.print(
+                f"[red]{escape(error.stage)} failed: {escape(str(path))} "
+                f"({escape(error.error_type)}: {escape(error.message)})[/red]"
+            )
+
+
+def _log_run_completion(
+    items: Sequence[ScoredImage],
+    errors: Sequence[RunError],
+    *,
+    console: Any,
+) -> None:
+    failed = _failed_image_count(errors)
+    empty_prompts = sum(item.prompt_source == "empty" for item in items)
+    if not items:
+        label = "Scoring failed"
+        style = "red"
+    elif errors:
+        label = "Scoring completed with errors"
+        style = "yellow"
+    else:
+        label = "Scoring completed"
+        style = "green"
+    console.print(
+        f"[{style}]{label}: scored={len(items)}, failed={failed}, "
+        f"empty_prompts={empty_prompts}[/{style}]"
+    )
+
+
 def source_images_from_batch(batch: Any) -> list[SourceImage]:
     names = tuple(batch.schema.names)
     if "uris" not in names:
@@ -299,29 +381,6 @@ def source_images_from_batch(batch: Any) -> list[SourceImage]:
     ]
 
 
-def _json_value(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(key): _json_value(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_value(item) for item in value]
-    if isinstance(value, (Path, torch.device, torch.dtype)):
-        return str(value)
-    return value
-
-
-def serialize_checkpoint(checkpoint: Any) -> dict[str, Any]:
-    if not is_dataclass(checkpoint):
-        raise TypeError("checkpoint identity must be a public dataclass")
-    payload = _json_value(asdict(checkpoint))
-    if "identifier" in payload and "artifacts" in payload:
-        kind = "remote"
-    elif "path" in payload:
-        kind = "local"
-    else:
-        raise TypeError("unsupported checkpoint identity")
-    return {"kind": kind, **payload}
-
-
 def _relative_path(path: str | Path, source_root: str | Path) -> str:
     resolved_path = Path(path).resolve()
     resolved_root = Path(source_root).resolve()
@@ -333,104 +392,32 @@ def _relative_path(path: str | Path, source_root: str | Path) -> str:
         ) from error
 
 
-def _serialize_error(error: RunError, source_root: str | Path) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "scope": error.scope,
-        "stage": error.stage,
-        "error_type": error.error_type,
-        "message": error.message,
-    }
-    if error.scope == "item":
-        if error.path is None:
-            raise ValueError("item error must contain one path")
-        payload["path"] = _relative_path(error.path, source_root)
-    else:
-        if not error.paths:
-            raise ValueError("batch error must contain at least one path")
-        payload["paths"] = [
-            _relative_path(path, source_root) for path in error.paths
-        ]
-    return payload
-
-
 def build_report(
     *,
-    qinglong_score_version: str,
-    scorer: str,
-    requested_checkpoint: str | None,
-    tracking_source: Any | None,
-    checkpoint: Any,
-    device: str | torch.device,
-    compute_dtype: torch.dtype,
-    input_dtype: torch.dtype,
-    attention_backend: str | None,
-    thresholds: Sequence[Threshold],
     items: Sequence[ScoredImage],
-    errors: Sequence[RunError],
     source_root: str | Path,
-    buckets: Mapping[str, str | None],
 ) -> dict[str, Any]:
-    report_items: list[dict[str, Any]] = []
+    rows: list[tuple[str, float]] = []
     for item in items:
         if not math.isfinite(item.score):
             raise ValueError(f"score must be finite for {item.path}")
-        report_items.append(
-            {
-                "path": _relative_path(item.path, source_root),
-                "score": item.score,
-                "prompt": item.prompt,
-                "prompt_source": item.prompt_source,
-                "bucket": buckets.get(item.path),
-            }
-        )
-    report_items.sort(key=lambda row: (-row["score"], row["path"]))
-    for rank, item in enumerate(report_items, start=1):
-        item["rank"] = rank
-    report_items = [
-        {
-            "rank": item["rank"],
-            "path": item["path"],
-            "score": item["score"],
-            "prompt": item["prompt"],
-            "prompt_source": item["prompt_source"],
-            "bucket": item["bucket"],
-        }
-        for item in report_items
-    ]
+        rows.append((_relative_path(item.path, source_root), float(item.score)))
 
-    report_errors = [_serialize_error(error, source_root) for error in errors]
-    failed = sum(
-        1 if error.scope == "item" else len(error.paths) for error in errors
-    )
-    threshold_rows = [row.as_dict() for row in thresholds]
-    return {
-        "run": {
-            "qinglong_score_version": str(qinglong_score_version),
-            "scorer": scorer,
-            "requested_checkpoint": requested_checkpoint,
-            "tracking_source": (
-                serialize_checkpoint(tracking_source)
-                if tracking_source is not None
-                else None
-            ),
-            "checkpoint": serialize_checkpoint(checkpoint),
-            "device": str(device),
-            "compute_dtype": str(compute_dtype),
-            "input_dtype": str(input_dtype),
-            "attention_backend": attention_backend,
-            "thresholds_enabled": bool(threshold_rows),
-            "thresholds": threshold_rows,
-        },
-        "summary": {
-            "scored": len(report_items),
-            "failed": failed,
-            "empty_prompt_count": sum(
-                item.prompt_source == "empty" for item in items
-            ),
-        },
-        "items": report_items,
-        "errors": report_errors,
-    }
+    report: dict[str, Any] = {}
+    for relative_path, score in sorted(rows, key=lambda row: row[0]):
+        parts = PurePosixPath(relative_path).parts
+        if not parts:
+            raise ValueError(f"source path has no report name: {relative_path}")
+        node = report
+        for part in parts[:-1]:
+            child = node.setdefault(part, {})
+            if not isinstance(child, dict):
+                raise ValueError(f"report path conflicts with file: {relative_path}")
+            node = child
+        if isinstance(node.get(parts[-1]), dict):
+            raise ValueError(f"report path conflicts with directory: {relative_path}")
+        node[parts[-1]] = score
+    return report
 
 
 def result_path_for_input(input_path: str | Path) -> Path:
@@ -598,6 +585,16 @@ def run(args: argparse.Namespace) -> int:
         f"[green]Scorer ready:[/green] {escape(scorer_name)} "
         f"([white]{escape(selected_checkpoint.identifier)}[/white])"
     )
+    compute_dtype = dtype or spec.default_compute_dtype
+    _log_run_configuration(
+        console=console,
+        qinglong_score_version=qinglong_score.__version__,
+        scorer_name=scorer_name,
+        selected_checkpoint=selected_checkpoint,
+        scorer=scorer,
+        compute_dtype=compute_dtype,
+        thresholds=thresholds,
+    )
 
     dataset = _resolve_dataset(args.train_data_dir)
     schema_names = set(dataset.schema.names)
@@ -638,37 +635,25 @@ def run(args: argparse.Namespace) -> int:
 
     source_root = _source_root_for_run(args.train_data_dir, source_paths)
     tracking = bool(selected_checkpoint.tracks_updates)
-    buckets = apply_thresholds(
+    apply_thresholds(
         items,
         thresholds=thresholds,
         source_root=source_root,
         tracking_checkpoint=tracking,
+        warn=lambda message: console.print(
+            f"[yellow]{escape(str(message))}[/yellow]"
+        ),
     )
     report = build_report(
-        qinglong_score_version=qinglong_score.__version__,
-        scorer=scorer_name,
-        requested_checkpoint=args.checkpoint,
-        tracking_source=selected_checkpoint if tracking else None,
-        checkpoint=scorer.checkpoint_identity,
-        device=scorer.device,
-        compute_dtype=dtype or spec.default_compute_dtype,
-        input_dtype=scorer.input_dtype,
-        attention_backend=scorer.attention_backend,
-        thresholds=thresholds,
         items=items,
-        errors=errors,
         source_root=source_root,
-        buckets=buckets,
     )
     result_path = result_path_for_input(args.train_data_dir)
     write_json_atomic(result_path, report)
 
-    if items and errors:
-        print(
-            f"Scored {len(items)} image(s); "
-            f"{sum(len(error.paths) or 1 for error in errors)} failed."
-        )
-    print(f"Results saved to: {result_path}")
+    _log_run_errors(errors, console=console)
+    _log_run_completion(items, errors, console=console)
+    console.print(f"[green]Results saved to: {escape(str(result_path))}[/green]")
     return 0 if items else 1
 
 
@@ -718,7 +703,6 @@ __all__ = [
     "run",
     "score_source_batch",
     "select_prompt",
-    "serialize_checkpoint",
     "source_images_from_batch",
     "setup_parser",
     "write_json_atomic",

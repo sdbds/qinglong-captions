@@ -21,7 +21,7 @@ uv run --no-project .\module\rewardmodel.py .\datasets `
 
 `--scorer` 选择评分算法，`--checkpoint` 选择该评分器注册的权重。省略 `--checkpoint` 时使用注册表默认权重。默认评分器是仅使用图片的 `aesthetic_predictor_v2_5`。
 
-需要文本的评分器按以下顺序构造每张图片的 prompt：非空 `--prompt`、该图片在 Lance 中的非空 caption、空字符串。空字符串是明确支持的无文本评分模式，并在报告中记录为 `prompt_source="empty"`；仅图片评分器收到 `prompts=None`。
+需要文本的评分器按以下顺序构造每张图片的 prompt：非空 `--prompt`、该图片在 Lance 中的非空 caption、空字符串。空字符串是明确支持的无文本评分模式，使用数量会显示在控制台汇总中；仅图片评分器收到 `prompts=None`。
 
 ## 分档
 
@@ -43,6 +43,17 @@ color = "bold green"
 
 ## 结果
 
-目录输入写入 `<目录>/reward_scores.json`；直接输入 `.lance` 时写入同级 `<名称>.reward_scores.json`。报告按分数降序和路径升序稳定排名，并记录 Qinglong Score 版本、实际解析后的 checkpoint、设备、dtype、prompt 来源、分档、失败项和汇总。文件采用原子替换；部分图片失败但至少一张成功时仍返回成功并保留诊断，全部失败则返回非零状态。
+目录输入写入 `<目录>/reward_scores.json`；直接输入 `.lance` 时写入同级 `<名称>.reward_scores.json`。文件只包含按源文件相对路径组织的评分结果，目录为 JSON 对象，图片叶子为数值分数：
 
-跟踪更新的 checkpoint 会同时记录可变来源和本次解析到的固定 revision。它便于追踪最新权重，但同一组 scorer 阈值可能随权重更新发生漂移，正式数据处理更适合选择固定 checkpoint。
+```json
+{
+  "character": {
+    "front.png": 7.8421,
+    "side.png": 6.915
+  }
+}
+```
+
+报告采用原子替换，不包含模型、设备、运行状态、prompt、分档或错误诊断。Qinglong Score 版本、评分器、checkpoint、实际 artifact revision、设备、dtype、阈值、逐文件分数、失败项和运行汇总均显示在控制台日志中。部分图片失败但至少一张成功时仍返回成功；全部失败时写入空对象并返回非零状态。
+
+跟踪更新的 checkpoint 会在控制台显示本次解析到的 artifact revision。它便于追踪最新权重，但同一组 scorer 阈值可能随权重更新发生漂移，正式数据处理更适合选择固定 checkpoint。

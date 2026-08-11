@@ -58,172 +58,33 @@ RESOLVED_CHECKPOINT = FakeCheckpoint(
 )
 
 
-def test_report_is_deterministic_and_records_runtime_provenance(
+def test_report_is_a_deterministic_path_tree_with_numeric_scores(
     rewardmodel, tmp_path: Path
 ):
     source_root = tmp_path / "images"
-    source_root.mkdir()
-    tracking_source = FakeCheckpoint(
-        adapter="aesthetic_predictor_v2_5",
-        identifier="owner/tracking",
-        format="official",
-        artifacts=(
-            FakeArtifact(
-                provider="huggingface",
-                repository="owner/model",
-                revision="main",
-                filename=None,
-                sha256=None,
-                role="snapshot",
-            ),
-        ),
-        is_default=False,
-        tracks_updates=True,
-    )
     items = [
         rewardmodel.ScoredImage(str(source_root / "b.png"), None, None, 2.0),
         rewardmodel.ScoredImage(str(source_root / "a.png"), None, None, 2.0),
-        rewardmodel.ScoredImage(str(source_root / "c.png"), "", "empty", 3.0),
-    ]
-    errors = [
-        rewardmodel.RunError.item(
-            str(source_root / "broken.png"), ValueError("cannot decode")
-        ),
-        rewardmodel.RunError.batch(
-            [str(source_root / "d.png"), str(source_root / "e.png")],
-            RuntimeError("score failed"),
+        rewardmodel.ScoredImage(
+            str(source_root / "nested" / "c.png"), "", "empty", 3.25
         ),
     ]
-    thresholds = (
-        Threshold("low_quality", 2.0, "red"),
-        Threshold("best_quality", 10.0, "green"),
-    )
 
     report = rewardmodel.build_report(
-        qinglong_score_version="0.2.2",
-        scorer="aesthetic_predictor_v2_5",
-        requested_checkpoint="owner/tracking",
-        tracking_source=tracking_source,
-        checkpoint=RESOLVED_CHECKPOINT,
-        device=torch.device("cpu"),
-        compute_dtype=torch.float32,
-        input_dtype=torch.float32,
-        attention_backend=None,
-        thresholds=thresholds,
         items=items,
-        errors=errors,
         source_root=source_root,
-        buckets={
-            str(source_root / "a.png"): "low_quality",
-            str(source_root / "b.png"): "low_quality",
-            str(source_root / "c.png"): "best_quality",
-        },
     )
 
-    assert "schema_version" not in report
-    assert report["run"] == {
-        "qinglong_score_version": "0.2.2",
-        "scorer": "aesthetic_predictor_v2_5",
-        "requested_checkpoint": "owner/tracking",
-        "tracking_source": {
-            "kind": "remote",
-            "adapter": "aesthetic_predictor_v2_5",
-            "identifier": "owner/tracking",
-            "format": "official",
-            "artifacts": [
-                {
-                    "provider": "huggingface",
-                    "repository": "owner/model",
-                    "revision": "main",
-                    "filename": None,
-                    "sha256": None,
-                    "role": "snapshot",
-                }
-            ],
-            "is_default": False,
-            "tracks_updates": True,
-        },
-        "checkpoint": {
-            "kind": "remote",
-            "adapter": "aesthetic_predictor_v2_5",
-            "identifier": "owner/model",
-            "format": "official",
-            "artifacts": [
-                {
-                    "provider": "huggingface",
-                    "repository": "owner/model",
-                    "revision": "a" * 40,
-                    "filename": "model.safetensors",
-                    "sha256": "b" * 64,
-                    "role": "weights",
-                }
-            ],
-            "is_default": True,
-            "tracks_updates": False,
-        },
-        "device": "cpu",
-        "compute_dtype": "torch.float32",
-        "input_dtype": "torch.float32",
-        "attention_backend": None,
-        "thresholds_enabled": True,
-        "thresholds": [
-            {"name": "low_quality", "max_score": 2.0, "color": "red"},
-            {"name": "best_quality", "max_score": 10.0, "color": "green"},
-        ],
+    assert list(report) == ["a.png", "b.png", "nested"]
+    assert report == {
+        "a.png": 2.0,
+        "b.png": 2.0,
+        "nested": {"c.png": 3.25},
     }
-    assert report["summary"] == {
-        "scored": 3,
-        "failed": 3,
-        "empty_prompt_count": 1,
-    }
-    assert [
-        (row["rank"], row["path"], row["bucket"]) for row in report["items"]
-    ] == [
-        (1, "c.png", "best_quality"),
-        (2, "a.png", "low_quality"),
-        (3, "b.png", "low_quality"),
-    ]
-    assert report["errors"] == [
-        {
-            "scope": "item",
-            "stage": "decode",
-            "error_type": "ValueError",
-            "message": "cannot decode",
-            "path": "broken.png",
-        },
-        {
-            "scope": "batch",
-            "stage": "score",
-            "error_type": "RuntimeError",
-            "message": "score failed",
-            "paths": ["d.png", "e.png"],
-        },
-    ]
 
 
-def test_pinned_checkpoint_has_no_tracking_source_and_no_thresholds(
-    rewardmodel, tmp_path: Path
-):
-    report = rewardmodel.build_report(
-        qinglong_score_version="0.2.2",
-        scorer="aesthetic_predictor_v2_5",
-        requested_checkpoint=None,
-        tracking_source=None,
-        checkpoint=RESOLVED_CHECKPOINT,
-        device="cpu",
-        compute_dtype=torch.float32,
-        input_dtype=torch.float32,
-        attention_backend=None,
-        thresholds=(),
-        items=[],
-        errors=[],
-        source_root=tmp_path,
-        buckets={},
-    )
-
-    assert report["run"]["tracking_source"] is None
-    assert report["run"]["thresholds_enabled"] is False
-    assert report["run"]["thresholds"] == []
+def test_report_with_no_successful_items_is_empty(rewardmodel, tmp_path: Path):
+    assert rewardmodel.build_report(items=[], source_root=tmp_path) == {}
 
 
 def test_result_path_depends_on_directory_or_direct_lance_input(
@@ -358,6 +219,15 @@ def _install_run_fakes(rewardmodel, monkeypatch, image_paths: list[str]) -> None
     )
 
 
+def _capture_run_console(rewardmodel, monkeypatch) -> list[str]:
+    messages = []
+    console = types.SimpleNamespace(
+        print=lambda message, **_kwargs: messages.append(str(message))
+    )
+    monkeypatch.setattr(rewardmodel, "resolve_rich_console", lambda: console)
+    return messages
+
+
 def test_run_writes_partial_success_report_and_returns_zero(
     rewardmodel, monkeypatch, tmp_path: Path
 ):
@@ -371,18 +241,19 @@ def test_run_writes_partial_success_report_and_returns_zero(
         monkeypatch,
         [str(image_path), str(missing_path)],
     )
+    messages = _capture_run_console(rewardmodel, monkeypatch)
 
     args = rewardmodel.setup_parser().parse_args([str(tmp_path), "--device=cpu"])
     assert rewardmodel.run(args) == 0
 
     report = json.loads((tmp_path / "reward_scores.json").read_text(encoding="utf-8"))
-    assert report["summary"] == {
-        "scored": 1,
-        "failed": 1,
-        "empty_prompt_count": 0,
-    }
-    assert report["items"][0]["path"] == "ok.png"
-    assert report["errors"][0]["path"] == "missing.png"
+    assert report == {"ok.png": 1.0}
+    log = "\n".join(messages)
+    assert "Qinglong Score: 0.2.2" in log
+    assert "Scorer: aesthetic_predictor_v2_5" in log
+    assert "missing.png" in log
+    assert "decode failed" in log
+    assert "Scoring completed with errors: scored=1, failed=1" in log
 
 
 def test_all_failed_direct_lance_run_writes_sibling_report_and_returns_nonzero(
@@ -391,12 +262,14 @@ def test_all_failed_direct_lance_run_writes_sibling_report_and_returns_nonzero(
     missing_path = tmp_path / "missing.png"
     lance_path = tmp_path / "catalog.lance"
     _install_run_fakes(rewardmodel, monkeypatch, [str(missing_path)])
+    messages = _capture_run_console(rewardmodel, monkeypatch)
 
     args = rewardmodel.setup_parser().parse_args([str(lance_path), "--device=cpu"])
     assert rewardmodel.run(args) == 1
 
     output = tmp_path / "catalog.reward_scores.json"
     report = json.loads(output.read_text(encoding="utf-8"))
-    assert report["summary"]["scored"] == 0
-    assert report["summary"]["failed"] == 1
-
+    assert report == {}
+    log = "\n".join(messages)
+    assert "missing.png" in log
+    assert "Scoring failed: scored=0, failed=1" in log

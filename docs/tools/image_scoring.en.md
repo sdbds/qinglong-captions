@@ -21,7 +21,7 @@ uv run --no-project .\module\rewardmodel.py .\datasets `
 
 `--scorer` selects the scoring algorithm. `--checkpoint` selects registered weights for that scorer; omitting it uses the registry default. The default scorer is the image-only `aesthetic_predictor_v2_5`.
 
-Prompt-required scorers use the first available source for each image: a nonempty `--prompt`, that image's nonempty Lance caption, or an empty string. The empty string is an intentional no-text scoring mode and is reported as `prompt_source="empty"`. Image-only scorers receive `prompts=None`.
+Prompt-required scorers use the first available source for each image: a nonempty `--prompt`, that image's nonempty Lance caption, or an empty string. The empty string is an intentional no-text scoring mode whose usage count appears in the console summary. Image-only scorers receive `prompts=None`.
 
 ## Thresholds
 
@@ -43,6 +43,17 @@ Rows are applied by ascending `max_score`. A score enters the first row where `s
 
 ## Results
 
-Directory input writes `<directory>/reward_scores.json`. Direct `.lance` input writes a sibling `<name>.reward_scores.json`. The structured report ranks by descending score then ascending path, and records the Qinglong Score version, resolved checkpoint, device, dtypes, prompt provenance, buckets, failures, and summary. It is replaced atomically. Partial image failures return success when at least one image scores; an all-failed run returns nonzero after writing diagnostics.
+Directory input writes `<directory>/reward_scores.json`. Direct `.lance` input writes a sibling `<name>.reward_scores.json`. The file contains only scores arranged by source-relative path: directories are JSON objects and image leaves are numeric scores.
 
-A tracking checkpoint records both its mutable source and the pinned revision resolved for that run. Tracking is convenient for following new weights, but scorer-level thresholds can drift when those weights change; prefer a pinned checkpoint for repeatable production runs.
+```json
+{
+  "character": {
+    "front.png": 7.8421,
+    "side.png": 6.915
+  }
+}
+```
+
+The report is replaced atomically and contains no model, device, run status, prompt, bucket, or error diagnostics. The console log shows the Qinglong Score version, scorer, checkpoint, resolved artifact revisions, device, dtypes, thresholds, per-file scores, failures, and run summary. Partial image failures return success when at least one image scores; an all-failed run writes an empty object and returns nonzero.
+
+A tracking checkpoint prints the artifact revision resolved for that run to the console. Tracking is convenient for following new weights, but scorer-level thresholds can drift when those weights change; prefer a pinned checkpoint for repeatable production runs.

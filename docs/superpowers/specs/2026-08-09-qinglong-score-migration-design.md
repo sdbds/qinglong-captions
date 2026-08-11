@@ -4,6 +4,13 @@
 
 **Date:** 2026-08-09
 
+**Post-implementation amendment (2026-08-12):** The GUI checkpoint control now
+lists only real repository identifiers and selects the registered default
+repository directly. `reward_scores.json` is a source-relative path tree whose
+leaves are numeric scores; runtime provenance, failures, and summaries are
+console logs rather than report fields. These decisions supersede the checkpoint
+placeholder and structured-report details retained below as design history.
+
 **Scope:** Replace the image-scoring integration in `qinglong-captions` from
 `imscore` to the public `qinglong-score` API, including CLI, GUI, configuration,
 result provenance, and tests. This document does not authorize unrelated reward
