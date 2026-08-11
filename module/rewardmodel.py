@@ -34,8 +34,14 @@ from typing import Any, Literal
 import numpy as np
 import torch
 from PIL import Image
+from rich.markup import escape
 
 from module.reward_policy import Threshold, assign_threshold, load_reward_policy
+from utils.rich_progress import resolve_rich_console
+from utils.transformer_loader import (
+    hf_download_reporting,
+    suppress_library_progress_bars,
+)
 
 PromptSource = Literal["override", "caption", "empty"]
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
@@ -265,6 +271,14 @@ def score_source_batch(
             for image, score in zip(group, host_scores, strict=True)
         )
     return items, errors
+
+
+def _log_scored_items(items: Sequence[ScoredImage], *, console: Any) -> None:
+    for item in items:
+        console.print(
+            f"[cyan]{escape(item.path)}[/cyan] "
+            f"[bold green]score={item.score:.4f}[/bold green]"
+        )
 
 
 def source_images_from_batch(batch: Any) -> list[SourceImage]:
@@ -556,6 +570,7 @@ def _source_root_for_run(
 
 
 def run(args: argparse.Namespace) -> int:
+    console = resolve_rich_console()
     policy = load_reward_policy(CONFIG_DIR)
     scorer_name = args.scorer or policy.default_scorer
     thresholds = policy.thresholds_for(scorer_name)
@@ -567,12 +582,21 @@ def run(args: argparse.Namespace) -> int:
     selected_checkpoint = _select_checkpoint_row(checkpoints, args.checkpoint)
     device = resolve_device(args.device)
     dtype = resolve_dtype(args.dtype)
-    scorer = qinglong_score.load_scorer(
-        name=scorer_name,
-        checkpoint=args.checkpoint,
-        device=str(device),
-        dtype=dtype,
-        attention_backend="auto",
+    console.print(
+        f"[cyan]Loading scorer:[/cyan] {escape(scorer_name)} "
+        f"([white]{escape(selected_checkpoint.identifier)}[/white])"
+    )
+    with suppress_library_progress_bars(), hf_download_reporting(console):
+        scorer = qinglong_score.load_scorer(
+            name=scorer_name,
+            checkpoint=args.checkpoint,
+            device=str(device),
+            dtype=dtype,
+            attention_backend="auto",
+        )
+    console.print(
+        f"[green]Scorer ready:[/green] {escape(scorer_name)} "
+        f"([white]{escape(selected_checkpoint.identifier)}[/white])"
     )
 
     dataset = _resolve_dataset(args.train_data_dir)
@@ -610,6 +634,7 @@ def run(args: argparse.Namespace) -> int:
         )
         items.extend(batch_items)
         errors.extend(batch_errors)
+        _log_scored_items(batch_items, console=console)
 
     source_root = _source_root_for_run(args.train_data_dir, source_paths)
     tracking = bool(selected_checkpoint.tracks_updates)

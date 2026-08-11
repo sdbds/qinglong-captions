@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -218,6 +219,20 @@ def test_nonfinite_score_fails_the_group(rewardmodel, tmp_path: Path):
     assert "finite" in errors[0].message
 
 
+def test_scored_item_log_includes_file_and_score(rewardmodel):
+    messages = []
+    console = types.SimpleNamespace(print=messages.append)
+
+    rewardmodel._log_scored_items(
+        [rewardmodel.ScoredImage("folder/sample.png", None, None, 1.23456)],
+        console=console,
+    )
+
+    assert len(messages) == 1
+    assert "folder/sample.png" in messages[0]
+    assert "score=1.2346" in messages[0]
+
+
 def test_source_images_from_arrow_batch_preserves_per_row_captions(rewardmodel):
     batch = pa.record_batch(
         [
@@ -248,6 +263,15 @@ def test_run_uses_public_loader_without_mutating_the_scorer(
     image_path = tmp_path / "sample.png"
     _write_image(image_path, size=(4, 3), value=64)
     load_calls = []
+    download_events = []
+
+    @contextmanager
+    def fake_download_reporting(_console):
+        download_events.append("enter")
+        yield
+        download_events.append("exit")
+
+    monkeypatch.setattr(rewardmodel, "hf_download_reporting", fake_download_reporting)
 
     @dataclass(frozen=True, slots=True)
     class FakeScorerSpec:
@@ -318,6 +342,7 @@ def test_run_uses_public_loader_without_mutating_the_scorer(
     fake_module.list_checkpoints = lambda _name: (checkpoint,)
 
     def load_scorer(**kwargs):
+        download_events.append("load")
         load_calls.append(kwargs)
         return ImmutableScorer()
 
@@ -365,3 +390,4 @@ def test_run_uses_public_loader_without_mutating_the_scorer(
             "attention_backend": "auto",
         }
     ]
+    assert download_events == ["enter", "load", "exit"]
