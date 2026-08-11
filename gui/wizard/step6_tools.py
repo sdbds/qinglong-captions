@@ -12,6 +12,7 @@ from gui.components.advanced_inputs import editable_slider, styled_input, styled
 from gui.components.path_selector import create_path_selector
 from gui.theme import COLORS, get_classes
 from gui.utils.i18n import t
+from gui.utils.reward_catalog import RewardCatalog, load_reward_catalog
 from module.auto_rig.export.live2d.runtime_toolchain import (
     Live2DRuntimeToolchainError,
     resolve_cubism_sdk_root,
@@ -485,6 +486,9 @@ class ToolsStep:
         self.reward_discovery_status_label = None
         self.reward_scorer = None
         self.reward_checkpoint = None
+        self._reward_catalog = RewardCatalog()
+        self._reward_discovery_generation = 0
+        self._reward_discovery_task: asyncio.Task | None = None
         self._reward_scorer_switching = False
         self._reward_threshold_render_pending = False
         self._tool_tabs = None
@@ -1307,24 +1311,17 @@ class ToolsStep:
         self,
         scorer: str,
         *,
-        qscore_module: Any | None = None,
         preserve_selection: bool = False,
     ) -> None:
         options = {"": t("reward_checkpoint_default")}
-        try:
-            if qscore_module is None:
-                import qinglong_score as qscore_module
-
-            for row in qscore_module.list_checkpoints(scorer):
-                tags = []
-                if row.is_default:
-                    tags.append(t("reward_checkpoint_default_tag"))
-                if row.tracks_updates:
-                    tags.append(t("reward_checkpoint_tracking_tag"))
-                suffix = f" ({', '.join(tags)})" if tags else ""
-                options[row.identifier] = f"{row.identifier}{suffix}"
-        except Exception:
-            pass
+        for row in self._reward_catalog.checkpoints_for(scorer):
+            tags = []
+            if row.is_default:
+                tags.append(t("reward_checkpoint_default_tag"))
+            if row.tracks_updates:
+                tags.append(t("reward_checkpoint_tracking_tag"))
+            suffix = f" ({', '.join(tags)})" if tags else ""
+            options[row.identifier] = f"{row.identifier}{suffix}"
 
         control = self.reward_checkpoint
         if control is not None:
@@ -1334,16 +1331,9 @@ class ToolsStep:
                 options.setdefault(selected, selected)
             control.set_options(options, value=selected)
 
-    def _refresh_reward_discovery(self, _event: Any = None) -> None:
+    def _apply_reward_discovery(self, *, discovery_error: Exception | None) -> None:
         names = set(self._fallback_reward_scorers())
-        qscore_module = None
-        discovery_error = None
-        try:
-            import qinglong_score as qscore_module
-
-            names.update(qscore_module.list_scorers())
-        except Exception as error:
-            discovery_error = error
+        names.update(self._reward_catalog.scorers)
 
         default = self.reward_policy.default_scorer
         current = str(getattr(self.reward_scorer, "value", "") or default).strip()
@@ -1357,7 +1347,6 @@ class ToolsStep:
             )
         self._refresh_reward_checkpoints(
             current or default,
-            qscore_module=qscore_module,
             preserve_selection=True,
         )
 
@@ -1366,6 +1355,36 @@ class ToolsStep:
             status.set_text(
                 t("reward_discovery_unavailable") if discovery_error else ""
             )
+
+    async def _refresh_reward_discovery_async(
+        self,
+        *,
+        generation: int | None = None,
+    ) -> None:
+        if generation is None:
+            self._reward_discovery_generation += 1
+            generation = self._reward_discovery_generation
+
+        discovery_error = None
+        try:
+            catalog = await asyncio.to_thread(load_reward_catalog)
+        except Exception as error:
+            discovery_error = error
+        else:
+            if generation != self._reward_discovery_generation:
+                return
+            self._reward_catalog = catalog
+
+        if generation != self._reward_discovery_generation:
+            return
+        self._apply_reward_discovery(discovery_error=discovery_error)
+
+    def _refresh_reward_discovery(self, _event: Any = None) -> None:
+        self._reward_discovery_generation += 1
+        generation = self._reward_discovery_generation
+        self._reward_discovery_task = asyncio.create_task(
+            self._refresh_reward_discovery_async(generation=generation)
+        )
 
     def _set_reward_threshold_dirty(self, dirty: bool) -> None:
         self.reward_threshold_dirty = bool(dirty)

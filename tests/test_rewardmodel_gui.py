@@ -5,12 +5,12 @@ import os
 import subprocess
 import sys
 import types
-from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
 from gui.utils.i18n import TRANSLATIONS
+from gui.utils.reward_catalog import RewardCatalog, RewardCheckpoint
 from gui.wizard import step6_tools
 from module.reward_policy import RewardPolicy, Threshold
 
@@ -237,21 +237,18 @@ def test_reward_discovery_uses_public_names_and_checkpoint_metadata(monkeypatch)
     step.reward_scorer = FakeControl("configured_default")
     step.reward_checkpoint = FakeControl(None)
 
-    @dataclass(frozen=True, slots=True)
-    class Checkpoint:
-        identifier: str
-        is_default: bool
-        tracks_updates: bool
-
-    module = types.ModuleType("qinglong_score")
-    module.list_scorers = lambda: ("zeta", "configured_default", "alpha")
-    module.list_checkpoints = lambda _name: (
-        Checkpoint("owner/default", True, False),
-        Checkpoint("owner/tracking", False, True),
+    catalog = RewardCatalog(
+        scorers=("zeta", "configured_default", "alpha"),
+        checkpoints={
+            "configured_default": (
+                RewardCheckpoint("owner/default", True, False),
+                RewardCheckpoint("owner/tracking", False, True),
+            )
+        },
     )
-    monkeypatch.setitem(sys.modules, "qinglong_score", module)
+    monkeypatch.setattr(step6_tools, "load_reward_catalog", lambda: catalog)
 
-    step._refresh_reward_discovery()
+    asyncio.run(step._refresh_reward_discovery_async())
 
     scorer_options, selected_scorer = scorer_updates[-1]
     assert list(scorer_options) == [
