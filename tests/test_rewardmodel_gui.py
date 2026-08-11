@@ -259,14 +259,24 @@ def test_reward_discovery_uses_public_names_and_checkpoint_metadata(monkeypatch)
     ]
     assert selected_scorer == "configured_default"
     checkpoint_options, selected_checkpoint = checkpoint_updates[-1]
-    assert list(checkpoint_options)[0] == ""
+    assert list(checkpoint_options) == ["owner/default", "owner/tracking"]
     assert step6_tools.t("reward_checkpoint_default_tag") in checkpoint_options[
         "owner/default"
     ]
     assert step6_tools.t("reward_checkpoint_tracking_tag") in checkpoint_options[
         "owner/tracking"
     ]
-    assert selected_checkpoint == ""
+    assert selected_checkpoint == "owner/default"
+
+
+def test_reward_tool_starts_without_a_synthetic_checkpoint_option(monkeypatch):
+    step = step6_tools.ToolsStep()
+    monkeypatch.setattr(step, "_refresh_reward_discovery", lambda: None)
+
+    step._render_reward_tool()
+
+    assert step.reward_checkpoint.options == {}
+    assert step.reward_checkpoint.value is None
 
 
 def test_reward_gui_translation_keys_exist_in_every_language():

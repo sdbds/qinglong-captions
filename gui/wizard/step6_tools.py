@@ -1313,11 +1313,14 @@ class ToolsStep:
         *,
         preserve_selection: bool = False,
     ) -> None:
-        options = {"": t("reward_checkpoint_default")}
+        options = {}
+        default_checkpoint = ""
         for row in self._reward_catalog.checkpoints_for(scorer):
             tags = []
             if row.is_default:
                 tags.append(t("reward_checkpoint_default_tag"))
+                if not default_checkpoint:
+                    default_checkpoint = row.identifier
             if row.tracks_updates:
                 tags.append(t("reward_checkpoint_tracking_tag"))
             suffix = f" ({', '.join(tags)})" if tags else ""
@@ -1326,7 +1329,11 @@ class ToolsStep:
         control = self.reward_checkpoint
         if control is not None:
             current = str(getattr(control, "value", "") or "").strip()
-            selected = current if preserve_selection and current else ""
+            selected = (
+                current
+                if preserve_selection and current
+                else default_checkpoint or next(iter(options), "")
+            )
             if selected:
                 options.setdefault(selected, selected)
             control.set_options(options, value=selected)
@@ -1631,8 +1638,8 @@ class ToolsStep:
                 )
                 self.reward_scorer.on_value_change(self._on_reward_scorer_change)
                 self.reward_checkpoint = styled_select(
-                    options={"": t("reward_checkpoint_default")},
-                    value="",
+                    options={},
+                    value=None,
                     label=t("reward_checkpoint"),
                     icon="inventory_2",
                     icon_color=COLORS["primary"],
