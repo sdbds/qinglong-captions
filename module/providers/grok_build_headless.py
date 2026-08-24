@@ -18,7 +18,7 @@ from PIL import Image
 from module.providers.codex_schema import CODEX_CAPTION_SCHEMA, CodexCaptionOutputError, parse_codex_caption_output
 
 DEFAULT_GROK_BUILD_COMMAND = "grok"
-DEFAULT_GROK_BUILD_MODEL = "grok-4.5"
+DEFAULT_GROK_BUILD_MODEL = "grok-4.6"
 DEFAULT_GROK_BUILD_TIMEOUT_SECONDS = 180.0
 DEFAULT_GROK_BUILD_PERMISSION_MODE = "dontAsk"
 DEFAULT_GROK_BUILD_SANDBOX = "read-only"
@@ -227,6 +227,12 @@ def parse_grok_build_output(text: str) -> dict:
 
 def classify_grok_build_failure(output: str, returncode: int | None = None) -> str:
     lower = output.lower()
+    effort_context = any(
+        marker in lower
+        for marker in ("--reasoning-effort", "--effort", "reasoning effort", "effort level")
+    )
+    if effort_context and ("unknown" in lower or "invalid" in lower):
+        return "config"
     if "not found" in lower and "grok" in lower:
         return "environment"
     if returncode == 127:

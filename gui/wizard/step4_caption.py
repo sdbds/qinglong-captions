@@ -309,8 +309,8 @@ class CaptionStep:
         "existing": "Existing session only",
     }
     GROK_BUILD_MODEL_OPTIONS = {
-        "grok-4.5": "grok-4.5 (default)",
-        "grok-composer-2.5-fast": "grok-composer-2.5-fast",
+        "grok-4.6": "grok-4.6 (default)",
+        "grok-4.5": "grok-4.5",
     }
     GROK_BUILD_REASONING_EFFORT_OPTIONS = {
         "": "Default",
@@ -318,6 +318,7 @@ class CaptionStep:
         "low": "low",
         "medium": "medium",
         "high": "high",
+        "xhigh": "xhigh",
     }
     KIMI_REASONING_EFFORT_OPTIONS = {
         "low": "low",
@@ -486,7 +487,7 @@ class CaptionStep:
             "grok_build_backend": "headless",
             "grok_build_auth_mode": "cached_token",
             "grok_build_command": "grok",
-            "grok_build_model_name": "grok-4.5",
+            "grok_build_model_name": "grok-4.6",
             "grok_build_reasoning_effort": "medium",
             "grok_build_disable_web_search": True,
             "grok_build_timeout": 180,
@@ -511,6 +512,27 @@ class CaptionStep:
     @staticmethod
     def _has_text(value: Any) -> bool:
         return value is not None and str(value).strip() != ""
+
+    @classmethod
+    def _grok_build_reasoning_effort_options(cls, model_name: object) -> dict[str, str]:
+        options = dict(cls.GROK_BUILD_REASONING_EFFORT_OPTIONS)
+        if str(model_name or "").strip().lower() == "grok-4.5":
+            options.pop("xhigh", None)
+        return options
+
+    def _handle_grok_build_model_change(self, model_name: object) -> None:
+        normalized_model = str(model_name or "").strip()
+        self.config["grok_build_model_name"] = normalized_model
+        effort_control = getattr(self, "grok_build_reasoning_effort", None)
+        if effort_control is None:
+            return
+
+        options = self._grok_build_reasoning_effort_options(normalized_model)
+        current_effort = str(getattr(effort_control, "value", "") or "")
+        if current_effort not in options:
+            current_effort = "high"
+            self.config["grok_build_reasoning_effort"] = current_effort
+        effort_control.set_options(options, value=current_effort)
 
     def _sync_kimi_model_controls(self, api_name: str, model_path: str) -> None:
         uses_reasoning_effort = is_k3_model(model_path)
@@ -1032,7 +1054,7 @@ class CaptionStep:
             grok_build_auth_mode = str(self._grok_build_value("grok_build_auth_mode", "cached_token") or "cached_token")
             args.append(f"--grok_build_auth_mode={grok_build_auth_mode}")
 
-            grok_build_model_name = str(self._grok_build_value("grok_build_model_name", "grok-4.5") or "grok-4.5")
+            grok_build_model_name = str(self._grok_build_value("grok_build_model_name", "grok-4.6") or "grok-4.6")
             if grok_build_model_name:
                 args.append(f"--grok_build_model_name={grok_build_model_name}")
 
@@ -1364,7 +1386,8 @@ class CaptionStep:
                         label=t("grok_build_model"),
                         icon="smart_toy",
                         icon_color=COLORS["primary"],
-                        placeholder="grok-4.5",
+                        placeholder="grok-4.6",
+                        on_change=self._handle_grok_build_model_change,
                         new_value_mode="add-unique",
                         flex=1,
                     )
@@ -1379,7 +1402,7 @@ class CaptionStep:
 
                 with ui.row().classes("w-full gap-4 q-mt-md"):
                     self.grok_build_reasoning_effort = styled_select(
-                        options=self.GROK_BUILD_REASONING_EFFORT_OPTIONS,
+                        options=self._grok_build_reasoning_effort_options(self.config["grok_build_model_name"]),
                         value=self.config["grok_build_reasoning_effort"],
                         label=t("grok_build_reasoning_effort"),
                         icon="psychology",

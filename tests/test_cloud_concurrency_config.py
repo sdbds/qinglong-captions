@@ -15,7 +15,8 @@ def test_captioner_parser_accepts_cloud_max_concurrency():
     default_args = parser.parse_args(["dataset"])
     assert default_args.cloud_max_concurrency == 1
     assert default_args.grok_build_max_concurrency == 1
-    assert default_args.grok_build_model_name == "grok-4.5"
+    assert default_args.grok_build_model_name == "grok-4.6"
+    assert default_args.grok_build_reasoning_effort == ""
     assert default_args.grok_build_disable_web_search is True
 
     args = parser.parse_args(["dataset", "--cloud_max_concurrency=3"])
@@ -60,7 +61,7 @@ def test_captioner_parser_accepts_grok_build_subscription_options():
             "--grok_build_auth_mode=existing",
             "--grok_build_command=grok-test",
             "--grok_build_model_name=grok-build-custom",
-            "--grok_build_reasoning_effort=none",
+            "--grok_build_reasoning_effort=xhigh",
             "--no-grok_build_disable_web_search",
             "--grok_build_timeout=9",
             "--grok_build_isolated_cwd=work",
@@ -76,7 +77,7 @@ def test_captioner_parser_accepts_grok_build_subscription_options():
     assert args.grok_build_auth_mode == "existing"
     assert args.grok_build_command == "grok-test"
     assert args.grok_build_model_name == "grok-build-custom"
-    assert args.grok_build_reasoning_effort == "none"
+    assert args.grok_build_reasoning_effort == "xhigh"
     assert args.grok_build_disable_web_search is False
     assert args.grok_build_timeout == 9
     assert args.grok_build_isolated_cwd == "work"
@@ -125,7 +126,11 @@ def test_captioner_powershell_passes_grok_build_options_only_when_enabled():
 
     assert "$grok_build_subscription = $false" in script
     assert '$grok_build_backend = "headless"' in script
-    assert '$grok_build_model_name = "grok-4.5"' in script
+    assert '$grok_build_model_name = "grok-4.6"' in script
+    assert (
+        '$grok_build_reasoning_effort = "medium" # "", "none", "low", "medium", "high"; '
+        '"xhigh" is grok-4.6 only'
+    ) in script
     assert "$grok_build_disable_web_search = $true" in script
     assert 'if ($grok_build_subscription)' in script
     assert '--grok_build_subscription' in script

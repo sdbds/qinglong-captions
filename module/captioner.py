@@ -447,13 +447,13 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--grok_build_model_name",
         type=str,
-        default="grok-4.5",
+        default="grok-4.6",
         help="Grok Build model for --grok_build_subscription.",
     )
     parser.add_argument(
         "--grok_build_reasoning_effort",
         type=str,
-        choices=["", "none", "low", "medium", "high"],
+        choices=["", "none", "low", "medium", "high", "xhigh"],
         default="",
         help="Optional Grok Build CLI --reasoning-effort for reasoning models. Empty uses the CLI/model default.",
     )

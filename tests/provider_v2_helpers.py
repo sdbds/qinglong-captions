@@ -49,7 +49,7 @@ def make_provider_args(**kwargs):
         "grok_build_backend": "headless",
         "grok_build_auth_mode": "cached_token",
         "grok_build_command": "grok",
-        "grok_build_model_name": "grok-4.5",
+        "grok_build_model_name": "grok-4.6",
         "grok_build_reasoning_effort": "",
         "grok_build_disable_web_search": True,
         "grok_build_timeout": 180.0,

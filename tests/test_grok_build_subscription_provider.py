@@ -82,11 +82,11 @@ def test_grok_build_command_uses_prompt_json_argument_list(tmp_path):
     assert "--reasoning-effort" not in command
 
 
-def test_grok_build_headless_config_defaults_to_grok_45():
+def test_grok_build_headless_config_defaults_to_grok_46():
     from module.providers.grok_build_headless import DEFAULT_GROK_BUILD_MODEL, GrokBuildHeadlessConfig
 
-    assert DEFAULT_GROK_BUILD_MODEL == "grok-4.5"
-    assert GrokBuildHeadlessConfig().model == "grok-4.5"
+    assert DEFAULT_GROK_BUILD_MODEL == "grok-4.6"
+    assert GrokBuildHeadlessConfig().model == "grok-4.6"
     assert GrokBuildHeadlessConfig().disable_web_search is True
     assert "effort" not in GrokBuildHeadlessConfig.__dataclass_fields__
 
@@ -99,15 +99,15 @@ def test_grok_build_command_can_set_reasoning_effort(tmp_path):
     command = build_grok_build_command(
         GrokBuildHeadlessConfig(
             command="grok-test-bin",
-            model="grok-composer-2.5-fast",
-            reasoning_effort="none",
+            model="grok-4.6",
+            reasoning_effort="xhigh",
             isolated_cwd=str(cwd),
         ),
         prompt_json="[]",
     )
 
-    assert command[command.index("--model") + 1] == "grok-composer-2.5-fast"
-    assert command[command.index("--reasoning-effort") + 1] == "none"
+    assert command[command.index("--model") + 1] == "grok-4.6"
+    assert command[command.index("--reasoning-effort") + 1] == "xhigh"
     assert "--effort" not in command
 
 
@@ -417,6 +417,14 @@ def test_parse_grok_build_output_prefers_structured_output_payload():
     ("message", "kind"),
     [
         ("grok: command not found", "environment"),
+        (
+            "grok plugin program not found\n"
+            "--effort/--reasoning-effort: unknown effort level 'xhigh'; use one of: high, medium, low",
+            "config",
+        ),
+        ("unknown effort level 'xhigh'; use one of: high, medium, low", "config"),
+        ("invalid value 'xhigh' for '--reasoning-effort <LEVEL>'", "config"),
+        ("invalid reasoning effort: xhigh", "config"),
         ("Not logged in. Please sign in.", "auth"),
         ("You've reached your usage limit. Try again at 10:00.", "usage_limit"),
         ("Too many requests, rate limit exceeded.", "rate_limited"),
@@ -505,7 +513,7 @@ def test_grok_build_subscription_attempt_uses_headless_backend(monkeypatch, tmp_
     assert result.metadata["auth_mode"] == "cached_token"
     assert result.metadata["disable_web_search"] is True
     assert result.metadata["prompt_json_chars"] == 123
-    assert calls["config"].model == "grok-4.5"
+    assert calls["config"].model == "grok-4.6"
     assert calls["config"].disable_web_search is True
     assert calls["mime"] == "image/jpeg"
     assert "Grok Build local runtime constraints" in calls["prompt"]
@@ -583,8 +591,8 @@ def test_grok_build_subscription_passes_reasoning_effort_setting(monkeypatch, tm
         config={},
         args=make_provider_args(
             grok_build_subscription=True,
-            grok_build_model_name="grok-composer-2.5-fast",
-            grok_build_reasoning_effort="none",
+            grok_build_model_name="grok-4.5",
+            grok_build_reasoning_effort="high",
         ),
     )
     provider = GrokBuildSubscriptionProvider(ctx)
@@ -593,9 +601,9 @@ def test_grok_build_subscription_passes_reasoning_effort_setting(monkeypatch, tm
         PromptContext(system="system", user="user"),
     )
 
-    assert calls["config"].model == "grok-composer-2.5-fast"
+    assert calls["config"].model == "grok-4.5"
     assert not hasattr(calls["config"], "effort")
-    assert calls["config"].reasoning_effort == "none"
+    assert calls["config"].reasoning_effort == "high"
 
 
 def test_grok_build_subscription_timeout_returns_empty_result(monkeypatch, tmp_path):

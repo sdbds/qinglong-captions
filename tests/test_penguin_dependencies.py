@@ -518,7 +518,7 @@ def test_caption_step_builds_grok_build_subscription_args_without_api_key_fallba
     assert "--grok_build_subscription" in args
     assert "--grok_build_backend=headless" in args
     assert "--grok_build_auth_mode=cached_token" in args
-    assert "--grok_build_model_name=grok-4.5" in args
+    assert "--grok_build_model_name=grok-4.6" in args
     assert "--grok_build_timeout=180" in args
     assert "--grok_build_permission_mode=dontAsk" in args
     assert "--grok_build_sandbox=read-only" in args
@@ -569,15 +569,45 @@ def test_caption_step_builds_grok_build_overrides():
     assert "--grok_build_prompt_json_max_chars=12000" in args
 
 
-def test_caption_step_grok_build_model_options_include_grok_45_default():
+def test_caption_step_lists_current_grok_build_models_and_reasoning_efforts():
     CaptionStep = _load_caption_step("test_step4_caption_grok_build_options")
 
-    assert CaptionStep.GROK_BUILD_MODEL_OPTIONS["grok-4.5"] == "grok-4.5 (default)"
+    assert CaptionStep.GROK_BUILD_MODEL_OPTIONS == {
+        "grok-4.6": "grok-4.6 (default)",
+        "grok-4.5": "grok-4.5",
+    }
+    assert CaptionStep.GROK_BUILD_REASONING_EFFORT_OPTIONS["xhigh"] == "xhigh"
     assert "grok-build" not in CaptionStep.GROK_BUILD_MODEL_OPTIONS
-    assert "grok-composer-2.5-fast" in CaptionStep.GROK_BUILD_MODEL_OPTIONS
-    assert CaptionStep().config["grok_build_model_name"] == "grok-4.5"
+    assert "grok-composer-2.5-fast" not in CaptionStep.GROK_BUILD_MODEL_OPTIONS
+    assert CaptionStep().config["grok_build_model_name"] == "grok-4.6"
     assert CaptionStep().config["grok_build_disable_web_search"] is True
     assert "grok_build_effort" not in CaptionStep().config
+
+
+def test_caption_step_removes_xhigh_when_switching_to_grok_45():
+    CaptionStep = _load_caption_step("test_step4_caption_grok_build_effort_by_model")
+
+    class FakeSelect:
+        def __init__(self, value):
+            self.value = value
+            self.options = {}
+
+        def set_options(self, options, *, value=None):
+            self.options = dict(options)
+            self.value = value
+
+    step = CaptionStep()
+    step.grok_build_reasoning_effort = FakeSelect("xhigh")
+
+    step._handle_grok_build_model_change("grok-4.5")
+
+    assert "xhigh" not in step.grok_build_reasoning_effort.options
+    assert step.grok_build_reasoning_effort.value == "high"
+    assert step.config["grok_build_reasoning_effort"] == "high"
+
+    step._handle_grok_build_model_change("grok-4.6")
+
+    assert step.grok_build_reasoning_effort.options["xhigh"] == "xhigh"
 
 
 def test_caption_step_lists_current_kimi_and_kimi_code_models():
