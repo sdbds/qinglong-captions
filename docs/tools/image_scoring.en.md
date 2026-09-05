@@ -41,6 +41,8 @@ color = "bold green"
 
 Rows are applied by ascending `max_score`. A score enters the first row where `score <= max_score`; scores above every bound enter the final row. The GUI can add, validate, color, and save a separate profile for each scorer. Output folders preserve source-relative paths and use symlinks first, with a visible copy fallback when the platform disallows them.
 
+Partitioning records generated links and copies in the hidden `.reward_partition.json` ownership file. Reruns replace only unchanged, recorded outputs. Existing unrecorded files (including outputs from older versions) and user-edited outputs are preserved and reported as conflicts; move them aside before retrying. Keep the ownership file with the output folders. This internal state is separate from the score report.
+
 ## Results
 
 Directory input writes `<directory>/reward_scores.json`. Direct `.lance` input writes a sibling `<name>.reward_scores.json`. The file contains only scores arranged by source-relative path: directories are JSON objects and image leaves are numeric scores.

@@ -33,11 +33,12 @@ class RewardCatalog:
 
 def resolve_project_venv_python(project_root: str | Path = PROJECT_ROOT) -> Path:
     root = Path(project_root).resolve()
-    relative = Path(".venv/Scripts/python.exe") if sys.platform == "win32" else Path(".venv/bin/python")
-    python_path = root / relative
-    if not python_path.is_file():
-        raise RewardCatalogError(f"Project .venv Python executable not found: {python_path}")
-    return python_path
+    relative = Path("Scripts/python.exe") if sys.platform == "win32" else Path("bin/python")
+    for name in (".venv", "venv"):
+        python_path = root / name / relative
+        if python_path.is_file():
+            return python_path
+    raise RewardCatalogError(f"Project .venv or venv Python executable not found under: {root}")
 
 
 def _parse_checkpoint(raw: Any, *, scorer: str) -> RewardCheckpoint:
@@ -99,7 +100,7 @@ def load_reward_catalog(
         {
             "PYTHONUTF8": "1",
             "PYTHONIOENCODING": "utf-8",
-            "VIRTUAL_ENV": str(root / ".venv"),
+            "VIRTUAL_ENV": str(python_path.parent.parent),
         }
     )
     creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -120,7 +121,7 @@ def load_reward_catalog(
     except subprocess.TimeoutExpired as error:
         raise RewardCatalogError("Qinglong Score catalog discovery timed out") from error
     except OSError as error:
-        raise RewardCatalogError(f"Unable to start project .venv Python: {error}") from error
+        raise RewardCatalogError(f"Unable to start project virtualenv Python: {error}") from error
 
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()

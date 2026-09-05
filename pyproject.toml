@@ -33,7 +33,7 @@ dependencies = [
     "wheel_stub",
     "setuptools",
     "opencv-python",
-    "scenedetect>=0.7.1",
+    "scenedetect>=0.7.1,<0.8",
     "nicegui[native]",
     "tomlkit",
 ]
@@ -1113,6 +1113,7 @@ line-ending = "auto"
 [tool.pytest.ini_options]
 markers = [
     "compat: small cross-version and cross-platform compatibility smoke tests",
+    "integration: requires local integration-test assets and may run slowly",
     "optional_runtime: requires an optional package stack or external executable",
     "gpu: requires compatible GPU hardware and drivers",
     "network: requires live network access or a remote service",

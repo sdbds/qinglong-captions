@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import math
 import os
@@ -446,6 +447,35 @@ def write_json_atomic(path: str | Path, payload: Mapping[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _partition_output_path(root: Path, relative: str) -> Path:
+    pure = PurePosixPath(relative)
+    parts = pure.parts
+    if pure.anchor or len(parts) < 2 or any(part == ".." or ":" in part or "\\" in part for part in parts):
+        raise ValueError(f"Invalid partition manifest path: {relative}")
+    path = root
+    for part in parts[:-1]:
+        path = path / part
+        if path.is_symlink() or path.resolve() != path:
+            raise ValueError(f"Partition output directory is a symlink: {path}")
+        if path.exists() and not path.is_dir():
+            raise ValueError(f"Partition output parent is not a directory: {path}")
+    return path / parts[-1]
+
+
+def _partition_output_identity(path: Path) -> dict[str, Any] | None:
+    if path.is_symlink():
+        return {"kind": "symlink", "target": os.readlink(path)}
+    if not path.exists():
+        return None
+    if not path.is_file():
+        raise ValueError(f"Partition output is not a file: {path}")
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {"kind": "copy", "sha256": digest.hexdigest()}
+
+
 def apply_thresholds(
     items: Sequence[ScoredImage],
     *,
@@ -464,31 +494,75 @@ def apply_thresholds(
             "future scores may drift."
         )
 
-    quality_roots = {
-        threshold.name: root / threshold.folder_name for threshold in thresholds
-    }
-    for quality_root in quality_roots.values():
-        quality_root.mkdir(parents=True, exist_ok=True)
-        for existing in quality_root.rglob("*"):
-            if existing.is_symlink():
-                existing.unlink()
+    manifest = root / ".reward_partition.json"
+    if manifest.is_symlink():
+        raise ValueError("Partition manifest must not be a symlink")
+    owned: dict[str, Any] = {}
+    if manifest.exists():
+        try:
+            owned = json.loads(manifest.read_text(encoding="utf-8"))
+        except (ValueError, OSError) as error:
+            raise ValueError("Invalid partition manifest") from error
+        if not isinstance(owned, dict):
+            raise ValueError("Invalid partition manifest")
+    previous = {}
+    for relative, identity in owned.items():
+        path = _partition_output_path(root, relative)
+        if not isinstance(identity, dict) or identity.get("kind") not in ("copy", "symlink"):
+            raise ValueError("Invalid partition manifest identity")
+        actual = _partition_output_identity(path)
+        if actual is not None and actual != identity:
+            raise ValueError(f"Refusing to remove modified partition output: {path}")
+        previous[path] = identity
 
+    # Check every destination before removing any previously generated output.
     buckets: dict[str, str | None] = {}
+    planned = []
     for item in items:
         threshold = assign_threshold(item.score, thresholds)
+        buckets[item.path] = threshold.name if threshold else None
         if threshold is None:
-            buckets[item.path] = None
             continue
-        relative_path = Path(_relative_path(item.path, root))
-        source_path = Path(item.path).resolve()
-        target_path = quality_roots[threshold.name] / relative_path
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            target_path.symlink_to(source_path)
-        except OSError:
-            shutil.copy2(source_path, target_path)
-            warn(f"Symlink unavailable; copied {source_path} to {target_path}.")
-        buckets[item.path] = threshold.name
+        relative = f"{threshold.folder_name}/{_relative_path(item.path, root)}"
+        target = _partition_output_path(root, relative)
+        if (target.exists() or target.is_symlink()) and target not in previous:
+            raise ValueError(f"Refusing to overwrite unowned partition output: {target}")
+        planned.append((Path(item.path).resolve(), target, relative))
+
+    for path in previous:
+        path.unlink(missing_ok=True)
+    current = {}
+    try:
+        for source, target, relative in planned:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists() or target.is_symlink():
+                raise ValueError(f"Refusing to overwrite unowned partition output: {target}")
+            copied = False
+            created = False
+            try:
+                try:
+                    target.symlink_to(source)
+                    created = True
+                except OSError:
+                    with source.open("rb") as source_stream, target.open("xb") as destination:
+                        created = True
+                        shutil.copyfileobj(source_stream, destination)
+                    shutil.copystat(source, target)
+                    copied = True
+                current[relative] = _partition_output_identity(target)
+                if copied:
+                    warn(f"Symlink unavailable; copied {source} to {target}.")
+            except BaseException:
+                if created:
+                    try:
+                        target.unlink()
+                    except OSError:
+                        current[relative] = _partition_output_identity(target)
+                    else:
+                        current.pop(relative, None)
+                raise
+    finally:
+        write_json_atomic(manifest, current)
     return buckets
 
 

@@ -1,12 +1,14 @@
 """步骤 2: 视频场景分割 - 对应 video_spliter.ps1"""
 
-from nicegui import ui
 from pathlib import Path
-from typing import Dict, Any
-from gui.theme import get_classes, COLORS
-from components.path_selector import create_path_selector
-from components.advanced_inputs import editable_slider, toggle_switch, styled_select
+from typing import Any, Dict
+
+from components.advanced_inputs import editable_slider, styled_select, toggle_switch
 from components.execution_panel import ExecutionPanel
+from components.path_selector import create_path_selector
+from nicegui import ui
+
+from gui.theme import COLORS, get_classes
 from gui.utils.i18n import t
 
 
@@ -23,10 +25,10 @@ class VideoSplitStep:
 
     # 默认阈值
     DEFAULT_THRESHOLDS = {
-        "ContentDetector": 27.0,
-        "AdaptiveDetector": 3.0,
-        "HashDetector": 0.395,
-        "HistogramDetector": 0.05,
+        "AdaptiveDetector": 3.5,
+        "ContentDetector": 31.0,
+        "HashDetector": 0.35,
+        "HistogramDetector": 0.2,
         "ThresholdDetector": 12.0,
     }
 
@@ -41,8 +43,12 @@ class VideoSplitStep:
 
     def __init__(self):
         self.config: Dict[str, Any] = {
-            "threshold": 3.0,
-            "min_scene_len": 16,
+            "threshold": 3.5,
+            "backend": "pyav",
+            "min_scene_len_seconds": 0.6,
+            "adaptive_window_width": 3,
+            "hash_size": 8,
+            "histogram_bins": 128,
             "images_per_scene": 1,
             "luma_only": False,
             "save_html": True,
@@ -50,6 +56,7 @@ class VideoSplitStep:
         }
         self.panel: ExecutionPanel = None
         self.threshold_slider = None
+        self.advanced_rows = {}
 
     def render(self):
         """渲染页面"""
@@ -100,6 +107,16 @@ class VideoSplitStep:
                             on_change=self._on_detector_change,
                         )
 
+                        styled_select(
+                            options={"pyav": "PyAV", "opencv": "OpenCV"},
+                            value=self.config["backend"],
+                            label=t("video_backend"),
+                            icon="video_settings",
+                            icon_color=COLORS["info"],
+                            on_change=lambda value: self.config.__setitem__("backend", value),
+                            searchable=False,
+                        )
+
                         # 阈值 - 使用可编辑滑块
                         with ui.row().classes("w-full items-center gap-2"):
                             self.threshold_slider = editable_slider(
@@ -113,16 +130,53 @@ class VideoSplitStep:
                             )
                             ui.label(t("threshold_hint")).classes("text-caption").style("color: var(--color-text-secondary);")
 
-                        # 最小场景长度 - 使用可编辑滑块
+                        # 最小场景长度（秒）
                         editable_slider(
-                            label_key="min_scene_len",
+                            label_key="min_scene_len_seconds",
                             value_ref=self.config,
-                            value_key="min_scene_len",
-                            min_val=1,
-                            max_val=1000,
-                            step=1,
-                            decimals=0,
+                            value_key="min_scene_len_seconds",
+                            min_val=0.0,
+                            max_val=60.0,
+                            step=0.1,
+                            decimals=1,
                         )
+
+                        with ui.row().classes("w-full items-center gap-2") as adaptive_row:
+                            editable_slider(
+                                label_key="adaptive_window_width",
+                                value_ref=self.config,
+                                value_key="adaptive_window_width",
+                                min_val=1,
+                                max_val=10,
+                                step=1,
+                                decimals=0,
+                            )
+                        self.advanced_rows["AdaptiveDetector"] = adaptive_row
+
+                        with ui.row().classes("w-full items-center gap-2") as hash_row:
+                            editable_slider(
+                                label_key="hash_size",
+                                value_ref=self.config,
+                                value_key="hash_size",
+                                min_val=1,
+                                max_val=32,
+                                step=1,
+                                decimals=0,
+                            )
+                        self.advanced_rows["HashDetector"] = hash_row
+
+                        with ui.row().classes("w-full items-center gap-2") as histogram_row:
+                            editable_slider(
+                                label_key="histogram_bins",
+                                value_ref=self.config,
+                                value_key="histogram_bins",
+                                min_val=16,
+                                max_val=256,
+                                step=16,
+                                decimals=0,
+                            )
+                        self.advanced_rows["HistogramDetector"] = histogram_row
+                        self._update_advanced_visibility("AdaptiveDetector")
 
                         # 每场景图片数 - 使用可编辑滑块
                         editable_slider(
@@ -178,6 +232,49 @@ class VideoSplitStep:
         else:
             self.config["threshold"] = default_threshold
 
+        self._update_advanced_visibility(detector)
+
+    def _update_advanced_visibility(self, detector):
+        for detector_name, row in self.advanced_rows.items():
+            row.set_visibility(detector_name == detector)
+
+    def _build_args(self, input_dir, output_dir=None):
+        detector = self.detector.value
+        threshold = float(self.config["threshold"])
+        min_scene_len_seconds = float(self.config["min_scene_len_seconds"])
+
+        args = [input_dir]
+        if output_dir:
+            args.append(f"--output_dir={output_dir}")
+        if detector != "AdaptiveDetector":
+            args.append(f"--detector={detector}")
+
+        args.extend(
+            [
+                f"--backend={self.config['backend']}",
+                f"--threshold={threshold}",
+                f"--min_scene_len_seconds={min_scene_len_seconds}",
+            ]
+        )
+        if detector == "AdaptiveDetector":
+            args.append(f"--adaptive_window_width={int(self.config['adaptive_window_width'])}")
+        elif detector == "HashDetector":
+            args.append(f"--hash_size={int(self.config['hash_size'])}")
+        elif detector == "HistogramDetector":
+            args.append(f"--histogram_bins={int(self.config['histogram_bins'])}")
+
+        if self.config["luma_only"]:
+            args.append("--luma_only")
+        if self.config["save_html"]:
+            args.append("--save_html")
+        if self.config["recursive"]:
+            args.append("--recursive")
+
+        images_per_scene = int(self.config["images_per_scene"])
+        if images_per_scene > 0:
+            args.append(f"--video2images_min_number={images_per_scene}")
+        return args
+
     async def _start_split(self):
         """开始分割"""
         input_dir = self.input_video_dir.value
@@ -187,42 +284,16 @@ class VideoSplitStep:
 
         detector = self.detector.value
         threshold = self.config["threshold"]
-        min_scene_len = int(self.config["min_scene_len"])
-
-        # 构建参数
-        args = [input_dir]
-
-        if self.output_dir.value:
-            args.append(f"--output_dir={self.output_dir.value}")
-
-        if detector != "AdaptiveDetector":
-            args.append(f"--detector={detector}")
-
-        if threshold != 0.0:
-            args.append(f"--threshold={threshold}")
-
-        if min_scene_len != 16:
-            args.append(f"--min_scene_len={min_scene_len}")
-
-        if self.config["luma_only"]:
-            args.append("--luma_only")
-
-        if self.config["save_html"]:
-            args.append("--save_html")
-
-        if self.config["recursive"]:
-            args.append("--recursive")
-
-        images_per_scene = int(self.config["images_per_scene"])
-        if images_per_scene > 0:
-            args.append(f"--video2images_min_number={images_per_scene}")
+        min_scene_len_seconds = float(self.config["min_scene_len_seconds"])
+        args = self._build_args(input_dir, self.output_dir.value)
 
         def pre_log(lv):
             lv.info(t("log_start_split"))
             lv.info(f"{t('log_input_path')}: {input_dir}")
             lv.info(f"{t('log_detector')}: {detector}")
+            lv.info(f"{t('log_video_backend')}: {self.config['backend']}")
             lv.info(f"{t('log_threshold')}: {threshold}")
-            lv.info(f"{t('log_min_scene_len')}: {min_scene_len}")
+            lv.info(f"{t('log_min_scene_len_seconds')}: {min_scene_len_seconds}")
             lv.info(f"{t('log_params')}: {args}")
 
         await self.panel.run_job(

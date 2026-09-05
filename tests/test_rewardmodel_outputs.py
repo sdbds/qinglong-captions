@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import types
@@ -162,6 +163,129 @@ def test_threshold_partition_preserves_paths_and_logs_copy_fallback_once(
     assert copied.read_bytes() == b"image data"
     assert sum("tracking checkpoint" in message for message in messages) == 1
     assert sum("copied" in message for message in messages) == 1
+
+
+@pytest.fixture()
+def copy_partition(monkeypatch, tmp_path):
+    source = tmp_path / "nested" / "a.png"
+    source.parent.mkdir()
+    source.write_bytes(b"original image")
+    monkeypatch.setattr(
+        Path, "symlink_to",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(PermissionError("denied")),
+    )
+    return source, (Threshold("low_quality", 2.0, "red"), Threshold("best_quality", 10.0, "green"))
+
+
+@pytest.mark.parametrize("next_run", ["moved", "skipped", "changed_source"])
+def test_threshold_rerun_removes_owned_copies(rewardmodel, copy_partition, tmp_path, next_run):
+    source, thresholds = copy_partition
+    item = rewardmodel.ScoredImage(str(source), None, None, 1.0)
+    rewardmodel.apply_thresholds([item], thresholds=thresholds, source_root=tmp_path)
+    previous = tmp_path / "low quality" / "nested" / "a.png"
+    assert previous.read_bytes() == b"original image"
+    if next_run == "changed_source":
+        source.write_bytes(b"updated image")
+    items = [] if next_run == "skipped" else [rewardmodel.ScoredImage(str(source), None, None, 5.0)]
+
+    rewardmodel.apply_thresholds(items, thresholds=thresholds, source_root=tmp_path)
+
+    assert not previous.exists()
+    current = tmp_path / "best quality" / "nested" / "a.png"
+    if next_run == "skipped":
+        assert not current.exists()
+    else:
+        assert current.read_bytes() == source.read_bytes()
+
+
+@pytest.mark.parametrize("content", [b"original image", b"unrelated image"])
+def test_threshold_partition_preserves_unowned_files(rewardmodel, copy_partition, tmp_path, content):
+    source, thresholds = copy_partition
+    existing = tmp_path / "low quality" / "nested" / "a.png"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(content)
+
+    with pytest.raises(ValueError, match="unowned"):
+        rewardmodel.apply_thresholds(
+            [rewardmodel.ScoredImage(str(source), None, None, 1.0)],
+            thresholds=thresholds, source_root=tmp_path,
+        )
+
+    assert existing.read_bytes() == content
+    assert source.read_bytes() == b"original image"
+
+
+def test_threshold_partition_preserves_modified_owned_copy(rewardmodel, copy_partition, tmp_path):
+    source, thresholds = copy_partition
+    item = rewardmodel.ScoredImage(str(source), None, None, 1.0)
+    rewardmodel.apply_thresholds([item], thresholds=thresholds, source_root=tmp_path)
+    existing = tmp_path / "low quality" / "nested" / "a.png"
+    existing.write_bytes(b"user edit")
+
+    with pytest.raises(ValueError, match="modified"):
+        rewardmodel.apply_thresholds([item], thresholds=thresholds, source_root=tmp_path)
+
+    assert existing.read_bytes() == b"user edit"
+
+
+@pytest.mark.parametrize("payload", ["not json", '{"../outside.png": {}}'])
+def test_threshold_partition_rejects_invalid_manifest(rewardmodel, copy_partition, tmp_path, payload):
+    source, thresholds = copy_partition
+    (tmp_path / ".reward_partition.json").write_text(payload, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest"):
+        rewardmodel.apply_thresholds(
+            [rewardmodel.ScoredImage(str(source), None, None, 1.0)],
+            thresholds=thresholds, source_root=tmp_path,
+        )
+
+    assert source.read_bytes() == b"original image"
+
+
+def test_partition_manifest_cannot_escape_with_double_slash(rewardmodel, tmp_path):
+    root = tmp_path / "dataset"
+    root.mkdir()
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"outside")
+    relative = "//" + outside.as_posix().split(":", 1)[-1].lstrip("/")
+    payload = {relative: {"kind": "copy", "sha256": hashlib.sha256(b"outside").hexdigest()}}
+    (root / ".reward_partition.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest"):
+        rewardmodel.apply_thresholds([], thresholds=(Threshold("low_quality", 2.0, "red"),), source_root=root)
+
+    assert outside.read_bytes() == b"outside"
+
+
+@pytest.mark.parametrize("operation,error", [("copyfileobj", OSError), ("copystat", OSError), ("copyfileobj", KeyboardInterrupt)])
+def test_partition_copy_failure_can_be_retried(rewardmodel, copy_partition, tmp_path, monkeypatch, operation, error):
+    source, thresholds = copy_partition
+    item = rewardmodel.ScoredImage(str(source), None, None, 1.0)
+    with monkeypatch.context() as patch:
+        patch.setattr(rewardmodel.shutil, operation, lambda *_args: (_ for _ in ()).throw(error("copy failed")))
+        with pytest.raises(error, match="copy failed"):
+            rewardmodel.apply_thresholds([item], thresholds=thresholds, source_root=tmp_path)
+
+    rewardmodel.apply_thresholds([item], thresholds=thresholds, source_root=tmp_path)
+    assert (tmp_path / "low quality" / "nested" / "a.png").read_bytes() == source.read_bytes()
+
+
+def test_partition_preflight_preserves_old_outputs_on_parent_file_collision(rewardmodel, copy_partition, tmp_path):
+    source, thresholds = copy_partition
+    rewardmodel.apply_thresholds(
+        [rewardmodel.ScoredImage(str(source), None, None, 1.0)], thresholds=thresholds, source_root=tmp_path,
+    )
+    collision = tmp_path / "best quality" / "nested"
+    collision.parent.mkdir()
+    collision.write_bytes(b"user file")
+
+    with pytest.raises(ValueError, match="directory"):
+        rewardmodel.apply_thresholds(
+            [rewardmodel.ScoredImage(str(source), None, None, 5.0)], thresholds=thresholds, source_root=tmp_path,
+        )
+
+    assert (tmp_path / "low quality" / "nested" / "a.png").read_bytes() == source.read_bytes()
+    assert collision.read_bytes() == b"user file"
 
 
 def _install_run_fakes(rewardmodel, monkeypatch, image_paths: list[str]) -> None:

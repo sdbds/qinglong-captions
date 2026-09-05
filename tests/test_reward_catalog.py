@@ -12,19 +12,21 @@ import pytest
 from gui.utils import reward_catalog
 
 
-def _create_project_python(project_root: Path) -> Path:
-    relative = Path(".venv/Scripts/python.exe") if sys.platform == "win32" else Path(".venv/bin/python")
+def _create_project_python(project_root: Path, name: str = ".venv") -> Path:
+    relative = Path(name) / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     python_path = project_root / relative
     python_path.parent.mkdir(parents=True)
     python_path.touch()
     return python_path
 
 
+@pytest.mark.parametrize("venv_name", [".venv", "venv"])
 def test_load_reward_catalog_uses_project_venv_and_parses_api_payload(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    venv_name: str,
 ):
-    python_path = _create_project_python(tmp_path)
+    python_path = _create_project_python(tmp_path, venv_name)
     captured = {}
     payload = {
         "scorers": ["alpha", "beta"],
@@ -54,6 +56,7 @@ def test_load_reward_catalog_uses_project_venv_and_parses_api_payload(
         "gui.utils.reward_catalog",
     ]
     assert captured["kwargs"]["cwd"] == tmp_path
+    assert captured["kwargs"]["env"]["VIRTUAL_ENV"] == str(tmp_path / venv_name)
     assert catalog.scorers == ("alpha", "beta")
     assert catalog.checkpoints["alpha"] == (
         reward_catalog.RewardCheckpoint(

@@ -4,8 +4,12 @@ $Config = @{
     input_video_dir         = "./datasets"                          # 输入视频目录路径
     output_dir              = ""                                    # 输出目录路径，如果不指定则默认为输入目录
     detector                = "AdaptiveDetector"                    # 场景检测器，可选"ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"
-    threshold               = 3.0                                   # 场景检测阈值，数值越低越敏感。ContentDetector: 27.0, AdaptiveDetector: 3.0, HashDetector: 0.395, HistogramDetector: 0.05, ThresholdDetector: 12
-    min_scene_len           = 16                                    # 最小场景长度，数值越小越敏感
+    backend                  = "pyav"                                # 解码后端，可选"pyav","opencv"
+    threshold               = 3.5                                   # 推荐阈值。ContentDetector: 31, AdaptiveDetector: 3.5, HashDetector: 0.35, HistogramDetector: 0.20, ThresholdDetector: 12
+    min_scene_len_seconds    = 0.6                                   # 最小场景长度（秒）
+    adaptive_window_width    = 3                                     # AdaptiveDetector 滚动窗口宽度
+    hash_size                = 8                                     # HashDetector 哈希尺寸
+    histogram_bins           = 128                                   # HistogramDetector 直方图分桶数
     luma_only               = $false                                # 是否只使用亮度变化检测
     save_html               = $true                                 # 是否保存HTML报告
     video2images_min_number = 1                                     # 每个场景保存的图像数量，为0则不保存
@@ -128,8 +132,12 @@ function Install-UvExtraPatch {
 # 添加配置参数
 if ($Config.output_dir) { [void]$ExtArgs.Add("--output_dir=$($Config.output_dir)") }
 if ($Config.detector -ne "AdaptiveDetector") { [void]$ExtArgs.Add("--detector=$($Config.detector)") }
+if ($Config.backend) { [void]$ExtArgs.Add("--backend=$($Config.backend)") }
 if ($Config.threshold -ne 0.0) { [void]$ExtArgs.Add("--threshold=$($Config.threshold)") }
-if ($Config.min_scene_len) { [void]$ExtArgs.Add("--min_scene_len=$($Config.min_scene_len)") }
+if ($null -ne $Config.min_scene_len_seconds) { [void]$ExtArgs.Add("--min_scene_len_seconds=$($Config.min_scene_len_seconds)") }
+if ($Config.detector -eq "AdaptiveDetector") { [void]$ExtArgs.Add("--adaptive_window_width=$($Config.adaptive_window_width)") }
+if ($Config.detector -eq "HashDetector") { [void]$ExtArgs.Add("--hash_size=$($Config.hash_size)") }
+if ($Config.detector -eq "HistogramDetector") { [void]$ExtArgs.Add("--histogram_bins=$($Config.histogram_bins)") }
 if ($Config.luma_only) { [void]$ExtArgs.Add("--luma_only") }
 if ($Config.save_html) { [void]$ExtArgs.Add("--save_html") }
 if ($Config.video2images_min_number -gt 0) { [void]$ExtArgs.Add("--video2images_min_number=$($Config.video2images_min_number)") }

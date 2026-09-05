@@ -1,7 +1,8 @@
 import argparse
 import asyncio
 import threading
-from concurrent.futures import Future, ThreadPoolExecutor
+import warnings
+from concurrent.futures import Future
 from pathlib import Path
 
 import pysrt
@@ -18,6 +19,7 @@ from rich.progress import (
     TimeRemainingColumn,
     TransferSpeedColumn,
 )
+
 try:
     import torch
 except ImportError:
@@ -30,13 +32,54 @@ from scenedetect import (
     ThresholdDetector,
     detect,
     open_video,
-    split_video_ffmpeg,
 )
-from scenedetect.output import save_images, write_scene_list_html
+from scenedetect.output import save_images, split_video_ffmpeg, write_scene_list_html
+from scenedetect.output.video import is_ffmpeg_available
 
 from config.config import BASE_VIDEO_EXTENSIONS
 from utils.console_util import print_exception
 from utils.path_safety import safe_child_path, safe_leaf_name
+
+DEFAULT_BACKEND = "pyav"
+DEFAULT_MIN_SCENE_LEN_SECONDS = 0.6
+SUPPORTED_BACKENDS = ("pyav", "opencv")
+DETECTOR_PROFILES = {
+    "AdaptiveDetector": {"threshold": 3.5, "window_width": 3},
+    "ContentDetector": {"threshold": 31.0},
+    "HashDetector": {"threshold": 0.35, "size": 8},
+    "HistogramDetector": {"threshold": 0.2, "bins": 128},
+    "ThresholdDetector": {"threshold": 12.0},
+}
+
+
+class _ForwardReadingVideoStream:
+    """Avoid repeated H.264 seeks by decoding ordered image targets forward."""
+
+    def __init__(self, video):
+        self._video = video
+        self._positioned = False
+
+    def __getattr__(self, name):
+        return getattr(self._video, name)
+
+    def reset(self):
+        self._positioned = False
+        return self._video.reset()
+
+    def seek(self, target):
+        target_frame = target.frame_num if hasattr(target, "frame_num") else int(target)
+        if self._positioned and target_frame >= self._video.frame_number:
+            while self._video.frame_number < target_frame:
+                if self._video.read(decode=False) is False:
+                    self._video.seek(target)
+                    return
+            return
+
+        self._video.seek(target)
+        self._positioned = True
+
+    def read(self, decode=True):
+        return self._video.read(decode=decode)
 
 
 # 辅助函数：在线程中运行异步任务
@@ -85,53 +128,90 @@ class SceneDetector:
         self,
         detector="AdaptiveDetector",
         threshold=0.0,
-        min_scene_len=15,
+        min_scene_len=None,
         luma_only=False,
         console=None,
+        *,
+        min_scene_len_seconds=None,
+        backend=DEFAULT_BACKEND,
+        adaptive_window_width=3,
+        hash_size=8,
+        histogram_bins=128,
     ):
         """
         初始化场景检测器
 
         参数:
-            detector (object): 场景检测器对象
-            threshold (int): 场景变化检测的阈值，数值越低越敏感
-            min_scene_len (int): 场景变化检测的最小场景长度，数值越小越敏感
+            detector (str): 场景检测器名称
+            threshold (float): 场景变化检测阈值，0 使用推荐值
+            min_scene_len (int): 兼容参数，按帧指定最小场景长度
             luma_only (bool): 是否只使用亮度变化检测
+            min_scene_len_seconds (float): 按秒指定最小场景长度，优先于帧参数
+            backend (str): 视频解码后端，可选 pyav 或 opencv
         """
-        if detector == "AdaptiveDetector":
-            kwargs = {"min_scene_len": min_scene_len}
-            if threshold != 0.0:
-                kwargs["adaptive_threshold"] = threshold
-            if luma_only:
-                kwargs["luma_only"] = True
-            self.detector = AdaptiveDetector(**kwargs)
-        elif detector == "ContentDetector":
-            kwargs = {"min_scene_len": min_scene_len}
-            if threshold != 0.0:
-                kwargs["threshold"] = threshold
-            if luma_only:
-                kwargs["luma_only"] = True
-            self.detector = ContentDetector(**kwargs)
-        elif detector == "HashDetector":
-            kwargs = {"min_scene_len": min_scene_len}
-            if threshold != 0.0:
-                kwargs["threshold"] = threshold
-            self.detector = HashDetector(**kwargs)
-        elif detector == "HistogramDetector":
-            kwargs = {"min_scene_len": min_scene_len}
-            if threshold != 0.0:
-                kwargs["threshold"] = threshold
-            self.detector = HistogramDetector(**kwargs)
-        elif detector == "ThresholdDetector":
-            kwargs = {"min_scene_len": min_scene_len}
-            if threshold != 0.0:
-                kwargs["threshold"] = threshold
-            self.detector = ThresholdDetector(**kwargs)
+        if detector not in DETECTOR_PROFILES:
+            raise ValueError(f"Unsupported detector: {detector}")
+        if backend not in SUPPORTED_BACKENDS:
+            raise ValueError(f"Unsupported backend: {backend}")
+        if min_scene_len_seconds is not None and min_scene_len_seconds < 0:
+            raise ValueError("min_scene_len_seconds must be non-negative")
+        if min_scene_len is not None and min_scene_len < 0:
+            raise ValueError("min_scene_len must be non-negative")
+        if adaptive_window_width < 1:
+            raise ValueError("adaptive_window_width must be at least 1")
+        if hash_size < 1:
+            raise ValueError("hash_size must be at least 1")
+        if histogram_bins < 1:
+            raise ValueError("histogram_bins must be at least 1")
+
+        profile = DETECTOR_PROFILES[detector]
+        self.detector_name = detector
+        self.threshold = float(threshold or profile["threshold"])
+        if min_scene_len_seconds is not None:
+            self.min_scene_len = float(min_scene_len_seconds)
+        elif min_scene_len is not None:
+            self.min_scene_len = int(min_scene_len)
+        else:
+            self.min_scene_len = DEFAULT_MIN_SCENE_LEN_SECONDS
+        self.luma_only = bool(luma_only)
+        self.backend = backend
+        self.adaptive_window_width = int(adaptive_window_width)
+        self.hash_size = int(hash_size)
+        self.histogram_bins = int(histogram_bins)
         self.scene_list = []
         self._detection_complete = False
         self.__init_async_attrs()
         self.console = console or Console(color_system="truecolor", force_terminal=True)
-        self.console.print(f"[green]Initializing scene detector with {detector}...[/green]")
+        self.console.print(
+            f"[green]Initializing scene detector with {detector} "
+            f"(backend={backend}, min_scene_len={self.min_scene_len})...[/green]"
+        )
+
+    def _create_detector(self):
+        """Create a fresh stateful detector for one video analysis."""
+        kwargs = {"min_scene_len": self.min_scene_len}
+        if self.detector_name == "AdaptiveDetector":
+            kwargs.update(
+                adaptive_threshold=self.threshold,
+                window_width=self.adaptive_window_width,
+            )
+            if self.luma_only:
+                kwargs["luma_only"] = True
+            return AdaptiveDetector(**kwargs)
+        if self.detector_name == "ContentDetector":
+            kwargs["threshold"] = self.threshold
+            if self.luma_only:
+                kwargs["luma_only"] = True
+            return ContentDetector(**kwargs)
+        if self.detector_name == "HashDetector":
+            kwargs.update(threshold=self.threshold, size=self.hash_size)
+            return HashDetector(**kwargs)
+        if self.detector_name == "HistogramDetector":
+            kwargs.update(threshold=self.threshold, bins=self.histogram_bins)
+            return HistogramDetector(**kwargs)
+
+        kwargs["threshold"] = self.threshold
+        return ThresholdDetector(**kwargs)
 
     async def detect_scenes_async(self, video_path):
         """
@@ -159,14 +239,13 @@ class SceneDetector:
         返回:
             list: 场景列表，每个场景包含开始和结束时间
         """
-        try:
-            # 使用PySceneDetect的detect接口检测场景
-            scene_list = detect(video_path, detector=self.detector, show_progress=True)
-
-            return scene_list
-        except Exception as e:
-            print_exception(self.console, e, prefix="Scene detection failed")
-            return []
+        return detect(
+            video_path,
+            detector=self._create_detector(),
+            show_progress=True,
+            start_in_scene=True,
+            backend=self.backend,
+        )
 
     def start_async_detection(self, video_path):
         """
@@ -242,7 +321,7 @@ class SceneDetector:
         timestamps = []
         for scene in scene_list:
             # 获取场景开始时间（秒）
-            start_time = scene[0].get_seconds()
+            start_time = scene[0].seconds
             timestamps.append(start_time)
 
         return timestamps
@@ -282,8 +361,10 @@ class SceneDetector:
             video2images_min_number (int, optional): 每个场景保存的图像数量，为0则不保存
 
         Returns:
-            list: 分割后的视频文件路径列表
+            int: FFmpeg 成功退出码（0）；分割失败时抛出异常
         """
+        if not is_ffmpeg_available():
+            raise RuntimeError("FFmpeg is not available for video splitting")
         output_dir = _resolve_split_output_dir(video_path, output_dir)
         images_output_dir = safe_child_path(output_dir, "images", default_name="images")
         clips_output_dir = safe_child_path(output_dir, "clips", default_name="clips")
@@ -294,9 +375,12 @@ class SceneDetector:
         if video2images_min_number > 0:
             try:
                 self.console.print("[green]Saving scene images...[/green]")
+                image_video = open_video(video_path, backend=self.backend)
+                if self.backend == "pyav":
+                    image_video = _ForwardReadingVideoStream(image_video)
                 scene_image_dict = save_images(
                     scene_list=scene_list,
-                    video=open_video(video_path),
+                    video=image_video,
                     output_dir=str(images_output_dir),
                     num_images=video2images_min_number,
                 )
@@ -340,17 +424,16 @@ class SceneDetector:
                 print_exception(self.console, e, prefix="can't save HTML report")
 
         # 使用ffmpeg分割视频
-        try:
-            self.console.print(f"[blue]Splitting video with {len(scene_list)} scenes...[/blue]")
-            return split_video_ffmpeg(
-                video_path,
-                scene_list,
-                output_dir=str(clips_output_dir),
-                show_progress=True,
-            )
-        except Exception as e:
-            print_exception(self.console, e, prefix="split video failed")
-            return []
+        self.console.print(f"[blue]Splitting video with {len(scene_list)} scenes...[/blue]")
+        return_code = split_video_ffmpeg(
+            video_path,
+            scene_list,
+            output_dir=str(clips_output_dir),
+            show_progress=True,
+        )
+        if return_code != 0:
+            raise RuntimeError(f"FFmpeg failed to split {video_path} (exit code {return_code})")
+        return return_code
 
     async def split_video_async(
         self,
@@ -371,7 +454,7 @@ class SceneDetector:
             video2images_min_number (int, optional): number of images to save per scene, 0 means no saving. Defaults to 0.
 
         Returns:
-            list: output video file list
+            int: FFmpeg success exit code (0); failures raise an exception.
         """
         # ensure scene detection is complete
         await self.ensure_detection_complete(video_path)
@@ -721,13 +804,43 @@ def setup_parser() -> argparse.ArgumentParser:
         "--threshold",
         type=float,
         default=0.0,
-        help="Threshold (float) that score ratio must exceed to trigger a new scene.",
+        help="Detector threshold. Uses the recommended profile when omitted or set to 0.",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=SUPPORTED_BACKENDS,
+        default=DEFAULT_BACKEND,
+        help="Video decoding backend (default: pyav).",
+    )
+    parser.add_argument(
+        "--min_scene_len_seconds",
+        type=float,
+        default=None,
+        help=f"Minimum scene length in seconds (default: {DEFAULT_MIN_SCENE_LEN_SECONDS}).",
     )
     parser.add_argument(
         "--min_scene_len",
         type=int,
-        default=15,
-        help="Once a cut is detected, this many frames must pass before a new one can be added to the scene list.",
+        default=None,
+        help="Deprecated frame-based minimum scene length. Use --min_scene_len_seconds.",
+    )
+    parser.add_argument(
+        "--adaptive_window_width",
+        type=int,
+        default=3,
+        help="AdaptiveDetector rolling window width (default: 3).",
+    )
+    parser.add_argument(
+        "--hash_size",
+        type=int,
+        default=8,
+        help="HashDetector DCT hash size (default: 8).",
+    )
+    parser.add_argument(
+        "--histogram_bins",
+        type=int,
+        default=128,
+        help="HistogramDetector bin count (default: 128).",
     )
     parser.add_argument(
         "--luma_only",
@@ -754,6 +867,72 @@ def setup_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def create_scene_detector_from_args(args, console=None) -> SceneDetector:
+    """Build a detector wrapper from CLI arguments with legacy option handling."""
+    if args.min_scene_len is not None:
+        warnings.warn(
+            "--min_scene_len uses frames and is deprecated; use "
+            "--min_scene_len_seconds instead.",
+            FutureWarning,
+            stacklevel=2,
+        )
+    return SceneDetector(
+        args.detector,
+        args.threshold,
+        args.min_scene_len,
+        args.luma_only,
+        console=console,
+        min_scene_len_seconds=args.min_scene_len_seconds,
+        backend=args.backend,
+        adaptive_window_width=args.adaptive_window_width,
+        hash_size=args.hash_size,
+        histogram_bins=args.histogram_bins,
+    )
+
+
+async def process_video(video_path, scene_detector, args, progress):
+    """Process one CLI video and return its path/error pair when it fails."""
+    video_path = Path(video_path)
+    task_id = progress.add_task(f"Processing: {video_path.name}", total=2)
+    try:
+        scene_list = await scene_detector.detect_scenes_async(str(video_path))
+        progress.update(task_id, completed=1, description=f"Splitting: {video_path.name}")
+        if len(scene_list) > 1:
+            await asyncio.to_thread(
+                scene_detector.split_video,
+                str(video_path),
+                scene_list,
+                args.output_dir,
+                args.save_html,
+                args.video2images_min_number,
+            )
+        progress.update(task_id, completed=2, description=f"Completed: {video_path.name}")
+        return None
+    except Exception as exc:
+        progress.update(task_id, completed=2, description=f"Failed: {video_path.name}")
+        return video_path, exc
+
+
+async def process_videos(video_files, scene_detector, args, progress, console):
+    """Process a CLI batch without allowing one failed video to cancel the rest."""
+    with progress:
+        results = await asyncio.gather(
+            *(
+                process_video(video_path, scene_detector, args, progress)
+                for video_path in video_files
+            )
+        )
+
+    failures = [result for result in results if result is not None]
+    if failures:
+        console.print(f"[bold red]{len(failures)} video(s) failed:[/bold red]")
+        for video_path, error in failures:
+            console.print(f"[red]  {video_path}: {error}[/red]")
+    else:
+        console.print("[bold green]All videos processed successfully[/bold green]")
+    return failures
+
+
 if __name__ == "__main__":
     # 创建Rich控制台对象
     console = Console(color_system="truecolor", force_terminal=True)
@@ -762,13 +941,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # 创建场景检测器实例
-    scene_detector = SceneDetector(
-        args.detector,
-        args.threshold,
-        args.min_scene_len,
-        args.luma_only,
-        console=console,
-    )
+    scene_detector = create_scene_detector_from_args(args, console)
 
     # 获取所有视频文件
     video_files = []
@@ -809,49 +982,8 @@ if __name__ == "__main__":
         auto_refresh=False,
     )
 
-    async def process_video(video_path):
-        """Process a single video file"""
-        video_name = video_path.stem
-        with progress:
-            # Create scene detection task
-            task_id = progress.add_task(
-                f"Processing: {video_name}",
-                total=2,  # 2 steps: 1. detect scenes 2. split video
-                status="Detecting scenes...",
-            )
-
-            # detect scenes
-            try:
-                scene_list = await scene_detector.detect_scenes_async(str(video_path))
-                progress.update(task_id, advance=1, status="Splitting video...")
-
-                # split video
-                if scene_list and len(scene_list) > 1:
-                    # use thread pool to execute IO task
-                    with ThreadPoolExecutor() as executor:
-                        loop = asyncio.get_event_loop()
-                        await loop.run_in_executor(
-                            executor,
-                            scene_detector.split_video,
-                            str(video_path),
-                            scene_list,
-                            args.output_dir,
-                            args.save_html,
-                            args.video2images_min_number,
-                        )
-                    progress.update(task_id, advance=1, status="Completed")
-                else:
-                    progress.update(task_id, advance=1, status="No need to split (too few scenes)")
-            except Exception as e:
-                progress.update(task_id, status=f"Error: {str(e)}")
-                raise e
-
-    async def main():
-        """Main async function"""
-        # parallel process all videos
-        tasks = [process_video(video_path) for video_path in video_files]
-        await asyncio.gather(*tasks)
-        console.print("[bold green]All videos processed successfully[/bold green]")
-
-    # run main async function
-    asyncio.run(main())
+    failures = asyncio.run(
+        process_videos(video_files, scene_detector, args, progress, console)
+    )
+    if failures:
+        raise SystemExit(1)
