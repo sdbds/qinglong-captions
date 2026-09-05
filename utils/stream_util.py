@@ -175,6 +175,18 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_t
     """
     import imageio_ffmpeg
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    segment_ms = segment_time * 1000
+    use_segment_mode = (
+        save_caption_func is None
+        and segment_ms > 0
+        and len(subs) > 1
+        and all(
+            sub.start.ordinal == index * segment_ms
+            and 0 < sub.end.ordinal - sub.start.ordinal <= segment_ms
+            and (index == len(subs) - 1 or sub.end.ordinal == (index + 1) * segment_ms)
+            for index, sub in enumerate(subs)
+        )
+    )
     with Progress(
         "[progress.description]{task.description}",
         BarColumn(),
@@ -202,7 +214,7 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_t
                 + (sub.end.milliseconds - sub.start.milliseconds) / 1000
             )
 
-            if duration == segment_time:
+            if use_segment_mode:
                 # 使用segment模式时的输出模板
                 output_template = str(uri.parent / f"{uri.stem}_clip/{uri.stem}_%03d{uri.suffix}")
                 command = [
@@ -298,8 +310,8 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_t
                 save_caption_func(clip_path, [sub.text], "image")
             sub_progress.advance(sub_task)
 
-            if sub.end.minutes - sub.start.minutes == segment_time / 60:
-                sub_progress.advance(sub_task, advance=4)
+            if use_segment_mode:
+                sub_progress.update(sub_task, completed=len(subs))
                 break
 
 

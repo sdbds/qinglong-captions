@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
 import subprocess
 import sys
+import weakref
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +17,8 @@ from nicegui import ui
 
 from gui.theme import COLORS
 from gui.utils.i18n import t
+from gui.utils.job_manager import job_manager
+from utils.runtime_env import build_runtime_env
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -95,14 +97,15 @@ def _venv_create_command(venv_path: Path) -> tuple[list[str], bool]:
 def _base_dependency_install_command(python_path: Path) -> list[str]:
     uv = _find_uv_executable()
     if uv:
-        index_strategy = os.environ.get("UV_INDEX_STRATEGY", DEFAULT_UV_INDEX_STRATEGY).strip()
+        index_strategy = build_runtime_env(PROJECT_ROOT).get("UV_INDEX_STRATEGY", DEFAULT_UV_INDEX_STRATEGY).strip()
         cmd = [uv, "pip", "install", "--no-build-isolation"]
         if index_strategy:
             cmd.extend(["--index-strategy", index_strategy])
         cmd.extend(["--python", str(python_path), "-r", "pyproject.toml"])
         return cmd
 
-    return [str(python_path), "-m", "pip", "install", "--no-build-isolation", "-r", "pyproject.toml"]
+    dependencies = toml.load(PROJECT_ROOT / "pyproject.toml")["project"]["dependencies"]
+    return [str(python_path), "-m", "pip", "install", "--no-build-isolation", *dependencies]
 
 
 def _base_install_marker_path(venv_path: Path) -> Path:
@@ -199,6 +202,41 @@ def save_task_tabs(tabs: list[TaskTab]) -> None:
         toml.dump(payload, f)
 
 
+class TaskTabStore:
+    """One mutable tab configuration shared by all pages in this GUI process."""
+
+    def __init__(self, tabs: list[TaskTab]):
+        self.tabs = tabs
+        self.next_index = max((tab.index for tab in tabs), default=1) + 1
+        self.views = weakref.WeakSet()
+
+    def allocate_index(self) -> int:
+        index = self.next_index
+        self.next_index += 1
+        return index
+
+    def notify(self) -> None:
+        for view in list(self.views):
+            if view.find_tab(view.active_tab_id) is None:
+                view.active_tab_id = self.tabs[0].id
+            try:
+                view._render_tabs()
+                view._notify_local_tab_change()
+            except RuntimeError:
+                # A disconnected page must not interrupt another page's task.
+                continue
+
+
+_task_tab_stores: dict[Path, TaskTabStore] = {}
+
+
+def _get_task_tab_store() -> TaskTabStore:
+    key = TABS_CONFIG_PATH.resolve()
+    if key not in _task_tab_stores:
+        _task_tab_stores[key] = TaskTabStore(load_task_tabs())
+    return _task_tab_stores[key]
+
+
 class ExecutionTabs:
     """Browser-like task tab bar that owns per-tab runtime venv selection."""
 
@@ -211,12 +249,13 @@ class ExecutionTabs:
         on_tab_log: Optional[Callable[[str, str, str], None]] = None,
     ):
         self._ensure_styles()
-        self.tabs = load_task_tabs()
+        self._store = _get_task_tab_store()
+        self.tabs = self._store.tabs
         self.active_tab_id = self.tabs[0].id
-        self._next_tab_index = max((tab.index for tab in self.tabs), default=1) + 1
         self._on_tab_change = on_tab_change
         self._on_tab_log = on_tab_log
         self._tab_bar = None
+        self._store.views.add(self)
 
         with ui.row().classes("w-full items-end justify-between gap-2"):
             self._tab_bar = ui.row().classes("items-end gap-1").style("min-width: 0; overflow-x: auto;")
@@ -297,8 +336,8 @@ class ExecutionTabs:
         self.active_tab_id = self.tabs[0].id
         return self.tabs[0]
 
-    def runner_kwargs(self) -> Optional[dict]:
-        tab = self.active_tab
+    def runner_kwargs(self, tab: Optional[TaskTab] = None) -> Optional[dict]:
+        tab = tab or self.active_tab
         kwargs = {
             "tab_id": tab.id,
             "tab_name": tab.name,
@@ -314,8 +353,10 @@ class ExecutionTabs:
         })
         return kwargs
 
-    async def ensure_active_tab_runtime_ready(self) -> bool:
-        tab = self.active_tab
+    async def ensure_active_tab_runtime_ready(self, tab: Optional[TaskTab] = None) -> bool:
+        tab = tab or self.active_tab
+        if self._running_job_for_tab(tab.id) is not None:
+            return False
         if tab.index == 1:
             return True
         if tab.status == "ready" and tab.python_path and tab.venv_path:
@@ -335,7 +376,11 @@ class ExecutionTabs:
         tab = self.active_tab
         if tab.status == "creating_venv":
             return False
-        return tab.current_job_id is None
+        return tab.current_job_id is None and self._running_job_for_tab(tab.id) is None
+
+    @staticmethod
+    def _running_job_for_tab(tab_id: str):
+        return next((job for job in job_manager.get_active_jobs() if job.tab_id == tab_id), None)
 
     def find_tab(self, tab_id: Optional[str]) -> Optional[TaskTab]:
         if tab_id is None:
@@ -347,14 +392,13 @@ class ExecutionTabs:
 
     async def retry_active_tab(self) -> None:
         tab = self.active_tab
-        if tab.index > 1:
-            await self._create_venv_for_tab(tab)
+        if tab.index > 1 and self.active_tab_can_start():
+            await self.ensure_active_tab_runtime_ready(tab)
 
     def mark_job(self, job) -> None:
         tab = self.find_tab(getattr(job, "tab_id", None)) or self.active_tab
         tab.current_job_id = getattr(job, "id", None)
         tab.status = "busy"
-        save_task_tabs(self.tabs)
         self._render_tabs()
         self._notify_tab_change()
 
@@ -367,7 +411,6 @@ class ExecutionTabs:
                     tab.status = "ready"
                 changed = True
         if changed:
-            save_task_tabs(self.tabs)
             self._render_tabs()
             self._notify_tab_change()
 
@@ -381,6 +424,9 @@ class ExecutionTabs:
         }.get(tab.status, "var(--ql-text-muted)")
 
     def _notify_tab_change(self) -> None:
+        self._store.notify()
+
+    def _notify_local_tab_change(self) -> None:
         if self._on_tab_change is not None:
             try:
                 self._on_tab_change(self.active_tab)
@@ -431,7 +477,7 @@ class ExecutionTabs:
     def _select_tab(self, tab_id: str) -> None:
         self.active_tab_id = tab_id
         self._render_tabs()
-        self._notify_tab_change()
+        self._notify_local_tab_change()
 
     async def _handle_add_tab_click(self, _event=None) -> None:
         await self._add_tab()
@@ -440,14 +486,14 @@ class ExecutionTabs:
         tab = self.find_tab(tab_id)
         if tab is None or tab.index == 1:
             return
-        if tab.current_job_id:
+        if tab.current_job_id or tab.status == "creating_venv" or self._running_job_for_tab(tab.id) is not None:
             ui.notify(t("task_already_running", "已有任务正在运行"), type="warning")
             return
 
         removed_index = self.tabs.index(tab)
-        self.tabs = [item for item in self.tabs if item.id != tab_id]
+        self.tabs[:] = [item for item in self.tabs if item.id != tab_id]
         if not self.tabs:
-            self.tabs = [_default_tab()]
+            self.tabs[:] = [_default_tab()]
         if self.active_tab_id == tab_id:
             next_index = min(max(removed_index - 1, 0), len(self.tabs) - 1)
             self.active_tab_id = self.tabs[next_index].id
@@ -456,8 +502,7 @@ class ExecutionTabs:
         self._notify_tab_change()
 
     async def _add_tab(self) -> None:
-        next_index = getattr(self, "_next_tab_index", max((tab.index for tab in self.tabs), default=1) + 1)
-        self._next_tab_index = next_index + 1
+        next_index = self._store.allocate_index()
         tab_id = f"tab-{next_index:04d}"
         venv_path = RUNTIME_VENVS_DIR / tab_id
         tab = TaskTab(
@@ -484,12 +529,18 @@ class ExecutionTabs:
         creationflags: int,
         failure_label: str,
     ) -> None:
+        env = build_runtime_env(PROJECT_ROOT, env_overrides=tab.env_vars)
+        if cmd[1:3] == ["-m", "pip"]:
+            for uv_key, pip_key in (("UV_INDEX_URL", "PIP_INDEX_URL"), ("UV_EXTRA_INDEX_URL", "PIP_EXTRA_INDEX_URL")):
+                if env.get(uv_key):
+                    env[pip_key] = env[uv_key]
         process = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=str(PROJECT_ROOT),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             creationflags=creationflags,
+            env=env,
         )
         if process.stdout is not None:
             while True:

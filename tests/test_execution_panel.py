@@ -48,10 +48,10 @@ class _DummyExecutionTabs:
         self.ensure_calls = 0
         self.ensure_ready = True
 
-    def runner_kwargs(self):
+    def runner_kwargs(self, tab=None):
         return {"tab_id": self.active_tab.id, "tab_name": self.active_tab.name}
 
-    async def ensure_active_tab_runtime_ready(self):
+    async def ensure_active_tab_runtime_ready(self, tab=None):
         self.ensure_calls += 1
         return self.ensure_ready
 
@@ -236,3 +236,63 @@ def test_run_job_attaches_job_log_without_clearing_source(monkeypatch):
     assert fake_job in panel.log_viewer.attached_jobs
     assert "pre-log" in log_lines
     assert any(t("task_finished") in line for line in log_lines)
+
+
+def test_run_job_keeps_original_tab_when_selection_changes_during_prepare(monkeypatch):
+    from gui.components.execution_tabs import ExecutionTabs, TaskTab
+    from datetime import datetime
+
+    panel = _make_panel()
+    tabs = ExecutionTabs.__new__(ExecutionTabs)
+    default = TaskTab("tab-0001", "Default", 1, ".", ".venv", None, datetime.now(), status="ready")
+    second = TaskTab("tab-0002", "Second", 2, ".", ".runtime_venvs/tab-0002",
+                     ".runtime_venvs/tab-0002/Scripts/python.exe", datetime.now())
+    tabs.tabs = [default, second]
+    tabs.active_tab_id = second.id
+    tabs._render_tabs = lambda: None
+    tabs._notify_tab_change = lambda: None
+    panel.execution_tabs = tabs
+    submitted = []
+
+    async def scenario():
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def prepare(tab):
+            tab.status = "creating_venv"
+            started.set()
+            await release.wait()
+            tab.status = "ready"
+
+        async def submit(*args, **kwargs):
+            submitted.append(kwargs)
+            job = SimpleNamespace(id="prepared-job", name="Prepared", tab_id=kwargs["tab_id"],
+                                  status=JobStatus.RUNNING, log_buffer=LogBuffer())
+
+            async def wait():
+                job.status = JobStatus.SUCCESS
+                return ProcessResult(ProcessStatus.SUCCESS)
+
+            job.wait = wait
+            return job
+
+        tabs._create_venv_for_tab = prepare
+        monkeypatch.setattr("gui.components.execution_tabs.save_task_tabs", lambda value: None)
+        monkeypatch.setattr("gui.components.execution_panel.job_manager.submit", submit)
+        monkeypatch.setattr("gui.components.execution_panel.job_manager.get_job", lambda job_id: None)
+        task = asyncio.create_task(panel.run_job("module.captioner", [], "Original"))
+        await started.wait()
+        tabs.active_tab_id = default.id
+        release.set()
+        await task
+
+    asyncio.run(scenario())
+    assert submitted[0]["tab_id"] == second.id
+    assert Path(submitted[0]["python_path"]).name == "python.exe"
+
+
+def test_panel_can_find_active_job_started_in_another_page(monkeypatch):
+    panel = _make_panel()
+    running_job = SimpleNamespace(id="other-page-job", tab_id="tab-0001", status=JobStatus.RUNNING)
+    monkeypatch.setattr("gui.components.execution_panel.job_manager.get_active_jobs", lambda: [running_job])
+    assert panel._active_tab_current_job() is running_job
+    assert panel._tab_has_running_job("tab-0001") is True

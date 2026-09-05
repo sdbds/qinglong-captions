@@ -186,11 +186,11 @@ class ExecutionPanel:
             return ProcessResult(ProcessStatus.ERROR, -1, message)
 
         merged_runner_kwargs = dict(runner_kwargs or {})
-        if not await self.execution_tabs.ensure_active_tab_runtime_ready():
+        if not await self.execution_tabs.ensure_active_tab_runtime_ready(tab):
             self._safe_sync_active_tab_state()
             return ProcessResult(ProcessStatus.ERROR, -1, t("task_tab_not_ready", "当前任务 tab 的 venv 尚未就绪"))
 
-        tab_kwargs = self.execution_tabs.runner_kwargs()
+        tab_kwargs = self.execution_tabs.runner_kwargs(tab)
         if tab_kwargs is None:
             self._safe_sync_active_tab_state()
             return ProcessResult(ProcessStatus.ERROR, -1, t("task_tab_not_ready", "当前任务 tab 的 venv 尚未就绪"))
@@ -297,6 +297,9 @@ class ExecutionPanel:
             pass
 
     def _job_for_tab(self, tab_id: str, *, current_only: bool = False) -> Optional["Job"]:
+        active_job = next((job for job in job_manager.get_active_jobs() if job.tab_id == tab_id), None)
+        if active_job is not None:
+            return active_job
         job_id = self._tab_current_jobs.get(tab_id)
         if not job_id and not current_only:
             job_id = self._tab_last_jobs.get(tab_id)

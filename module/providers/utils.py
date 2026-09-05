@@ -98,6 +98,11 @@ def encode_image_to_blob(
                 new_h = max_size
                 new_w = ((int(new_h * aspect)) // 16) * 16
 
+            # Tiny images and extreme aspect ratios can round one edge to zero.
+            min_edge = min(16, max_size)
+            new_w = max(min_edge, new_w)
+            new_h = max(min_edge, new_h)
+
             if (new_w, new_h) != (width, height):
                 image = image.resize((new_w, new_h), Image.LANCZOS)
 

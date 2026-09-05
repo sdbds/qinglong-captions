@@ -21,6 +21,7 @@ from rich.progress import Progress
 
 from .policies import SegmentationPolicy
 from utils.parse_display import display_caption_and_rate
+from utils.output_writer import caption_text
 
 
 class MediaModality(Enum):
@@ -178,26 +179,7 @@ class CaptionResult:
     @property
     def description(self) -> str:
         """获取描述文本（兼容 captioner.py 的处理）"""
-        if self.parsed:
-            task_kind = str(self.parsed.get("task_kind") or "").strip().lower()
-            subtitle_format = str(self.parsed.get("subtitle_format") or "").strip().lower()
-            extension = self.caption_extension
-            if task_kind == "ast" or subtitle_format == "srt" or extension == ".srt":
-                for key in ("translation_srt", "transcript", "description", "long_description", "short_description"):
-                    value = self.parsed.get(key)
-                    if str(value or "").strip():
-                        return str(value)
-            return (
-                self.parsed.get("long_description")
-                or self.parsed.get("transcript")
-                or self.parsed.get("translation_srt")
-                or self.parsed.get("description")
-                or self.parsed.get("short_description")
-                or self.parsed.get("markdown")
-                or self.parsed.get("text")
-                or self.raw
-            )
-        return self.raw
+        return caption_text(self.parsed, fallback=self.raw) if self.parsed is not None else self.raw
 
     @property
     def text(self) -> str:

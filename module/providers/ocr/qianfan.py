@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import re
 import sys
 import time
@@ -246,9 +248,9 @@ class QianfanOCRProvider(OCRProvider):
     _THINK_SUFFIX = "<think>"
     _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
-    def _provider_config(self) -> dict[str, Any]:
+    def _provider_config(self) -> Mapping[str, Any]:
         cfg = self.ctx.config.get(self.name, {})
-        return cfg if isinstance(cfg, dict) else {}
+        return cfg if isinstance(cfg, Mapping) else {}
 
     def _compose_question(self) -> str:
         provider_cfg = self._provider_config()

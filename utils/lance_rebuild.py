@@ -54,7 +54,7 @@ def _read_dataset_uri_rebuild_data(
 
 
 def read_detected_sidecar_caption(uri: str) -> list[str]:
-    sidecar_base = Path(uri).with_suffix("")
+    sidecar_base = Path(uri)
     for extension in SIDECAR_CAPTION_EXTENSIONS:
         caption_path = sidecar_base.with_suffix(extension)
         if not caption_path.exists() or caption_path == Path(uri):

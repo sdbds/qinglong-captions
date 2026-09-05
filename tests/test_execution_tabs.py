@@ -258,7 +258,7 @@ def test_add_tab_does_not_create_venv_until_start(monkeypatch):
         )
     ]
     tabs.active_tab_id = "tab-0001"
-    tabs._next_tab_index = 2
+    tabs._store = execution_tabs_module.TaskTabStore(tabs.tabs)
     tabs._render_tabs = lambda: None
     tabs._notify_tab_change = lambda: None
     calls = []

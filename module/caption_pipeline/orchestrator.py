@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import copy
 from dataclasses import dataclass
@@ -21,7 +22,7 @@ from module.caption_pipeline.scene_alignment import align_subtitles_with_scenes,
 from module.providers.catalog import provider_segmentation_policy, route_provider_name
 from module.providers.base import CaptionResult, CaptionStatus
 from module.providers.subscription_quota import report_startup_subscription_quota
-from utils.output_writer import write_caption_output
+from utils.output_writer import caption_text, write_caption_output
 from utils.rich_progress import create_caption_progress
 from utils.stream_util import (
     get_video_duration,
@@ -63,16 +64,7 @@ def _serialize_subtitles(subs: pysrt.SubRipFile) -> str:
 
 
 def _structured_description(payload: dict) -> str:
-    task_kind = str(payload.get("task_kind") or "").strip().lower()
-    if task_kind == "ast":
-        return str(payload.get("translation_srt") or payload.get("transcript") or "").strip()
-    return str(
-        payload.get("long_description")
-        or payload.get("transcript")
-        or payload.get("description")
-        or payload.get("short_description")
-        or ""
-    ).strip()
+    return caption_text(payload).strip()
 
 
 def _caption_payload(output):
@@ -250,7 +242,7 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
     subs = pysrt.SubRipFile()
     duration_seconds = duration / 1000
     chunk_duration = args.segment_time
-    num_chunks = int((duration_seconds + chunk_duration - 1) // chunk_duration)
+    num_chunks = math.ceil(duration / (chunk_duration * 1000))
 
     for index in range(num_chunks):
         start_time = index * chunk_duration
@@ -302,6 +294,12 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
             task_id=task_id,
         )
         chunk_output = postprocess_caption_content(chunk_output, uri, clip_args, console)
+        if not _is_persistable_caption(chunk_output):
+            progress.update(clip_task, visible=False)
+            reason = getattr(chunk_output, "error", None) or "no persistable caption"
+            error = f"Segment {index + 1}/{num_chunks} failed: {reason}"
+            console.print(f"[red]{error}; keeping existing captions unchanged[/red]")
+            return CaptionResult.failed(error, metadata={"failed_segment": index + 1, "total_segments": num_chunks})
         chunk_payload = _caption_payload(chunk_output)
 
         if isinstance(chunk_payload, dict):

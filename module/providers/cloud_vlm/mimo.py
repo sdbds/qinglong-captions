@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +63,7 @@ class MimoProvider(CloudVLMProvider):
         )
 
         mimo_config = self.ctx.config.get("mimo", {}) if self.ctx.config else {}
-        thinking = mimo_config.get("thinking", "disabled") if isinstance(mimo_config, dict) else "disabled"
+        thinking = mimo_config.get("thinking", "disabled") if isinstance(mimo_config, Mapping) else "disabled"
         max_completion_tokens = self._resolve_max_completion_tokens(mimo_config)
 
         result = attempt_kimi_vl(
@@ -153,7 +154,7 @@ class MimoProvider(CloudVLMProvider):
 
     @staticmethod
     def _resolve_max_completion_tokens(config: Any) -> int:
-        if isinstance(config, dict):
+        if isinstance(config, Mapping):
             value = config.get("max_completion_tokens", 8192)
         else:
             value = 8192

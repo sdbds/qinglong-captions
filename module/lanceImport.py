@@ -528,10 +528,10 @@ def _read_caption_file(path: Path) -> List[str]:
 
 def _find_sidecar_caption(file_path: Path, caption_root: Optional[Path] = None, dataset_root: Optional[Path] = None) -> List[str]:
     if caption_root is None:
-        sidecar_base = file_path.with_suffix("")
+        sidecar_base = file_path
     else:
         relative_path = file_path.relative_to(dataset_root) if dataset_root is not None else Path(file_path.name)
-        sidecar_base = (caption_root / relative_path).with_suffix("")
+        sidecar_base = caption_root / relative_path
 
     for extension in (".txt", ".md", ".srt"):
         candidate = sidecar_base.with_suffix(extension)

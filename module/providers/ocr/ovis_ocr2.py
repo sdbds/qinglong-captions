@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import base64
 import io
 import re
@@ -455,9 +457,9 @@ class OvisOCR2Provider(OCRProvider):
             extras={"output_dir": Path(uri).with_suffix("")},
         )
 
-    def _provider_config(self) -> dict[str, Any]:
+    def _provider_config(self) -> Mapping[str, Any]:
         section = self.ctx.config.get(self.name, {})
-        return section if isinstance(section, dict) else {}
+        return section if isinstance(section, Mapping) else {}
 
     def get_prompts(self, mime: str):
         provider_prompt = str(self._provider_config().get("prompt", "") or "").strip()
@@ -465,7 +467,7 @@ class OvisOCR2Provider(OCRProvider):
             return "", provider_prompt
 
         prompts = self.ctx.config.get("prompts", {})
-        legacy_prompt = str(prompts.get("ovis_ocr2_prompt", "") or "").strip() if isinstance(prompts, dict) else ""
+        legacy_prompt = str(prompts.get("ovis_ocr2_prompt", "") or "").strip() if isinstance(prompts, Mapping) else ""
         return "", legacy_prompt or self.default_prompt
 
     def _get_visual_region_mode(self) -> str:

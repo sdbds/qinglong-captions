@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import re
 from pathlib import Path
 from typing import Any
@@ -92,7 +94,7 @@ class EurekaAudioLocalProvider(LocalALMProvider):
                 generate_kwargs[key] = self.model_config[key]
 
         config_generate_kwargs = self.model_config.get("generate_kwargs", {})
-        if isinstance(config_generate_kwargs, dict):
+        if isinstance(config_generate_kwargs, Mapping):
             for key in self.generate_config_keys:
                 if key not in self.model_config and key in config_generate_kwargs:
                     generate_kwargs[key] = config_generate_kwargs[key]

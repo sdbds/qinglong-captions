@@ -51,21 +51,24 @@ def caption_output_path(source_path: Path, mime: str, output=None) -> Path:
     return safe_sibling_path(source_path, extension)
 
 
-def _structured_description(payload: dict) -> str:
-    task_kind = str(payload.get("task_kind") or "").strip().lower()
-    subtitle_format = str(payload.get("subtitle_format") or "").strip().lower()
-    extension = caption_extension_from_payload(payload)
-    if task_kind == "ast" or subtitle_format == "srt" or extension == ".srt":
-        srt_text = payload.get("translation_srt") or payload.get("transcript")
-        if has_meaningful_text_content(srt_text):
-            return str(srt_text)
-    return (
-        payload.get("long_description")
-        or payload.get("transcript")
-        or payload.get("description")
-        or payload.get("short_description")
-        or "No description available"
-    )
+def caption_text(output, *, fallback: str = "") -> str:
+    """Render semantic caption text consistently at generation and export boundaries."""
+    if _is_caption_result(output):
+        return caption_text(output.parsed, fallback=output.raw) if output.parsed is not None else output.raw
+    if isinstance(output, dict):
+        keys = ("long_description", "transcript", "translation_srt", "description", "short_description", "markdown", "text")
+        task_kind = str(output.get("task_kind") or "").strip().lower()
+        subtitle_format = str(output.get("subtitle_format") or "").strip().lower()
+        if task_kind == "ast" or subtitle_format == "srt" or caption_extension_from_payload(output) == ".srt":
+            keys = ("translation_srt", "transcript", "description", "long_description", "short_description", "markdown", "text")
+        for key in keys:
+            value = output.get(key)
+            if str(value or "").strip():
+                return str(value)
+        return fallback
+    if isinstance(output, list):
+        return "\n".join(str(line) for line in output)
+    return str(output or "")
 
 
 def has_meaningful_text_content(content: object) -> bool:
@@ -92,7 +95,7 @@ def write_caption_output(source_path: Path, output, mime: str) -> tuple[Path, Op
         if output.parsed is not None:
             json_path = safe_sibling_path(source_path, ".json")
             json_path.write_text(json.dumps(output.parsed, indent=2, ensure_ascii=False), encoding="utf-8")
-            text_path.write_text(_structured_description(output.parsed), encoding="utf-8")
+            text_path.write_text(caption_text(output), encoding="utf-8")
         else:
             text_path.write_text(output.raw, encoding="utf-8")
         return text_path, json_path
@@ -100,7 +103,7 @@ def write_caption_output(source_path: Path, output, mime: str) -> tuple[Path, Op
     if isinstance(output, dict):
         json_path = safe_sibling_path(source_path, ".json")
         json_path.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
-        text_path.write_text(_structured_description(output), encoding="utf-8")
+        text_path.write_text(caption_text(output), encoding="utf-8")
         return text_path, json_path
 
     if isinstance(output, list):

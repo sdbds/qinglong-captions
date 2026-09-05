@@ -206,9 +206,9 @@ class PromptResolver:
             # change X to Y
             (r"^\s*change\s+(.+?)\s+to\s+(.+?)\s*$", "change_a_to_b"),
             # transform style X to Y
-            (r"^\s*(transform|convert)\s+style\s+(.+?)\s+to\s+(.+?)\s*$", "transform_style_a_to_b"),
+            (r"^\s*(?:transform|convert)\s+style\s+(.+?)\s+to\s+(.+?)\s*$", "transform_style_a_to_b"),
             # combine X and Y
-            (r"^\s*combine\s+(.+?)\s+(and|with)\s+(.+?)\s*$", "combine_a_and_b"),
+            (r"^\s*combine\s+(.+?)\s+(?:and|with)\s+(.+?)\s*$", "combine_a_and_b"),
             # add X to Y
             (r"^\s*add\s+(.+?)\s+to\s+(.+?)\s*$", "add_a_to_b"),
         ]
@@ -223,7 +223,7 @@ class PromptResolver:
                     result = template
 
                     # 处理 {a}, {b} 和 <a>, <b> 格式
-                    for i, val in enumerate(groups[-2:] if len(groups) > 2 else groups, 1):
+                    for i, val in enumerate(groups, 1):
                         placeholder = "{a}" if i == 1 else "{b}"
                         alt_placeholder = "<a>" if i == 1 else "<b>"
                         result = result.replace(placeholder, val.strip())

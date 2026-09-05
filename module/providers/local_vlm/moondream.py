@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from contextlib import closing
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -387,22 +388,23 @@ class MoondreamProvider(LocalVLMProvider):
             with open(captions_path, "r", encoding="utf-8") as f:
                 captions = [line.strip() for line in f.readlines()]
 
-        result = attempt_moondream(
-            model_id=self.model_id,
-            mime=media.mime,
-            console=self.ctx.console,
-            progress=self.ctx.progress,
-            task_id=self.ctx.task_id,
-            uri=media.uri,
-            pixels=media.pixels,
-            image=None,  # 实际图像在 attempt_moondream 内部加载
-            captions=captions,
-            tags_highlightrate=getattr(self.ctx.args, "tags_highlightrate", 0.0),
-            prompt_text=prompts.user,
-            reasoning=bool(reasoning) if reasoning is not None else False,
-            ocr=ocr_mode,
-            task=tasks,
-        )
+        with Image.open(media.uri) as source_image, closing(source_image.convert("RGB")) as image:
+            result = attempt_moondream(
+                model_id=self.model_id,
+                mime=media.mime,
+                console=self.ctx.console,
+                progress=self.ctx.progress,
+                task_id=self.ctx.task_id,
+                uri=media.uri,
+                pixels=media.pixels,
+                image=image,
+                captions=captions,
+                tags_highlightrate=getattr(self.ctx.args, "tags_highlightrate", 0.0),
+                prompt_text=prompts.user,
+                reasoning=bool(reasoning) if reasoning is not None else False,
+                ocr=ocr_mode,
+                task=tasks,
+            )
 
         return CaptionResult(raw=result, metadata={"provider": self.name})
 
