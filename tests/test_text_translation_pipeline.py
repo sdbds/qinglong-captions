@@ -1,4 +1,5 @@
 import sys
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -6,9 +7,11 @@ from unittest.mock import MagicMock, patch
 import lance
 import pyarrow as pa
 import pytest
+from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
 
+from module import texttranslate
 from module.lanceImport import load_data, transform2lance
 from module.lanceexport import save_caption
 from module.texttranslate import (
@@ -180,10 +183,7 @@ def test_load_or_create_dataset_force_reimport_calls_transform(tmp_path):
     )
 
 
-def test_merge_translations_reads_saved_markdown_and_updates_tag(tmp_path):
-    translated = tmp_path / 'story_zh_cn.md'
-    translated.write_text('translated body\n', encoding='utf-8')
-
+def test_merge_translations_uses_verified_results_and_updates_tag(tmp_path):
     schema = pa.schema(
         [
             pa.field('uris', pa.string()),
@@ -217,7 +217,7 @@ def test_merge_translations_reads_saved_markdown_and_updates_tag(tmp_path):
             base_version='norm.test',
             translation_tag='tr.test',
             merge_candidates=['story.txt'],
-            current_run_translations={},
+            current_run_translations={'story.txt': 'translated body\n'},
             export_root=tmp_path,
             target_lang='zh-cn',
             max_chars=8,
@@ -249,8 +249,8 @@ def test_resolve_translated_markdown_path_preserves_relative_directories(tmp_pat
     first = resolve_translated_markdown_path(Path('a/readme.txt'), export_root, 'zh_cn')
     second = resolve_translated_markdown_path(Path('b/readme.txt'), export_root, 'zh_cn')
 
-    assert first == export_root / 'a' / 'readme_zh_cn.md'
-    assert second == export_root / 'b' / 'readme_zh_cn.md'
+    assert first == export_root / 'a' / 'readme.txt_zh_cn.md'
+    assert second == export_root / 'b' / 'readme.txt_zh_cn.md'
 
 
 def test_texttranslate_parser_defaults_to_hy_mt2():
@@ -258,3 +258,47 @@ def test_texttranslate_parser_defaults_to_hy_mt2():
 
     assert args.model_id == 'tencent/Hy-MT2-7B'
     assert args.max_new_tokens == 4096
+
+
+def test_default_cli_resume_ignores_timestamp_versions_but_retranslates_changed_source(tmp_path):
+    calls = []
+
+    class RecordingTranslator:
+        model_id = 'offline-test'
+        backend = 'direct'
+        max_new_tokens = 4096
+        temperature = 0.0
+
+        def __init__(self, **kwargs):
+            pass
+
+        def translate(self, text, **kwargs):
+            calls.append(text)
+            return 'translated ' + text
+
+    source = tmp_path / 'source.txt'
+    source.write_text('first source', encoding='utf-8')
+    real_build_version_tag = texttranslate.build_version_tag
+
+    def run(timestamp):
+        def timestamped_tag(*parts):
+            return real_build_version_tag(*parts, timestamp=timestamp)
+
+        with (
+            patch.object(sys, 'argv', ['texttranslate', str(tmp_path)]),
+            patch.object(texttranslate, 'HYMTProvider', RecordingTranslator),
+            patch.object(texttranslate, 'build_version_tag', timestamped_tag),
+            patch.object(texttranslate, 'console', Console(file=StringIO(), force_terminal=False)),
+        ):
+            texttranslate.main()
+
+    run('20260905_100001')
+    run('20260905_100005')
+    assert calls == ['first source\n']
+
+    source.write_text('second source', encoding='utf-8')
+    run('20260905_100009')
+
+    assert calls == ['first source\n', 'second source\n']
+    latest_row = lance.dataset(str(tmp_path / 'dataset.lance')).to_table().to_pylist()[0]
+    assert latest_row['captions'] == ['translated second source\n']

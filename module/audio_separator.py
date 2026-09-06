@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import math
 import sys
 from dataclasses import dataclass
@@ -38,6 +40,7 @@ from module.audio_separator_core import (
     SUPPORTED_OUTPUT_FORMATS,
     AudioSeparator,
 )
+from module.muscriptor_tool.manifest import atomic_write_json, read_json
 from module.muscriptor_tool.options import (
     DEFAULT_DEVICE,
     DEFAULT_MODEL,
@@ -67,6 +70,7 @@ from module.vocal_midi import (
     parse_output_formats,
 )
 from utils.console_util import print_exception
+from utils.file_hash import sha256_file
 from utils.path_safety import safe_child_path, safe_leaf_name
 
 console = Console(color_system="truecolor", force_terminal=True)
@@ -75,6 +79,7 @@ HARMONY_DRY_STEM_NAME = "dry_vocal"
 HARMONY_BACKING_STEM_NAME = "harmony"
 STEM_MIDI_SILENCE_RMS_DBFS = -60.0
 STEM_MIDI_DBFS_FLOOR = -200.0
+SEPARATION_METADATA_NAME = "separation_metadata.json"
 
 
 @dataclass(frozen=True)
@@ -90,6 +95,14 @@ class VocalMidiCandidate:
     source_path: Path
     song_output_dir: Path
     input_path: Path
+
+
+@dataclass(frozen=True)
+class SongOutputPlan:
+    source_path: Path
+    output_dir: Path
+    source_sha256: str
+    run_signature: str
 
 
 def waveform_max_window_rms_dbfs(
@@ -333,15 +346,99 @@ def resolve_output_root(input_path: Path) -> Path:
 
 
 def build_song_output_dir(source_path: Path, *, output_root: Path, input_root: Path | None = None) -> Path:
+    source_path = Path(source_path).resolve()
     relative_parent = Path()
+    outside_input_root = False
     if input_root is not None:
         try:
-            relative_parent = source_path.parent.relative_to(input_root)
+            relative_parent = source_path.parent.relative_to(Path(input_root).resolve())
         except ValueError:
-            relative_parent = Path()
+            outside_input_root = True
 
-    song_dir_name = safe_leaf_name(source_path.stem, default_name="song")
-    return output_root / relative_parent / song_dir_name
+    name = source_path.name
+    identity_suffix = hashlib.sha256(str(source_path).encode("utf-8")).hexdigest()[:16]
+    if outside_input_root or len(name) > 200:
+        name = f"{name[:180]}-{identity_suffix}"
+    return safe_child_path(output_root / relative_parent, f"{name}.stems")
+
+
+def _owns_song_directory(output_dir: Path, source_path: Path) -> bool:
+    metadata = read_json(output_dir / SEPARATION_METADATA_NAME)
+    if metadata is None or metadata.get("schema_version") != 1:
+        return False
+    recorded_source = metadata.get("source_path")
+    if not isinstance(recorded_source, str) or not recorded_source:
+        return False
+    return Path(recorded_source).resolve() == source_path.resolve()
+
+
+def _plan_song_outputs(
+    audio_files: Sequence[Path], *, output_root: Path, input_root: Path | None, args: argparse.Namespace,
+) -> list[SongOutputPlan]:
+    plans: list[SongOutputPlan] = []
+    destinations: dict[Path, Path] = {}
+    for source_path in dict.fromkeys(Path(path).resolve() for path in audio_files):
+        current_root = output_root if input_root is not None else source_path.parent
+        output_dir = build_song_output_dir(source_path, output_root=current_root, input_root=input_root)
+        legacy_dir = output_dir.parent / safe_leaf_name(source_path.stem, default_name="song")
+        if legacy_dir.is_dir() and _owns_song_directory(legacy_dir, source_path):
+            output_dir = legacy_dir
+        elif output_dir.exists() and not _owns_song_directory(output_dir, source_path):
+            suffix = hashlib.sha256(str(source_path).encode("utf-8")).hexdigest()[:16]
+            output_dir = safe_child_path(output_dir.parent, f"{output_dir.name}-{suffix}")
+            if output_dir.exists() and not _owns_song_directory(output_dir, source_path):
+                raise ValueError(f"Audio output directory has no matching source identity: {output_dir}")
+
+        destination = output_dir.resolve()
+        if destination in destinations:
+            raise ValueError(f"Audio output paths collide for {destinations[destination]} and {source_path}: {destination}")
+        destinations[destination] = source_path
+        source_sha256 = sha256_file(source_path)
+        signature_payload = {
+            "source_path": str(source_path),
+            "source_sha256": source_sha256,
+            "repo_id": args.repo_id,
+            "output_format": args.output_format,
+            "segment_size": args.segment_size,
+            "overlap": args.overlap,
+            "batch_size": args.batch_size,
+        }
+        signature = hashlib.sha256(json.dumps(signature_payload, sort_keys=True).encode("utf-8")).hexdigest()
+        plans.append(SongOutputPlan(source_path, output_dir, source_sha256, signature))
+        if legacy_dir.exists() and output_dir != legacy_dir:
+            console.print(f"[yellow]Preserving unverified legacy audio directory:[/yellow] {legacy_dir}")
+    ordered_destinations = sorted(destinations)
+    for previous, current in zip(ordered_destinations, ordered_destinations[1:]):
+        if current.is_relative_to(previous):
+            raise ValueError(f"Audio output directories overlap: {previous} and {current}")
+    return plans
+
+
+def _separation_complete(plan: SongOutputPlan) -> bool:
+    metadata = read_json(plan.output_dir / SEPARATION_METADATA_NAME)
+    if not metadata or metadata.get("schema_version") != 1 or metadata.get("status") != "ok":
+        return False
+    outputs = metadata.get("outputs")
+    return bool(
+        metadata.get("run_signature") == plan.run_signature
+        and isinstance(outputs, list)
+        and outputs
+        and all(
+            isinstance(name, str) and Path(name).name == name and (plan.output_dir / name).is_file()
+            for name in outputs
+        )
+    )
+
+
+def _write_separation_metadata(plan: SongOutputPlan, *, status: str, outputs: Sequence[Path] = ()) -> None:
+    atomic_write_json(plan.output_dir / SEPARATION_METADATA_NAME, {
+        "schema_version": 1,
+        "source_path": str(plan.source_path),
+        "source_sha256": plan.source_sha256,
+        "run_signature": plan.run_signature,
+        "status": status,
+        "outputs": [path.name for path in outputs],
+    })
 
 
 def build_stem_output_path(
@@ -549,6 +646,11 @@ def run_audio_separator(args: argparse.Namespace) -> int:
     if not audio_files:
         console.print(f"[yellow]No supported audio files found under:[/yellow] {input_path}")
         return 1
+    try:
+        song_plans = _plan_song_outputs(audio_files, output_root=output_root, input_root=input_root, args=args)
+    except (OSError, ValueError) as exc:
+        print_exception(console, exc, prefix="Audio output planning failed")
+        return 1
 
     failures = 0
     skipped = 0
@@ -572,7 +674,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
         transient=False,
     ) as progress:
         progress_console = progress.console
-        task = progress.add_task("[bold cyan]Separating audio...", total=len(audio_files))
+        task = progress.add_task("[bold cyan]Separating audio...", total=len(song_plans))
         separator = None
         try:
             separator = AudioSeparator(
@@ -582,15 +684,11 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                 logger=console.print,
             )
 
-            for source_path in audio_files:
-                current_output_root = output_root if input_root is not None else source_path.parent
-                song_output_dir = build_song_output_dir(
-                    source_path,
-                    output_root=current_output_root,
-                    input_root=input_root,
-                )
+            for song_plan in song_plans:
+                source_path = song_plan.source_path
+                song_output_dir = song_plan.output_dir
 
-                if song_output_dir.exists() and not args.overwrite:
+                if not args.overwrite and _separation_complete(song_plan):
                     progress_console.print(f"[yellow]Skipping existing song directory:[/yellow] {song_output_dir}")
                     if args.muscriptor_midi:
                         existing_candidates = collect_existing_stem_midi_candidates(
@@ -654,6 +752,9 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                         batch_size=args.batch_size,
                     )
                     song_output_dir.mkdir(parents=True, exist_ok=True)
+                    # Inference can fail without touching an older successful generation.
+                    _write_separation_metadata(song_plan, status="writing")
+                    written_outputs: list[Path] = []
                     selected_vocal = select_vocal_stem(stems) if (args.harmony_separation or args.vocal_midi) else None
                     vocal_output_path: Path | None = None
                     vocal_midi_candidate: VocalMidiCandidate | None = None
@@ -670,6 +771,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                             output_path,
                             output_format=args.output_format,
                         )
+                        written_outputs.append(output_path)
                         if args.muscriptor_midi:
                             candidate = StemMidiCandidate(
                                 source_path=source_path,
@@ -697,6 +799,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                         if selected_vocal is not None and stem_name == selected_vocal[0]:
                             vocal_output_path = output_path
 
+                    _write_separation_metadata(song_plan, status="ok", outputs=written_outputs)
                     if args.vocal_midi:
                         vocal_midi_candidate = VocalMidiCandidate(
                             source_path=source_path,

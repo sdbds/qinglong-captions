@@ -129,7 +129,7 @@ class JobListDrawer:
     def _stop_job(self, job_id: str):
         """停止指定任务"""
         job_manager.cancel(job_id)
-        ui.notify(t("job_stopped"), type="info")
+        ui.notify(t("task_stopping"), type="info")
 
     def _remove_job(self, job_id: str):
         """移除已完成的任务记录"""

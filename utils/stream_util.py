@@ -1,7 +1,11 @@
 import math
+import csv
 import re
 import subprocess
+import sys
+import uuid
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterator, Optional, Tuple
 
@@ -16,6 +20,21 @@ if TYPE_CHECKING:
     from PIL import Image
 
 console = Console(color_system="truecolor", force_terminal=True)
+
+
+def validate_segment_paths(paths, output_dir: Path, expected_count: int | None = None) -> list[Path]:
+    if not isinstance(paths, list) or (expected_count is not None and len(paths) != expected_count):
+        raise ValueError(f"Segment manifest must contain {expected_count} ordered paths")
+    root = Path(output_dir).resolve()
+    validated = []
+    for value in paths:
+        path = Path(value).resolve()
+        if not path.is_relative_to(root) or not path.is_file() or path.stat().st_size == 0:
+            raise ValueError(f"Segment is missing, empty, or outside its workspace: {path}")
+        if path in validated:
+            raise ValueError(f"Segment manifest contains a duplicate: {path}")
+        validated.append(path)
+    return validated
 
 
 @dataclass(frozen=True)
@@ -36,7 +55,7 @@ class PdfRenderPage:
         return self.image.size
 
 
-def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kwargs):
+def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, output_dir=None, **kwargs):
     """
     Process media stream and extract clips based on subtitles.
 
@@ -47,12 +66,16 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kw
         save_caption_func (callable): Function to save captions
 
     Returns:
-        None
+        Ordered list of the clips produced by this invocation.
     """
     import av
     from av.audio.format import AudioFormat
     from av.audio.layout import AudioLayout
 
+    uri = Path(uri)
+    output_dir = Path(output_dir) if output_dir is not None else uri.parent / f"{uri.stem}_clip"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    outputs = []
     with av.open(uri) as in_container:
         if media_type != "video":
             video_stream = None
@@ -66,6 +89,9 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kw
             (s for s in in_container.streams if s.type == "audio"),
             None,
         )
+        input_streams = [stream for stream in (video_stream, audio_stream) if stream is not None]
+        if not input_streams:
+            raise ValueError(f"No decodable {media_type} stream in {uri}")
 
         # 添加字幕片段的进度条
         with Progress(
@@ -83,25 +109,31 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kw
             for i, sub in enumerate(subs):
                 # if len(subs) < 2:
                 #     break
-                clip_path = uri.parent / f"{uri.stem}_clip/{uri.stem}_{sub.index}{uri.suffix}"
-                clip_path.parent.mkdir(parents=True, exist_ok=True)
+                clip_path = output_dir / f"{uri.stem}_{sub.index}{uri.suffix}"
 
                 with av.open(str(clip_path), mode="w") as out_container:
                     # copy encoder settings
                     if video_stream:
-                        out_video_stream = out_container.add_stream_from_template(template=video_stream)
+                        video_rate = video_stream.average_rate or Fraction(25, 1)
+                        video_time_base = Fraction(video_stream.time_base)
+                        video_codec = "libvpx-vp9" if uri.suffix.lower() == ".webm" else "libx264"
+                        out_video_stream = out_container.add_stream(video_codec, rate=video_rate)
+                        out_video_stream.width = video_stream.width
+                        out_video_stream.height = video_stream.height
+                        out_video_stream.pix_fmt = "yuv420p"
+                        out_video_stream.time_base = video_time_base
                     else:
                         out_video_stream = None
                     if audio_stream:
                         # 为音频流使用特定的设置
                         if media_type == "video":
-                            codec_name = "aac"
+                            codec_name = "libopus" if uri.suffix.lower() == ".webm" else "aac"
                             out_audio_stream = out_container.add_stream(
                                 codec_name=codec_name,
                                 rate=48000,  # AAC标准采样率
                             )
                             out_audio_stream.layout = AudioLayout("mono")  # AAC通常使用立体声
-                            out_audio_stream.format = AudioFormat("fltp")  # AAC使用浮点平面格式
+                            out_audio_stream.format = AudioFormat("flt" if codec_name == "libopus" else "fltp")
                         elif uri.suffix == ".mp3":
                             codec_name = "mp3"
                             out_audio_stream = out_container.add_stream(
@@ -117,18 +149,16 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kw
                                 rate=16000,
                             )
                             out_audio_stream.layout = AudioLayout("mono")
-                            out_audio_stream.format = AudioFormat("s16p")
+                            out_audio_stream.format = AudioFormat("s16")
                     else:
                         out_audio_stream = None
 
                     # 正确计算 start 和 end 时间戳, 单位是 video_stream.time_base
                     # 使用毫秒并根据 video_stream.time_base 转换
-                    start_seconds = sub.start.hours * 3600 + sub.start.minutes * 60 + sub.start.seconds
-                    end_seconds = sub.end.hours * 3600 + sub.end.minutes * 60 + sub.end.seconds
+                    start_seconds = Fraction(sub.start.ordinal, 1000)
+                    end_seconds = Fraction(sub.end.ordinal, 1000)
                     if video_stream:
-                        start_offset = int(
-                            start_seconds * video_stream.time_base.denominator / video_stream.time_base.numerator
-                        )  # 开始时间戳偏移量 (基于 video_stream.time_base)
+                        start_offset = math.floor(start_seconds / video_time_base)
                     else:
                         start_offset = int(
                             start_seconds * audio_stream.time_base.denominator / audio_stream.time_base.numerator
@@ -140,15 +170,40 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kw
                     )
 
                     # 手动跳过帧 (如果在 seek 之后需要的话)
-                    for frame in in_container.decode(video_stream, audio_stream):
-                        if frame.time > end_seconds:
-                            break
-
-                        if video_stream and isinstance(frame, av.VideoFrame) and frame.time >= start_seconds:
+                    finished_streams = set()
+                    for frame in in_container.decode(*input_streams):
+                        if frame.time is None:
+                            continue
+                        frame_time = Fraction(frame.pts) * Fraction(frame.time_base)
+                        kind = "video" if isinstance(frame, av.VideoFrame) else "audio"
+                        if frame_time >= end_seconds:
+                            finished_streams.add(kind)
+                            if len(finished_streams) == len(input_streams):
+                                break
+                            continue
+                        if video_stream and isinstance(frame, av.VideoFrame) and frame_time >= start_seconds:
+                            frame.pts -= start_offset
+                            frame.time_base = video_time_base
                             for packet in out_video_stream.encode(frame):
                                 out_container.mux(packet)
-                        elif audio_stream and isinstance(frame, av.AudioFrame) and frame.time >= start_seconds:
-                            for packet in out_audio_stream.encode(frame):
+                        elif audio_stream and isinstance(frame, av.AudioFrame):
+                            rate = frame.sample_rate
+                            first = max(0, math.ceil((start_seconds - frame_time) * rate - 1e-7))
+                            last = min(frame.samples, math.ceil((end_seconds - frame_time) * rate - 1e-7))
+                            if first >= last:
+                                continue
+                            samples = frame.to_ndarray()
+                            if frame.format.is_planar:
+                                samples = samples[:, first:last].copy()
+                            else:
+                                channels = len(frame.layout.channels)
+                                samples = samples[:, first * channels:last * channels].copy()
+                            trimmed = av.AudioFrame.from_ndarray(samples, format=frame.format.name, layout=frame.layout.name)
+                            trimmed.sample_rate = rate
+                            # Rebase at the cut without collapsing source A/V offsets or gaps.
+                            trimmed.pts = round((frame_time - start_seconds) * rate) + first
+                            trimmed.time_base = Fraction(1, rate)
+                            for packet in out_audio_stream.encode(trimmed):
                                 out_container.mux(packet)
 
                     # Flush streams
@@ -161,10 +216,12 @@ def split_media_stream_clips(uri, media_type, subs, save_caption_func=None, **kw
 
                 if save_caption_func:
                     save_caption_func(clip_path, [sub.text], "image")
+                outputs.append(clip_path)
                 sub_progress.advance(sub_task)
+    return validate_segment_paths(outputs, output_dir, len(subs))
 
 
-def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_time=120, **kwargs):
+def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_time=120, output_dir=None, **kwargs):
     """
     Process media stream and extract clips based on subtitles using ffmpeg.
 
@@ -174,6 +231,10 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_t
         save_caption_func (callable, optional): Function to save captions
     """
     import imageio_ffmpeg
+    uri = Path(uri)
+    output_dir = Path(output_dir) if output_dir is not None else uri.parent / f"{uri.stem}_clip"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    outputs = []
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
     segment_ms = segment_time * 1000
     use_segment_mode = (
@@ -202,8 +263,7 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_t
         for i, sub in enumerate(subs):
             # if len(subs) < 2:
             #     break
-            clip_path = uri.parent / f"{uri.stem}_clip/{uri.stem}_{sub.index}{uri.suffix}"
-            clip_path.parent.mkdir(parents=True, exist_ok=True)
+            clip_path = output_dir / f"{uri.stem}_{sub.index}{uri.suffix}"
 
             # 计算开始和结束时间
             start_time = f"{int(sub.start.hours):02d}:{int(sub.start.minutes):02d}:{int(sub.start.seconds):02d}.{int(sub.start.milliseconds):03d}"
@@ -216,7 +276,8 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_t
 
             if use_segment_mode:
                 # 使用segment模式时的输出模板
-                output_template = str(uri.parent / f"{uri.stem}_clip/{uri.stem}_%03d{uri.suffix}")
+                output_template = str(output_dir / f"{uri.stem}_%03d{uri.suffix}")
+                manifest = output_dir / f"segments-{uuid.uuid4().hex}.csv"
                 command = [
                     ffmpeg_exe,
                     "-i",
@@ -232,6 +293,10 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_t
                     "-y",  # 覆盖输出文件
                     "-break_non_keyframes",
                     "0",
+                    "-segment_list",
+                    str(manifest),
+                    "-segment_list_type",
+                    "csv",
                     output_template,  # 输出文件模板
                 ]
             else:
@@ -295,6 +360,7 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_t
                     text=True,
                     encoding="utf-8",
                     errors="replace",
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
                 )
                 stdout, stderr = process.communicate()
 
@@ -302,9 +368,22 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_t
                     console.print(f"[red]Error running ffmpeg:[/red] {stderr}")
                     raise Exception(f"FFmpeg failed: {stderr}")
 
+                if use_segment_mode:
+                    with manifest.open(newline="", encoding="utf-8") as stream:
+                        for row in csv.reader(stream):
+                            if len(row) != 3:
+                                raise ValueError("Invalid FFmpeg segment manifest row")
+                            path = Path(row[0])
+                            outputs.append(path if path.is_absolute() else output_dir / path)
+                else:
+                    outputs.append(clip_path)
+
             except Exception as e:
                 print_exception(console, e, prefix="Failed to run ffmpeg")
                 raise
+            finally:
+                if use_segment_mode:
+                    manifest.unlink(missing_ok=True)
 
             if save_caption_func:
                 save_caption_func(clip_path, [sub.text], "image")
@@ -313,6 +392,9 @@ def split_video_with_imageio_ffmpeg(uri, subs, save_caption_func=None, segment_t
             if use_segment_mode:
                 sub_progress.update(sub_task, completed=len(subs))
                 break
+    if subs and not outputs:
+        raise ValueError("Segment manifest is empty for a nonempty plan")
+    return validate_segment_paths(outputs, output_dir)
 
 
 def sanitize_filename(name: str) -> str:

@@ -16,6 +16,15 @@ def _quiet_console():
     return Console(file=io.StringIO(), force_terminal=False, color_system=None)
 
 
+def _fake_segment_split(uri, subs, *, output_dir, **kwargs):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths = [output_dir / f"{uri.stem}_{sub.index}{uri.suffix}" for sub in subs]
+    for path in paths:
+        path.write_bytes(b"chunk")
+    return paths
+
+
 class _FakeScanner:
     def __init__(self, rows):
         self._rows = rows
@@ -82,7 +91,7 @@ def _patch_process_batch_io(monkeypatch, rows, update_calls=None, sidecar_calls=
         lambda output, *_args, **_kwargs: output,
     )
 
-    def fake_write(path, output, mime):
+    def fake_write(path, output, mime, **kwargs):
         sidecar_calls.append((str(path), output, mime))
         return path.with_suffix(".txt"), None
 
@@ -298,7 +307,7 @@ def test_process_batch_uses_rebuilt_dataset_for_extract(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "module.caption_pipeline.orchestrator.write_caption_output",
-        lambda path, output, mime: (path.with_suffix(".txt"), None),
+        lambda path, output, mime, **kwargs: (path.with_suffix(".txt"), None),
     )
     monkeypatch.setattr(
         "module.caption_pipeline.orchestrator.update_dataset_captions",
@@ -415,7 +424,7 @@ def test_process_segmented_media_only_merges_sidecar_once(tmp_path):
     args = SimpleNamespace(segment_time=1)
 
     with (
-        patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", lambda *a, **k: None),
+        patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", _fake_segment_split),
         patch("module.caption_pipeline.orchestrator.get_video_duration", lambda *_a, **_k: 1000),
     ):
         merged = _process_segmented_media(
@@ -473,7 +482,7 @@ def test_process_segmented_media_passes_original_path_as_directory_name_source(t
     args = SimpleNamespace(segment_time=1, dir_name=True)
 
     with (
-        patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", lambda *a, **k: None),
+        patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", _fake_segment_split),
         patch("module.caption_pipeline.orchestrator.get_video_duration", lambda *_a, **_k: 1000),
     ):
         _process_segmented_media(
@@ -490,7 +499,7 @@ def test_process_segmented_media_passes_original_path_as_directory_name_source(t
         )
 
     assert seen_uris
-    assert all(uri.parent.name == "movie_clip" for uri in seen_uris)
+    assert all(uri.parent.name == "ffmpeg" and not uri.exists() for uri in seen_uris)
     assert seen_sources == [str(video_path), str(video_path)]
     assert not hasattr(args, "directory_name_source_uri")
 
@@ -528,7 +537,7 @@ def test_process_segmented_media_merges_structured_summaries_into_txt_payload(tm
 
     args = SimpleNamespace(segment_time=30)
 
-    with patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", lambda *a, **k: None):
+    with patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", _fake_segment_split):
         merged = _process_segmented_media(
             str(audio_path),
             "audio/wav",
@@ -583,7 +592,7 @@ def test_process_segmented_media_merges_transcripts_without_segment_headers(tmp_
 
     args = SimpleNamespace(segment_time=30)
 
-    with patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", lambda *a, **k: None):
+    with patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", _fake_segment_split):
         merged = _process_segmented_media(
             str(audio_path),
             "audio/wav",
@@ -647,7 +656,7 @@ def test_process_segmented_media_merges_ast_chunks_into_srt_payload(tmp_path):
 
     args = SimpleNamespace(segment_time=10)
 
-    with patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", lambda *a, **k: None):
+    with patch("module.caption_pipeline.orchestrator.split_video_with_imageio_ffmpeg", _fake_segment_split):
         merged = _process_segmented_media(
             str(audio_path),
             "audio/wav",

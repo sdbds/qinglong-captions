@@ -18,6 +18,7 @@ from nicegui import ui
 from gui.theme import COLORS
 from gui.utils.i18n import t
 from gui.utils.job_manager import job_manager
+from gui.utils.process_runner import ProcessRunner
 from utils.runtime_env import build_runtime_env
 
 
@@ -209,6 +210,8 @@ class TaskTabStore:
         self.tabs = tabs
         self.next_index = max((tab.index for tab in tabs), default=1) + 1
         self.views = weakref.WeakSet()
+        self.preparation_tasks: dict[str, asyncio.Task] = {}
+        self.cancelled_preparations: set[asyncio.Task] = set()
 
     def allocate_index(self) -> int:
         index = self.next_index
@@ -357,6 +360,9 @@ class ExecutionTabs:
         tab = tab or self.active_tab
         if self._running_job_for_tab(tab.id) is not None:
             return False
+        if self._tab_is_preparing(tab.id):
+            ui.notify(t("task_tab_not_ready", "当前任务 tab 的 venv 尚未就绪"), type="warning")
+            return False
         if tab.index == 1:
             return True
         if tab.status == "ready" and tab.python_path and tab.venv_path:
@@ -369,12 +375,56 @@ class ExecutionTabs:
         if tab.status == "creating_venv":
             ui.notify(t("task_tab_not_ready", "当前任务 tab 的 venv 尚未就绪"), type="warning")
             return False
-        await self._create_venv_for_tab(tab)
+        task = asyncio.create_task(self._create_venv_for_tab(tab))
+        self._store.preparation_tasks[tab.id] = task
+        tab.status = "creating_venv"
+        try:
+            self._store.notify()
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task not in self._store.cancelled_preparations:
+                self._store.cancelled_preparations.add(task)
+                if not task.done():
+                    task.cancel()
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    continue
+            await asyncio.gather(task, return_exceptions=True)
+            tab.status = "missing"
+            tab.error_message = None
+            raise
+        finally:
+            cancelled_by_stop = task in self._store.cancelled_preparations
+            self._store.cancelled_preparations.discard(task)
+            if self._store.preparation_tasks.get(tab.id) is task:
+                self._store.preparation_tasks.pop(tab.id, None)
+            self._store.notify()
+        if cancelled_by_stop:
+            raise asyncio.CancelledError
         return tab.status == "ready" and bool(tab.python_path and tab.venv_path)
+
+    def active_tab_is_preparing(self) -> bool:
+        return self.active_tab.status == "creating_venv" or self._tab_is_preparing(self.active_tab_id)
+
+    def _tab_is_preparing(self, tab_id: str) -> bool:
+        return tab_id in self._store.preparation_tasks
+
+    def cancel_active_preparation(self) -> bool:
+        task = self._store.preparation_tasks.get(self.active_tab_id)
+        if task is None:
+            return False
+        if task in self._store.cancelled_preparations:
+            return True
+        self._store.cancelled_preparations.add(task)
+        if not task.done():
+            task.cancel()
+        return True
 
     def active_tab_can_start(self) -> bool:
         tab = self.active_tab
-        if tab.status == "creating_venv":
+        if tab.status == "creating_venv" or self._tab_is_preparing(tab.id):
             return False
         return tab.current_job_id is None and self._running_job_for_tab(tab.id) is None
 
@@ -393,7 +443,10 @@ class ExecutionTabs:
     async def retry_active_tab(self) -> None:
         tab = self.active_tab
         if tab.index > 1 and self.active_tab_can_start():
-            await self.ensure_active_tab_runtime_ready(tab)
+            try:
+                await self.ensure_active_tab_runtime_ready(tab)
+            except asyncio.CancelledError:
+                pass
 
     def mark_job(self, job) -> None:
         tab = self.find_tab(getattr(job, "tab_id", None)) or self.active_tab
@@ -486,7 +539,12 @@ class ExecutionTabs:
         tab = self.find_tab(tab_id)
         if tab is None or tab.index == 1:
             return
-        if tab.current_job_id or tab.status == "creating_venv" or self._running_job_for_tab(tab.id) is not None:
+        if (
+            tab.current_job_id
+            or tab.status == "creating_venv"
+            or self._tab_is_preparing(tab.id)
+            or self._running_job_for_tab(tab.id) is not None
+        ):
             ui.notify(t("task_already_running", "已有任务正在运行"), type="warning")
             return
 
@@ -534,21 +592,33 @@ class ExecutionTabs:
             for uv_key, pip_key in (("UV_INDEX_URL", "PIP_INDEX_URL"), ("UV_EXTRA_INDEX_URL", "PIP_EXTRA_INDEX_URL")):
                 if env.get(uv_key):
                     env[pip_key] = env[uv_key]
-        process = await asyncio.create_subprocess_exec(
+        spawn_task = asyncio.create_task(asyncio.create_subprocess_exec(
             *cmd,
             cwd=str(PROJECT_ROOT),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             creationflags=creationflags,
             env=env,
-        )
-        if process.stdout is not None:
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
-                self._log(tab.id, line.decode("utf-8", errors="replace").rstrip())
-        return_code = await process.wait()
+            start_new_session=sys.platform != "win32",
+        ))
+        process = None
+        try:
+            # Keep the spawn handle even when cancellation arrives during creation.
+            process = await asyncio.shield(spawn_task)
+            if process.stdout is not None:
+                while True:
+                    line = await process.stdout.readline()
+                    if not line:
+                        break
+                    self._log(tab.id, line.decode("utf-8", errors="replace").rstrip())
+            return_code = await process.wait()
+        except BaseException:
+            if process is None:
+                process = await spawn_task
+            await asyncio.to_thread(ProcessRunner.terminate_process_tree, process,
+                                    process_group=sys.platform != "win32")
+            await process.wait()
+            raise
         if return_code != 0:
             raise RuntimeError(f"{failure_label} failed with code {return_code}")
 
@@ -565,7 +635,7 @@ class ExecutionTabs:
         self._log(tab.id, f"uv pip install target environment: {venv_path.name}")
         self._log(tab.id, "uv pip install dependency profile: base-only")
         self._log(tab.id, "基础安装直接使用 uv pip install -r pyproject.toml，不启用任何 extra")
-        self._log(tab.id, f"开始基础依赖安装: {' '.join(base_cmd)}")
+        self._log(tab.id, f"开始基础依赖安装: {ProcessRunner.format_command_for_log(base_cmd)}")
         await self._run_logged_command(tab, base_cmd, creationflags=creationflags, failure_label="base dependency install")
         _base_install_marker_path(venv_path).write_text(datetime.now().isoformat(), encoding="utf-8")
 
@@ -598,13 +668,13 @@ class ExecutionTabs:
 
             cmd, needs_seed_bootstrap = _venv_create_command(venv_path)
 
-            self._log(tab.id, f"creating venv for {tab.name}: {' '.join(cmd)}")
+            self._log(tab.id, f"creating venv for {tab.name}: {ProcessRunner.format_command_for_log(cmd)}")
             await self._run_logged_command(tab, cmd, creationflags=creationflags, failure_label="venv creation")
             if not python_path.exists():
                 raise RuntimeError(f"venv python not found: {python_path}")
             if needs_seed_bootstrap:
                 seed_cmd = [str(python_path), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"]
-                self._log(tab.id, f"seeding venv build tools: {' '.join(seed_cmd)}")
+                self._log(tab.id, f"seeding venv build tools: {ProcessRunner.format_command_for_log(seed_cmd)}")
                 await self._run_logged_command(tab, seed_cmd, creationflags=creationflags, failure_label="venv seed bootstrap")
             await self._install_base_dependencies_for_tab(
                 tab,
@@ -615,6 +685,11 @@ class ExecutionTabs:
             tab.python_path = _relative_or_absolute(python_path)
             tab.status = "ready"
             self._log(tab.id, f"{tab.name} venv ready: {tab.python_path}", "success")
+        except asyncio.CancelledError:
+            tab.status = "missing"
+            tab.error_message = None
+            self._log(tab.id, t("task_stopped"), "warning")
+            raise
         except Exception as exc:
             tab.status = "error"
             tab.error_message = str(exc)

@@ -132,6 +132,7 @@ def test_ready_existing_venv_without_base_marker_installs_base_before_start(monk
         status="ready",
     )
     tabs.tabs = [tab]
+    tabs._store = execution_tabs_module.TaskTabStore(tabs.tabs)
     tabs.active_tab_id = tab.id
     tabs._render_tabs = lambda: None
     tabs._notify_tab_change = lambda: None
@@ -219,6 +220,7 @@ def test_active_tab_can_start_rejects_busy_tab():
             status="busy",
         )
     ]
+    tabs._store = execution_tabs_module.TaskTabStore(tabs.tabs)
     tabs.active_tab_id = "tab-0002"
 
     assert ExecutionTabs.active_tab_can_start(tabs) is False
@@ -238,6 +240,7 @@ def test_missing_non_default_tab_can_start_so_runtime_is_created_on_start():
             status="missing",
         )
     ]
+    tabs._store = execution_tabs_module.TaskTabStore(tabs.tabs)
     tabs.active_tab_id = "tab-0002"
 
     assert ExecutionTabs.active_tab_can_start(tabs) is True
@@ -291,6 +294,7 @@ def test_ensure_active_tab_runtime_ready_creates_missing_runtime(monkeypatch):
         status="missing",
     )
     tabs.tabs = [tab]
+    tabs._store = execution_tabs_module.TaskTabStore(tabs.tabs)
     tabs.active_tab_id = tab.id
     calls = []
 
@@ -330,6 +334,7 @@ def test_close_non_default_tab_switches_back_to_default(monkeypatch):
             status="missing",
         ),
     ]
+    tabs._store = execution_tabs_module.TaskTabStore(tabs.tabs)
     tabs.active_tab_id = "tab-0002"
     tabs._render_tabs = lambda: None
     changed = []

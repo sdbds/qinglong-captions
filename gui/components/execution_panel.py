@@ -186,7 +186,15 @@ class ExecutionPanel:
             return ProcessResult(ProcessStatus.ERROR, -1, message)
 
         merged_runner_kwargs = dict(runner_kwargs or {})
-        if not await self.execution_tabs.ensure_active_tab_runtime_ready(tab):
+        try:
+            ready = await self.execution_tabs.ensure_active_tab_runtime_ready(tab)
+        except asyncio.CancelledError:
+            self._safe_sync_active_tab_state()
+            return ProcessResult(ProcessStatus.ERROR, -1, t("task_stopped"))
+        if not ready:
+            self._safe_sync_active_tab_state()
+            return ProcessResult(ProcessStatus.ERROR, -1, t("task_tab_not_ready", "当前任务 tab 的 venv 尚未就绪"))
+        if self.execution_tabs.find_tab(tab_id) is not tab:
             self._safe_sync_active_tab_state()
             return ProcessResult(ProcessStatus.ERROR, -1, t("task_tab_not_ready", "当前任务 tab 的 venv 尚未就绪"))
 
@@ -245,14 +253,15 @@ class ExecutionPanel:
 
     def cancel(self):
         """停止当前 active tab 的任务。"""
+        if self.execution_tabs.cancel_active_preparation():
+            self._safe_sync_active_tab_state()
+            return
         job = self._active_tab_current_job()
         if job is not None:
             job_manager.cancel(job.id)
-            _LogSink(job.log_buffer).info(t("task_stopped"))
-            self._cleanup_job(job, job.tab_id or self.execution_tabs.active_tab.id)
         self._sync_active_tab_state()
         try:
-            ui.notify(t("task_stopped"), type="info")
+            ui.notify(t("task_stopping"), type="info")
         except RuntimeError:
             pass
 
@@ -299,6 +308,7 @@ class ExecutionPanel:
     def _job_for_tab(self, tab_id: str, *, current_only: bool = False) -> Optional["Job"]:
         active_job = next((job for job in job_manager.get_active_jobs() if job.tab_id == tab_id), None)
         if active_job is not None:
+            self._tab_last_jobs[tab_id] = active_job.id
             return active_job
         job_id = self._tab_current_jobs.get(tab_id)
         if not job_id and not current_only:
@@ -332,7 +342,9 @@ class ExecutionPanel:
 
     def _sync_active_tab_state(self) -> None:
         job = self._active_tab_current_job()
-        running = job is not None and job.status in (JobStatus.PENDING, JobStatus.RUNNING)
+        running = self.execution_tabs.active_tab_is_preparing() or (
+            job is not None and job.status in (JobStatus.PENDING, JobStatus.RUNNING)
+        )
         self.current_job = job
         self.is_running = running
         self.stop_btn.set_enabled(running)

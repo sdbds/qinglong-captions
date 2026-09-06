@@ -6,14 +6,30 @@ import hashlib
 import json
 import os
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from .config import OnnxRuntimeConfig
 
-_SESSION_BUNDLE_CACHE: dict[tuple[Any, ...], "OnnxSessionBundle"] = {}
+_SESSION_BUNDLE_CACHE: dict[_SessionCacheKey, "OnnxSessionBundle"] = {}
+_SESSION_LOAD_TOKENS: dict[_SessionCacheKey, object] = {}
+_ARTIFACT_REFRESH_COUNTS: dict[str, int] = {}
 _CACHE_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class _SessionCacheKey:
+    bundle_key: str
+    session_paths: tuple[tuple[str, str], ...]
+    provider_descriptors: tuple[tuple[str, str], ...]
+    runtime_fingerprint: str
+    artifact_revision: str | None
+
+    @property
+    def artifact_paths(self) -> frozenset[str]:
+        return frozenset(path for _, path in self.session_paths)
 
 
 @dataclass(frozen=True)
@@ -317,15 +333,54 @@ def make_runtime_fingerprint(runtime_config: OnnxRuntimeConfig, providers: list[
     return _stable_digest(payload)
 
 
+def _normalize_artifact_path(path: str | Path) -> str:
+    return os.path.normcase(str(Path(path).resolve()))
+
+
+def _evict_artifact_sessions_locked(artifact_paths: frozenset[str]) -> None:
+    for key in _SESSION_BUNDLE_CACHE.keys() | _SESSION_LOAD_TOKENS.keys():
+        if not artifact_paths.isdisjoint(key.artifact_paths):
+            # Eviction releases only the cache's ownership, not active borrowers.
+            _SESSION_BUNDLE_CACHE.pop(key, None)
+            _SESSION_LOAD_TOKENS.pop(key, None)
+
+
+@contextmanager
+def refresh_session_artifacts(
+    session_paths: Mapping[str, str | Path], *, enabled: bool = True,
+) -> Iterator[None]:
+    """Evict before artifact mutation and suppress cache publication until it ends."""
+    if not enabled:
+        yield
+        return
+
+    artifact_paths = frozenset(_normalize_artifact_path(path) for path in session_paths.values())
+    with _CACHE_LOCK:
+        _evict_artifact_sessions_locked(artifact_paths)
+        for path in artifact_paths:
+            _ARTIFACT_REFRESH_COUNTS[path] = _ARTIFACT_REFRESH_COUNTS.get(path, 0) + 1
+    try:
+        yield
+    finally:
+        with _CACHE_LOCK:
+            for path in artifact_paths:
+                remaining = _ARTIFACT_REFRESH_COUNTS[path] - 1
+                if remaining:
+                    _ARTIFACT_REFRESH_COUNTS[path] = remaining
+                else:
+                    del _ARTIFACT_REFRESH_COUNTS[path]
+
+
 def _make_cache_key(
     bundle_key: str,
     session_paths: Mapping[str, str | Path],
     providers: list[Any],
     runtime_fingerprint: str,
-) -> tuple[Any, ...]:
-    normalized_paths = tuple(sorted((name, str(Path(path))) for name, path in session_paths.items()))
+    artifact_revision: str | None = None,
+) -> _SessionCacheKey:
+    normalized_paths = tuple(sorted((name, _normalize_artifact_path(path)) for name, path in session_paths.items()))
     provider_descriptors = tuple(_provider_signature(provider) for provider in providers)
-    return (bundle_key, normalized_paths, provider_descriptors, runtime_fingerprint)
+    return _SessionCacheKey(bundle_key, normalized_paths, provider_descriptors, runtime_fingerprint, artifact_revision)
 
 
 def load_session_bundle(
@@ -336,6 +391,7 @@ def load_session_bundle(
     available_providers: list[str] | tuple[str, ...] | None = None,
     session_factory: Callable[..., Any] | None = None,
     session_options_factory: Callable[[], Any] | None = None,
+    artifact_revision: str | None = None,
 ) -> OnnxSessionBundle:
     runtime = runtime_config or OnnxRuntimeConfig()
     providers = build_execution_providers(
@@ -344,12 +400,18 @@ def load_session_bundle(
         session_paths=session_paths,
     )
     runtime_fingerprint = make_runtime_fingerprint(runtime, providers)
-    cache_key = _make_cache_key(bundle_key, session_paths, providers, runtime_fingerprint)
+    cache_key = _make_cache_key(bundle_key, session_paths, providers, runtime_fingerprint, artifact_revision)
 
     with _CACHE_LOCK:
+        if runtime.force_download:
+            _evict_artifact_sessions_locked(cache_key.artifact_paths)
         cached = _SESSION_BUNDLE_CACHE.get(cache_key)
         if cached is not None:
             return cached
+        # Loads during a download may see old or partially replaced files.
+        load_token = None
+        if cache_key.artifact_paths.isdisjoint(_ARTIFACT_REFRESH_COUNTS):
+            load_token = _SESSION_LOAD_TOKENS.setdefault(cache_key, object())
 
     if session_factory is None:
         import onnxruntime as ort
@@ -377,7 +439,9 @@ def load_session_bundle(
     )
 
     with _CACHE_LOCK:
-        _SESSION_BUNDLE_CACHE[cache_key] = bundle
+        # An older in-flight load must not overwrite a refresh or cache clear.
+        if load_token is not None and _SESSION_LOAD_TOKENS.get(cache_key) is load_token:
+            _SESSION_BUNDLE_CACHE[cache_key] = bundle
 
     return bundle
 
@@ -390,11 +454,15 @@ def clear_session_bundle_cache(bundle_key_prefix: str | None = None) -> None:
         if not bundle_key_prefix:
             bundles = list(_SESSION_BUNDLE_CACHE.values())
             _SESSION_BUNDLE_CACHE.clear()
+            _SESSION_LOAD_TOKENS.clear()
         else:
-            keys = [key for key in _SESSION_BUNDLE_CACHE if str(key[0]).startswith(bundle_key_prefix)]
+            keys = [key for key in _SESSION_BUNDLE_CACHE if str(key.bundle_key).startswith(bundle_key_prefix)]
             bundles = [_SESSION_BUNDLE_CACHE.pop(key) for key in keys]
             if not keys:
                 bundles = []
+            for key in list(_SESSION_LOAD_TOKENS):
+                if str(key.bundle_key).startswith(bundle_key_prefix):
+                    _SESSION_LOAD_TOKENS.pop(key, None)
 
     for bundle in bundles:
         bundle.close()

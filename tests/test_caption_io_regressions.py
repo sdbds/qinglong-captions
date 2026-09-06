@@ -98,7 +98,14 @@ def test_incomplete_segments_cannot_replace_complete_caption(tmp_path, monkeypat
     clips.mkdir()
     for index in range(2):
         (clips / f"speech_{index}.wav").touch()
-    monkeypatch.setattr(orchestrator, "split_video_with_imageio_ffmpeg", lambda *a, **k: None)
+    def split(path, subs, *, output_dir, **kwargs):
+        output_dir.mkdir(parents=True)
+        paths = [output_dir / f"speech_{sub.index}.wav" for sub in subs]
+        for clip in paths:
+            clip.write_bytes(b"chunk")
+        return paths
+
+    monkeypatch.setattr(orchestrator, "split_video_with_imageio_ffmpeg", split)
     monkeypatch.setattr(orchestrator, "get_video_duration", lambda *a: 30000)
 
     def caption(**kwargs):
@@ -134,10 +141,14 @@ def test_fractional_tail_is_included_in_segment_plan(tmp_path, monkeypatch):
 
     def split(path, subs, **kwargs):
         planned.extend((sub.start.ordinal, sub.end.ordinal) for sub in subs)
-        directory = path.parent / f"{path.stem}_clip"
+        directory = kwargs["output_dir"]
         directory.mkdir()
+        paths = []
         for sub in subs:
-            (directory / f"speech_{sub.index:03d}.wav").touch()
+            clip = directory / f"speech_{sub.index:03d}.wav"
+            clip.write_bytes(b"chunk")
+            paths.append(clip)
+        return paths
 
     def caption(**kwargs):
         seen.append(Path(kwargs["uri"]).name)
@@ -166,6 +177,14 @@ def test_fixed_segmentation_runs_ffmpeg_once(tmp_path, monkeypatch):
 
     def popen(command, **kwargs):
         commands.append(command)
+        paths = [Path(command[-1] % index) for index in range(3)]
+        for path in paths:
+            path.write_bytes(b"chunk")
+        import csv
+        manifest = Path(command[command.index("-segment_list") + 1])
+        with manifest.open("w", newline="", encoding="utf-8") as stream:
+            csv.writer(stream).writerows((path.name, index * 119, (index + 1) * 119)
+                                         for index, path in enumerate(paths))
         return SimpleNamespace(returncode=0, communicate=lambda: ("", ""))
 
     monkeypatch.setattr("utils.stream_util.subprocess.Popen", popen)
@@ -183,9 +202,14 @@ def test_fixed_segmentation_runs_ffmpeg_once(tmp_path, monkeypatch):
 
 def test_caption_clip_export_does_not_segment_whole_video(tmp_path, monkeypatch):
     commands = []
+    def popen(command, **kwargs):
+        commands.append(command)
+        Path(command[-1]).write_bytes(b"chunk")
+        return SimpleNamespace(returncode=0, communicate=lambda: ("", ""))
+
     monkeypatch.setattr(
         "utils.stream_util.subprocess.Popen",
-        lambda command, **k: commands.append(command) or SimpleNamespace(returncode=0, communicate=lambda: ("", "")),
+        popen,
     )
     monkeypatch.setattr("imageio_ffmpeg.get_ffmpeg_exe", lambda: "ffmpeg")
     subs = pysrt.SubRipFile(

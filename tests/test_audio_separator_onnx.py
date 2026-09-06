@@ -312,7 +312,7 @@ def test_build_song_output_dir_keeps_relative_parent(tmp_path):
 
     song_output_dir = build_song_output_dir(source, output_root=output_root, input_root=input_root)
 
-    assert song_output_dir == output_root / "album_a" / "song"
+    assert song_output_dir == output_root / "album_a" / "song.mp3.stems"
 
 
 class _FakeColumn:
@@ -811,7 +811,7 @@ def test_run_audio_separator_vocal_midi_uses_current_run_input_path_without_resc
     result = run_audio_separator(args)
 
     assert result == 0
-    assert transcribe_calls == [input_dir / "song" / HARMONY_OUTPUT_DIRNAME / "song_(dry_vocal)_harmony.wav"]
+    assert transcribe_calls == [input_dir / "song.wav.stems" / HARMONY_OUTPUT_DIRNAME / "song_(dry_vocal)_harmony.wav"]
     assert transcribe_calls[0] != stale_old
 
 
@@ -1021,6 +1021,10 @@ def test_run_audio_separator_prints_muscriptor_root_error_after_progress(monkeyp
 
 
 def test_existing_primary_stems_can_run_muscriptor_without_reseparation(monkeypatch, tmp_path):
+    from dataclasses import replace
+
+    from module.audio_separator import _plan_song_outputs, _write_separation_metadata
+
     input_dir = tmp_path / "music"
     input_dir.mkdir()
     source_path = input_dir / "song.wav"
@@ -1072,9 +1076,14 @@ def test_existing_primary_stems_can_run_muscriptor_without_reseparation(monkeypa
         lambda path: ([source_path], input_dir),
     )
 
-    result = run_audio_separator(
-        build_parser().parse_args([str(input_dir), "--muscriptor_midi", "--muscriptor_device=cpu"])
+    args = build_parser().parse_args([str(input_dir), "--muscriptor_midi", "--muscriptor_device=cpu"])
+    plan = _plan_song_outputs([source_path], output_root=input_dir, input_root=input_dir, args=args)[0]
+    _write_separation_metadata(
+        replace(plan, output_dir=song_output_dir),
+        status="ok",
+        outputs=[song_output_dir / f"song_({stem_name})_primary.wav" for stem_name in stem_names],
     )
+    result = run_audio_separator(args)
 
     assert result == 0
     assert [candidate.stem_name for candidate in captured["candidates"]] == list(stem_names[:-1])

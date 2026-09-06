@@ -51,6 +51,9 @@ class _DummyExecutionTabs:
     def runner_kwargs(self, tab=None):
         return {"tab_id": self.active_tab.id, "tab_name": self.active_tab.name}
 
+    def find_tab(self, tab_id):
+        return self.active_tab if self.active_tab.id == tab_id else None
+
     async def ensure_active_tab_runtime_ready(self, tab=None):
         self.ensure_calls += 1
         return self.ensure_ready
@@ -69,6 +72,12 @@ class _DummyExecutionTabs:
 
     async def retry_active_tab(self):
         return None
+
+    def active_tab_is_preparing(self):
+        return False
+
+    def cancel_active_preparation(self):
+        return False
 
 
 class _NoClearLogViewer:
@@ -239,7 +248,7 @@ def test_run_job_attaches_job_log_without_clearing_source(monkeypatch):
 
 
 def test_run_job_keeps_original_tab_when_selection_changes_during_prepare(monkeypatch):
-    from gui.components.execution_tabs import ExecutionTabs, TaskTab
+    from gui.components.execution_tabs import ExecutionTabs, TaskTab, TaskTabStore
     from datetime import datetime
 
     panel = _make_panel()
@@ -248,6 +257,7 @@ def test_run_job_keeps_original_tab_when_selection_changes_during_prepare(monkey
     second = TaskTab("tab-0002", "Second", 2, ".", ".runtime_venvs/tab-0002",
                      ".runtime_venvs/tab-0002/Scripts/python.exe", datetime.now())
     tabs.tabs = [default, second]
+    tabs._store = TaskTabStore(tabs.tabs)
     tabs.active_tab_id = second.id
     tabs._render_tabs = lambda: None
     tabs._notify_tab_change = lambda: None
@@ -288,6 +298,49 @@ def test_run_job_keeps_original_tab_when_selection_changes_during_prepare(monkey
     asyncio.run(scenario())
     assert submitted[0]["tab_id"] == second.id
     assert Path(submitted[0]["python_path"]).name == "python.exe"
+
+
+def test_run_job_does_not_submit_when_captured_tab_is_removed_during_prepare(monkeypatch, tmp_path):
+    from datetime import datetime
+    from gui.components.execution_tabs import ExecutionTabs, TaskTab, TaskTabStore
+
+    panel = _make_panel()
+    default = TaskTab("tab-0001", "Default", 1, ".", ".venv", None, datetime.now(), status="ready")
+    venv = tmp_path / "runtime"
+    python = venv / "Scripts" / "python.exe"
+    python.parent.mkdir(parents=True)
+    python.touch()
+    captured = TaskTab(
+        "tab-0002", "Second", 2, ".", str(venv), str(python), datetime.now(), status="missing",
+    )
+    tabs = ExecutionTabs.__new__(ExecutionTabs)
+    tabs.tabs = [default, captured]
+    tabs._store = TaskTabStore(tabs.tabs)
+    tabs.active_tab_id = captured.id
+    tabs._tab_bar = None
+    tabs._on_tab_change = None
+    tabs._on_tab_log = None
+    tabs._store.views.add(tabs)
+    panel.execution_tabs = tabs
+    submitted = []
+
+    async def prepare(value):
+        value.status = "ready"
+        asyncio.get_running_loop().call_soon(tabs.tabs.remove, value)
+
+    async def submit(*args, **kwargs):
+        submitted.append(kwargs)
+        raise AssertionError("removed tab must not be submitted")
+
+    tabs._create_venv_for_tab = prepare
+    monkeypatch.setattr("gui.components.execution_tabs.save_task_tabs", lambda value: None)
+    monkeypatch.setattr("gui.components.execution_panel.job_manager.get_active_jobs", lambda: [])
+    monkeypatch.setattr("gui.components.execution_panel.job_manager.submit", submit)
+
+    result = asyncio.run(panel.run_job("module.captioner", [], "Removed"))
+
+    assert result.status == ProcessStatus.ERROR
+    assert submitted == []
 
 
 def test_panel_can_find_active_job_started_in_another_page(monkeypatch):

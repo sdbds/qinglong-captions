@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 from pathlib import Path
 from typing import Iterable, List, Optional, Protocol
@@ -13,7 +15,7 @@ from rich.text import Text
 
 from config.config import get_supported_extensions
 from module.lanceImport import transform2lance
-from module.lanceexport import save_caption
+from module.music_export import atomic_output_path
 from module.providers.local_llm.hy_mt import HYMTProvider
 from utils.doc_normalize import NormalizationError, normalize_asset
 from utils.lance_blob import build_lance_value_array, take_blob_files
@@ -161,31 +163,93 @@ def resolve_export_base_path(uri: Path, export_root: Optional[Path]) -> Path:
 def resolve_translated_markdown_path(uri: Path, export_root: Optional[Path], target_lang: str) -> Path:
     base_path = resolve_export_base_path(uri, export_root)
     suffix = sanitize_lang_suffix(target_lang)
-    return base_path.with_name(f"{base_path.stem}_{suffix}.md")
+    return base_path.with_name(f"{base_path.name}_{suffix}.md")
 
 
-def load_saved_translation(uri: Path, export_root: Optional[Path], target_lang: str) -> str:
-    translated_path = resolve_translated_markdown_path(uri, export_root, target_lang)
-    if not translated_path.exists():
-        return ""
+def _translation_signature(source_markdown: str, translator: Translator, **settings) -> str:
+    runtime = getattr(translator, "runtime_backend", None)
+    payload = {
+        "schema_version": 1,
+        "source_sha256": hashlib.sha256(source_markdown.encode("utf-8")).hexdigest(),
+        "translator": f"{type(translator).__module__}.{type(translator).__qualname__}",
+        "model": {name: getattr(translator, name, None) for name in
+                  ("model_id", "backend", "max_new_tokens", "temperature", "trust_remote_code")},
+        "runtime": {name: getattr(runtime, name, None) for name in
+                    ("mode", "base_url", "model_id", "temperature", "max_tokens")},
+        **settings,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")).hexdigest()
+
+
+def _translation_metadata_path(path: Path) -> Path:
+    return path.with_name(path.name + ".resume.json")
+
+
+def _read_translation(path: Path, signature: str) -> str:
     try:
-        return translated_path.read_text(encoding="utf-8")
-    except Exception as exc:
-        console.print(f"[yellow]Failed to read existing translation {translated_path}: {exc}[/yellow]")
+        metadata = json.loads(_translation_metadata_path(path).read_text(encoding="utf-8"))
+        content = path.read_bytes()
+        if (metadata.get("schema_version") == 1 and metadata.get("signature") == signature
+                and metadata.get("output_sha256") == hashlib.sha256(content).hexdigest()):
+            return content.decode("utf-8")
+    except (OSError, ValueError, AttributeError):
+        pass
+    return ""
+
+
+def _translation_paths(base: Path, signature: str) -> Iterable[Path]:
+    yield base
+    prefix = f"{base.stem}.{signature[:16]}"
+    if base.parent.is_dir():
+        yield from sorted(path for path in base.parent.iterdir()
+                          if path.name.startswith(prefix + ".") and path.suffix == ".md")
+
+
+def _save_translation(path: Path, text: str, signature: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    base = path
+    index = 0
+    while True:
+        if index:
+            path = base.with_name(f"{base.stem}.{signature[:16]}.{index}.md")
+        index += 1
+        if _translation_metadata_path(path).exists():
+            continue
+        try:
+            # Exclusive creation preserves both legacy exports and user-edited results.
+            with path.open("x", encoding="utf-8", newline="\n") as stream:
+                stream.write(text)
+            break
+        except FileExistsError:
+            continue
+    metadata = {"schema_version": 1, "signature": signature,
+                "output_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()}
+    with atomic_output_path(_translation_metadata_path(path)) as temporary:
+        temporary.write_text(json.dumps(metadata, sort_keys=True), encoding="utf-8")
+    return path
+
+
+def load_saved_translation(uri: Path, export_root: Optional[Path], target_lang: str, *, signature: str = "") -> str:
+    if not signature:
         return ""
+    translated_path = resolve_translated_markdown_path(uri, export_root, target_lang)
+    for path in _translation_paths(translated_path, signature):
+        content = _read_translation(path, signature)
+        if content.strip():
+            return content
+    return ""
 
 
 def save_translated_markdown(uri: Path, translated_markdown: str, export_root: Optional[Path], target_lang: str) -> bool:
     if not translated_markdown.strip():
         return False
-    base_path = resolve_export_base_path(uri, export_root)
-    return save_caption(
-        str(base_path),
-        [translated_markdown],
-        "application",
-        caption_suffix=f"_{sanitize_lang_suffix(target_lang)}",
-        caption_extension=".md",
-    )
+    path = resolve_translated_markdown_path(uri, export_root, target_lang)
+    try:
+        _save_translation(path, translated_markdown, "unverified")
+        return True
+    except OSError as exc:
+        console.print(f"[yellow]Failed to save translation {path}: {exc}[/yellow]")
+        return False
 
 
 def merge_translations(
@@ -212,8 +276,6 @@ def merge_translations(
 
     for uri_value in merge_candidates:
         translated_markdown = current_run_translations.get(uri_value, "")
-        if not translated_markdown and export_root is not None:
-            translated_markdown = load_saved_translation(Path(uri_value), export_root, target_lang)
         if not translated_markdown.strip():
             continue
 
@@ -363,7 +425,7 @@ def translate_dataset(
         console.print("[yellow]File export disabled; incremental resume is unavailable in this mode.[/yellow]")
     else:
         console.print(
-            f"[yellow]File-based incremental mode enabled.[/yellow] existing '*_{sanitize_lang_suffix(target_lang)}.md' files will be skipped"
+            "[yellow]File-based incremental mode enabled.[/yellow] only fingerprint-verified translations will be skipped"
         )
 
     with Progress(
@@ -397,15 +459,22 @@ def translate_dataset(
                     continue
 
                 merge_candidates.append(uri_value)
-                existing_translation = load_saved_translation(uri, export_root, target_lang) if export_root is not None else ""
+                offsets = source_chunk_values[index] or compute_chunk_offsets(source_markdown, max_chars=max_chars)
+                signature = _translation_signature(
+                    source_markdown, translator, dataset_path=str(dataset_path.resolve()),
+                    uri=uri_value, source_lang=source_lang,
+                    target_lang=target_lang, max_chars=max_chars, context_chars=context_chars,
+                    glossary=glossary, offsets=offsets,
+                )
+                existing_translation = load_saved_translation(uri, export_root, target_lang, signature=signature) if export_root is not None else ""
                 if existing_translation.strip():
                     skipped_count += 1
+                    current_run_translations[uri_value] = existing_translation
                     translated_path = resolve_translated_markdown_path(uri, export_root, target_lang)
                     console.print(f"[yellow]Skipping existing translation:[/yellow] {translated_path}")
                     progress.advance(task)
                     continue
 
-                offsets = source_chunk_values[index] or compute_chunk_offsets(source_markdown, max_chars=max_chars)
                 chunks = slice_by_offsets(source_markdown, offsets)
                 translated_chunks: list[str] = []
                 console.print(f"[cyan]Translating {uri} ({len(chunks)} chunks)...[/cyan]")
@@ -438,12 +507,16 @@ def translate_dataset(
                 console.print(Text(translated_markdown))
 
                 translated_count += 1
-                saved_to_disk = False
-
+                current_run_translations[uri_value] = translated_markdown
                 if export_root is not None:
-                    saved_to_disk = save_translated_markdown(uri, translated_markdown, export_root, target_lang)
-                if export_root is None or not saved_to_disk:
-                    current_run_translations[uri_value] = translated_markdown
+                    try:
+                        saved_path = _save_translation(
+                            resolve_translated_markdown_path(uri, export_root, target_lang),
+                            translated_markdown, signature,
+                        )
+                        console.print(f"[green]Saved translation:[/green] {saved_path}")
+                    except OSError as exc:
+                        console.print(f"[yellow]Translation export failed; retaining result for Lance merge: {exc}[/yellow]")
 
                 progress.advance(task)
 

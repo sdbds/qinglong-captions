@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.metadata
 import os
 import time
+from tempfile import TemporaryDirectory
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,8 @@ from .manifest import (
     cleanup_temporary_outputs,
     is_item_complete,
     prune_known_outputs,
+    publish_staged_outputs,
+    _known_output_names,
     run_signature,
 )
 from .options import BatchOptions, OutputFormat
@@ -318,6 +321,7 @@ def run_batch(
     start_clock = time.perf_counter()
     summary = BatchSummary()
     run_error: BaseException | None = None
+    staging: TemporaryDirectory | None = None
 
     try:
         lock.acquire()
@@ -404,15 +408,18 @@ def run_batch(
             item_dir.mkdir(parents=True, exist_ok=True)
             output_stem = item.source_path.stem
             cleanup_temporary_outputs(item_dir, output_stem=output_stem)
-            prune_known_outputs(item_dir, requested_names=set(), output_stem=output_stem)
+            managed_names = _known_output_names(output_stem)
+            previous_outputs = any((item_dir / name).is_file() for name in managed_names)
+            staging = TemporaryDirectory(prefix=".attempt-", dir=item_dir)
+            work_dir = Path(staging.name)
             requested_names = _requested_names(options, output_stem=output_stem)
             targets = OutputTargets.for_directory(
-                item_dir,
+                work_dir,
                 options.output_formats,
                 output_stem=output_stem,
             )
             preview_target = (
-                item_dir / f"{output_stem}_preview.{options.preview.format.value}"
+                work_dir / f"{output_stem}_preview.{options.preview.format.value}"
                 if options.preview is not None
                 else None
             )
@@ -443,15 +450,15 @@ def run_batch(
                         )
                     )
                 result = transcriber(loaded, item.source_path, options.transcription, targets, **kwargs)
-                missing = [name for name in requested_names if not (item_dir / name).is_file()]
+                missing = [name for name in requested_names if not (work_dir / name).is_file()]
                 if missing:
                     raise RuntimeError(f"Requested outputs were not created: {', '.join(sorted(missing))}")
                 prune_known_outputs(
-                    item_dir,
+                    work_dir,
                     requested_names=requested_names,
                     output_stem=output_stem,
                 )
-                outputs = _relative_outputs(result, item_dir)
+                outputs = _relative_outputs(result, work_dir)
                 summary.processed += 1
                 if log_callback is not None:
                     log_callback(
@@ -462,7 +469,9 @@ def run_batch(
                 partial_result = getattr(exc, "result", None)
                 if isinstance(partial_result, TranscriptionResult):
                     result = partial_result
-                outputs = _existing_outputs(targets, item_dir, preview_target)
+                outputs = _existing_outputs(targets, work_dir, preview_target)
+                if previous_outputs:
+                    outputs = {}
                 if outputs:
                     status = "partial"
                     summary.partial += 1
@@ -475,24 +484,51 @@ def run_batch(
                         f"{type(exc).__name__}: {exc}"
                     )
 
-            metadata_path = item_dir / "metadata.json"
-            atomic_write_json(
-                metadata_path,
-                _metadata_payload(
-                    item=item,
-                    options=options,
-                    signature=signature,
-                    package_version=package_version,
-                    requested_device=options.transcription.device,
-                    resolved_device=resolved_device,
-                    status=status,
-                    elapsed_seconds=time.perf_counter() - item_started,
-                    result=result,
-                    outputs=outputs,
-                    error=error,
-                    preview_runtime=preview_runtime,
-                ),
-            )
+            metadata_name = "last_attempt.json" if error is not None and previous_outputs else "metadata.json"
+            metadata_path = item_dir / metadata_name
+            try:
+                atomic_write_json(
+                    work_dir / metadata_name,
+                    _metadata_payload(
+                        item=item,
+                        options=options,
+                        signature=signature,
+                        package_version=package_version,
+                        requested_device=options.transcription.device,
+                        resolved_device=resolved_device,
+                        status=status,
+                        elapsed_seconds=time.perf_counter() - item_started,
+                        result=result,
+                        outputs=outputs,
+                        error=error,
+                        preview_runtime=preview_runtime,
+                    ),
+                )
+                publish_staged_outputs(
+                    work_dir, item_dir,
+                    managed_names=set() if metadata_name == "last_attempt.json" else managed_names | {"last_attempt.json"},
+                    metadata_name=metadata_name,
+                )
+            except OSError as exc:
+                if status == "ok":
+                    summary.processed -= 1
+                    summary.failed += 1
+                elif status == "partial":
+                    summary.partial -= 1
+                    summary.failed += 1
+                status = "failed"
+                error = exc
+                metadata_path = item_dir / "last_attempt.json"
+                atomic_write_json(metadata_path, _metadata_payload(
+                    item=item, options=options, signature=signature, package_version=package_version,
+                    requested_device=options.transcription.device, resolved_device=resolved_device,
+                    status=status, elapsed_seconds=time.perf_counter() - item_started,
+                    result=None, outputs={}, error=error, preview_runtime=preview_runtime,
+                ))
+                if log_callback is not None:
+                    log_callback(f"Failed to publish {item.relative_path.as_posix()}: {exc}")
+            staging.cleanup()
+            staging = None
             summary.items.append(
                 BatchItemResult(
                     source=item.relative_path.as_posix(),
@@ -511,6 +547,8 @@ def run_batch(
             run_error = exc
         raise
     finally:
+        if staging is not None:
+            staging.cleanup()
         summary.elapsed_seconds = time.perf_counter() - start_clock
         try:
             atomic_write_json(

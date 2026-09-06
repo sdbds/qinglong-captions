@@ -227,6 +227,11 @@ def test_runner_runs_auto_rig_for_resumed_completed_items(monkeypatch, tmp_path)
     (item_dir / "optimized" / "manifest.json").write_text("{}", encoding="utf-8")
     (item_dir / "final.psd").write_bytes(b"psd")
 
+    runner_module._commit_item_source(ExecutionItem(
+        source_path, Path("a.png"), item_dir, "completed",
+        runner_module._source_fingerprint(source_path),
+    ))
+
     release_events = []
 
     class FakeManager:

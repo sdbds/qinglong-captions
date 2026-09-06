@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -305,6 +306,51 @@ def test_source_mtime_change_invalidates_completion(tmp_path: Path):
     assert calls["loads"] == 2
 
 
+def test_same_size_same_mtime_source_change_reprocesses_then_skips(tmp_path: Path):
+    from module.muscriptor_tool.batch import run_batch
+
+    inputs = tmp_path / "inputs"
+    output = tmp_path / "out"
+    source = inputs / "song.wav"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"old-audio")
+    original_stat = source.stat()
+    calls: list[bytes] = []
+
+    def transcribe(_loaded, source_path, _options, targets, **_kwargs):
+        source_bytes = Path(source_path).read_bytes()
+        calls.append(source_bytes)
+        targets.midi.write_bytes(source_bytes)
+        return TranscriptionResult(1, 1, 1, 1, {"midi": str(targets.midi)}, ())
+
+    kwargs = {
+        "model_loader": lambda _options: object(),
+        "transcriber": transcribe,
+        "package_version": "0.2.1",
+        "resolved_device": "cpu",
+    }
+    first = run_batch(inputs, output, BatchOptions(), **kwargs)
+    source.write_bytes(b"new-audio")
+    os.utime(source, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+
+    second = run_batch(inputs, output, BatchOptions(), **kwargs)
+    third = run_batch(
+        inputs,
+        output,
+        BatchOptions(),
+        model_loader=lambda _options: (_ for _ in ()).throw(AssertionError("model loaded")),
+        transcriber=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transcribed")),
+        package_version="0.2.1",
+        resolved_device="cpu",
+    )
+
+    assert first.processed == 1
+    assert second.processed == 1
+    assert third.skipped == 1
+    assert calls == [b"old-audio", b"new-audio"]
+    assert (output / "song.wav" / "song.mid").read_bytes() == b"new-audio"
+
+
 def test_file_failure_continues_and_writes_failed_metadata(tmp_path: Path):
     from module.muscriptor_tool.batch import run_batch
 
@@ -606,7 +652,9 @@ def test_failed_rerun_does_not_report_stale_outputs_as_partial(tmp_path: Path):
 
     assert summary.failed == 1
     assert summary.partial == 0
-    assert not (item_dir / "song.mid").exists()
+    assert (item_dir / "song.mid").read_bytes() == b"old"
+    attempt = json.loads(Path(summary.items[0].metadata_path).read_text(encoding="utf-8"))
+    assert attempt["outputs"] == {}
 
 
 def test_temporary_cleanup_matches_only_tool_nonce_pattern(tmp_path: Path):

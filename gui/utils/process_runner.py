@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -55,6 +56,10 @@ _LEADING_NON_SGR_ANSI_RE = re.compile(
 _LEADING_BARE_CSI_RE = re.compile(r"^(?:\[[0-9;?]*[A-LN-Za-ln-z])+")
 _STREAM_READ_CHUNK_SIZE = 4096
 _STREAM_PROGRESS_HEARTBEAT_SECONDS = 8.0
+_SECRET_OPTION_RE = re.compile(
+    r"(?:^|[-_])(?:api[-_]?key|access[-_]?key|secret[-_]?key|token|password|passwd|secret|authorization)$",
+    re.IGNORECASE,
+)
 _UV_TORCH_EXTRAS = frozenset(
     {
         "translate",
@@ -320,6 +325,29 @@ class ProcessRunner:
     def log(self, message: str):
         """推送一条日志到共享缓冲区和当前回调。"""
         self._notify_log(message)
+
+    @staticmethod
+    def format_command_for_log(command: List[str], *, max_parts: Optional[int] = None) -> str:
+        """Redact credential arguments for display without mutating executable argv."""
+        redacted = []
+        redact_next = False
+        for value in command:
+            part = str(value)
+            if redact_next:
+                redacted.append("***")
+                redact_next = False
+                continue
+            option, separator, _ = part.partition("=")
+            name = option.lstrip("-")
+            sensitive = option.startswith("-") and (name.lower() == "key" or _SECRET_OPTION_RE.search(name))
+            if sensitive:
+                redacted.append(f"{option}=***" if separator else option)
+                redact_next = not separator
+            else:
+                redacted.append(part)
+        displayed = redacted if max_parts is None else redacted[:max_parts]
+        suffix = "..." if max_parts is not None and len(redacted) > max_parts else ""
+        return " ".join(displayed) + suffix
 
     def _build_env(self, env_vars: Optional[dict] = None) -> dict:
         """构建子进程环境变量（与 PowerShell 脚本保持一致）
@@ -917,6 +945,7 @@ class ProcessRunner:
             cwd=str(work_dir),
             env=env,
             bufsize=0,
+            start_new_session=sys.platform != "win32",
         )
         await self._stream_output_popen(self.process)
         return await asyncio.to_thread(self.process.wait)
@@ -927,14 +956,28 @@ class ProcessRunner:
             self._notify_log("检测到 Windows reload 模式，使用线程子进程回退")
             return await self._run_pipe_with_popen(cmd, work_dir, env)
 
-        try:
-            self.process = await asyncio.create_subprocess_exec(
+        spawn_task = asyncio.create_task(
+            asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(work_dir),
                 env=env,
+                start_new_session=sys.platform != "win32",
             )
+        )
+        try:
+            self.process = await asyncio.shield(spawn_task)
+        except asyncio.CancelledError:
+            # The OS process may already exist even though create_subprocess_exec
+            # has not handed its handle back to this task yet.
+            while not spawn_task.done():
+                try:
+                    await asyncio.shield(spawn_task)
+                except asyncio.CancelledError:
+                    continue
+            self.process = await spawn_task
+            raise
         except NotImplementedError:
             self._notify_log("当前事件循环不支持 asyncio 子进程，回退到线程子进程模式")
             return await self._run_pipe_with_popen(cmd, work_dir, env)
@@ -969,7 +1012,7 @@ class ProcessRunner:
                 f"{profile_label} OpenCV cleanup before attempt {attempt_index}: removing conflicting cv2 wheels"
             )
             self._notify_log(
-                f"开始同步依赖: {' '.join(cleanup_cmd[:15])}{'...' if len(cleanup_cmd) > 15 else ''}"
+                f"开始同步依赖: {self.format_command_for_log(cleanup_cmd, max_parts=15)}"
             )
             cleanup_return_code = await self._run_logged_subprocess(cleanup_cmd, work_dir, env)
             self.process = None
@@ -989,7 +1032,7 @@ class ProcessRunner:
             self._notify_log(f"{profile_label} OpenCV target package: {selection.package_name}")
             self._notify_log(f"{profile_label} OpenCV package spec: {selection.package_spec}")
             self._notify_log(
-                f"开始同步依赖: {' '.join(opencv_cmd[:15])}{'...' if len(opencv_cmd) > 15 else ''}"
+                f"开始同步依赖: {self.format_command_for_log(opencv_cmd, max_parts=15)}"
             )
 
             opencv_return_code = await self._run_logged_subprocess(opencv_cmd, work_dir, env)
@@ -1072,7 +1115,7 @@ class ProcessRunner:
                 self._notify_log(f"{uninstall_action} target environment: {env_name}")
                 self._notify_log(f"{uninstall_action} dependency profile: {', '.join(profile_parts)}")
                 self._notify_log(
-                    f"开始同步依赖: {' '.join(uninstall_cmd[:15])}{'...' if len(uninstall_cmd) > 15 else ''}"
+                    f"开始同步依赖: {self.format_command_for_log(uninstall_cmd, max_parts=15)}"
                 )
 
                 uninstall_code = await self._run_logged_subprocess(uninstall_cmd, work_dir, env)
@@ -1110,7 +1153,7 @@ class ProcessRunner:
 
             self._notify_log(f"{action} target environment: {env_name}")
             self._notify_log(f"{action} dependency profile: {', '.join(profile_parts)}")
-            self._notify_log(f"开始同步依赖: {' '.join(cmd[:15])}{'...' if len(cmd) > 15 else ''}")
+            self._notify_log(f"开始同步依赖: {self.format_command_for_log(cmd, max_parts=15)}")
 
             return_code = await self._run_logged_subprocess(cmd, work_dir, env)
             self.process = None
@@ -1142,7 +1185,7 @@ class ProcessRunner:
                     cleanup_cmd.extend(_SEE_THROUGH_OPENCV_CLEANUP_PACKAGES)
                     self._notify_log("see-through OpenCV cleanup: removing incompatible contrib/headless cv2 wheels")
                     self._notify_log(
-                        f"开始同步依赖: {' '.join(cleanup_cmd[:15])}{'...' if len(cleanup_cmd) > 15 else ''}"
+                        f"开始同步依赖: {self.format_command_for_log(cleanup_cmd, max_parts=15)}"
                     )
                     cleanup_return_code = await self._run_logged_subprocess(cleanup_cmd, work_dir, env)
                     self.process = None
@@ -1161,7 +1204,7 @@ class ProcessRunner:
                         "see-through OpenCV restore: reinstalling constrained numpy/opencv-python from profile"
                     )
                     self._notify_log(
-                        f"开始同步依赖: {' '.join(opencv_cmd[:15])}{'...' if len(opencv_cmd) > 15 else ''}"
+                        f"开始同步依赖: {self.format_command_for_log(opencv_cmd, max_parts=15)}"
                     )
                     opencv_return_code = await self._run_logged_subprocess(opencv_cmd, work_dir, env)
                     self.process = None
@@ -1332,7 +1375,7 @@ class ProcessRunner:
                 self._notify_log(f"runtime venv: {Path(venv_path).expanduser().resolve()}")
             self._notify_log(f"runtime python: {runtime_python}")
             self._notify_log(f"runtime dependency profile: {', '.join(profile_parts)}")
-            self._notify_log(f"开始执行: {' '.join(cmd[:15])}{'...' if len(cmd) > 15 else ''}")
+            self._notify_log(f"开始执行: {self.format_command_for_log(cmd, max_parts=15)}")
             self._notify_log(f"工作目录: {work_dir.absolute()}")
             self._notify_log("=" * 60)
 
@@ -1351,6 +1394,11 @@ class ProcessRunner:
                 self._notify_status(ProcessStatus.ERROR)
                 return ProcessResult(ProcessStatus.ERROR, return_code, f"进程返回错误码: {return_code}")
 
+        except asyncio.CancelledError:
+            self._running = False
+            await self._finish_process_cleanup()
+            self._notify_status(ProcessStatus.IDLE)
+            raise
         except Exception as e:
             self._running = False
             self._notify_status(ProcessStatus.ERROR)
@@ -1472,7 +1520,7 @@ class ProcessRunner:
             work_dir = Path(cwd) if cwd else Path(self.PROJECT_ROOT)
             env = self._build_env(env_vars)
 
-            self._notify_log(f"开始执行: {' '.join(cmd[:10])}...")
+            self._notify_log(f"开始执行: {self.format_command_for_log(cmd, max_parts=10)}")
             self._notify_log(f"工作目录: {work_dir.absolute()}")
             self._notify_log("=" * 60)
 
@@ -1486,6 +1534,7 @@ class ProcessRunner:
                     stderr=asyncio.subprocess.STDOUT,
                     cwd=str(work_dir),
                     env=env,
+                    start_new_session=sys.platform != "win32",
                 )
 
                 await self._stream_output(self.process)
@@ -1514,8 +1563,8 @@ class ProcessRunner:
         """同步运行脚本（用于简单调用）"""
         return asyncio.run(self.run_python_script(script_key, args, **kwargs))
 
-    def _terminate_process_tree(self):
-        process = self.process
+    @staticmethod
+    def terminate_process_tree(process, *, process_group: bool = False):
         if process is None:
             return
         try:
@@ -1526,10 +1575,41 @@ class ProcessRunner:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
+            elif process_group:
+                os.killpg(process.pid, signal.SIGKILL)
             else:
                 process.terminate()
         except (ProcessLookupError, OSError):
             pass
+
+    def _terminate_process_tree(self):
+        self.terminate_process_tree(self.process, process_group=sys.platform != "win32")
+
+    async def _terminate_current_process(self):
+        process = self.process
+        if process is None:
+            return
+        await asyncio.to_thread(
+            self.terminate_process_tree,
+            process,
+            process_group=sys.platform != "win32",
+        )
+        try:
+            if isinstance(process, subprocess.Popen):
+                await asyncio.to_thread(process.wait)
+            else:
+                await process.wait()
+        except (ProcessLookupError, OSError):
+            pass
+
+    async def _finish_process_cleanup(self):
+        cleanup_task = asyncio.create_task(self._terminate_current_process())
+        while not cleanup_task.done():
+            try:
+                await asyncio.shield(cleanup_task)
+            except asyncio.CancelledError:
+                continue
+        await cleanup_task
 
     def terminate(self):
         """终止当前进程（包括子进程树）"""

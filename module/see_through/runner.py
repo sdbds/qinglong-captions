@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import traceback
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -11,7 +12,9 @@ from typing import TYPE_CHECKING, Any
 import pyarrow as pa
 from rich.console import Console
 
+from module.music_export import atomic_output_path
 from utils.console_util import print_exception
+from utils.file_hash import sha256_file
 from utils.lance_blob import (
     DEFAULT_BLOB_DATA_STORAGE_VERSION,
     build_lance_schema,
@@ -37,6 +40,9 @@ LAYERDIFF_MANIFEST = Path("layerdiff") / "manifest.json"
 DEPTH_FILE = Path("depth") / "depth.png"
 OPTIMIZED_MANIFEST = Path("optimized") / "manifest.json"
 PSD_FILE = Path("final.psd")
+SOURCE_METADATA = "source_metadata.json"
+_ITEM_PHASES = ("layerdiff", "marigold", "postprocess")
+_RESUME_STAGES = (*_ITEM_PHASES, "completed")
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 BACKUP_DATASET_NAME = "dataset"
 PHASE_DISPLAY_NAMES = {
@@ -55,6 +61,7 @@ class ExecutionItem:
     relative_key: Path
     item_dir: Path
     resume_stage: str
+    source_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -308,16 +315,78 @@ def detect_resume_action(item_dir: Path, *, save_to_psd: bool = True) -> ResumeA
     return ResumeAction.from_stage("layerdiff")
 
 
-def collect_input_images(input_dir: Path, limit_images: int) -> list[Path]:
-    input_dir = Path(input_dir)
-    files = sorted(
-        path
-        for path in input_dir.rglob("*")
-        if path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+def _is_managed_output_dir(path: Path) -> bool:
+    try:
+        metadata = json.loads((path / RUN_META_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return bool(
+        isinstance(metadata, dict)
+        and isinstance(metadata.get("input_dir"), str) and metadata["input_dir"]
+        and isinstance(metadata.get("config_fingerprint"), str) and metadata["config_fingerprint"]
+        and isinstance(metadata.get("created_at"), (int, float))
     )
+
+
+def collect_input_images(input_dir: Path, limit_images: int, *, output_dir: Path | None = None) -> list[Path]:
+    input_dir = Path(input_dir).resolve()
+    excluded = Path(output_dir).resolve() if output_dir is not None else None
+    files: list[Path] = []
+    for directory, directory_names, file_names in os.walk(input_dir, followlinks=False):
+        parent = Path(directory)
+        directory_names[:] = [
+            name for name in directory_names
+            if (parent / name).resolve() == (parent / name).absolute()
+            and (parent / name) != excluded
+            and not _is_managed_output_dir(parent / name)
+        ]
+        for name in file_names:
+            path = parent / name
+            if (path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS and path.is_file()
+                    and not path.is_symlink()):
+                files.append(path)
+    files.sort()
     if int(limit_images) > 0:
         return files[: int(limit_images)]
     return files
+
+
+def _source_fingerprint(source_path: Path) -> str:
+    return sha256_file(source_path)
+
+
+def _item_completed_phase_count(item_dir: Path, fingerprint: str | None) -> int:
+    if fingerprint is None:
+        return 0
+    try:
+        metadata = json.loads((item_dir / SOURCE_METADATA).read_text(encoding="utf-8"))
+        if metadata.get("sha256") != fingerprint:
+            return 0
+        if metadata.get("schema_version") == 1:
+            # Version 1 was written only after successful postprocess.
+            return len(_ITEM_PHASES)
+        if metadata.get("schema_version") == 2:
+            return _ITEM_PHASES.index(metadata.get("completed_phase")) + 1
+    except (OSError, ValueError, AttributeError):
+        pass
+    return 0
+
+
+def _verified_resume_stage(item_dir: Path, fingerprint: str, *, save_to_psd: bool = True) -> str:
+    completed = _item_completed_phase_count(item_dir, fingerprint)
+    available = _RESUME_STAGES.index(detect_resume_stage(item_dir, save_to_psd=save_to_psd))
+    return _RESUME_STAGES[min(completed, available)]
+
+
+def _commit_item_source(item: ExecutionItem, *, completed_phase: str = "postprocess") -> None:
+    if item.source_fingerprint is None:
+        return
+    with atomic_output_path(item.item_dir / SOURCE_METADATA) as temporary:
+        temporary.write_text(json.dumps({
+            "schema_version": 2,
+            "sha256": item.source_fingerprint,
+            "completed_phase": completed_phase,
+        }), encoding="utf-8")
 
 
 def build_execution_plan(config: "SeeThroughRunConfig", output_dir: Path, discovered_items: list[Path]) -> list[ExecutionItem]:
@@ -325,15 +394,17 @@ def build_execution_plan(config: "SeeThroughRunConfig", output_dir: Path, discov
     for source_path in discovered_items:
         relative_key = make_relative_output_key(config.input_dir, source_path)
         item_dir = make_item_dir(output_dir, relative_key)
+        fingerprint = _source_fingerprint(source_path)
         resume_stage = "layerdiff"
         if config.skip_completed:
-            resume_stage = detect_resume_stage(item_dir, save_to_psd=config.save_to_psd)
+            resume_stage = _verified_resume_stage(item_dir, fingerprint, save_to_psd=config.save_to_psd)
         plan.append(
             ExecutionItem(
                 source_path=source_path,
                 relative_key=relative_key,
                 item_dir=item_dir,
                 resume_stage=resume_stage,
+                source_fingerprint=fingerprint,
             )
         )
     return plan
@@ -375,7 +446,10 @@ def _load_auto_rig_components():
 def _select_auto_rig_items(plan: list[ExecutionItem]) -> list[ExecutionItem]:
     """Select every complete PSD, including items skipped by see-through resume."""
 
-    return [item for item in plan if postprocess_outputs_complete(item.item_dir, save_to_psd=True)]
+    return [item for item in plan
+            if postprocess_outputs_complete(item.item_dir, save_to_psd=True)
+            and (item.source_fingerprint is None
+                 or _item_completed_phase_count(item.item_dir, item.source_fingerprint) == len(_ITEM_PHASES))]
 
 
 def _run_auto_rig_phase(
@@ -390,6 +464,7 @@ def _run_auto_rig_phase(
     run_auto_rig_item, load_capability_profile, make_builtin_pose_resolver = _load_auto_rig_components()
     profile_id = str(getattr(config, "auto_rig_profile", "dual_runtime_core_v1"))
     profile = load_capability_profile(profile_id)
+    validation_tier = str(getattr(config, "auto_rig_validation_tier", "release"))
     pose_mode = str(getattr(config, "auto_rig_pose_mode", "auto"))
     model_cache_dir = getattr(config, "auto_rig_model_cache_dir", None)
     sdpose_bundle_path = getattr(config, "auto_rig_sdpose_bundle_path", None)
@@ -414,7 +489,7 @@ def _run_auto_rig_phase(
             handler=lambda item: run_auto_rig_item(
                 item.item_dir,
                 profile_id=profile_id,
-                validation_tier=str(getattr(config, "auto_rig_validation_tier", "release")),
+                validation_tier=validation_tier,
                 sdk_root=getattr(config, "auto_rig_sdk_root", None),
                 spine_runtime_path=getattr(config, "auto_rig_spine_runtime_path", None),
                 pose_mode=pose_mode,
@@ -424,7 +499,7 @@ def _run_auto_rig_phase(
                 detrpose_weights_path=detrpose_weights_path,
                 pose_device=pose_device,
                 prefer_pose_fa2=prefer_pose_fa2,
-                finalize=bool(profile.terminal_delivery),
+                finalize=bool(profile.terminal_delivery) and validation_tier == "release",
             ),
             continue_on_error=bool(getattr(config, "continue_on_error", True)),
             console_obj=console_obj,
@@ -450,7 +525,7 @@ def run_see_through_batch(config: "SeeThroughRunConfig", *, console_obj: Console
     if Path(config.output_dir).resolve() != Path(resolved_output_dir).resolve():
         resolved_console.print(f"[yellow]See-through resolved output_dir:[/yellow] {resolved_output_dir}")
 
-    discovered_items = collect_input_images(config.input_dir, config.limit_images)
+    discovered_items = collect_input_images(config.input_dir, config.limit_images, output_dir=resolved_output_dir)
     if not discovered_items:
         resolved_console.print(f"[yellow]No supported images found under:[/yellow] {config.input_dir}")
         return 1
@@ -616,7 +691,19 @@ def _process_phase_items(
             item.item_dir.mkdir(parents=True, exist_ok=True)
             progress.console.print(f"[blue]{phase_title} processing:[/blue] {item.relative_key.as_posix()}")
             try:
+                if phase_name in _ITEM_PHASES:
+                    # Revoke this phase and downstream checkpoints before any output is overwritten.
+                    completed = min(
+                        _item_completed_phase_count(item.item_dir, item.source_fingerprint),
+                        _ITEM_PHASES.index(phase_name),
+                    )
+                    if completed:
+                        _commit_item_source(item, completed_phase=_ITEM_PHASES[completed - 1])
+                    else:
+                        (item.item_dir / SOURCE_METADATA).unlink(missing_ok=True)
                 handler(item)
+                if phase_name in _ITEM_PHASES:
+                    _commit_item_source(item, completed_phase=phase_name)
                 _clear_error_record(item.item_dir)
                 successes.append(item)
                 progress.console.print(f"[green]{phase_title} succeeded:[/green] {item.relative_key.as_posix()}")

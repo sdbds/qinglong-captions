@@ -23,6 +23,8 @@ and accessing the data through PyTorch datasets.
 import argparse
 import hashlib
 import mimetypes
+import subprocess
+import sys
 from collections.abc import Iterable, Iterator, Sized
 from dataclasses import dataclass
 from enum import Enum
@@ -60,6 +62,8 @@ from utils.lance_blob import (
     is_blob_v2_field,
 )
 from utils.lance_utils import update_or_create_tag
+from module.music_export import atomic_output_path
+from utils.caption_index import CAPTION_INDEX_NAME, CAPTION_TRANSACTION_PREFIX, caption_index_key, caption_index_path, load_caption_index
 
 console = Console(color_system="truecolor", force_terminal=True)
 image_extensions = get_supported_extensions("image")
@@ -78,6 +82,7 @@ _application_ext_set = frozenset(application_extensions)
 _sidecar_text_ext_set = frozenset({".txt", ".md"})
 _non_text_primary_ext_set = _image_ext_set | _animation_ext_set | _video_ext_set | _audio_ext_set | _application_ext_set
 _all_ext_set = _non_text_primary_ext_set | _text_ext_set
+_IMPORT_COMPONENT_DIR = ".qinglong-import"
 
 
 @dataclass
@@ -132,6 +137,11 @@ class Metadata:
         return int(bits_per_frame * self.frame_rate)
 
 
+_COMPONENT_METADATA_FIELDS = frozenset(Metadata.__dataclass_fields__) | frozenset(
+    name for name, value in vars(Metadata).items() if isinstance(value, property)
+)
+
+
 class VideoImportMode(Enum):
     """Import mode for video files."""
 
@@ -147,6 +157,71 @@ class VideoImportMode(Enum):
             if mode.value == value:
                 return mode
         raise ValueError(f"Invalid import mode value: {value}")
+
+
+def _video_component_paths(file_path: str, import_mode: VideoImportMode) -> tuple[Path, ...]:
+    """Materialize requested tracks without changing the source or earlier imports."""
+    import av
+    import imageio_ffmpeg
+
+    source = Path(file_path).resolve(strict=True)
+    with av.open(str(source)) as container:
+        has_video = bool(container.streams.video)
+        has_audio = bool(container.streams.audio)
+
+    components = []
+    if import_mode in (VideoImportMode.VIDEO_ONLY, VideoImportMode.VIDEO_SPLIT_AUDIO):
+        if not has_video:
+            raise ValueError(f"No video track in {source}")
+        components.append(("video.mkv", ["-map", "0:v:0", "-c:v", "copy", "-an"], "video"))
+    if import_mode in (VideoImportMode.AUDIO_ONLY, VideoImportMode.VIDEO_SPLIT_AUDIO):
+        if has_audio:
+            components.append(("audio.wav", ["-map", "0:a:0", "-vn", "-c:a", "pcm_s16le"], "audio"))
+        else:
+            console.print(f"[yellow]No audio track in {source}; skipping audio component[/yellow]")
+    if not components:
+        return ()
+
+    hasher = hashlib.sha256()
+    with source.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    source_id = hashlib.sha256(str(source).encode("utf-8")).hexdigest()[:16]
+    cache = source.parent / _IMPORT_COMPONENT_DIR / f"{source_id}-{hasher.hexdigest()}"
+    outputs = []
+    for filename, options, stream_type in components:
+        target = cache / filename
+        if not target.is_file() or target.stat().st_size == 0:
+            with atomic_output_path(target) as temporary:
+                command = [imageio_ffmpeg.get_ffmpeg_exe(), "-nostdin", "-hide_banner", "-loglevel", "error",
+                           "-y", "-i", str(source), *options, str(temporary)]
+                subprocess.run(command, check=True, capture_output=True,
+                               creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+                with av.open(str(temporary)) as container:
+                    if len(container.streams) != 1 or container.streams[0].type != stream_type:
+                        raise ValueError(f"Invalid {stream_type} component from {source}")
+                    next(container.decode(**{stream_type: 0}))
+        outputs.append(target)
+    return tuple(outputs)
+
+
+def _iter_import_items(data: Iterable[Dict[str, Any]], import_mode: VideoImportMode) -> Iterator[Dict[str, Any]]:
+    for item in data:
+        if import_mode == VideoImportMode.ALL or Path(item["file_path"]).suffix.lower() not in _video_ext_set:
+            yield item
+            continue
+        try:
+            components = _video_component_paths(item["file_path"], import_mode)
+        except Exception as exc:
+            print_exception(console, exc, prefix=f"Error preparing video components from {item['file_path']}")
+            continue
+        for component in components:
+            component_item = {
+                key: value for key, value in item.items()
+                if key not in _COMPONENT_METADATA_FIELDS
+            }
+            component_item.update(file_path=str(component), uris=str(component))
+            yield component_item
 
 
 class FileProcessor:
@@ -225,7 +300,7 @@ class FileProcessor:
                         - ALL: Complete video with audio
                         - VIDEO_ONLY: Video without audio
                         - AUDIO_ONLY: Audio only
-                        - VIDEO_SPLIT_AUDIO: Split video and audio
+                        - VIDEO_SPLIT_AUDIO: Use process() for multiple records
 
         Returns:
             Metadata object if successful, None if failed
@@ -234,9 +309,17 @@ class FileProcessor:
             FileNotFoundError: If the image file doesn't exist
             IOError: If there's an error reading the file
             SyntaxError: If the image format is invalid
+            ValueError: If a video split requires the batch-level process() API
         """
+        if import_mode == VideoImportMode.VIDEO_SPLIT_AUDIO and Path(file_path).suffix.lower() in _video_ext_set:
+            raise ValueError("VIDEO_SPLIT_AUDIO requires process() to emit multiple records")
         try:
             _suffix = Path(file_path).suffix.lower()
+            if _suffix in _video_ext_set and import_mode != VideoImportMode.ALL:
+                components = _video_component_paths(file_path, import_mode)
+                if not components:
+                    return None
+                return FileProcessor.load_metadata(str(components[0]), save_binary, VideoImportMode.ALL)
             if _suffix in _image_ext_set or _suffix in _animation_ext_set:
                 with Image.open(file_path) as img:
                     # Get file pointer position
@@ -513,6 +596,9 @@ def _sorted_directory_entries(root: Path) -> List[Path]:
 
 def _iter_candidate_files(root: Path, recursive: bool = True) -> Iterator[Path]:
     for path in _sorted_directory_entries(root):
+        if (path.name.casefold() == _IMPORT_COMPONENT_DIR
+                or (path.name.startswith(CAPTION_TRANSACTION_PREFIX) and path.is_dir())):
+            continue
         if path.is_file():
             yield path
         elif recursive and not path.is_symlink() and path.is_dir():
@@ -526,7 +612,19 @@ def _read_caption_file(path: Path) -> List[str]:
     return [content]
 
 
-def _find_sidecar_caption(file_path: Path, caption_root: Optional[Path] = None, dataset_root: Optional[Path] = None) -> List[str]:
+def _find_sidecar_caption(file_path: Path, caption_root: Optional[Path] = None, dataset_root: Optional[Path] = None,
+                          caption_index: Optional[Dict[str, str]] = None) -> List[str]:
+    index_dir = caption_root if caption_root is not None else file_path.parent
+    if caption_index is None:
+        index = load_caption_index(index_dir)
+        entries = index.captions if index is not None else {}
+    else:
+        entries = caption_index
+    key = caption_index_key(file_path, index_dir)
+    if entries and key in entries:
+        candidate = caption_index_path(index_dir, entries[key])
+        if candidate.is_file() and candidate != file_path.resolve():
+            return _read_caption_file(candidate)
     if caption_root is None:
         sidecar_base = file_path
     else:
@@ -550,6 +648,11 @@ def _make_data_item(file_path: Path, caption: Optional[List[str]] = None) -> Dic
 
 def _iter_data_items_in_directory(directory: Path, include_text_assets: bool) -> Iterator[Dict[str, Any]]:
     entries = _sorted_directory_entries(directory)
+    index = load_caption_index(directory)
+    caption_index = index.captions if index is not None else {}
+    indexed_files = {directory / name for name in index.files} if index is not None else set()
+    if index is not None:
+        indexed_files.add(directory / CAPTION_INDEX_NAME)
     files = [path for path in entries if path.is_file()]
     non_text_stems = {
         file_path.with_suffix("")
@@ -558,13 +661,22 @@ def _iter_data_items_in_directory(directory: Path, include_text_assets: bool) ->
     }
 
     for path in entries:
+        if (path.name.casefold() == _IMPORT_COMPONENT_DIR
+                or (path.name.startswith(CAPTION_TRANSACTION_PREFIX) and path.is_dir())):
+            continue
         if path.is_file():
+            if path in indexed_files:
+                continue
             suffix = path.suffix.lower()
             if suffix in _non_text_primary_ext_set:
-                yield _make_data_item(path, _find_sidecar_caption(path))
+                yield _make_data_item(path, _find_sidecar_caption(path, caption_index=caption_index or {}))
                 continue
 
             if not include_text_assets or suffix not in _text_ext_set:
+                continue
+
+            if caption_index_key(path, directory) in (caption_index or {}):
+                yield _make_data_item(path, _find_sidecar_caption(path, caption_index=caption_index))
                 continue
 
             if suffix in _sidecar_text_ext_set and path.with_suffix("") in non_text_stems:
@@ -584,11 +696,19 @@ def iter_data_items(
 
     if texts_dir:
         caption_root = Path(texts_dir).absolute()
+        index = load_caption_index(caption_root)
+        caption_index = index.captions if index is not None else {}
+        indexed_files = {caption_root / name for name in index.files} if index is not None else set()
+        if index is not None:
+            indexed_files.add(caption_root / CAPTION_INDEX_NAME)
         allowed_exts = _all_ext_set if include_text_assets else _non_text_primary_ext_set
         for file_path in _iter_candidate_files(dataset_root, recursive=True):
+            if file_path in indexed_files:
+                continue
             if file_path.suffix.lower() not in allowed_exts:
                 continue
-            caption = _find_sidecar_caption(file_path, caption_root=caption_root, dataset_root=dataset_root)
+            caption = _find_sidecar_caption(file_path, caption_root=caption_root, dataset_root=dataset_root,
+                                            caption_index=caption_index or {})
             yield _make_data_item(file_path, caption)
         return
 
@@ -662,9 +782,10 @@ def process(
 
         console = progress.console
 
-        task = progress.add_task("[green]Processing file...", total=_known_total(data))
+        task = progress.add_task("[green]Processing file...",
+                                 total=_known_total(data) if import_mode == VideoImportMode.ALL else None)
 
-        for item in data:
+        for item in _iter_import_items(data, import_mode):
             file_path = item["file_path"]
             caption = item.get("caption", [])
 
@@ -698,7 +819,7 @@ def process(
             console.print(f"Processing {media_type} file [{color}]'{file_path}'[/{color}]")
             console.print(f"Caption: {caption}", style=CONSOLE_COLORS["caption"])
 
-            metadata = processor.load_metadata(file_path, save_binary, import_mode)
+            metadata = processor.load_metadata(file_path, save_binary, VideoImportMode.ALL)
             if not metadata:
                 progress.update(task, advance=1)
                 continue

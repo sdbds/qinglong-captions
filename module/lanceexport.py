@@ -13,16 +13,19 @@ from __future__ import annotations
 #   "mutagen",
 #   "toml",
 #   "pyarrow",
+#   "filelock>=3.32.3,<4",
 # ]
 # ///
 import argparse
 import json
 import re
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Union
 
 import lance
 import pysrt
+from filelock import FileLock
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -37,12 +40,15 @@ from rich.progress import (
 )
 
 from config.config import CONSOLE_COLORS, DATASET_SCHEMA, get_supported_extensions
+from utils.caption_index import CAPTION_INDEX_NAME, CaptionFileTransaction, CaptionIndex, caption_file_identity, caption_index_key, load_caption_index, write_caption_index
 from utils.lance_blob import take_blob_files
 from utils.console_util import print_exception
-from utils.output_writer import caption_extension_from_payload, caption_text, normalize_caption_extension
+from utils.output_writer import ResolvedPaths, caption_extension_from_payload, caption_path_avoiding_sources, caption_text, disambiguate_caption_bases, normalize_caption_extension
+from utils.path_safety import safe_child_path, safe_leaf_name
 from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
 
 console = Console(color_system="truecolor", force_terminal=True)
+_CAPTION_INDEX_LOCK_NAME = CAPTION_INDEX_NAME + ".lock"
 image_extensions = get_supported_extensions("image")
 animation_extensions = get_supported_extensions("animation")
 video_extensions = get_supported_extensions("video")
@@ -188,12 +194,27 @@ def _extract_structured_caption_payload(caption_lines: List[str]) -> Optional[Di
     return None
 
 
+def _caption_output_paths(base_path, caption_lines, media_type, caption_suffix, caption_extension, protected_paths):
+    payload = _extract_structured_caption_payload(caption_lines)
+    extension = normalize_caption_extension(caption_extension) or caption_extension_from_payload(payload)
+    target = _resolve_caption_target_path(Path(base_path), media_type, caption_suffix, extension)
+    target = caption_path_avoiding_sources(target, protected_paths)
+    single_structured = bool(caption_text(payload).strip()) and sum(bool(line and line.strip()) for line in caption_lines) == 1
+    has_json = single_structured or (payload is not None and target.suffix not in {".srt", ".md"})
+    json_target = (
+        caption_path_avoiding_sources(target.with_suffix(".json"), protected_paths, additional_paths=(target,))
+        if has_json else None
+    )
+    return target, json_target
+
+
 def save_caption(
     caption_path: str,
     caption_lines: List[str],
     media_type: Optional[str],
     caption_suffix: str = "",
     caption_extension: Optional[str] = None,
+    protected_paths=None,
 ) -> bool:
     """Save caption data to disk."""
     try:
@@ -205,13 +226,15 @@ def save_caption(
         structured_payload = _extract_structured_caption_payload(caption_lines)
         structured_text = caption_text(structured_payload)
         single_structured_caption = bool(structured_text.strip()) and sum(bool(line and line.strip()) for line in caption_lines) == 1
-        effective_caption_extension = normalize_caption_extension(caption_extension) or caption_extension_from_payload(structured_payload)
-        caption_path = _resolve_caption_target_path(Path(caption_path), media_type, caption_suffix, effective_caption_extension)
+        protected_paths = ResolvedPaths(protected_paths or ())
+        caption_path, json_path = _caption_output_paths(
+            caption_path, caption_lines, media_type, caption_suffix, caption_extension, protected_paths,
+        )
         caption_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(caption_path, "w", encoding="utf-8") as f:
             if single_structured_caption:
-                with open(caption_path.with_suffix(".json"), "w", encoding="utf-8") as j:
+                with open(json_path, "w", encoding="utf-8") as j:
                     json.dump(structured_payload, j, indent=2, ensure_ascii=False)
                 f.write(structured_text)
             elif caption_path.suffix == ".srt":
@@ -227,7 +250,7 @@ def save_caption(
                         try:
                             json_content = line.strip()
                             parsed_json = json.loads(json_content)
-                            with open(caption_path.with_suffix(".json"), "w", encoding="utf-8") as j:
+                            with open(json_path, "w", encoding="utf-8") as j:
                                 json.dump(parsed_json, j, indent=2, ensure_ascii=False)
 
                             desc = caption_text(parsed_json)
@@ -235,8 +258,6 @@ def save_caption(
                         except json.JSONDecodeError:
                             if line and line.strip():
                                 f.write(line.strip() + "\n")
-                        except Exception as e:
-                            print_exception(console, e, prefix="JSON caption parse/save failed", summary_style="yellow")
                     else:
                         if line and line.strip():
                             f.write(line.strip() + "\n")
@@ -469,6 +490,128 @@ def split_md_document(uri: Path, caption_lines: List[str], save_caption_func) ->
         print_exception(console, e, prefix="Error splitting MD document")
 
 
+def _media_type_for_uri(uri: Path) -> Optional[str]:
+    suffix = uri.suffix.lower()
+    for media_type, extensions in (
+        ("image", _image_ext_set), ("animation", _animation_ext_set),
+        ("video", _video_ext_set), ("audio", _audio_ext_set),
+        ("text", _text_ext_set), ("application", _application_ext_set),
+    ):
+        if suffix in extensions:
+            return media_type
+    return None
+
+
+def _validate_export_paths(planned_paths, generated_directories=(), protected_paths=()):
+    occupied = {}
+    for path, owner in planned_paths:
+        resolved = path.resolve()
+        key = caption_file_identity(resolved)
+        if key in occupied:
+            raise ValueError(f"Ambiguous export path collision: {path} ({occupied[key]} and {owner})")
+        if path.is_dir():
+            raise ValueError(f"Export path collision with a directory: {path}")
+        occupied[key] = owner
+    for path, owner in planned_paths:
+        for parent in path.resolve().parents:
+            if caption_file_identity(parent) in occupied:
+                raise ValueError(f"Export file/directory collision: {path} ({owner})")
+    directory_owners = {}
+    for directory, owner in generated_directories:
+        key = caption_file_identity(directory.resolve())
+        if key in directory_owners or directory.is_file():
+            raise ValueError(f"Ambiguous generated directory collision: {directory} ({owner})")
+        directory_owners[key] = owner
+    for directory, owner in generated_directories:
+        for parent in directory.resolve().parents:
+            key = caption_file_identity(parent)
+            if key in occupied or key in directory_owners:
+                raise ValueError(f"Generated directory collision: {directory} ({owner})")
+    for path in [path for path, _ in planned_paths] + list(protected_paths):
+        resolved = path.resolve()
+        if any(caption_file_identity(parent) in directory_owners for parent in (resolved, *resolved.parents)):
+            raise ValueError(f"Generated directory collision with a primary or planned output: {path}")
+
+
+def _plan_export_targets(dataset, output_path: Path, captions_path: Optional[Path], *,
+                         caption_suffix="", caption_extension=None, allowed_caption_types=None,
+                         clip_with_caption=False):
+    uris = [uri for batch in dataset.scanner(columns=["uris"]).to_batches() for uri in batch["uris"].to_pylist()]
+    if len(set(uris)) != len(uris):
+        raise ValueError("Cannot export ambiguous duplicate source URIs")
+    targets = {}
+    for uri in uris:
+        source = Path(uri)
+        media_target = source if source.exists() else safe_child_path(output_path, safe_leaf_name(uri))
+        caption_base = safe_child_path(captions_path, safe_leaf_name(uri)) if captions_path else media_target
+        targets[uri] = (media_target, caption_base)
+    caption_bases = disambiguate_caption_bases({uri: base for uri, (_, base) in targets.items()})
+    for uri, (media_target, caption_base) in targets.items():
+        if caption_bases[uri] != caption_base:
+            caption_base = caption_bases[uri]
+            if not Path(uri).exists():
+                media_target = safe_child_path(output_path, caption_base.name)
+            targets[uri] = (media_target, caption_base)
+    protected = ResolvedPaths([*uris, *(target for target, _ in targets.values())])
+    planned_paths = [(media_target, uri) for uri, (media_target, _) in targets.items()]
+    generated_directories = []
+    caption_targets = {}
+    companion_targets = {}
+    if "captions" in dataset.schema.names:
+        for batch in dataset.scanner(columns=["uris", "captions"]).to_batches():
+            for uri, lines in zip(batch["uris"].to_pylist(), batch["captions"].to_pylist()):
+                media_type = _media_type_for_uri(Path(uri))
+                if not lines or not any(line and line.strip() for line in lines):
+                    continue
+                if allowed_caption_types is not None and media_type not in allowed_caption_types:
+                    continue
+                target, json_target = _caption_output_paths(
+                    targets[uri][1], lines, media_type, caption_suffix, caption_extension, protected,
+                )
+                caption_targets[uri] = target
+                planned_paths.append((target, f"caption for {uri}"))
+                if json_target is not None:
+                    planned_paths.append((json_target, f"JSON caption for {uri}"))
+                    companion_targets[uri] = json_target
+                if clip_with_caption and not caption_suffix:
+                    if media_type in {"audio", "video"} and target.suffix.lower() == ".srt":
+                        media_target = targets[uri][0]
+                        generated_directories.append((media_target.parent / f"{media_target.stem}_clip", uri))
+                    elif target.suffix.lower() == ".md" and any('<header style="background-color: #f5f5f5;' in line for line in lines):
+                        generated_directories.append((target.with_suffix(""), uri))
+    indexes = {}
+
+    def index_for(directory):
+        directory = directory.resolve()
+        if directory not in indexes:
+            indexes[directory] = load_caption_index(directory, strict=True) or CaptionIndex()
+            planned_paths.append((directory / CAPTION_INDEX_NAME, "caption index"))
+            lock_path = directory / _CAPTION_INDEX_LOCK_NAME
+            if lock_path.is_file() and lock_path.stat().st_size:
+                raise ValueError(f"Cannot overwrite an unowned caption index lock: {lock_path}")
+            planned_paths.append((lock_path, "caption index lock"))
+        return indexes[directory]
+
+    for uri, (media_target, _) in targets.items():
+        if not Path(uri).exists():
+            directory = media_target.parent.resolve()
+            index = index_for(directory)
+            key = caption_index_key(media_target, directory)
+            index.validate_origin(key, Path(uri), require_known=media_target.exists() or key in index.captions)
+    for uri, target in caption_targets.items():
+        directory = target.parent.resolve()
+        index = index_for(directory)
+        key = caption_index_key(targets[uri][0], directory)
+        if not Path(uri).exists():
+            index.validate_origin(key, Path(uri), require_known=target.exists() or key in index.captions)
+        index.validate_file_claim(key, target.name)
+        companion = companion_targets.get(uri)
+        if companion is not None:
+            index.validate_file_claim(key, companion.name, require_owned=companion.exists())
+    _validate_export_paths(planned_paths, generated_directories, protected)
+    return targets, protected, caption_targets, indexes
+
+
 def extract_from_lance(
     lance_or_path: Union[str, lance.LanceDataset],
     output_dir: str,
@@ -485,16 +628,44 @@ def extract_from_lance(
     ds = lance.dataset(lance_or_path, version=version) if isinstance(lance_or_path, str) else lance_or_path
 
     output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
 
     captions_dir_path = None
     if caption_dir:
         captions_dir_path = Path(caption_dir)
-        captions_dir_path.mkdir(parents=True, exist_ok=True)
 
     allowed_caption_type_set = set(allowed_caption_types) if allowed_caption_types else None
+    plan_options = dict(
+        caption_suffix=caption_suffix, caption_extension=caption_extension,
+        allowed_caption_types=allowed_caption_type_set, clip_with_caption=clip_with_caption,
+    )
+    plan = _plan_export_targets(ds, output_path, captions_dir_path, **plan_options)
+    directories = sorted(plan[3], key=caption_file_identity)
+    with ExitStack() as locks:
+        for directory in directories:
+            directory.mkdir(parents=True, exist_ok=True)
+            locks.enter_context(FileLock(str(directory / _CAPTION_INDEX_LOCK_NAME), preserve_lock_file=True))
+        # A waiting exporter must validate against the last committed generation.
+        plan = _plan_export_targets(ds, output_path, captions_dir_path, **plan_options)
+        if not set(plan[3]).issubset(directories):
+            raise RuntimeError("Export source locations changed while acquiring locks; retry the export")
+        _extract_planned_dataset(
+            ds, output_path, captions_dir_path, plan,
+            clip_with_caption=clip_with_caption, caption_suffix=caption_suffix,
+            caption_extension=caption_extension, allowed_caption_type_set=allowed_caption_type_set,
+        )
 
-    with Progress(
+
+def _extract_planned_dataset(ds, output_path, captions_dir_path, plan, *, clip_with_caption,
+                             caption_suffix, caption_extension, allowed_caption_type_set):
+    export_targets, protected_paths, caption_targets, caption_indexes = plan
+    output_path.mkdir(parents=True, exist_ok=True)
+    if captions_dir_path is not None:
+        captions_dir_path.mkdir(parents=True, exist_ok=True)
+
+    dirty_indexes = set()
+    transactions = {}
+    postprocess_items = []
+    with ExitStack() as publications, ExitStack() as index_writes, Progress(
         "[progress.description]{task.description}",
         SpinnerColumn(spinner_name="dots"),
         MofNCompleteColumn(separator="/"),
@@ -511,6 +682,20 @@ def extract_from_lance(
         transient=False,
     ) as progress:
         global console
+
+        def publication_for(directory):
+            if directory not in transactions:
+                transactions[directory] = publications.enter_context(CaptionFileTransaction(directory))
+                transactions[directory].watch(directory / CAPTION_INDEX_NAME)
+            return transactions[directory]
+
+        def retain_origin(source, media_target, directory):
+            publication_for(directory)
+            entries = caption_indexes[directory]
+            entries.set_origin(caption_index_key(media_target, directory), source)
+            if directory not in dirty_indexes:
+                index_writes.callback(write_caption_index, directory, entries)
+                dirty_indexes.add(directory)
 
         console = progress.console
         task = progress.add_task("[green]Extracting files...", total=ds.count_rows())
@@ -532,25 +717,18 @@ def extract_from_lance(
                 uri = Path(metadata["uris"])
                 blob = blobs[i]
 
-                media_type = None
                 suffix = uri.suffix.lower()
-                if suffix in _image_ext_set:
-                    media_type = "image"
-                elif suffix in _animation_ext_set:
-                    media_type = "animation"
-                elif suffix in _video_ext_set:
-                    media_type = "video"
-                elif suffix in _audio_ext_set:
-                    media_type = "audio"
-                elif suffix in _text_ext_set:
-                    media_type = "text"
-                elif suffix in _application_ext_set:
-                    media_type = "application"
+                media_type = _media_type_for_uri(uri)
 
-                blob_target = uri if uri.exists() else output_path / uri.name
-                if not uri.exists() and blob:
+                blob_target, caption_file_path = export_targets[str(metadata["uris"])]
+                source_missing = not uri.exists()
+                media_publication = None
+                if source_missing and blob:
                     if media_type:
+                        media_publication = publication_for(blob_target.parent.resolve())
+                        media_publication.watch(blob_target)
                         if not save_blob(blob_target, blob, metadata, media_type):
+                            media_publication.restore(blob_target)
                             progress.advance(task)
                             continue
                     else:
@@ -559,31 +737,64 @@ def extract_from_lance(
                         continue
 
                 caption = metadata.get("captions", [])
-                should_save_caption = bool(caption) and (
+                actual_caption_path = caption_targets.get(str(metadata["uris"]))
+                should_save_caption = actual_caption_path is not None and bool(caption) and (
                     allowed_caption_type_set is None or media_type in allowed_caption_type_set
                 )
                 if should_save_caption:
-                    caption_file_path = (captions_dir_path / uri.name) if captions_dir_path else (uri if uri.exists() else output_path / uri.name)
                     caption_file_path.parent.mkdir(parents=True, exist_ok=True)
-                    save_caption(
+                    directory = actual_caption_path.parent.resolve()
+                    _, json_path = _caption_output_paths(
+                        caption_file_path, caption, media_type, caption_suffix, caption_extension, protected_paths,
+                    )
+                    output_paths = [actual_caption_path] + ([json_path] if json_path is not None else [])
+                    publication = publication_for(directory)
+                    publication.watch(*output_paths)
+                    saved = save_caption(
                         str(caption_file_path),
                         caption,
                         media_type,
                         caption_suffix=caption_suffix,
                         caption_extension=caption_extension,
+                        protected_paths=protected_paths,
                     )
 
-                    if clip_with_caption and not caption_suffix and (uri.with_suffix(".srt")).exists():
-                        subs = pysrt.open(uri.with_suffix(".srt"), encoding="utf-8")
-                        try:
-                            split_video_with_imageio_ffmpeg(uri, subs, save_caption)
-                        except Exception as e:
-                            print_exception(console, e, prefix="Error splitting video")
-                            split_media_stream_clips(uri, media_type, subs, save_caption)
-                    elif clip_with_caption and not caption_suffix and (uri.with_suffix(".md")).exists():
-                        split_md_document(uri, caption, save_caption)
+                    if not saved:
+                        publication.restore(*output_paths)
+                        if media_publication is not None:
+                            media_publication.restore(blob_target)
+                        progress.advance(task)
+                        continue
+                    entries = caption_indexes[directory]
+                    key = caption_index_key(blob_target, directory)
+                    entries.set_caption(key, actual_caption_path.name)
+                    if json_path is not None:
+                        entries.claim_file(key, json_path.name)
+                    if source_missing:
+                        retain_origin(uri, blob_target, blob_target.parent.resolve())
+                        retain_origin(uri, blob_target, directory)
+                    if directory not in dirty_indexes:
+                        index_writes.callback(write_caption_index, directory, entries)
+                        dirty_indexes.add(directory)
+                    if clip_with_caption and not caption_suffix:
+                        postprocess_items.append((blob_target, actual_caption_path, media_type, caption))
 
+                if media_publication is not None:
+                    retain_origin(uri, blob_target, blob_target.parent.resolve())
                 progress.advance(task)
+
+    # Derived pages/clips must not precede the commit of their source captions.
+    for blob_target, caption_path, media_type, caption in postprocess_items:
+        if media_type in {"audio", "video"} and caption_path.suffix.lower() == ".srt" and blob_target.is_file():
+            subs = pysrt.open(caption_path, encoding="utf-8")
+            try:
+                split_video_with_imageio_ffmpeg(blob_target, subs, save_caption)
+            except Exception as e:
+                print_exception(console, e, prefix="Error splitting video")
+                split_media_stream_clips(blob_target, media_type, subs, save_caption)
+        elif caption_path.suffix.lower() == ".md":
+            split_md_document(caption_path, caption, save_caption)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Extract images and captions from a Lance dataset")

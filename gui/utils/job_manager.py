@@ -41,6 +41,7 @@ class Job:
     environment_key: str = ""
     dependency_profile: List[str] = field(default_factory=list)
     _task: Optional[asyncio.Task] = field(default=None, repr=False)
+    _cancel_requested: bool = field(default=False, repr=False)
     result: object = field(default=None)  # Optional[ProcessResult]
     finished_at: Optional[datetime] = field(default=None)
 
@@ -140,6 +141,7 @@ class JobManager:
                 **runner_kwargs,
             )
         )
+        job._task.add_done_callback(lambda task: self._finish_job(job, fwd_id, task))
         job.status = JobStatus.RUNNING
         self._notify_subscribers()
         return job
@@ -151,44 +153,43 @@ class JobManager:
         fwd_id: int,
         **runner_kwargs,
     ):
-        """内部执行函数，包裹 run_python_script，更新 Job 状态。"""
-        from gui.utils.process_runner import ProcessStatus
-
+        """内部执行函数；占用与日志订阅由完成回调统一释放。"""
         try:
-            result = await job.runner.run_python_script(
+            return await job.runner.run_python_script(
                 job.script_key, args, **runner_kwargs
             )
-            job.result = result
-            if result.status == ProcessStatus.SUCCESS:
-                job.status = JobStatus.SUCCESS
-            else:
-                job.status = JobStatus.ERROR
-            return result
-        except asyncio.CancelledError:
-            job.status = JobStatus.CANCELLED
-            raise
         except Exception as e:
             from gui.utils.process_runner import ProcessResult, ProcessStatus
-            job.result = ProcessResult(ProcessStatus.ERROR, -1, str(e))
-            job.status = JobStatus.ERROR
-            return job.result
-        finally:
-            job.finished_at = datetime.now()
-            job.log_buffer.unsubscribe(fwd_id)
-            self._notify_subscribers()
+
+            return ProcessResult(ProcessStatus.ERROR, -1, str(e))
+
+    def _finish_job(self, job: Job, fwd_id: int, task: asyncio.Task) -> None:
+        from gui.utils.process_runner import ProcessResult, ProcessStatus
+
+        # A task cancelled before its first step never enters _run_job's body.
+        if task.cancelled():
+            job.result = ProcessResult(ProcessStatus.ERROR, -1, "Task cancelled")
+            job.status = JobStatus.CANCELLED
+        else:
+            try:
+                job.result = task.result()
+            except Exception as exc:
+                job.result = ProcessResult(ProcessStatus.ERROR, -1, str(exc))
+            job.status = JobStatus.SUCCESS if job.result.status == ProcessStatus.SUCCESS else JobStatus.ERROR
+        job.finished_at = datetime.now()
+        job.log_buffer.unsubscribe(fwd_id)
+        self._notify_subscribers()
 
     def cancel(self, job_id: str) -> bool:
-        """终止指定 Job。返回是否成功找到并终止。"""
+        """请求终止指定 Job；回收完成前继续占用 tab。"""
         job = self._jobs.get(job_id)
         if job is None:
             return False
-        if job.status == JobStatus.RUNNING:
-            job.runner.terminate()
-            job.status = JobStatus.CANCELLED
-            job.finished_at = datetime.now()
-            if job._task and not job._task.done():
+        if job.status in (JobStatus.PENDING, JobStatus.RUNNING) and job._task and not job._task.done():
+            if not job._cancel_requested:
+                job._cancel_requested = True
                 job._task.cancel()
-            self._notify_subscribers()
+                self._notify_subscribers()
             return True
         return False
 

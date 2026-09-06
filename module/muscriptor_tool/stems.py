@@ -4,12 +4,14 @@ import hashlib
 import json
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Callable, Iterable, Sequence
 
+from utils.file_hash import sha256_file
 from utils.path_safety import safe_child_path, safe_leaf_name
 
 from .catalog import OFFICIAL_INSTRUMENT_NAMES
-from .manifest import atomic_write_json, read_json
+from .manifest import atomic_write_json, publish_staged_outputs, read_json
 from .options import PreviewRequest, TranscriptionOptions
 
 STEM_MIDI_OUTPUT_DIRNAME = "04_stem_midi"
@@ -148,6 +150,10 @@ def _cleanup_stem_outputs(paths: StemMidiOutputPaths) -> None:
     paths.midi.with_suffix(".preview.mp3").unlink(missing_ok=True)
 
 
+def _attempt_metadata_path(paths: StemMidiOutputPaths) -> Path:
+    return paths.metadata.with_name(paths.metadata.stem + ".last_attempt.json")
+
+
 def _default_device_resolver(requested: str) -> str:
     import torch
 
@@ -180,6 +186,7 @@ def _run_signature(
         "schema_version": STEM_MIDI_SCHEMA_VERSION,
         "source_size": stat.st_size,
         "source_mtime_ns": stat.st_mtime_ns,
+        "source_sha256": sha256_file(candidate.input_path),
         "stem_name": candidate.stem_name,
         "resolved_device": resolved_device,
         "options": options.as_dict(),
@@ -306,19 +313,14 @@ def transcribe_stem_candidates(
         summary.setup_error = f"{type(exc).__name__}: {exc}"
         for candidate, paths, options, signature in pending:
             paths.midi.parent.mkdir(parents=True, exist_ok=True)
+            metadata_path = _attempt_metadata_path(paths) if paths.midi.exists() else paths.metadata
+            payload = _metadata_payload(
+                candidate, paths, options, signature=signature, resolved_device=resolved_device,
+                preview=preview, status="failed", result=None, error=exc,
+            )
+            payload["outputs"] = {}
             atomic_write_json(
-                paths.metadata,
-                _metadata_payload(
-                    candidate,
-                    paths,
-                    options,
-                    signature=signature,
-                    resolved_device=resolved_device,
-                    preview=preview,
-                    status="failed",
-                    result=None,
-                    error=exc,
-                ),
+                metadata_path, payload,
             )
             summary.failed += 1
             summary.items.append(
@@ -326,7 +328,7 @@ def transcribe_stem_candidates(
                     candidate,
                     "failed",
                     paths.midi,
-                    paths.metadata,
+                    metadata_path,
                     str(exc),
                 )
             )
@@ -338,7 +340,14 @@ def transcribe_stem_candidates(
 
     for candidate, paths, options, signature in pending:
         paths.midi.parent.mkdir(parents=True, exist_ok=True)
-        _cleanup_stem_outputs(paths)
+        staging = TemporaryDirectory(prefix=".attempt-", dir=paths.midi.parent)
+        work_dir = Path(staging.name)
+        work_paths = StemMidiOutputPaths(
+            midi=work_dir / paths.midi.name,
+            metadata=work_dir / paths.metadata.name,
+            preview=work_dir / paths.preview.name if paths.preview is not None else None,
+        )
+        previous_outputs = paths.midi.exists()
         result = None
         error: BaseException | None = None
         status = "ok"
@@ -352,56 +361,90 @@ def transcribe_stem_candidates(
             if preview_runtime is not None:
                 transcribe_kwargs = {
                     "preview_runtime": preview_runtime,
-                    "preview_target": paths.preview,
+                    "preview_target": work_paths.preview,
                 }
             result = transcriber(
                 loaded,
                 candidate.input_path,
                 options,
-                OutputTargets(midi=paths.midi),
+                OutputTargets(midi=work_paths.midi),
                 **transcribe_kwargs,
             )
-            if not paths.midi.is_file():
+            if not work_paths.midi.is_file():
                 raise RuntimeError(f"MuScriptor did not create the requested MIDI: {paths.midi}")
-            if paths.preview is not None and not paths.preview.is_file():
+            if work_paths.preview is not None and not work_paths.preview.is_file():
                 raise RuntimeError(f"MuScriptor did not create the requested preview: {paths.preview}")
             summary.processed += 1
         except Exception as exc:
             error = exc
             partial_result = getattr(exc, "result", None)
-            if partial_result is not None and paths.midi.is_file():
+            if partial_result is not None and work_paths.midi.is_file() and not previous_outputs:
                 status = "partial"
                 result = partial_result
-                if paths.preview is not None:
-                    paths.preview.unlink(missing_ok=True)
+                if work_paths.preview is not None:
+                    work_paths.preview.unlink(missing_ok=True)
                 summary.processed += 1
                 summary.partial += 1
             else:
                 status = "failed"
-                _cleanup_stem_outputs(paths)
+                _cleanup_stem_outputs(work_paths)
                 summary.failed += 1
             if log_callback is not None:
                 log_callback(f"Failed stem MIDI for {candidate.input_path}: {type(exc).__name__}: {exc}")
-        atomic_write_json(
-            paths.metadata,
-            _metadata_payload(
-                candidate,
-                paths,
-                options,
-                signature=signature,
-                resolved_device=resolved_device,
-                preview=preview,
-                status=status,
-                result=result,
-                error=error,
-            ),
-        )
+        except BaseException:
+            staging.cleanup()
+            raise
+        metadata_path = _attempt_metadata_path(paths) if error is not None and previous_outputs else paths.metadata
+        try:
+            atomic_write_json(
+                work_dir / metadata_path.name,
+                _metadata_payload(
+                    candidate,
+                    work_paths,
+                    options,
+                    signature=signature,
+                    resolved_device=resolved_device,
+                    preview=preview,
+                    status=status,
+                    result=result,
+                    error=error,
+                ),
+            )
+            managed_names = set() if metadata_path != paths.metadata else {
+                paths.midi.name,
+                paths.midi.with_suffix(".preview.wav").name,
+                paths.midi.with_suffix(".preview.mp3").name,
+                _attempt_metadata_path(paths).name,
+            }
+            publish_staged_outputs(work_dir, paths.midi.parent,
+                                   managed_names=managed_names, metadata_name=metadata_path.name)
+        except OSError as exc:
+            if status == "ok":
+                summary.processed -= 1
+                summary.failed += 1
+            elif status == "partial":
+                summary.processed -= 1
+                summary.partial -= 1
+                summary.failed += 1
+            status = "failed"
+            error = exc
+            metadata_path = _attempt_metadata_path(paths)
+            payload = _metadata_payload(
+                candidate, work_paths, options, signature=signature, resolved_device=resolved_device,
+                preview=preview, status=status, result=None, error=error,
+            )
+            payload["outputs"] = {}
+            atomic_write_json(metadata_path, payload)
+            if log_callback is not None:
+                log_callback(f"Failed to publish stem MIDI for {candidate.input_path}: {exc}")
+        finally:
+            staging.cleanup()
         summary.items.append(
             StemMidiItemResult(
                 candidate,
                 status,
                 paths.midi,
-                paths.metadata,
+                metadata_path,
                 str(error) if error is not None else None,
             )
         )

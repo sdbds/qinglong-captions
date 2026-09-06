@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -211,13 +212,13 @@ def test_preview_preflight_failure_preserves_existing_midi(tmp_path: Path):
         device_resolver=lambda _requested: "cpu",
     )
 
-    metadata = json.loads(paths.metadata.read_text(encoding="utf-8"))
+    metadata = json.loads(summary.items[0].metadata_path.read_text(encoding="utf-8"))
     assert summary.processed == 0
     assert summary.partial == 0
     assert summary.failed == 1
     assert paths.midi.read_bytes() == b"existing-midi"
     assert metadata["status"] == "failed"
-    assert metadata["outputs"] == {"midi": paths.midi.name}
+    assert metadata["outputs"] == {}
 
 
 def test_completed_stem_midi_skips_without_loading_model(tmp_path: Path):
@@ -246,6 +247,47 @@ def test_completed_stem_midi_skips_without_loading_model(tmp_path: Path):
     assert first.processed == 1
     assert second.processed == 0
     assert second.skipped == 1
+
+
+def test_same_size_same_mtime_stem_change_reprocesses_then_skips(tmp_path: Path):
+    candidate = _candidates(tmp_path)[0]
+    options = TranscriptionOptions(device="cpu")
+    original_stat = candidate.input_path.stat()
+    calls: list[bytes] = []
+
+    def transcribe(_loaded, source_path, _options, targets):
+        source_bytes = Path(source_path).read_bytes()
+        calls.append(source_bytes)
+        targets.midi.write_bytes(source_bytes)
+        return SimpleNamespace(warnings=(), detected_instruments=("electric_bass",))
+
+    kwargs = {
+        "model_loader": lambda _options: object(),
+        "transcriber": transcribe,
+        "device_resolver": lambda _requested: "cpu",
+    }
+    first = transcribe_stem_candidates([candidate], options, **kwargs)
+    candidate.input_path.write_bytes(b"gass")
+    os.utime(
+        candidate.input_path,
+        ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+    )
+
+    second = transcribe_stem_candidates([candidate], options, **kwargs)
+    third = transcribe_stem_candidates(
+        [candidate],
+        options,
+        model_loader=lambda _options: (_ for _ in ()).throw(AssertionError("model loaded")),
+        transcriber=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transcribed")),
+        device_resolver=lambda _requested: "cpu",
+    )
+
+    paths = build_stem_midi_output_paths(candidate)
+    assert first.processed == 1
+    assert second.processed == 1
+    assert third.skipped == 1
+    assert calls == [b"bass", b"gass"]
+    assert paths.midi.read_bytes() == b"gass"
 
 
 def test_model_load_failure_marks_every_pending_stem_failed(tmp_path: Path):

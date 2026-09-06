@@ -61,7 +61,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             detrpose_weights_path=_optional_env("AUTO_RIG_DETRPOSE_WEIGHTS"),
             pose_device=_optional_env("AUTO_RIG_POSE_DEVICE"),
             prefer_pose_fa2=_env_bool("AUTO_RIG_POSE_FA2", default=True),
-            finalize=profile.terminal_delivery,
+            finalize=profile.terminal_delivery and validation_tier == "release",
         )
     except Exception as exc:
         print(

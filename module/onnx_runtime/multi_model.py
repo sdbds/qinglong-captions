@@ -9,7 +9,7 @@ from typing import Any, Callable, Mapping
 
 from .artifacts import download_onnx_artifact_set, download_repo_file_set
 from .config import OnnxRuntimeConfig
-from .session import OnnxSessionBundle, load_session_bundle
+from .session import OnnxSessionBundle, load_session_bundle, refresh_session_artifacts
 
 
 @dataclass(frozen=True)
@@ -66,38 +66,46 @@ def load_multi_model_bundle(
     if logger is not None and _supports_keyword_argument(artifact_loader, "logger"):
         artifact_kwargs["logger"] = logger
 
-    artifact_paths = {
-        name: Path(path)
-        for name, path in artifact_loader(
-            spec.repo_id,
-            dict(spec.artifacts),
-            **artifact_kwargs,
-        ).items()
-    }
-
-    support_paths: dict[str, Path] = {}
-    if spec.support_files:
-        support_kwargs = {
-            "local_dir": spec.local_dir,
-            "force_download": runtime.force_download,
-        }
-        if spec.revision is not None:
-            support_kwargs["revision"] = spec.revision
-        if logger is not None and _supports_keyword_argument(support_file_loader, "logger"):
-            support_kwargs["logger"] = logger
-        support_paths = {
+    with refresh_session_artifacts(
+        {name: Path(spec.local_dir) / filename for name, filename in spec.artifacts.items()},
+        enabled=runtime.force_download,
+    ):
+        artifact_paths = {
             name: Path(path)
-            for name, path in support_file_loader(
+            for name, path in artifact_loader(
                 spec.repo_id,
-                dict(spec.support_files),
-                **support_kwargs,
+                dict(spec.artifacts),
+                **artifact_kwargs,
             ).items()
         }
 
+        support_paths: dict[str, Path] = {}
+        if spec.support_files:
+            support_kwargs = {
+                "local_dir": spec.local_dir,
+                "force_download": runtime.force_download,
+            }
+            if spec.revision is not None:
+                support_kwargs["revision"] = spec.revision
+            if logger is not None and _supports_keyword_argument(support_file_loader, "logger"):
+                support_kwargs["logger"] = logger
+            support_paths = {
+                name: Path(path)
+                for name, path in support_file_loader(
+                    spec.repo_id,
+                    dict(spec.support_files),
+                    **support_kwargs,
+                ).items()
+            }
+
+    session_kwargs = {}
+    if spec.revision is not None and _supports_keyword_argument(session_bundle_loader, "artifact_revision"):
+        session_kwargs["artifact_revision"] = spec.revision
     session_bundle = session_bundle_loader(
         bundle_key=spec.bundle_key,
         session_paths=artifact_paths,
         runtime_config=runtime,
+        **session_kwargs,
     )
     return MultiModelOnnxBundle(
         artifact_paths=artifact_paths,

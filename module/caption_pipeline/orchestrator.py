@@ -4,8 +4,9 @@ import io
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import lance
@@ -22,12 +23,13 @@ from module.caption_pipeline.scene_alignment import align_subtitles_with_scenes,
 from module.providers.catalog import provider_segmentation_policy, route_provider_name
 from module.providers.base import CaptionResult, CaptionStatus
 from module.providers.subscription_quota import report_startup_subscription_quota
-from utils.output_writer import caption_text, write_caption_output
+from utils.output_writer import ResolvedPaths, caption_text, disambiguate_caption_bases, write_caption_output
 from utils.rich_progress import create_caption_progress
 from utils.stream_util import (
     get_video_duration,
     split_media_stream_clips,
     split_video_with_imageio_ffmpeg,
+    validate_segment_paths,
 )
 
 
@@ -38,6 +40,8 @@ class CaptionJob:
     mime: str
     duration: int
     sha256hash: str
+    caption_base: Path | None = None
+    protected_paths: ResolvedPaths = field(default_factory=ResolvedPaths)
 
 
 @dataclass
@@ -236,6 +240,15 @@ def _with_directory_name_source_uri(args, source_uri):
 
 
 def _process_segmented_media(filepath, mime, duration, sha256hash, args, config, progress, task_id, api_process_batch_fn, console):
+    with TemporaryDirectory(prefix="qinglong-segments-") as workspace:
+        return _process_segmented_media_in_workspace(
+            filepath, mime, duration, sha256hash, args, config, progress, task_id,
+            api_process_batch_fn, console, Path(workspace),
+        )
+
+
+def _process_segmented_media_in_workspace(filepath, mime, duration, sha256hash, args, config, progress, task_id,
+                                         api_process_batch_fn, console, workspace):
     console.print(f"[blue]{filepath} video > {args.segment_time} seconds[/blue]")
     console.print("[blue]split video[/blue]")
 
@@ -257,20 +270,21 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
         )
 
     try:
-        split_video_with_imageio_ffmpeg(
+        output_dir = workspace / "ffmpeg"
+        files = split_video_with_imageio_ffmpeg(
             Path(filepath),
             subs,
             save_caption_func=None,
             segment_time=args.segment_time,
+            output_dir=output_dir,
         )
+        files = validate_segment_paths(files, output_dir, num_chunks)
     except Exception as exc:
         meta_type = "video" if mime.startswith("video") else "audio"
         console.print(f"[red]Error splitting video with imageio-ffmpeg: {exc}[/red]")
-        split_media_stream_clips(Path(filepath), meta_type, subs)
-
-    pathfile = Path(filepath)
-    clip_dir = pathfile.parent / f"{pathfile.stem}_clip"
-    files = sorted(clip_dir.glob(f"*{pathfile.suffix}"))
+        output_dir = workspace / "pyav"
+        files = split_media_stream_clips(Path(filepath), meta_type, subs, output_dir=output_dir)
+        files = validate_segment_paths(files, output_dir, num_chunks)
 
     merged_subs = pysrt.SubRipFile()
     segment_outputs: list[dict] = []
@@ -349,8 +363,6 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
 
     progress.update(clip_task, completed=num_chunks, visible=False)
     if segment_outputs:
-        for file in files:
-            file.unlink(missing_ok=True)
         if structured_task_kind == "transcribe":
             return _caption_from_payload(_build_segment_transcript_payload(segment_outputs))
         if structured_task_kind == "ast":
@@ -360,9 +372,6 @@ def _process_segmented_media(filepath, mime, duration, sha256hash, args, config,
         return _caption_from_payload(_build_segment_summary_payload(segment_outputs))
 
     merged_subs.clean_indexes()
-
-    for file in files:
-        file.unlink(missing_ok=True)
 
     return CaptionResult(raw=_serialize_subtitles(merged_subs))
 
@@ -392,7 +401,12 @@ def _collect_caption_jobs(scanner) -> list[CaptionJob]:
                     sha256hash=sha256hash,
                 )
             )
-    return jobs
+    uris = [job.filepath for job in jobs]
+    if len(set(uris)) != len(uris):
+        raise ValueError("Cannot caption ambiguous duplicate source URIs")
+    protected = ResolvedPaths(uris)
+    bases = disambiguate_caption_bases({uri: Path(uri) for uri in uris})
+    return [replace(job, caption_base=bases[job.filepath], protected_paths=protected) for job in jobs]
 
 
 def _resolve_cloud_concurrency_provider(args, mime: str):
@@ -506,7 +520,10 @@ def _process_single_caption_job(
             console_obj.print(f"[yellow]Subtitle validation failed for {job.filepath}: {exc}[/yellow]")
 
     if _is_persistable_caption(output):
-        text_path, _ = write_caption_output(Path(job.filepath), output, job.mime)
+        text_path, _ = write_caption_output(
+            Path(job.filepath), output, job.mime,
+            caption_base=job.caption_base, protected_paths=job.protected_paths,
+        )
         console_obj.print(f"[green]Saved captions to {text_path}[/green]")
 
     _print_deferred_caption_timing(output, console_obj)
