@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from rich.console import Console
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -75,6 +76,9 @@ def test_openai_compatible_attempt_logs_full_traceback_on_api_error(monkeypatch)
         def __init__(self, *args, **kwargs):
             self.chat = SimpleNamespace(completions=FakeCompletions())
 
+        def close(self):
+            pass
+
     monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeClient))
 
     buffer = io.StringIO()
@@ -101,12 +105,12 @@ def test_openai_compatible_attempt_logs_full_traceback_on_api_error(monkeypatch)
     )
     prompts = PromptContext(system="system", user="describe")
 
-    result = provider.attempt(media, prompts)
+    with pytest.raises(RuntimeError, match="api boom"):
+        provider.attempt(media, prompts)
 
     output = buffer.getvalue()
-    assert result.raw == ""
     assert "API call failed" in output
-    assert "Retry failed" in output
+    assert "Retrying without JSON mode" not in output
     assert "RuntimeError: api boom" in output
     assert "Traceback" in output
 

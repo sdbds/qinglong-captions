@@ -320,42 +320,40 @@ class TestUnknownIdFallback:
 class TestStructuredProviderYielding:
     """Gemini must disable forced schema when non-default template is active."""
 
-    def _make_media(self) -> MagicMock:
-        media = MagicMock()
-        media.mime = "image/jpeg"
-        return media
-
-    def test_gemini_schema_disabled_for_danbooru_tags(self):
+    def _make_provider(self):
+        from module.providers.base import ProviderContext
         from module.providers.vision_api.gemini import GeminiProvider
 
-        provider = GeminiProvider.__new__(GeminiProvider)
+        return GeminiProvider(ProviderContext(console=MagicMock(), config=CONFIG))
+
+    def _make_media(self):
+        from module.providers.base import MediaContext, MediaModality
+
+        return MediaContext(uri="input.jpg", mime="image/jpeg", sha256hash="offline", modality=MediaModality.IMAGE)
+
+    def test_gemini_schema_disabled_for_danbooru_tags(self):
+        provider = self._make_provider()
         args = _make_args(image_prompt_template="danbooru_tags")
         config = self._make_media()
         result = provider.get_structured_output_config(config, args)
         assert result.enabled is False
 
     def test_gemini_schema_disabled_for_bbox_json(self):
-        from module.providers.vision_api.gemini import GeminiProvider
-
-        provider = GeminiProvider.__new__(GeminiProvider)
+        provider = self._make_provider()
         args = _make_args(image_prompt_template="bbox_json")
         config = self._make_media()
         result = provider.get_structured_output_config(config, args)
         assert result.enabled is False
 
     def test_gemini_schema_enabled_for_default(self):
-        from module.providers.vision_api.gemini import GeminiProvider
-
-        provider = GeminiProvider.__new__(GeminiProvider)
+        provider = self._make_provider()
         args = _make_args()
         config = self._make_media()
         result = provider.get_structured_output_config(config, args)
         assert result.enabled is True
 
     def test_gemini_schema_enabled_for_custom(self):
-        from module.providers.vision_api.gemini import GeminiProvider
-
-        provider = GeminiProvider.__new__(GeminiProvider)
+        provider = self._make_provider()
         args = _make_args(image_prompt_template="custom")
         config = self._make_media()
         result = provider.get_structured_output_config(config, args)

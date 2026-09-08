@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from utils.lance_updates import LanceRowUpdate, merge_rows_preserving_schema
+from utils.lance_utils import update_or_create_tag
+
 
 SIDECAR_CAPTION_EXTENSIONS = (".txt", ".md", ".srt")
 
@@ -75,16 +78,15 @@ def load_lance_rebuild_data(
     read_sidecar_caption_fn: Optional[Callable[[str, str], list[str]]] = None,
     caption_extension: Optional[str] = None,
 ) -> list[dict[str, Any]]:
+    if dataset is not None:
+        return _read_dataset_uri_rebuild_data(
+            dataset,
+            caption_extension=caption_extension,
+            read_sidecar_caption_fn=read_sidecar_caption_fn,
+        )
     if source_dir is not None:
-        data = load_data_fn(str(source_dir))
-        if data:
-            return data
-
-    return _read_dataset_uri_rebuild_data(
-        dataset,
-        caption_extension=caption_extension,
-        read_sidecar_caption_fn=read_sidecar_caption_fn,
-    )
+        return load_data_fn(str(source_dir))
+    return []
 
 
 def rebuild_lance_from_sidecars(
@@ -99,7 +101,7 @@ def rebuild_lance_from_sidecars(
     caption_extension: Optional[str] = None,
     read_sidecar_caption_fn: Optional[Callable[[str, str], list[str]]] = None,
 ) -> Optional[Any]:
-    if source_dir is None:
+    if source_dir is None and dataset is None:
         console.print("[yellow]Skipping Lance rebuild: source directory is unavailable.[/yellow]")
         return None
 
@@ -110,6 +112,21 @@ def rebuild_lance_from_sidecars(
         read_sidecar_caption_fn=read_sidecar_caption_fn,
         caption_extension=caption_extension,
     )
+    if dataset is not None:
+        updates = [
+            LanceRowUpdate(uri=item["file_path"], values={"captions": item["caption"]})
+            for item in data
+            if any(caption.strip() for caption in item["caption"])
+        ]
+        if updates:
+            console.print("[yellow]Updating existing Lance rows from sidecar caption files...[/yellow]")
+            merge_rows_preserving_schema(dataset, updates)
+            update_or_create_tag(dataset, tag)
+            console.print("[green]Lance captions updated without reimporting media[/green]")
+        else:
+            console.print("[yellow]No nonempty sidecar captions found; existing Lance rows were preserved.[/yellow]")
+        return dataset
+
     if not data:
         console.print("[yellow]Skipping Lance rebuild: no source media rows were found.[/yellow]")
         return None

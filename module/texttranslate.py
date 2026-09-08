@@ -263,7 +263,8 @@ def merge_translations(
     max_chars: int,
     merge_batch_size: int,
 ) -> int:
-    target_ds = lance.dataset(str(dataset_path), version=base_version)
+    # The historical base selects translation input, not the writeback snapshot.
+    target_ds = lance.dataset(str(dataset_path))
     target_schema = target_ds.schema
     include_chunk_offsets = "chunk_offsets" in target_schema.names
 

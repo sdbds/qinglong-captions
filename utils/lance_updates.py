@@ -104,7 +104,7 @@ def _read_blob_values(dataset, field: pa.Field, row_ids: list[int]) -> list[byte
                 blob_files.append(files[0] if files else None)
         return [blob_file.readall() if blob_file is not None else None for blob_file in blob_files]
     except Exception as exc:
-        raise LanceUpdateStorageError(f"Failed to read Blob v2 column {field.name!r}: {exc}") from exc
+        raise LanceUpdateStorageError(f"Failed to read blob column {field.name!r}: {exc}") from exc
 
 
 def _build_batches(
@@ -116,8 +116,12 @@ def _build_batches(
     row_ids_by_key: Mapping[str, int],
 ) -> Iterator[pa.RecordBatch]:
     schema = dataset.schema
-    blob_fields = [field for field in schema if is_blob_v2_field(field)]
-    non_blob_columns = [field.name for field in schema if not is_blob_v2_field(field)]
+    blob_fields = [
+        field for field in schema
+        if is_blob_v2_field(field) or (field.metadata or {}).get(b"lance-encoding:blob") == b"true"
+    ]
+    blob_columns = {field.name for field in blob_fields}
+    non_blob_columns = [field.name for field in schema if field.name not in blob_columns]
     key_field = schema.field(key)
 
     for update_batch in _chunks(updates, batch_size):
@@ -154,7 +158,7 @@ def _build_batches(
 
 def _is_conflict_error(exc: Exception) -> bool:
     message = str(exc).lower()
-    return "conflict" in message or ("commit" in message and "version" in message)
+    return "conflict" in message or "concurrent writer" in message or ("commit" in message and "version" in message)
 
 
 def merge_rows_preserving_schema(
@@ -179,7 +183,8 @@ def merge_rows_preserving_schema(
     )
     reader = pa.RecordBatchReader.from_batches(dataset.schema, batches)
     try:
-        result = dataset.merge_insert(on=key).when_matched_update_all().execute(reader)
+        # Retrying these full rows would replay untouched values from a stale snapshot.
+        result = dataset.merge_insert(on=key).when_matched_update_all().conflict_retries(0).execute(reader)
     except LanceUpdateError:
         raise
     except Exception as exc:

@@ -13,10 +13,10 @@ from rich.text import Text
 from rich_pixels import Pixels
 
 from module.providers.base import CaptionResult, MediaContext, PromptContext
-from module.providers.image_template import active_image_template
+from module.providers.image_template import configured_image_template_id, image_template_output
 from module.providers.registry import register_provider
+from module.providers.resolver import PromptResolver
 from module.providers.vision_api_base import StructuredOutputConfig, VisionAPIProvider
-from utils.console_util import print_exception
 from utils.parse_display import (
     display_caption_and_rate,
     display_pair_image_description,
@@ -106,6 +106,7 @@ def attempt_gemini(
     pair_pixels: Optional[Pixels] = None,
     pair_blob_list: Optional[List[str]] = None,
     gemini_task: str = "",
+    output_contract: str = "json",
 ) -> str:
     """Single-attempt Gemini request.
 
@@ -178,16 +179,10 @@ def attempt_gemini(
         console.print(Text(response_text))
 
     if mime.startswith("image"):
-        if isinstance(response_text, str) and not gemini_task:
-            try:
-                captions = json.loads(response_text)
-            except json.JSONDecodeError as e:
-                print_exception(console, e, prefix="Error decoding JSON")
-                if "Expecting value: line 1 column 1 (char 0)" in str(e):
-                    console.print("[red]Image was filtered, skipping[/red]")
-                    return ""
-                else:
-                    raise e
+        if not response_text:
+            return ""
+        if output_contract == "json" and not gemini_task:
+            captions = json.loads(response_text)
         else:
             captions = response_text
 
@@ -252,10 +247,13 @@ class GeminiProvider(VisionAPIProvider):
             return StructuredOutputConfig(enabled=False)
 
         # Non-default image prompt template: let model follow template freely
-        if active_image_template(args):
+        pair_mode = PromptResolver._is_pair_mode(args, media)
+        if configured_image_template_id(
+            self.ctx.config.get("prompts", {}), args, pair_mode=pair_mode,
+        ):
             return StructuredOutputConfig(enabled=False)
 
-        if getattr(args, "pair_dir", ""):
+        if pair_mode:
             schema = self._build_pair_image_schema()
         else:
             schema = self._build_rating_schema()
@@ -273,12 +271,22 @@ class GeminiProvider(VisionAPIProvider):
 
         # 获取 generation config
         generation_config = self._get_generation_config()
+        if media.mime.startswith("image") and not getattr(self.ctx.args, "gemini_task", ""):
+            template_id = configured_image_template_id(
+                self.ctx.config.get("prompts", {}), self.ctx.args,
+                pair_mode=PromptResolver._is_pair_mode(self.ctx.args, media),
+            )
+            template_output = image_template_output(self.ctx.config.get("prompts", {}), template_id)
+            if template_output:
+                generation_config = dict(generation_config)
+                generation_config["response_mime_type"] = "application/json" if template_output == "json" else "text/plain"
 
         # 获取结构化输出配置
         struct_config = self.get_structured_output_config(media, self.ctx.args)
 
         # 构建 GenAI Config
         genai_config = self._build_genai_config(prompts, generation_config, struct_config, model_path)
+        output_contract = "json" if genai_config.response_mime_type == "application/json" else "text"
 
         # 准备 pair extras
         pair_blob_list = media.pair_extras if media.pair_extras else None
@@ -314,13 +322,16 @@ class GeminiProvider(VisionAPIProvider):
             pair_pixels=media.pair_pixels,
             pair_blob_list=pair_blob_list,
             gemini_task=getattr(self.ctx.args, "gemini_task", ""),
+            output_contract=output_contract,
         )
 
-        # 解析 JSON 如果启用了结构化输出
+        # Only JSON objects belong in the structured caption payload.
         parsed = None
-        if struct_config.enabled:
+        if output_contract == "json" and media.mime.startswith("image") and not getattr(self.ctx.args, "gemini_task", ""):
             try:
-                parsed = json.loads(result)
+                payload = json.loads(result)
+                if isinstance(payload, dict):
+                    parsed = payload
             except json.JSONDecodeError:
                 pass
 

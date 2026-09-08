@@ -23,6 +23,25 @@ from module.providers.registry import register_provider
 from utils.console_util import print_exception
 
 
+def _is_json_mode_unsupported(error: Exception) -> bool:
+    """Only explicit request-format incompatibilities justify a plaintext fallback."""
+    if getattr(error, "status_code", None) not in (400, 422):
+        return False
+    details = getattr(error, "body", None)
+    if isinstance(details, dict):
+        details = details.get("error", details)
+    if isinstance(details, dict):
+        message = " ".join(str(details.get(key) or "") for key in ("message", "param", "code")).lower()
+    else:
+        message = str(error).lower()
+    return any(name in message for name in ("response_format", "json_object")) and any(
+        marker in message for marker in (
+            "unsupported", "not supported", "does not support", "not support",
+            "unknown parameter", "unrecognized", "not allowed",
+        )
+    )
+
+
 @register_provider("openai_compatible")
 class OpenAICompatibleProvider(CloudVLMProvider):
     """通用 OpenAI 兼容 Provider
@@ -61,9 +80,6 @@ class OpenAICompatibleProvider(CloudVLMProvider):
             self.log("openai_base_url is not configured", "red")
             return CaptionResult(raw="")
 
-        # 创建客户端
-        client = OpenAI(api_key=api_key, base_url=base_url)
-
         # 构建消息
         messages = self._build_messages(media, prompts)
 
@@ -74,39 +90,30 @@ class OpenAICompatibleProvider(CloudVLMProvider):
         # 检查是否支持 JSON 模式
         use_json_mode = getattr(self.ctx.args, "openai_json_mode", True)
 
+        request_params = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if use_json_mode:
+            request_params["response_format"] = {"type": "json_object"}
+
+        # Provider.execute owns transport retries; the SDK must not multiply them.
+        client = OpenAI(api_key=api_key, base_url=base_url, max_retries=0)
         try:
-            # 构建请求参数
-            request_params = {
-                "model": model_name,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            }
-            
-            # 添加 JSON 响应格式（如果支持）
-            if use_json_mode:
-                request_params["response_format"] = {"type": "json_object"}
-            
-            # 发送请求
-            completion = client.chat.completions.create(**request_params)
-            
-            # 提取结果
-            result = completion.choices[0].message.content or ""
-            
-        except Exception as e:
-            print_exception(self.ctx.console, e, prefix="API call failed")
-            # 如果 JSON 模式失败，尝试不用 JSON 模式重试
-            if use_json_mode and "response_format" in request_params:
+            try:
+                completion = client.chat.completions.create(**request_params)
+            except Exception as e:
+                print_exception(self.ctx.console, e, prefix="API call failed")
+                if not use_json_mode or not _is_json_mode_unsupported(e):
+                    raise
                 self.log("Retrying without JSON mode...", "yellow")
-                try:
-                    del request_params["response_format"]
-                    completion = client.chat.completions.create(**request_params)
-                    result = completion.choices[0].message.content or ""
-                except Exception as e2:
-                    print_exception(self.ctx.console, e2, prefix="Retry failed")
-                    return CaptionResult(raw="")
-            else:
-                return CaptionResult(raw="")
+                del request_params["response_format"]
+                completion = client.chat.completions.create(**request_params)
+            result = completion.choices[0].message.content or ""
+        finally:
+            client.close()
 
         # 解析 JSON 结果
         parsed = self._parse_result(result)

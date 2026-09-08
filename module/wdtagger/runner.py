@@ -148,22 +148,16 @@ def main(args, *, load_model_and_tags_fn=load_model_and_tags) -> None:
                     )
                     found_tags = assemble_final_tags(tags_result, args, parent_to_child_map, tag_freq)
 
-                    output_path = Path(path).with_suffix(args.caption_extension)
-                    if args.append_tags and output_path.exists():
-                        with output_path.open("r", encoding="utf-8") as f:
-                            existing_tags = f.read().strip()
-                            found_tags = existing_tags.split(args.caption_separator) + found_tags
-
-                    results.append((path, found_tags))
-                    if len(results) >= merge_batch_size:
-                        flush_merge_insert()
-
-                    write_sidecar_caption(
+                    found_tags = write_sidecar_caption(
                         path,
                         found_tags,
                         caption_extension=args.caption_extension,
                         caption_separator=args.caption_separator,
+                        append=args.append_tags,
                     )
+                    results.append((path, found_tags))
+                    if len(results) >= merge_batch_size:
+                        flush_merge_insert()
 
                     categorized = assemble_tags_json(
                         tags_result,

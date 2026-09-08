@@ -93,9 +93,10 @@ def load_and_preprocess_batch(uris):
 
     # 过滤掉加载失败的图像
     valid_images = [(i, img) for i, img in enumerate(batch_images) if img is not None]
+    valid_uris = [uris[i] for i, _ in valid_images]
     images = [img for _, img in valid_images]
 
-    return images
+    return valid_uris, images
 
 
 def process_batch(images, session, input_name):
@@ -229,7 +230,7 @@ def main(args):
             uris = batch["uris"].to_pylist()  # 获取文件路径
 
             # 使用并行处理加载和预处理图像
-            batch_images = load_and_preprocess_batch(uris)
+            valid_uris, batch_images = load_and_preprocess_batch(uris)
 
             if not batch_images:
                 progress.update(task, advance=len(uris))
@@ -239,7 +240,12 @@ def main(args):
             probs = process_batch(batch_images, ort_sess, input_name)
             # 创建对应的目标文件夹（如果不存在）
             if probs is not None:
-                for path, prob in zip(uris, probs):
+                if len(valid_uris) != len(probs):
+                    raise ValueError(
+                        "Watermark inference returned "
+                        f"valid URI count {len(valid_uris)} but probability row count {len(probs)}"
+                    )
+                for path, prob in zip(valid_uris, probs):
                     # 获取水印检测结果
                     watermark_prob = prob[1]  # 索引1对应"Watermark"标签
 

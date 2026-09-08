@@ -209,6 +209,10 @@ class CaptionResult:
         """Whether the result carries semantic caption content."""
         if self.parsed is None:
             return bool(str(self.raw).strip())
+        # The BBOX JSON contract stores its caption separately from geometry/style metadata.
+        bbox_description = self.parsed.get("high_level_description")
+        if isinstance(bbox_description, str) and bbox_description.strip():
+            return True
         content_fields = (
             "description",
             "long_description",

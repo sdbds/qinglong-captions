@@ -158,7 +158,7 @@ def _configure_runner(monkeypatch, tmp_path, *, uris, valid_uris, images, probab
     monkeypatch.setattr(
         runner,
         "write_sidecar_caption",
-        lambda path, tags, **_kwargs: sidecar_calls.append((path, tags)),
+        lambda path, tags, **_kwargs: sidecar_calls.append((path, tags)) or tags,
     )
     monkeypatch.setattr(runner, "write_tags_json", lambda _path, records: json_calls.append(records))
     monkeypatch.setattr(runner, "merge_caption_updates", lambda _dataset, updates: lance_calls.extend(updates))
