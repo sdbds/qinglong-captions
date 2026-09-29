@@ -15,7 +15,7 @@ def make_provider_args(**kwargs):
         "kimi_api_key": "",
         "mimo_api_key": "",
         "mimo_base_url": "https://token-plan-sgp.xiaomimimo.com/v1",
-        "mimo_model_path": "mimo-v2.5",
+        "mimo_model_path": "mimo-v2.6-flash",
         "mistral_api_key": "",
         "pixtral_api_key": "",
         "gemini_api_key": "",

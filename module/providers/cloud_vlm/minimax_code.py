@@ -1,7 +1,7 @@
 """MiniMax Code Provider
 
 MiniMax Code 专用 Provider - 针对代码理解和结构化输出优化
-基于 MiniMax M2.7 系列的强大编程能力
+基于 MiniMax M3 系列的多模态编程能力
 
 特性:
 - 专为代码分析和理解优化
@@ -28,6 +28,8 @@ from module.providers.cloud_vlm_base import CloudVLMProvider
 from module.providers.registry import register_provider
 from module.providers.utils import build_vision_messages
 from utils.console_util import print_exception
+
+MINIMAX_M31_PREVIEW_MODEL = "MiniMax-M3.1-Flash-Preview"
 
 
 def _load_tags_from_json(uri: str, progress: Optional[Progress] = None) -> list[str]:
@@ -125,7 +127,7 @@ def attempt_minimax_code(
 
     Args:
         client: OpenAI 客户端实例
-        model_path: 模型名称 (推荐 MiniMax-M2 或 MiniMax-M2.1)
+        model_path: 模型名称（推荐支持多模态输入的 MiniMax-M3 系列）
         messages: 消息列表
         console: Rich Console
         progress: 进度条（可选）
@@ -150,10 +152,13 @@ def attempt_minimax_code(
 
     start_time = time.time()
 
+    if model_path.strip().casefold() == MINIMAX_M31_PREVIEW_MODEL.casefold():
+        reasoning_split = True
+
     # 构建请求参数 - MiniMax Code 默认启用 reasoning_split
     extra_body = {"reasoning_split": reasoning_split}
 
-    # 对于 M2/M2.1 模型，可以使用较低的 temperature 获得更确定的输出
+    # 结构化字幕使用较低的 temperature，以获得更确定的输出
     temperature = 0.3 if reasoning_split else 0.7
 
     completion = client.chat.completions.create(
@@ -271,7 +276,7 @@ class MiniMaxCodeProvider(CloudVLMProvider):
     针对代码理解和结构化输出优化的 MiniMax Provider
     特点:
     - 默认启用 reasoning_split 分离推理过程
-    - 针对 M2/M2.1 模型优化
+    - 针对支持多模态输入的 M3 系列优化
     - 更强的 JSON 结构化输出能力
     - 支持 tags 高亮显示
 
@@ -295,8 +300,8 @@ class MiniMaxCodeProvider(CloudVLMProvider):
         # 获取配置
         api_key = self.ctx.args.minimax_code_api_key
         base_url = getattr(self.ctx.args, "minimax_code_base_url", "https://api.minimax.io/v1")
-        # 默认使用 M2.7 模型，专为代码和 Agent 工作流优化
-        model_path = getattr(self.ctx.args, "minimax_code_model_path", "MiniMax-M2.7")
+        # 默认使用支持多模态输入的 M3 模型
+        model_path = getattr(self.ctx.args, "minimax_code_model_path", "MiniMax-M3")
 
         client = OpenAI(api_key=api_key, base_url=base_url)
 

@@ -11,6 +11,18 @@ max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
 
+[generation_config.gemini-3_8-flash]
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+thinking_level = "medium"
+
+[generation_config.gemini-3_7-flash]
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+thinking_level = "medium"
+
 [generation_config.gemini-3_6-flash]
 max_output_tokens = 65536
 response_modalities = ["text"]

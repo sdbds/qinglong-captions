@@ -129,8 +129,8 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mimo_model_path",
         type=str,
-        default="mimo-v2.5",
-        help="Model name for MiMo (default: mimo-v2.5)",
+        default="mimo-v2.6-flash",
+        help="Model name for MiMo (default: mimo-v2.6-flash)",
     )
     parser.add_argument(
         "--mimo_base_url",
@@ -149,8 +149,8 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--minimax_model_path",
         type=str,
-        default="MiniMax-M2.7",
-        help="Model name for MiniMax API (default: MiniMax-M2.7)",
+        default="MiniMax-M3",
+        help="Model name for MiniMax API (default: MiniMax-M3)",
     )
     parser.add_argument(
         "--minimax_api_base_url",
@@ -169,8 +169,8 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--minimax_code_model_path",
         type=str,
-        default="MiniMax-M2.7",
-        help="Model name for MiniMax Code API (default: MiniMax-M2.7, optimized for coding and structured output)",
+        default="MiniMax-M3",
+        help="Model name for MiniMax Code API (default: MiniMax-M3, optimized for coding and structured output)",
     )
     parser.add_argument(
         "--minimax_code_base_url",

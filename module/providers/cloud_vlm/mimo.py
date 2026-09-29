@@ -27,7 +27,7 @@ from module.providers.utils import build_vision_messages
 from utils.console_util import print_exception
 
 MIMO_DEFAULT_BASE_URL = "https://token-plan-sgp.xiaomimimo.com/v1"
-MIMO_DEFAULT_MODEL = "mimo-v2.5"
+MIMO_DEFAULT_MODEL = "mimo-v2.6-flash"
 MIMO_BASE64_VIDEO_LIMIT_BYTES = 50 * 1024 * 1024
 MIMO_RECOMMENDED_TEMPERATURE = 1.0
 MIMO_HIGH_RISK_REJECTION_TEXT = "The request was rejected because it was considered high risk"

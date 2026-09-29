@@ -120,6 +120,8 @@ class CaptionStep:
         "Gemini": {
             "key_name": "gemini_api_key",
             "models": [
+                "gemini-3.8-flash",
+                "gemini-3.7-flash",
                 "gemini-3.6-flash",
                 "gemini-3.5-flash-lite",
                 "gemini-3.1-pro-preview",
@@ -151,6 +153,7 @@ class CaptionStep:
         "Step": {
             "key_name": "step_api_key",
             "models": [
+                "step-5-preview",
                 "step-3.7-flash",
                 "step-3",
                 "step-r1-v-mini",
@@ -164,6 +167,10 @@ class CaptionStep:
         "Qwen": {
             "key_name": "qwenVL_api_key",
             "models": [
+                "qwen3.8-omni-flash",
+                "qwen3.8-max",
+                "qwen3.8-max-0902",
+                "qwen3.8-flash",
                 "qwen3.7-plus",
                 "qwen3.7-flash",
                 "qwen3.7-max-2026-06-08",
@@ -187,7 +194,6 @@ class CaptionStep:
                 "kimi-k2.7-code",
                 "kimi-k2.7-code-highspeed",
                 "kimi-k2.6",
-                "kimi-k2.5",
             ],
             "default_model": DEFAULT_KIMI_MODEL_ID,
             "supports_video": True,
@@ -208,43 +214,39 @@ class CaptionStep:
         "MiMo": {
             "key_name": "mimo_api_key",
             "models": [
+                "mimo-v2.6-flash",
+                "mimo-v2.6-pro",
+                "mimo-v2.6-pro-ultraspeed",
                 "mimo-v2.5",
             ],
-            "default_model": "mimo-v2.5",
+            "default_model": "mimo-v2.6-flash",
             "supports_video": True,
             "supports_task": False,
         },
         "MiniMax": {
             "key_name": "minimax_api_key",
             "models": [
-                "MiniMax-M2.7",
-                "MiniMax-M2.7-highspeed",
-                "MiniMax-M2.5",
-                "MiniMax-M2.5-highspeed",
-                "MiniMax-M2.1",
-                "MiniMax-M2.1-highspeed",
-                "MiniMax-M2",
+                "MiniMax-M3",
             ],
-            "default_model": "MiniMax-M2.7",
+            "default_model": "MiniMax-M3",
             "supports_video": True,
             "supports_task": False,
         },
         "MiniMax-Code": {
             "key_name": "minimax_code_api_key",
             "models": [
-                "MiniMax-M2.7",
-                "MiniMax-M2.7-highspeed",
-                "MiniMax-M2.5",
-                "MiniMax-M2.5-highspeed",
-                "MiniMax-M2.1",
+                "MiniMax-M3.1-Flash-Preview",
+                "MiniMax-M3",
             ],
-            "default_model": "MiniMax-M2.7",
+            "default_model": "MiniMax-M3",
             "supports_video": True,
             "supports_task": False,
         },
         "GLM": {
             "key_name": "glm_api_key",
             "models": [
+                "glm-5.3-flashx",
+                "glm-5.3-flash",
                 "glm-5v-turbo",
                 "glm-4.6v",
                 "glm-4.6v-flash",
@@ -258,6 +260,8 @@ class CaptionStep:
         "Ark": {
             "key_name": "ark_api_key",
             "models": [
+                "doubao-seed-2-1-pro-260915",
+                "doubao-seed-2-1-lite-260915",
                 "doubao-seed-2-0-pro-260215",
                 "doubao-seed-2-0-lite-260428",
                 "doubao-seed-2-0-mini-260428",

@@ -618,7 +618,6 @@ def test_caption_step_lists_current_kimi_and_kimi_code_models():
         "kimi-k2.7-code",
         "kimi-k2.7-code-highspeed",
         "kimi-k2.6",
-        "kimi-k2.5",
     ]
     assert CaptionStep.API_CONFIGS["Kimi"]["default_model"] == "kimi-k3"
     assert CaptionStep.API_CONFIGS["Kimi-Code"]["models"] == [
