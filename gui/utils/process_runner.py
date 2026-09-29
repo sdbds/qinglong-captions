@@ -65,6 +65,8 @@ _UV_TORCH_EXTRAS = frozenset(
         "translate",
         "wdtagger",
         "wdtagger-cl-tagger-v2",
+        "wdtagger-pixai",
+        "pixai-onnx-export",
         "reward-model",
         "moondream",
         "olmocr",
@@ -99,6 +101,8 @@ _UV_TORCHVISION_EXTRAS = frozenset(
         "translate",
         "wdtagger",
         "wdtagger-cl-tagger-v2",
+        "wdtagger-pixai",
+        "pixai-onnx-export",
         "reward-model",
         "olmocr",
         "deepseek-ocr",
@@ -526,6 +530,8 @@ class ProcessRunner:
         if script_key != "utils.wdtagger":
             return default_extra
         repo_id = cls._parse_repo_id_arg(args)
+        if repo_id in {"bdsqlsz/pixai-tagger-v1.0-ONNX", "pixai-labs/pixai-tagger-v1.0"}:
+            return "wdtagger-pixai"
         if repo_id in {"cella110n/cl_tagger_v2", "celstk/cl-SigLIP2-lora-onnx"}:
             return "wdtagger-cl-tagger-v2"
         return default_extra

@@ -10,6 +10,8 @@ from nicegui import ui
 
 from gui.theme import COLORS, get_classes
 from gui.utils.i18n import t
+from module.wdtagger.pixai import PIXAI_REPO_ID, PIXAI_THRESHOLDS, is_pixai_repo
+from utils.wdtagger_siglip2 import default_cl_tagger_v2_threshold, is_cl_tagger_v2_repo
 
 
 class TaggerStep:
@@ -19,6 +21,7 @@ class TaggerStep:
     DEFAULT_CL_TAGGER_V2_VERSION = "v2_01a"
     DEFAULT_CL_TAGGER_V2_THRESHOLD = 0.55
     DEFAULT_MODELS = [
+        PIXAI_REPO_ID,
         "cella110n/cl_tagger",
         "cella110n/cl_tagger_v2",
         "SmilingWolf/wd-eva02-large-tagger-v3",
@@ -34,6 +37,7 @@ class TaggerStep:
             "thresh": self.DEFAULT_CL_TAGGER_V2_THRESHOLD,
             "general_threshold": self.DEFAULT_CL_TAGGER_V2_THRESHOLD,
             "character_threshold": self.DEFAULT_CL_TAGGER_V2_THRESHOLD,
+            "use_model_thresholds": True,
             "remove_underscore": True,
             "frequency_tags": False,
             "use_rating_tags": True,
@@ -43,7 +47,33 @@ class TaggerStep:
             "remove_parents_tag": True,
             "overwrite": True,
         }
+        self.config.update({f"{category}_threshold": value for category, value in PIXAI_THRESHOLDS.items()
+                            if category not in ("general", "character")})
+        self.parameter_sliders = {}
         self.panel: ExecutionPanel = None
+
+    def _on_model_change(self, repo_id):
+        if is_pixai_repo(repo_id):
+            values = {f"{category}_threshold": value for category, value in PIXAI_THRESHOLDS.items()}
+            values.update(batch_size=1, thresh=PIXAI_THRESHOLDS["general"])
+        else:
+            threshold = default_cl_tagger_v2_threshold(self.config["cl_tagger_v2_version"]) if is_cl_tagger_v2_repo(repo_id) else 0.35
+            values = dict(batch_size=12, thresh=threshold, general_threshold=threshold, character_threshold=threshold)
+        self.config.update(values)
+        for key, value in values.items():
+            if key in self.parameter_sliders:
+                self.parameter_sliders[key].update_config(new_value=value)
+        self._update_threshold_visibility(repo_id)
+
+    def _update_threshold_visibility(self, repo_id=None):
+        if repo_id is None:
+            repo_id = self.repo_id.value
+        pixai = is_pixai_repo(repo_id)
+        manual = not self.config["use_model_thresholds"]
+        if hasattr(self, "general_threshold_row"):
+            self.general_threshold_row.set_visibility(not pixai or manual)
+        if hasattr(self, "pixai_threshold_row"):
+            self.pixai_threshold_row.set_visibility(pixai and manual)
 
     def render(self):
         """渲染页面"""
@@ -76,6 +106,7 @@ class TaggerStep:
                             icon="model_training",
                             icon_color=COLORS["primary"],
                             new_value_mode="add-unique",
+                            on_change=self._on_model_change,
                         )
 
                         self.cl_tagger_v2_version = styled_select(
@@ -119,7 +150,7 @@ class TaggerStep:
 
                         # 使用可编辑滑块替代数字输入
                         with ui.row().classes("w-full gap-4"):
-                            editable_slider(
+                            self.parameter_sliders["batch_size"] = editable_slider(
                                 label_key="batch_size",
                                 value_ref=self.config,
                                 value_key="batch_size",
@@ -129,36 +160,49 @@ class TaggerStep:
                                 decimals=0,
                             )
 
-                            editable_slider(
-                                label_key="thresh",
-                                value_ref=self.config,
-                                value_key="thresh",
-                                min_val=0.0,
-                                max_val=1.0,
-                                step=0.05,
-                                decimals=2,
-                            )
+                            with ui.column().style("flex: 1; min-width: 140px;").bind_visibility_from(
+                                self.repo_id, "value", backward=lambda value: not is_pixai_repo(value)
+                            ):
+                                self.parameter_sliders["thresh"] = editable_slider(
+                                    label_key="thresh", value_ref=self.config, value_key="thresh",
+                                    min_val=0.0, max_val=1.0, step=0.01, decimals=2,
+                                )
 
-                        with ui.row().classes("w-full gap-4 q-mt-md"):
-                            editable_slider(
+                        with ui.row().classes("w-full q-mt-md").bind_visibility_from(
+                            self.repo_id, "value", backward=is_pixai_repo
+                        ):
+                            toggle_switch("use_model_thresholds", self.config, "use_model_thresholds",
+                                          on_change=lambda _value: self._update_threshold_visibility())
+
+                        with ui.row().classes("w-full gap-4 q-mt-md") as self.general_threshold_row:
+                            self.parameter_sliders["general_threshold"] = editable_slider(
                                 label_key="general_threshold",
                                 value_ref=self.config,
                                 value_key="general_threshold",
                                 min_val=0.0,
                                 max_val=1.0,
-                                step=0.05,
+                                step=0.01,
                                 decimals=2,
                             )
 
-                            editable_slider(
+                            self.parameter_sliders["character_threshold"] = editable_slider(
                                 label_key="character_threshold",
                                 value_ref=self.config,
                                 value_key="character_threshold",
                                 min_val=0.0,
                                 max_val=1.0,
-                                step=0.05,
+                                step=0.01,
                                 decimals=2,
                             )
+
+                        with ui.row().classes("w-full gap-4 q-mt-md") as self.pixai_threshold_row:
+                            for category in ("style", "copyright", "meta", "rating"):
+                                key = f"{category}_threshold"
+                                self.parameter_sliders[key] = editable_slider(
+                                    label_key=key, value_ref=self.config, value_key=key,
+                                    min_val=0.0, max_val=1.0, step=0.01, decimals=2,
+                                )
+                        self._update_threshold_visibility()
 
                         # 功能开关 - 使用按钮式开关
                         with ui.card().classes(get_classes("card") + " w-full q-pa-md q-mt-md"):
@@ -223,9 +267,14 @@ class TaggerStep:
             args.append(f"--cl_tagger_v2_version={cl_tagger_v2_version}")
         args.append(f"--model_dir={model_dir}")
         args.append(f"--batch_size={batch_size}")
-        args.append(f"--thresh={thresh}")
-        args.append(f"--general_threshold={general_threshold}")
-        args.append(f"--character_threshold={character_threshold}")
+        if is_pixai_repo(repo_id):
+            if not self.config["use_model_thresholds"]:
+                for category in PIXAI_THRESHOLDS:
+                    args.append(f"--{category}_threshold={self.config[f'{category}_threshold']}")
+        else:
+            args.append(f"--thresh={thresh}")
+            args.append(f"--general_threshold={general_threshold}")
+            args.append(f"--character_threshold={character_threshold}")
         args.append("--caption_extension=.txt")
 
         # 功能开关

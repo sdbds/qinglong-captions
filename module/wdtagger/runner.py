@@ -27,7 +27,8 @@ from module.wdtagger.lance_io import (
 )
 from module.wdtagger.model_loader import load_model_and_tags
 from module.wdtagger.outputs import write_sidecar_caption, write_tags_json
-from module.wdtagger.preprocess import load_and_preprocess_batch, load_siglip2_rgb_batch, process_batch
+from module.wdtagger.pixai import is_pixai_repo, resolve_pixai_thresholds
+from module.wdtagger.preprocess import load_and_preprocess_batch, load_pil_batch, load_siglip2_rgb_batch, process_batch
 from module.wdtagger.tag_assembly import assemble_final_tags, assemble_tags_json, get_tags_official, process_tags
 from utils.console_util import print_exception
 from utils.tag_highlighting import get_tag_classifier
@@ -110,7 +111,9 @@ def main(args, *, load_model_and_tags_fn=load_model_and_tags) -> None:
         for batch in scan_wdtagger_candidate_batches(dataset, args):
             uris = batch["uris"].to_pylist()
 
-            if is_cl_tagger_v2_repo(args.repo_id):
+            if is_pixai_repo(args.repo_id):
+                valid_uris, batch_images = load_pil_batch(uris, preserve_alpha=True)
+            elif is_cl_tagger_v2_repo(args.repo_id):
                 valid_uris, batch_images = load_siglip2_rgb_batch(uris)
             else:
                 is_cl_tagger = args.repo_id.startswith("cella110n/cl_tagger")
@@ -127,8 +130,11 @@ def main(args, *, load_model_and_tags_fn=load_model_and_tags) -> None:
                 continue
 
             probs = process_batch(batch_images, ort_sess, input_name)
-            general_confidence = args.general_threshold or args.thresh
-            character_confidence = args.character_threshold or args.thresh
+            general_confidence = args.general_threshold if args.general_threshold is not None else args.thresh
+            character_confidence = args.character_threshold if args.character_threshold is not None else args.thresh
+            tag_options = {}
+            if is_pixai_repo(args.repo_id):
+                tag_options["category_thresholds"] = resolve_pixai_thresholds(args, input_name)
             if probs is not None:
                 if len(valid_uris) != len(probs):
                     raise ValueError(
@@ -145,6 +151,7 @@ def main(args, *, load_model_and_tags_fn=load_model_and_tags) -> None:
                         args.use_quality_tags,
                         args.use_model_tags,
                         processed_names,
+                        **tag_options,
                     )
                     found_tags = assemble_final_tags(tags_result, args, parent_to_child_map, tag_freq)
 

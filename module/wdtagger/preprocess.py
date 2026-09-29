@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 
 from module.wdtagger import constants
+from module.wdtagger.pixai import PixaiInferenceContext, process_pixai_batch
 from utils.console_util import print_exception
 from utils.wdtagger_siglip2 import Siglip2InferenceContext, process_siglip2_batch
 
@@ -91,10 +92,14 @@ def load_and_preprocess_batch(uris, is_cl_tagger=False):
 
 
 def load_siglip2_rgb_batch(uris):
+    return load_pil_batch(uris)
+
+
+def load_pil_batch(uris, *, preserve_alpha=False):
     def load_single_image(uri):
         try:
             with Image.open(uri) as image:
-                return str(uri), image.convert("RGB")
+                return str(uri), image.copy() if preserve_alpha else image.convert("RGB")
         except Exception as e:
             print_exception(constants.console, e, prefix=f"Error processing {uri}")
             return None
@@ -107,6 +112,8 @@ def load_siglip2_rgb_batch(uris):
 
 
 def process_batch(images, session, input_name):
+    if isinstance(input_name, PixaiInferenceContext):
+        return process_pixai_batch(images, session, input_name)
     try:
         if isinstance(input_name, Siglip2InferenceContext):
             return process_siglip2_batch(images, session, input_name)

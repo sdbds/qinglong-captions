@@ -7,6 +7,7 @@ from huggingface_hub import hf_hub_download
 
 from module.onnx_runtime import OnnxModelSpec, load_single_model_bundle, resolve_tool_runtime_config
 from module.wdtagger import constants
+from module.wdtagger.pixai import is_pixai_repo, load_pixai_bundle
 from module.wdtagger.taxonomy import (
     LabelData,
     load_cl_tagger_label_data,
@@ -100,7 +101,14 @@ def load_model_and_tags(
         cli_override={"force_download": args.force_download},
     )
 
-    if is_cl_tagger_v2_repo(args.repo_id):
+    if is_pixai_repo(args.repo_id):
+        bundle = load_pixai_bundle(repo_id=args.repo_id, model_dir=args.model_dir, runtime_config=runtime_config, logger=constants.console.print)
+        label_data = bundle.label_data
+        total_tags = len(label_data.names)
+        ort_sess = bundle.session
+        input_name = bundle.inference_context
+        constants.console.print(f"[blue]Providers: {bundle.providers}[/blue]")
+    elif is_cl_tagger_v2_repo(args.repo_id):
         bundle = load_cl_tagger_v2_bundle_fn(
             repo_id=args.repo_id,
             model_dir=args.model_dir,

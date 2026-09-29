@@ -8,6 +8,9 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Mapping
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import torch
 import yaml
 from einops import pack, rearrange, repeat, unpack
@@ -146,6 +149,12 @@ def build_roformer_arg_parser() -> argparse.ArgumentParser:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     raw_args = list(sys.argv[1:] if argv is None else argv)
+    if raw_args and raw_args[0] == "pixai-tagger":
+        from utils.onnx_export_pixai import build_pixai_arg_parser
+
+        args = build_pixai_arg_parser().parse_args(raw_args[1:])
+        args.target = "pixai-tagger"
+        return args
     target = TARGET_ROFORMER
     if raw_args and raw_args[0] == TARGET_ROFORMER:
         target = raw_args.pop(0)
@@ -779,6 +788,10 @@ def run_roformer_export(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.target == "pixai-tagger":
+        from utils.onnx_export_pixai import run_pixai_export
+
+        return run_pixai_export(args)
     return run_roformer_export(args)
 
 

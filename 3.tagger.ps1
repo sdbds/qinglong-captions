@@ -9,10 +9,14 @@ $Config = @{
     repo_id            = "cella110n/cl_tagger_v2"                    # Model repo ID from Hugging Face
     cl_tagger_v2_version = "v2_01a"                                   # cl_tagger v2 model version
     model_dir          = "wd14_tagger_model"                         # Local model folder path | 本地模型文件夹路径
-    batch_size         = 12                                          # Batch size for inference
-    thresh             = 0.55                                        # Concept threshold
-    general_threshold  = 0.55                                        # General threshold
-    character_threshold = 0.55                                      # Character threshold
+    batch_size         = $null                                      # Auto: PixAI=1, other models=12
+    thresh             = $null                                      # Auto: PixAI category defaults; legacy 0.55
+    general_threshold  = $null                                      # Optional general threshold override
+    character_threshold = $null                                     # Optional character threshold override
+    style_threshold    = $null                                      # PixAI category overrides
+    copyright_threshold = $null
+    meta_threshold     = $null
+    rating_threshold   = $null
 }
 
 # Feature flags
@@ -232,6 +236,9 @@ function Test-WdtaggerOpenCvImport {
 }
 
 $ClTaggerV2Repos = @("cella110n/cl_tagger_v2", "celstk/cl-SigLIP2-lora-onnx")
+$IsPixai = $Config.repo_id -in @("bdsqlsz/pixai-tagger-v1.0-ONNX", "pixai-labs/pixai-tagger-v1.0")
+if ($null -eq $Config.batch_size) { $Config.batch_size = if ($IsPixai) { 1 } else { 12 } }
+if (-not $IsPixai -and $null -eq $Config.thresh) { $Config.thresh = 0.55 }
 
 # Add configuration arguments
 if ($Config.repo_id) { [void]$ExtArgs.Add("--repo_id=$($Config.repo_id)") }
@@ -240,8 +247,9 @@ if ($Config.cl_tagger_v2_version -and $Config.repo_id -in $ClTaggerV2Repos) {
 }
 if ($Config.model_dir) { [void]$ExtArgs.Add("--model_dir=$($Config.model_dir)") }
 if ($Config.batch_size) { [void]$ExtArgs.Add("--batch_size=$($Config.batch_size)") }
-if ($Config.general_threshold) { [void]$ExtArgs.Add("--general_threshold=$($Config.general_threshold)") }
-if ($Config.character_threshold) { [void]$ExtArgs.Add("--character_threshold=$($Config.character_threshold)") }
+foreach ($Key in @("thresh", "general_threshold", "character_threshold", "style_threshold", "copyright_threshold", "meta_threshold", "rating_threshold")) {
+    if ($null -ne $Config[$Key]) { [void]$ExtArgs.Add("--${Key}=$($Config[$Key])") }
+}
 
 # Add feature flags
 if ($Features.remove_underscore) { [void]$ExtArgs.Add("--remove_underscore") }
@@ -265,7 +273,7 @@ if ($TagConfig.tag_replacement) { [void]$ExtArgs.Add("--tag_replacement=$($TagCo
 #endregion
 
 #region Execute Tagger
-$WdtaggerExtra = if ($Config.repo_id -in $ClTaggerV2Repos) { "wdtagger-cl-tagger-v2" } else { "wdtagger" }
+$WdtaggerExtra = if ($IsPixai) { "wdtagger-pixai" } elseif ($Config.repo_id -in $ClTaggerV2Repos) { "wdtagger-cl-tagger-v2" } else { "wdtagger" }
 Write-Output "Starting tagger..."
 Install-UvExtraPatch @($WdtaggerExtra)
 if ($env:OS -eq "Windows_NT" -and $WdtaggerExtra -eq "wdtagger") {
@@ -342,7 +350,7 @@ if ($env:OS -eq "Windows_NT" -and $WdtaggerExtra -eq "wdtagger") {
         throw "wdtagger OpenCV setup did not produce a working cv2 import"
     }
 } elseif ($env:OS -eq "Windows_NT") {
-    Write-Output "cl_tagger v2 selected; skipping legacy wdtagger OpenCV override"
+    Write-Output "Modern tagger selected; skipping legacy wdtagger OpenCV override"
 }
 Write-Output "runtime target environment: $(Get-UvEnvName)"
 Write-Output "runtime dependency profile: extra:$WdtaggerExtra"
@@ -350,7 +358,6 @@ Write-Output "runtime dependency profile: extra:$WdtaggerExtra"
 # Run tagger
 python "./utils/wdtagger.py" `
     $Config.train_data_dir `
-    --thresh=$($Config.thresh) `
     --caption_extension .txt `
     $ExtArgs
 

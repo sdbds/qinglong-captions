@@ -1,8 +1,13 @@
 import builtins
+import json
+import os
+import shutil
 import subprocess
 import sys
 import types
 from pathlib import Path
+
+import pytest
 
 try:
     import tomllib
@@ -247,11 +252,9 @@ def test_tagger_powershell_wrapper_installs_selected_wdtagger_opencv():
 
     assert '$ClTaggerV2Repos = @("cella110n/cl_tagger_v2", "celstk/cl-SigLIP2-lora-onnx")' in content
     assert "$Config.repo_id -in $ClTaggerV2Repos" in content
-    assert '$WdtaggerExtra = if ($Config.repo_id -in $ClTaggerV2Repos) { "wdtagger-cl-tagger-v2" } else { "wdtagger" }' in content
     assert 'Install-UvExtraPatch @($WdtaggerExtra)' in content
     assert 'if ($env:OS -eq "Windows_NT" -and $WdtaggerExtra -eq "wdtagger")' in content
     assert 'Write-Output "runtime dependency profile: extra:$WdtaggerExtra"' in content
-    assert "cl_tagger v2 selected; skipping legacy wdtagger OpenCV override" in content
     assert "resolve_wdtagger_windows_opencv_requirement" not in content
     assert "function Get-WdtaggerOpenCvRequirement" not in content
     assert "function Install-WdtaggerOpenCvOverride" not in content
@@ -271,6 +274,35 @@ def test_tagger_powershell_wrapper_installs_selected_wdtagger_opencv():
     assert "--probe-cv2" in content
     assert 'Write-Output "uv pip install target package: $($Attempt.package_name)"' in content
     assert "wdtagger OpenCV package spec" in content
+
+
+def test_tagger_powershell_selects_model_dependency_profiles():
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        pytest.skip("PowerShell is needed to evaluate the launcher's model selection")
+    script = r'''
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($env:TAGGER_SCRIPT, [ref]$tokens, [ref]$errors)
+if ($errors) { throw $errors[0] }
+$assignments = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true)
+$results = foreach ($repo in @('bdsqlsz/pixai-tagger-v1.0-ONNX', 'pixai-labs/pixai-tagger-v1.0', 'cella110n/cl_tagger_v2', 'SmilingWolf/wd-vit-tagger-v3')) {
+    $Config = @{ repo_id = $repo }
+    foreach ($name in @('$ClTaggerV2Repos', '$IsPixai', '$WdtaggerExtra')) {
+        $statement = $assignments | Where-Object { $_.Left.Extent.Text -eq $name } | Select-Object -First 1
+        if (-not $statement) { throw "Missing selection assignment: $name" }
+        . ([scriptblock]::Create($statement.Extent.Text))
+    }
+    $WdtaggerExtra
+}
+ConvertTo-Json -InputObject @($results) -Compress
+'''
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
+        env={**os.environ, "TAGGER_SCRIPT": str(ROOT / "3.tagger.ps1")},
+        capture_output=True, text=True, check=True,
+    )
+    assert json.loads(result.stdout) == ["wdtagger-pixai", "wdtagger-pixai", "wdtagger-cl-tagger-v2", "wdtagger"]
 
 
 def test_audio_separator_powershell_wrapper_uses_vocal_midi_without_wdtagger_flow():

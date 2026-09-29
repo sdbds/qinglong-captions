@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 
 from module.wdtagger import constants
+from module.wdtagger.pixai import PIXAI_THRESHOLDS, is_pixai_repo
 from utils.wdtagger_siglip2 import (
     CL_TAGGER_V2_DEFAULT_VERSION,
     default_cl_tagger_v2_threshold,
@@ -28,7 +29,7 @@ def setup_parser() -> argparse.ArgumentParser:
         default=CL_TAGGER_V2_DEFAULT_VERSION,
         help="cl_tagger v2 model version to download, e.g. v2_01a or 2.01a",
     )
-    parser.add_argument("--batch_size", type=int, default=4, help="Batch size for inference")
+    parser.add_argument("--batch_size", type=int, default=None, help="Batch size for inference (PixAI: 1; other models: 4)")
     parser.add_argument("--caption_extension", type=str, default=".txt", help="Extension for caption files")
     parser.add_argument(
         "--thresh",
@@ -38,6 +39,9 @@ def setup_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--general_threshold", type=float, default=None, help="Threshold for general category tags (defaults to --thresh)")
     parser.add_argument("--character_threshold", type=float, default=None, help="Threshold for character category tags (defaults to --thresh)")
+    for category in ("style", "copyright", "meta", "rating"):
+        parser.add_argument(f"--{category}_threshold", type=float, default=None,
+                            help=f"Threshold for {category} tags; PixAI uses its category recommendation by default")
     parser.add_argument("--overwrite", action="store_true", help="Skip processing images in subfolders")
     parser.add_argument("--remove_underscore", action="store_true", help="Replace underscores with spaces in output tags")
     parser.add_argument("--undesired_tags", type=str, default="", help="Comma-separated list of tags to exclude from output")
@@ -89,6 +93,24 @@ def setup_parser() -> argparse.ArgumentParser:
 
 def finalize_args(args: argparse.Namespace) -> argparse.Namespace:
     args.cl_tagger_v2_version = normalize_cl_tagger_v2_version(args.cl_tagger_v2_version)
+    if args.batch_size is None:
+        args.batch_size = 1 if is_pixai_repo(args.repo_id) else 4
+
+    if is_pixai_repo(args.repo_id):
+        if not hasattr(args, "pixai_threshold_overrides"):
+            args.pixai_threshold_overrides = {category: args.thresh for category in PIXAI_THRESHOLDS} if args.thresh is not None else {}
+            args.pixai_threshold_overrides.update({
+                category: getattr(args, f"{category}_threshold")
+                for category in PIXAI_THRESHOLDS
+                if getattr(args, f"{category}_threshold", None) is not None
+            })
+        for category, default in PIXAI_THRESHOLDS.items():
+            key = f"{category}_threshold"
+            if getattr(args, key, None) is None:
+                setattr(args, key, args.thresh if args.thresh is not None else default)
+        if args.thresh is None:
+            args.thresh = PIXAI_THRESHOLDS["general"]
+        return args
 
     if args.thresh is None:
         args.thresh = default_cl_tagger_v2_threshold(args.cl_tagger_v2_version) if is_cl_tagger_v2_repo(args.repo_id) else 0.35

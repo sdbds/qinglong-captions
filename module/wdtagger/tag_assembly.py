@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from module.wdtagger import constants
+from module.wdtagger.pixai import is_pixai_repo
 from module.wdtagger.taxonomy import LabelData
 from utils.tag_highlighting import get_tag_classifier
 
@@ -20,6 +21,8 @@ def get_tags_official(
     use_quality_tags,
     use_model_tags,
     processed_names=None,
+    *,
+    category_thresholds=None,
 ):
     tag_names = processed_names if processed_names is not None else labels.names
     result = {
@@ -34,7 +37,7 @@ def get_tags_official(
     }
 
     pick_highest_categories = []
-    if use_rating_tags:
+    if use_rating_tags and category_thresholds is None:
         pick_highest_categories.append("rating")
     if use_quality_tags:
         pick_highest_categories.append("quality")
@@ -58,6 +61,8 @@ def get_tags_official(
         if category_name in pick_highest_categories:
             continue
         threshold = char_threshold if category_name in ["character", "copyright", "artist"] else gen_threshold
+        if category_thresholds is not None:
+            threshold = category_thresholds.get(category_name, threshold)
         category_map[category_name] = (category_indices, threshold)
 
     for category_name, (category_indices, threshold) in category_map.items():
@@ -66,7 +71,7 @@ def get_tags_official(
             if len(valid_indices) == 0:
                 continue
 
-            mask = probs[valid_indices] >= threshold
+            mask = probs[valid_indices] > threshold if category_thresholds is not None else probs[valid_indices] >= threshold
             passed_indices = valid_indices[mask]
             for idx in passed_indices:
                 if idx < len(tag_names) and tag_names[idx] is not None:
@@ -151,6 +156,8 @@ def assemble_final_tags(
             all_tags_by_category[category] = [tag for tag, conf in best_list if tag]
 
     rating_related_tags = ["rating", "quality", "meta", "model"]
+    if is_pixai_repo(getattr(args, "repo_id", "")):
+        rating_related_tags.remove("meta")
     character_related_tags = ["character", "copyright", "artist"]
 
     if args.use_rating_tags and not args.use_rating_tags_as_last_tag:
