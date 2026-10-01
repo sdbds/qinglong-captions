@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -10,10 +9,18 @@ from typing import Any, Callable, Optional
 import numpy as np
 
 from module.onnx_runtime import load_session_bundle
+from module.wdtagger.model_defaults import (
+    CL_TAGGER_V2_BACKEND_REPO,
+    CL_TAGGER_V2_DEFAULT_VERSION,
+    CL_TAGGER_V2_FALLBACK_THRESHOLD,
+    CL_TAGGER_V2_LEGACY_BACKEND_REPO,
+    CL_TAGGER_V2_OPTION,
+    CL_TAGGER_V2_THRESHOLD_OVERRIDES,
+    default_cl_tagger_v2_threshold,
+    is_cl_tagger_v2_repo,
+    normalize_cl_tagger_v2_version,
+)
 
-CL_TAGGER_V2_OPTION = "cella110n/cl_tagger_v2"
-CL_TAGGER_V2_BACKEND_REPO = CL_TAGGER_V2_OPTION
-CL_TAGGER_V2_LEGACY_BACKEND_REPO = "celstk/cl-SigLIP2-lora-onnx"
 CL_TAGGER_V2_PROCESSOR_REPO = "google/siglip2-so400m-patch16-naflex"
 CL_TAGGER_V2_VERSIONS = (
     "v1_00",
@@ -30,15 +37,6 @@ CL_TAGGER_V2_VERSIONS = (
     "v2_00",
     "v2_01a",
 )
-CL_TAGGER_V2_DEFAULT_VERSION = "v2_01a"
-CL_TAGGER_V2_FALLBACK_THRESHOLD = 0.5
-CL_TAGGER_V2_THRESHOLD_OVERRIDES = {
-    "v1_00": 0.6,
-    "v1_01": 0.6,
-    "v1_02": 0.9,
-    "v2_00": 0.55,
-    "v2_01a": 0.55,
-}
 CL_TAGGER_V2_DEFAULT_MAX_NUM_PATCHES = 256
 CL_TAGGER_V2_OUTPUT_NAME = "logits"
 _KNOWN_CATEGORY_KEYS = (
@@ -51,7 +49,6 @@ _KNOWN_CATEGORY_KEYS = (
     "quality",
     "model",
 )
-_VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)([a-z]+)?$")
 
 
 @dataclass(frozen=True)
@@ -91,11 +88,6 @@ def _emit_log(logger: Callable[..., Any] | None, message: str) -> None:
         logger(message)
 
 
-def is_cl_tagger_v2_repo(repo_id: str) -> bool:
-    normalized = str(repo_id or "").strip()
-    return normalized in {CL_TAGGER_V2_OPTION, CL_TAGGER_V2_BACKEND_REPO, CL_TAGGER_V2_LEGACY_BACKEND_REPO}
-
-
 def resolve_cl_tagger_v2_backend_repo(repo_id: str) -> str:
     normalized = str(repo_id or "").strip()
     return normalized
@@ -103,28 +95,6 @@ def resolve_cl_tagger_v2_backend_repo(repo_id: str) -> str:
 
 def resolve_cl_tagger_v2_cache_dir(model_dir: str | Path, repo_id: str) -> Path:
     return Path(model_dir) / str(repo_id).replace("/", "_")
-
-
-def normalize_cl_tagger_v2_version(version: str | None) -> str:
-    value = str(version or CL_TAGGER_V2_DEFAULT_VERSION).strip()
-    if not value:
-        return CL_TAGGER_V2_DEFAULT_VERSION
-
-    normalized = value.lower()
-    if normalized.startswith("v"):
-        normalized = normalized[1:]
-    normalized = normalized.replace("_", ".")
-    match = _VERSION_PATTERN.fullmatch(normalized)
-    if match:
-        major, minor, suffix = match.groups()
-        minor_width = 3 if len(minor) > 2 else 2
-        return f"v{int(major)}_{int(minor):0{minor_width}d}{suffix or ''}"
-    return value
-
-
-def default_cl_tagger_v2_threshold(version: str | None = None) -> float:
-    normalized = normalize_cl_tagger_v2_version(version)
-    return CL_TAGGER_V2_THRESHOLD_OVERRIDES.get(normalized, CL_TAGGER_V2_FALLBACK_THRESHOLD)
 
 
 def _vocab_get(vocab: dict[str, Any], key: str) -> dict[str, Any]:

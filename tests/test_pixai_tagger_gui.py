@@ -1,11 +1,53 @@
 import asyncio
 import importlib.util
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_tagger_page_renders_and_switches_models_without_inference_dependencies():
+    code = textwrap.dedent("""\
+        import sys
+        from pathlib import Path
+
+        for name in ("numpy", "torch", "torchvision", "onnxruntime", "transformers"):
+            sys.modules[name] = None
+
+        from gui.path_setup import configure_sys_path
+        configure_sys_path(Path.cwd())
+        from nicegui import ui
+        from wizard.step3_tagger import TaggerStep
+
+        step = TaggerStep()
+        with ui.column() as container:
+            step.render()
+        try:
+            for repo_id in ("bdsqlsz/pixai-tagger-v1.0-ONNX", "pixai-labs/pixai-tagger-v1.0"):
+                step.repo_id.set_value(repo_id)
+                assert step.config["batch_size"] == 1
+                assert step.config["general_threshold"] == 0.17
+                assert not step.general_threshold_row.visible
+            step.repo_id.set_value("cella110n/cl_tagger_v2")
+            assert step.config["general_threshold"] == 0.55
+            assert step.general_threshold_row.visible
+            step.repo_id.set_value("SmilingWolf/wd-vit-tagger-v3")
+            assert step.config["general_threshold"] == 0.35
+            assert "module.wdtagger.pixai" not in sys.modules
+            assert "utils.wdtagger_siglip2" not in sys.modules
+        finally:
+            container.delete()
+        """)
+    result = subprocess.run(
+        [sys.executable, "-X", "utf8", "-c", code],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", timeout=60, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def load_step(monkeypatch):

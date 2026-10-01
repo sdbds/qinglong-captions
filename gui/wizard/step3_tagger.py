@@ -10,8 +10,13 @@ from nicegui import ui
 
 from gui.theme import COLORS, get_classes
 from gui.utils.i18n import t
-from module.wdtagger.pixai import PIXAI_REPO_ID, PIXAI_THRESHOLDS, is_pixai_repo
-from utils.wdtagger_siglip2 import default_cl_tagger_v2_threshold, is_cl_tagger_v2_repo
+from module.wdtagger.model_defaults import (
+    PIXAI_REPO_ID,
+    PIXAI_THRESHOLDS,
+    default_cl_tagger_v2_threshold,
+    is_cl_tagger_v2_repo,
+    is_pixai_repo,
+)
 
 
 class TaggerStep:

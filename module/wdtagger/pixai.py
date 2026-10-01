@@ -10,15 +10,8 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from module.wdtagger.model_defaults import PIXAI_REPO_ID, PIXAI_SOURCE_REPO_ID, PIXAI_THRESHOLDS, is_pixai_repo
 from module.wdtagger.taxonomy import LabelData
-
-PIXAI_REPO_ID = "bdsqlsz/pixai-tagger-v1.0-ONNX"
-PIXAI_SOURCE_REPO_ID = "pixai-labs/pixai-tagger-v1.0"
-PIXAI_THRESHOLDS = {"general": 0.17, "character": 0.27, "style": 0.15, "copyright": 0.24, "meta": 0.17, "rating": 0.41}
-
-
-def is_pixai_repo(repo_id: str) -> bool:
-    return str(repo_id).strip() in {PIXAI_REPO_ID, PIXAI_SOURCE_REPO_ID}
 
 
 @dataclass(frozen=True)
