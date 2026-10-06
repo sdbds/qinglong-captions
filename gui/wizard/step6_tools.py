@@ -349,6 +349,8 @@ class ToolsStep:
     TRANSLATE_MODELS = [
         "tencent/Hy-MT2-7B",
         "tencent/Hy-MT2-1.8B-FP8",
+        "IndexTeam/Index-Translate-9B",
+        "IndexTeam/Index-Translate-2B",
     ]
 
     # 翻译支持的语言

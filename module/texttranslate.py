@@ -17,6 +17,7 @@ from config.config import get_supported_extensions
 from module.lanceImport import transform2lance
 from module.music_export import atomic_output_path
 from module.providers.local_llm.hy_mt import HYMTProvider
+from module.providers.local_llm.index_translate import IndexTranslateProvider
 from utils.doc_normalize import NormalizationError, normalize_asset
 from utils.lance_blob import build_lance_value_array, take_blob_files
 from utils.lance_updates import LanceRowUpdate, merge_rows_preserving_schema
@@ -624,7 +625,8 @@ def main() -> None:
         return
 
     glossary = load_glossary(args.glossary_file)
-    translator = HYMTProvider(
+    provider_class = IndexTranslateProvider if args.model_id in IndexTranslateProvider.model_ids else HYMTProvider
+    translator = provider_class(
         model_id=args.model_id,
         console=console,
         max_new_tokens=args.max_new_tokens,

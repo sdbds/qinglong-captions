@@ -260,6 +260,37 @@ def test_texttranslate_parser_defaults_to_hy_mt2():
     assert args.max_new_tokens == 4096
 
 
+@pytest.mark.parametrize('model_id', ['IndexTeam/Index-Translate-2B', 'IndexTeam/Index-Translate-9B'])
+def test_index_cli_routes_to_index_prompt_and_preserves_protected_markdown(tmp_path, model_id):
+    source = tmp_path / 'source.txt'
+    source.write_text('Hello `code` https://example.com\n', encoding='utf-8')
+    client = MagicMock()
+    client.chat.completions.create.return_value = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content='<think>notes</think>\nTranslated __QLP_0__ __QLP_1__'))]
+    )
+    argv = [
+        'texttranslate', str(tmp_path), '--model_id', model_id,
+        '--runtime_backend', 'openai', '--openai_base_url', 'http://127.0.0.1:9000/v1',
+        '--openai_model_name', 'served-index', '--source_lang', 'auto', '--target_lang', 'zh_cn',
+    ]
+    with (
+        patch.object(sys, 'argv', argv),
+        patch('openai.OpenAI', return_value=client),
+        patch.object(texttranslate, 'console', Console(file=StringIO(), force_terminal=False)),
+    ):
+        texttranslate.main()
+
+    expected = 'Translated `code` https://example.com\n'
+    assert (tmp_path / 'source.txt_zh_cn.md').read_text(encoding='utf-8') == expected
+    row = lance.dataset(str(tmp_path / 'dataset.lance')).to_table().to_pylist()[0]
+    assert row['captions'] == [expected]
+    request = client.chat.completions.create.call_args.kwargs
+    assert request['model'] == 'served-index'
+    assert request['extra_body'] == {'chat_template_kwargs': {'enable_thinking': False}}
+    assert '〖源文〗' in request['messages'][0]['content']
+    assert 'auto' not in request['messages'][0]['content']
+
+
 def test_default_cli_resume_ignores_timestamp_versions_but_retranslates_changed_source(tmp_path):
     calls = []
 

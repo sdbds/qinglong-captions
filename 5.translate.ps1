@@ -1,6 +1,6 @@
 $input_path = "./datasets"                 # 数据集目录或 .lance 路径
 $output_name = "dataset"                   # 目录导入时生成的 Lance 名称
-$model_id = "tencent/Hy-MT2-7B"            # 本地翻译模型，可选: tencent/Hy-MT2-7B, tencent/Hy-MT2-1.8B-FP8
+$model_id = "tencent/Hy-MT2-7B"            # 本地翻译模型，可选: tencent/Hy-MT2-7B, tencent/Hy-MT2-1.8B-FP8, IndexTeam/Index-Translate-9B, IndexTeam/Index-Translate-2B
 $source_lang = "auto"                      # 源语言
 $target_lang = "zh_cn"                     # 目标语言，同时用于导出文件后缀
 $max_chars = 2200                          # 每个翻译分块的最大字符数
