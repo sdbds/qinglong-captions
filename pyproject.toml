@@ -7,7 +7,7 @@ name = "qinglong-captions"
 version = "4.7.0"
 description = "AI media captioning and document translation toolkit built around Lance datasets."
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<3.13"
 dependencies = [
     "av",
     "filelock>=3.32.3,<4",
@@ -15,7 +15,7 @@ dependencies = [
     "rich",
     "rich_pixels",
     "pandas",
-    "pillow>=11.3",
+    "pillow>=13.0.0",
     "pillow-heif",
     "pillow-jxl-plugin",
     "pysrt",
@@ -112,7 +112,7 @@ auto-rig = [
     "scipy==1.15.3",
     "scikit-image==0.25.2",
     "psd-tools[composite]==1.17.4",
-    "pillow==12.3.0",
+    "pillow==13.0.0",
     "rectpack==0.2.2",
 ]
 auto-rig-pose = [

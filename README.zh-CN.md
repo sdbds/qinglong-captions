@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="CHANGELOG.md"><img alt="版本 4.7.0" src="https://img.shields.io/badge/Version-4.7.0-2563EB?logo=semanticrelease&amp;logoColor=white"></a>
-  <a href="pyproject.toml"><img alt="Python 3.10 至 3.12" src="https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&amp;logoColor=white"></a>
+  <a href="pyproject.toml"><img alt="Python 3.11 至 3.12" src="https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&amp;logoColor=white"></a>
   <a href="#windows"><img alt="支持 Windows" src="https://img.shields.io/badge/Windows-Supported-0078D4?logo=windows11&amp;logoColor=white"></a>
   <a href="#linux"><img alt="支持 Linux" src="https://img.shields.io/badge/Linux-Supported-FCC624?logo=linux&amp;logoColor=111827"></a>
   <a href="https://github.com/sdbds/qinglong-captions/actions/workflows/test.yml"><img alt="pytest 测试套件" src="https://img.shields.io/badge/Tests-pytest-0A9EDC?logo=pytest&amp;logoColor=white"></a>
@@ -72,7 +72,7 @@
 ## 环境要求
 
 - Windows 或 Linux（仓库内的 Linux PowerShell 安装脚本目前只提供 x86_64 下载；ARM64 或其他架构请手动安装 `pwsh` 7+）
-- Python `>=3.10,<3.13`；安装脚本默认创建 Python 3.11 环境
+- Python `>=3.11,<3.13`；安装脚本默认创建 Python 3.11 环境
 - `uv`：安装脚本会尝试自动安装；若终端找不到，请重新打开终端后再运行
 - Windows 使用 PowerShell 5.1+；Linux 需要 `pwsh`
 - GPU 不是所有功能的必需条件，但本地 VLM、OCR、翻译和 Image2PSD 通常需要显存与较大的磁盘空间

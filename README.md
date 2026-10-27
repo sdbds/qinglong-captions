@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="CHANGELOG.md"><img alt="Version 4.7.0" src="https://img.shields.io/badge/Version-4.7.0-2563EB?logo=semanticrelease&amp;logoColor=white"></a>
-  <a href="pyproject.toml"><img alt="Python 3.10 to 3.12" src="https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&amp;logoColor=white"></a>
+  <a href="pyproject.toml"><img alt="Python 3.11 to 3.12" src="https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&amp;logoColor=white"></a>
   <a href="#windows"><img alt="Windows supported" src="https://img.shields.io/badge/Windows-Supported-0078D4?logo=windows11&amp;logoColor=white"></a>
   <a href="#linux"><img alt="Linux supported" src="https://img.shields.io/badge/Linux-Supported-FCC624?logo=linux&amp;logoColor=111827"></a>
   <a href="https://github.com/sdbds/qinglong-captions/actions/workflows/test.yml"><img alt="pytest test suite" src="https://img.shields.io/badge/Tests-pytest-0A9EDC?logo=pytest&amp;logoColor=white"></a>
@@ -64,7 +64,7 @@ See the [GUI manual](gui/README.md), [configuration guide](docs/configuration.en
 ## Requirements
 
 - Windows or Linux (the bundled Linux PowerShell installer currently downloads x86_64 only; install `pwsh` 7+ manually on ARM64 or other architectures)
-- Python `>=3.10,<3.13`; the installer creates Python 3.11 by default
+- Python `>=3.11,<3.13`; the installer creates Python 3.11 by default
 - `uv`; the installer attempts to install it when missing
 - PowerShell 5.1+ on Windows; `pwsh` on Linux
 - A GPU is optional for the base workflow, but local VLM/OCR/translation and Image2PSD commonly require GPU memory and substantial disk space
