@@ -1,12 +1,12 @@
 $dataset_path = "./datasets"
 $pair_dir = ""
 $gemini_api_key = ""
-$gemini_model_path = "gemini-3-pro-preview"
+$gemini_model_path = "gemini-3.8-flash"
 $gemini_task = ""
 $pixtral_api_key = ""
-$pixtral_model_path = "pixtral-large-2411"
+$pixtral_model_path = "mistral-medium-3-5"
 $step_api_key = ""
-$step_model_path = "step-1.5v-mini"
+$step_model_path = "step-3.7-flash"
 $kimi_api_key = ""
 $kimi_model_path = "kimi-k3"
 $kimi_base_url = "https://api.moonshot.cn/v1" # "https://integrate.api.nvidia.com/v1" if you want to use nvidia's endpoint
@@ -16,25 +16,25 @@ $kimi_code_base_url = "https://api.kimi.com/coding/v1"
 
 # Xiaomi MiMo API 配置（OpenAI 兼容接口）
 $mimo_api_key = ""              # MiMo API 密钥 (从 platform.xiaomimimo.com 获取)
-$mimo_model_path = "mimo-v2.5"  # 图像/视频 caption 默认使用多模态模型
+$mimo_model_path = "mimo-v2.6-flash"  # 图像/视频 caption 默认使用多模态模型
 $mimo_base_url = "https://token-plan-sgp.xiaomimimo.com/v1"
 
 # MiniMax API 配置
 $minimax_api_key = ""              # MiniMax API 密钥 (从 platform.minimaxi.com 获取)
-$minimax_model_path = "MiniMax-M2.5"  # 可选: MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1, MiniMax-M2.1-highspeed, MiniMax-M2
+$minimax_model_path = "MiniMax-M3.1-Flash"  # 可选: MiniMax-M3.1-Flash, MiniMax-M3
 $minimax_api_base_url = "https://api.minimax.io/v1"
 
 # MiniMax Code API 配置 (针对代码和结构化输出优化)
 $minimax_code_api_key = ""         # MiniMax Code API 密钥
-$minimax_code_model_path = "MiniMax-M2"  # 默认使用 M2 模型，专为代码和Agent工作流优化
+$minimax_code_model_path = "MiniMax-M3.1-Flash"  # 可选: MiniMax-M3.1-Flash, MiniMax-M3
 $minimax_code_base_url = "https://api.minimax.io/v1"
 
 $qwenVL_api_key = ""
-$qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
+$qwenVL_model_path = "qwen3.8-flash" # 可选: qwen3.8-max, qwen3.8-omni-flash
 $glm_api_key = ""
-$glm_model_path = "GLM-4V-Plus-0111"
+$glm_model_path = "glm-5.3-flash"
 $ark_api_key = ""
-$ark_model_path = "doubao-seed-1-6"
+$ark_model_path = "doubao-seed-2-1-lite-260915" # 可选: doubao-seed-2-1-pro-260915
 
 # OpenAI Compatible API 配置（本地/自托管服务统一连接参数）
 # - 直接走 openai_compatible provider 时：使用 openai_model_name
@@ -75,8 +75,8 @@ $grok_build_subscription = $false
 $grok_build_backend = "headless"      # "headless"
 $grok_build_auth_mode = "cached_token" # "cached_token", "existing"
 $grok_build_command = "grok"
-$grok_build_model_name = "grok-4.6" # "grok-4.6", "grok-4.5"
-$grok_build_reasoning_effort = "medium" # "", "none", "low", "medium", "high"; "xhigh" is grok-4.6 only
+$grok_build_model_name = "grok-4.7" # "grok-4.7", "grok-4.6", "grok-4.5"
+$grok_build_reasoning_effort = "medium" # "", "none", "low", "medium", "high"; "xhigh" is supported by grok-4.6 and grok-4.7
 $grok_build_disable_web_search = $true
 $grok_build_timeout = 180
 $grok_build_isolated_cwd = ""
@@ -378,7 +378,7 @@ if ($pixtral_api_key) {
 }
 
 if ($pixtral_model_path) {
-  [void]$ext_args.Add("--pixtral_model_path=$pixtral_model_path")
+  [void]$ext_args.Add("--mistral_model_path=$pixtral_model_path")
 }
 
 if ($step_api_key) {
@@ -431,7 +431,7 @@ if ($minimax_api_key) {
   [void]$ext_args.Add("--minimax_api_key=$minimax_api_key")
 }
 
-if ($minimax_model_path -and $minimax_model_path -ne "MiniMax-M2.5") {
+if ($minimax_model_path) {
   [void]$ext_args.Add("--minimax_model_path=$minimax_model_path")
 }
 
@@ -444,7 +444,7 @@ if ($minimax_code_api_key) {
   [void]$ext_args.Add("--minimax_code_api_key=$minimax_code_api_key")
 }
 
-if ($minimax_code_model_path -and $minimax_code_model_path -ne "MiniMax-M2") {
+if ($minimax_code_model_path) {
   [void]$ext_args.Add("--minimax_code_model_path=$minimax_code_model_path")
 }
 

@@ -1,4 +1,7 @@
 import importlib.util
+import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -71,6 +74,8 @@ def test_api_catalog_contains_current_multimodal_models_only():
         "step-1o-vision-32k",
     ]
     assert configs["Kimi"]["models"] == [
+        "kimi-k3.1-pro",
+        "kimi-k3.1-pro-highspeed",
         "kimi-k3",
         "kimi-k2.7-code",
         "kimi-k2.7-code-highspeed",
@@ -82,9 +87,9 @@ def test_api_catalog_contains_current_multimodal_models_only():
         "mimo-v2.6-pro-ultraspeed",
         "mimo-v2.5",
     ]
-    assert configs["MiniMax"]["models"] == ["MiniMax-M3"]
+    assert configs["MiniMax"]["models"] == ["MiniMax-M3.1-Flash", "MiniMax-M3"]
     assert configs["MiniMax-Code"]["models"] == [
-        "MiniMax-M3.1-Flash-Preview",
+        "MiniMax-M3.1-Flash",
         "MiniMax-M3",
     ]
     assert configs["GLM"]["models"] == [
@@ -99,7 +104,7 @@ def test_api_catalog_contains_current_multimodal_models_only():
     assert configs["Ark"]["models"] == [
         "doubao-seed-2-1-pro-260915",
         "doubao-seed-2-1-lite-260915",
-        "doubao-seed-2-0-pro-260215",
+        "doubao-seed-2-1-turbo-260628",
         "doubao-seed-2-0-lite-260428",
         "doubao-seed-2-0-mini-260428",
     ]
@@ -130,8 +135,12 @@ def test_qwen_catalog_tracks_current_video_capable_families():
         ("Step", "step-5-preview", "step_model_path"),
         ("Qwen", "qwen3.8-omni-flash", "qwenVL_model_path"),
         ("MiMo", "mimo-v2.6-flash", "mimo_model_path"),
-        ("MiniMax", "MiniMax-M3", "minimax_model_path"),
-        ("MiniMax-Code", "MiniMax-M3.1-Flash-Preview", "minimax_code_model_path"),
+        ("MiniMax", "MiniMax-M3.1-Flash", "minimax_model_path"),
+        ("MiniMax-Code", "MiniMax-M3.1-Flash", "minimax_code_model_path"),
+        ("Kimi", "kimi-k3.1-pro", "kimi_model_path"),
+        ("Kimi", "kimi-k3.1-pro-highspeed", "kimi_model_path"),
+        ("Kimi-Code", "k3.1-pro", "kimi_code_model_path"),
+        ("Kimi-Code", "k3.1-pro-highspeed", "kimi_code_model_path"),
         ("GLM", "glm-5.3-flashx", "glm_model_path"),
         ("Ark", "doubao-seed-2-1-pro-260915", "ark_model_path"),
     ],
@@ -159,14 +168,102 @@ def test_cli_defaults_match_gui_catalog_defaults():
     configs = _load_caption_step().API_CONFIGS
     args = setup_parser().parse_args(["dataset"])
 
-    assert args.gemini_model_path == configs["Gemini"]["default_model"] == "gemini-3.6-flash"
+    assert args.gemini_model_path == configs["Gemini"]["default_model"] == "gemini-3.8-flash"
     assert args.step_model_path == configs["Step"]["default_model"]
-    assert args.qwenVL_model_path == configs["Qwen"]["default_model"] == "qwen3.7-plus"
-    assert args.mistral_model_path == configs["Mistral"]["default_model"]
+    assert args.qwenVL_model_path == configs["Qwen"]["default_model"] == "qwen3.8-flash"
+    assert args.mistral_model_path == configs["Mistral"]["default_model"] == "mistral-medium-3-5"
     assert args.mimo_model_path == configs["MiMo"]["default_model"] == "mimo-v2.6-flash"
-    assert args.minimax_model_path == configs["MiniMax"]["default_model"] == "MiniMax-M3"
-    assert args.minimax_code_model_path == configs["MiniMax-Code"]["default_model"] == "MiniMax-M3"
-    assert args.glm_model_path == configs["GLM"]["default_model"] == "glm-5v-turbo"
+    assert args.minimax_model_path == configs["MiniMax"]["default_model"] == "MiniMax-M3.1-Flash"
+    assert args.minimax_code_model_path == configs["MiniMax-Code"]["default_model"] == "MiniMax-M3.1-Flash"
+    assert args.glm_model_path == configs["GLM"]["default_model"] == "glm-5.3-flash"
+    assert args.ark_model_path == configs["Ark"]["default_model"] == "doubao-seed-2-1-lite-260915"
+
+
+@pytest.mark.parametrize("argument,model_id", [
+    ("ark_model_path", "ep-custom-deployment"),
+    ("ark_model_path", "doubao-seed-2-0-pro-260215"),
+    ("minimax_code_model_path", "MiniMax-M3.1-Flash-Preview"),
+    ("minimax_model_path", "MiniMax-M3"),
+    ("gemini_model_path", "gemini-3.6-flash"),
+    ("qwenVL_model_path", "qwen3.7-plus"),
+    ("grok_build_model_name", "grok-4.6"),
+])
+def test_explicit_model_overrides_are_not_migrated(argument, model_id):
+    args = setup_parser().parse_args(["dataset", f"--{argument}={model_id}"])
+    assert getattr(args, argument) == model_id
+
+
+def test_powershell_launcher_preserves_explicit_mistral_model():
+    from module.providers.catalog import normalize_runtime_args
+
+    shell = shutil.which("pwsh") or shutil.which("powershell")
+    if not shell:
+        pytest.skip("PowerShell is not installed")
+    command = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $PWD '4.captioner.ps1'), [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw 'Invalid launcher syntax' }
+$blocks = @($ast.FindAll({param($node)
+    $node -is [System.Management.Automation.Language.IfStatementAst] -and
+    $node.Clauses[0].Item1.Extent.Text -eq '$pixtral_model_path'
+}, $true))
+if ($blocks.Count -ne 1) { throw 'Expected one Mistral model argument block' }
+$pixtral_model_path = 'legacy/custom-model'
+$ext_args = [System.Collections.ArrayList]::new()
+& ([scriptblock]::Create($blocks[0].Extent.Text))
+ConvertTo-Json -InputObject @($ext_args.ToArray()) -Compress
+"""
+    result = subprocess.run(
+        [shell, "-NoProfile", "-NonInteractive", "-Command", command],
+        cwd=ROOT, capture_output=True, text=True, check=True, timeout=30,
+    )
+    args = setup_parser().parse_args(["dataset", *json.loads(result.stdout)])
+    normalize_runtime_args(args)
+    assert args.mistral_model_path == "legacy/custom-model"
+
+
+def test_ark_settings_show_model_choices_and_allow_custom_endpoint():
+    step = _load_caption_step()()
+    step.API_CONFIGS = {"Ark": step.API_CONFIGS["Ark"]}
+    with patch.object(step, "_render_codex_settings"), patch.object(step, "_render_grok_build_settings"):
+        step._render_api_settings()
+    control = step.ark_api_key_model
+    assert "doubao-seed-2-1-lite-260915" in control.options
+    assert "doubao-seed-2-1-pro-260915" in control.options
+    assert "doubao-seed-2-1-turbo-260628" in control.options
+    assert control.value == "doubao-seed-2-1-lite-260915"
+    assert control._props["new-value-mode"] == "add-unique"
+
+
+@pytest.mark.parametrize("model_id", ["ep-custom-deployment", "doubao-seed-2-0-pro-260215"])
+def test_ark_custom_selection_reaches_cli_unchanged(model_id):
+    step = _load_caption_step()()
+    step.api_keys = {"ark_api_key": SimpleNamespace(value="test-key")}
+    step.ark_api_key_model = SimpleNamespace(value=model_id)
+    step.pair_dir = SimpleNamespace(value="")
+    step.mode = SimpleNamespace(value="long")
+    step.ocr_model = SimpleNamespace(value="")
+    step.vlm_image_model = SimpleNamespace(value="")
+    args = setup_parser().parse_args(step._build_caption_args("dataset"))
+    assert args.ark_model_path == model_id
+
+
+@pytest.mark.parametrize("model_id", ["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed", "k3.1-pro", "k3.1-pro-highspeed"])
+def test_k31_uses_effort_controls_instead_of_disabled_thinking(model_id):
+    from module.providers.cloud_vlm.kimi_reasoning import is_k3_model
+
+    step = _load_caption_step()()
+    effort_control = SimpleNamespace(set_visibility=lambda visible: setattr(step, "effort_visible", visible))
+    thinking_control = SimpleNamespace(set_visibility=lambda visible: setattr(step, "thinking_visible", visible))
+    step._kimi_reasoning_effort_containers["Kimi"] = effort_control
+    step._kimi_thinking_containers["Kimi"] = thinking_control
+    step._sync_kimi_model_controls("Kimi", model_id)
+    assert is_k3_model(model_id)
+    assert step.effort_visible is True
+    assert step.thinking_visible is False
 
 
 @pytest.mark.parametrize(

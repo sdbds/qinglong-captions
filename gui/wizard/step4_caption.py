@@ -25,6 +25,8 @@ from module.providers.cloud_vlm.kimi_reasoning import (
     DEFAULT_KIMI_MODEL_ID,
     is_k3_model,
 )
+from module.providers.cloud_vlm.minimax_config import DEFAULT_MINIMAX_MODEL_ID
+from module.providers.grok_build_headless import DEFAULT_GROK_BUILD_MODEL
 
 if TYPE_CHECKING:
     from components.execution_panel import ExecutionPanel
@@ -129,7 +131,7 @@ class CaptionStep:
                 "gemini-3.1-flash-image",
                 "gemini-3-pro-image",
             ],
-            "default_model": "gemini-3.6-flash",
+            "default_model": "gemini-3.8-flash",
             "supports_video": True,
             "supports_task": True,
         },
@@ -146,7 +148,7 @@ class CaptionStep:
                 "mistral-medium-latest",
                 "mistral-small-latest",
             ],
-            "default_model": "mistral-large-latest",
+            "default_model": "mistral-medium-3-5",
             "supports_video": False,
             "supports_task": False,
         },
@@ -183,13 +185,15 @@ class CaptionStep:
                 "qwen3-vl-plus",
                 "qwen3-vl-flash",
             ],
-            "default_model": "qwen3.7-plus",
+            "default_model": "qwen3.8-flash",
             "supports_video": True,
             "supports_task": False,
         },
         "Kimi": {
             "key_name": "kimi_api_key",
             "models": [
+                "kimi-k3.1-pro",
+                "kimi-k3.1-pro-highspeed",
                 DEFAULT_KIMI_MODEL_ID,
                 "kimi-k2.7-code",
                 "kimi-k2.7-code-highspeed",
@@ -202,6 +206,8 @@ class CaptionStep:
         "Kimi-Code": {
             "key_name": "kimi_code_api_key",
             "models": [
+                "k3.1-pro",
+                "k3.1-pro-highspeed",
                 DEFAULT_KIMI_CODE_MODEL_ID,
                 "k3",
                 "kimi-for-coding",
@@ -226,19 +232,20 @@ class CaptionStep:
         "MiniMax": {
             "key_name": "minimax_api_key",
             "models": [
+                DEFAULT_MINIMAX_MODEL_ID,
                 "MiniMax-M3",
             ],
-            "default_model": "MiniMax-M3",
+            "default_model": DEFAULT_MINIMAX_MODEL_ID,
             "supports_video": True,
             "supports_task": False,
         },
         "MiniMax-Code": {
             "key_name": "minimax_code_api_key",
             "models": [
-                "MiniMax-M3.1-Flash-Preview",
+                DEFAULT_MINIMAX_MODEL_ID,
                 "MiniMax-M3",
             ],
-            "default_model": "MiniMax-M3",
+            "default_model": DEFAULT_MINIMAX_MODEL_ID,
             "supports_video": True,
             "supports_task": False,
         },
@@ -253,7 +260,7 @@ class CaptionStep:
                 "glm-4.6v-flashx",
                 "glm-4.5v",
             ],
-            "default_model": "glm-5v-turbo",
+            "default_model": "glm-5.3-flash",
             "supports_video": True,
             "supports_task": False,
         },
@@ -262,14 +269,13 @@ class CaptionStep:
             "models": [
                 "doubao-seed-2-1-pro-260915",
                 "doubao-seed-2-1-lite-260915",
-                "doubao-seed-2-0-pro-260215",
+                "doubao-seed-2-1-turbo-260628",
                 "doubao-seed-2-0-lite-260428",
                 "doubao-seed-2-0-mini-260428",
             ],
-            "default_model": "doubao-seed-2-0-pro-260215",
+            "default_model": "doubao-seed-2-1-lite-260915",
             "supports_video": True,
             "supports_task": False,
-            "custom_model_input": True,
         },
         "OpenAI-Compatible": {
             "key_name": "openai_api_key",
@@ -313,7 +319,8 @@ class CaptionStep:
         "existing": "Existing session only",
     }
     GROK_BUILD_MODEL_OPTIONS = {
-        "grok-4.6": "grok-4.6 (default)",
+        DEFAULT_GROK_BUILD_MODEL: f"{DEFAULT_GROK_BUILD_MODEL} (default)",
+        "grok-4.6": "grok-4.6",
         "grok-4.5": "grok-4.5",
     }
     GROK_BUILD_REASONING_EFFORT_OPTIONS = {
@@ -491,7 +498,7 @@ class CaptionStep:
             "grok_build_backend": "headless",
             "grok_build_auth_mode": "cached_token",
             "grok_build_command": "grok",
-            "grok_build_model_name": "grok-4.6",
+            "grok_build_model_name": DEFAULT_GROK_BUILD_MODEL,
             "grok_build_reasoning_effort": "medium",
             "grok_build_disable_web_search": True,
             "grok_build_timeout": 180,
@@ -1058,7 +1065,9 @@ class CaptionStep:
             grok_build_auth_mode = str(self._grok_build_value("grok_build_auth_mode", "cached_token") or "cached_token")
             args.append(f"--grok_build_auth_mode={grok_build_auth_mode}")
 
-            grok_build_model_name = str(self._grok_build_value("grok_build_model_name", "grok-4.6") or "grok-4.6")
+            grok_build_model_name = str(
+                self._grok_build_value("grok_build_model_name", DEFAULT_GROK_BUILD_MODEL) or DEFAULT_GROK_BUILD_MODEL
+            )
             if grok_build_model_name:
                 args.append(f"--grok_build_model_name={grok_build_model_name}")
 
@@ -1390,7 +1399,7 @@ class CaptionStep:
                         label=t("grok_build_model"),
                         icon="smart_toy",
                         icon_color=COLORS["primary"],
-                        placeholder="grok-4.6",
+                        placeholder=DEFAULT_GROK_BUILD_MODEL,
                         on_change=self._handle_grok_build_model_change,
                         new_value_mode="add-unique",
                         flex=1,

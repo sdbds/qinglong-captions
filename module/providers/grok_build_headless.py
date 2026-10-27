@@ -18,7 +18,7 @@ from PIL import Image
 from module.providers.codex_schema import CODEX_CAPTION_SCHEMA, CodexCaptionOutputError, parse_codex_caption_output
 
 DEFAULT_GROK_BUILD_COMMAND = "grok"
-DEFAULT_GROK_BUILD_MODEL = "grok-4.6"
+DEFAULT_GROK_BUILD_MODEL = "grok-4.7"
 DEFAULT_GROK_BUILD_TIMEOUT_SECONDS = 180.0
 DEFAULT_GROK_BUILD_PERMISSION_MODE = "dontAsk"
 DEFAULT_GROK_BUILD_SANDBOX = "read-only"

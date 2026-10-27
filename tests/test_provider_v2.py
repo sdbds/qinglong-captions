@@ -940,7 +940,7 @@ class TestKimiCodeUserAgent:
         assert "###Long:" in captured["system_prompt"]
         assert "Do not return only a single long paragraph." in captured["system_prompt"]
 
-    @pytest.mark.parametrize("model_path", ["k3", "k3-256k"])
+    @pytest.mark.parametrize("model_path", ["k3", "k3-256k", "k3.1-pro", "k3.1-pro-highspeed"])
     @pytest.mark.parametrize(
         ("configured_effort", "expected_effort"),
         [
@@ -1100,7 +1100,8 @@ def test_k3_reasoning_effort_normalizer_rejects_present_falsy_values(invalid_val
         normalize_k3_reasoning_effort(invalid_value)
 
 
-def test_kimi_provider_reads_k3_reasoning_effort_from_kimi_vl_config():
+@pytest.mark.parametrize("model_path", ["kimi-k3", "kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"])
+def test_kimi_provider_reads_k3_reasoning_effort_from_kimi_vl_config(model_path):
     from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
     from module.providers.registry import get_registry
     from rich.console import Console
@@ -1110,13 +1111,13 @@ def test_kimi_provider_reads_k3_reasoning_effort_from_kimi_vl_config():
     ctx = ProviderContext(
         console=Console(file=io.StringIO()),
         config={
-            "kimi_vl": {"thinking": "enabled", "reasoning_effort": "high"},
+            "kimi_vl": {"thinking": "disabled", "reasoning_effort": "high"},
             "prompts": {},
         },
         args=SimpleNamespace(
             kimi_api_key="test-key",
             kimi_base_url="https://api.moonshot.cn/v1",
-            kimi_model_path="kimi-k3",
+            kimi_model_path=model_path,
             pair_dir="",
             mode="long",
             max_retries=1,
@@ -1141,8 +1142,9 @@ def test_kimi_provider_reads_k3_reasoning_effort_from_kimi_vl_config():
             PromptContext(system="sys", user="usr"),
         )
 
-    assert mock_attempt.call_args.kwargs["model_path"] == "kimi-k3"
+    assert mock_attempt.call_args.kwargs["model_path"] == model_path
     assert mock_attempt.call_args.kwargs["reasoning_effort"] == "high"
+    assert mock_attempt.call_args.kwargs["thinking"] == ""
     assert result.metadata["reasoning_effort"] == "high"
 
 

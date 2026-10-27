@@ -11,6 +11,7 @@ from module.providers.cloud_vlm.kimi_reasoning import (
     DEFAULT_KIMI_CODE_MODEL_ID,
     DEFAULT_KIMI_MODEL_ID,
 )
+from module.providers.cloud_vlm.minimax_config import DEFAULT_MINIMAX_MODEL_ID
 
 
 def api_process_batch(uri, mime, config, args, sha256hash, progress=None, task_id=None):
@@ -68,7 +69,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--gemini_model_path",
         type=str,
-        default="gemini-3.6-flash",
+        default="gemini-3.8-flash",
         help="Model path for gemini",
     )
 
@@ -149,8 +150,8 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--minimax_model_path",
         type=str,
-        default="MiniMax-M3",
-        help="Model name for MiniMax API (default: MiniMax-M3)",
+        default=DEFAULT_MINIMAX_MODEL_ID,
+        help=f"Model name for MiniMax API (default: {DEFAULT_MINIMAX_MODEL_ID})",
     )
     parser.add_argument(
         "--minimax_api_base_url",
@@ -169,8 +170,8 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--minimax_code_model_path",
         type=str,
-        default="MiniMax-M3",
-        help="Model name for MiniMax Code API (default: MiniMax-M3, optimized for coding and structured output)",
+        default=DEFAULT_MINIMAX_MODEL_ID,
+        help=f"Model name for MiniMax Code API (default: {DEFAULT_MINIMAX_MODEL_ID})",
     )
     parser.add_argument(
         "--minimax_code_base_url",
@@ -196,7 +197,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--qwenVL_model_path",
         type=str,
-        default="qwen3.7-plus",
+        default="qwen3.8-flash",
         help="video model for qwenVL",
     )
 
@@ -210,7 +211,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mistral_model_path",
         type=str,
-        default="mistral-large-latest",
+        default="mistral-medium-3-5",
         help="Model path for Mistral OCR",
     )
 
@@ -246,7 +247,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--glm_model_path",
         type=str,
-        default="glm-5v-turbo",
+        default="glm-5.3-flash",
         help="Model path for glm",
     )
 
@@ -260,7 +261,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ark_model_path",
         type=str,
-        default="",
+        default="doubao-seed-2-1-lite-260915",
         help="Model ID for Ark chat.completions (e.g. your EP model id)",
     )
 
@@ -447,7 +448,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--grok_build_model_name",
         type=str,
-        default="grok-4.6",
+        default="grok-4.7",
         help="Grok Build model for --grok_build_subscription.",
     )
     parser.add_argument(

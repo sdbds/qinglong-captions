@@ -15,7 +15,7 @@ def test_captioner_parser_accepts_cloud_max_concurrency():
     default_args = parser.parse_args(["dataset"])
     assert default_args.cloud_max_concurrency == 1
     assert default_args.grok_build_max_concurrency == 1
-    assert default_args.grok_build_model_name == "grok-4.6"
+    assert default_args.grok_build_model_name == "grok-4.7"
     assert default_args.grok_build_reasoning_effort == ""
     assert default_args.grok_build_disable_web_search is True
 
@@ -126,10 +126,10 @@ def test_captioner_powershell_passes_grok_build_options_only_when_enabled():
 
     assert "$grok_build_subscription = $false" in script
     assert '$grok_build_backend = "headless"' in script
-    assert '$grok_build_model_name = "grok-4.6"' in script
+    assert '$grok_build_model_name = "grok-4.7"' in script
     assert (
         '$grok_build_reasoning_effort = "medium" # "", "none", "low", "medium", "high"; '
-        '"xhigh" is grok-4.6 only'
+        '"xhigh" is supported by grok-4.6 and grok-4.7'
     ) in script
     assert "$grok_build_disable_web_search = $true" in script
     assert 'if ($grok_build_subscription)' in script

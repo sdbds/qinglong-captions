@@ -518,7 +518,7 @@ def test_caption_step_builds_grok_build_subscription_args_without_api_key_fallba
     assert "--grok_build_subscription" in args
     assert "--grok_build_backend=headless" in args
     assert "--grok_build_auth_mode=cached_token" in args
-    assert "--grok_build_model_name=grok-4.6" in args
+    assert "--grok_build_model_name=grok-4.7" in args
     assert "--grok_build_timeout=180" in args
     assert "--grok_build_permission_mode=dontAsk" in args
     assert "--grok_build_sandbox=read-only" in args
@@ -573,13 +573,14 @@ def test_caption_step_lists_current_grok_build_models_and_reasoning_efforts():
     CaptionStep = _load_caption_step("test_step4_caption_grok_build_options")
 
     assert CaptionStep.GROK_BUILD_MODEL_OPTIONS == {
-        "grok-4.6": "grok-4.6 (default)",
+        "grok-4.7": "grok-4.7 (default)",
+        "grok-4.6": "grok-4.6",
         "grok-4.5": "grok-4.5",
     }
     assert CaptionStep.GROK_BUILD_REASONING_EFFORT_OPTIONS["xhigh"] == "xhigh"
     assert "grok-build" not in CaptionStep.GROK_BUILD_MODEL_OPTIONS
     assert "grok-composer-2.5-fast" not in CaptionStep.GROK_BUILD_MODEL_OPTIONS
-    assert CaptionStep().config["grok_build_model_name"] == "grok-4.6"
+    assert CaptionStep().config["grok_build_model_name"] == "grok-4.7"
     assert CaptionStep().config["grok_build_disable_web_search"] is True
     assert "grok_build_effort" not in CaptionStep().config
 
@@ -614,6 +615,8 @@ def test_caption_step_lists_current_kimi_and_kimi_code_models():
     CaptionStep = _load_caption_step("test_step4_caption_current_kimi_models")
 
     assert CaptionStep.API_CONFIGS["Kimi"]["models"] == [
+        "kimi-k3.1-pro",
+        "kimi-k3.1-pro-highspeed",
         "kimi-k3",
         "kimi-k2.7-code",
         "kimi-k2.7-code-highspeed",
@@ -621,6 +624,8 @@ def test_caption_step_lists_current_kimi_and_kimi_code_models():
     ]
     assert CaptionStep.API_CONFIGS["Kimi"]["default_model"] == "kimi-k3"
     assert CaptionStep.API_CONFIGS["Kimi-Code"]["models"] == [
+        "k3.1-pro",
+        "k3.1-pro-highspeed",
         "k3-256k",
         "k3",
         "kimi-for-coding",

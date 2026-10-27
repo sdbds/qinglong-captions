@@ -1,12 +1,12 @@
-"""Shared Kimi K3 reasoning-effort configuration."""
+"""Shared Kimi K3/K3.1 reasoning-effort configuration."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
 
-KIMI_OPEN_PLATFORM_K3_MODEL_IDS = frozenset({"kimi-k3"})
-KIMI_CODE_K3_MODEL_IDS = frozenset({"k3", "k3-256k"})
+KIMI_OPEN_PLATFORM_K3_MODEL_IDS = frozenset({"kimi-k3", "kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"})
+KIMI_CODE_K3_MODEL_IDS = frozenset({"k3", "k3-256k", "k3.1-pro", "k3.1-pro-highspeed"})
 K3_MODEL_IDS = KIMI_OPEN_PLATFORM_K3_MODEL_IDS | KIMI_CODE_K3_MODEL_IDS
 DEFAULT_KIMI_MODEL_ID = "kimi-k3"
 DEFAULT_KIMI_CODE_MODEL_ID = "k3-256k"

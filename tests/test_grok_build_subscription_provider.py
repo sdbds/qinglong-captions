@@ -82,11 +82,11 @@ def test_grok_build_command_uses_prompt_json_argument_list(tmp_path):
     assert "--reasoning-effort" not in command
 
 
-def test_grok_build_headless_config_defaults_to_grok_46():
+def test_grok_build_headless_config_defaults_to_grok_47():
     from module.providers.grok_build_headless import DEFAULT_GROK_BUILD_MODEL, GrokBuildHeadlessConfig
 
-    assert DEFAULT_GROK_BUILD_MODEL == "grok-4.6"
-    assert GrokBuildHeadlessConfig().model == "grok-4.6"
+    assert DEFAULT_GROK_BUILD_MODEL == "grok-4.7"
+    assert GrokBuildHeadlessConfig().model == "grok-4.7"
     assert GrokBuildHeadlessConfig().disable_web_search is True
     assert "effort" not in GrokBuildHeadlessConfig.__dataclass_fields__
 

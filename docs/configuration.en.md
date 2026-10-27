@@ -35,6 +35,18 @@ Relative paths assume the repository root as the working directory. The GUI chan
 
 Cloud Providers are configured on the GUI `Caption` page. OpenAI-compatible services use `openai_base_url`, `openai_model_name`, and `openai_api_key`; a local server may accept a placeholder key. See [the OpenAI-compatible guide](openai_compatible.md) for server examples.
 
+As of 2026-10-27, balanced defaults are Gemini 3.8 Flash, Qwen 3.8 Flash, MiniMax M3.1 Flash (both routes), Grok 4.7, Doubao 2.1 Lite `260915`, GLM 5.3 Flash, and Mistral Medium 3.5. MiMo, Step, and Kimi retain their existing defaults; the Kimi lists add the endpoint-specific K3.1 Pro/Highspeed IDs. CLI, GUI, and the tracked launcher agree. Personal scripts and explicit model overrides are not migrated. The Ark selector also accepts custom `ep-...` endpoints.
+
+MiniMax M3.1 always thinks and separates reasoning from answer content. Configure each route independently in `[minimax_api]` and `[minimax_code]` in `config/model.toml` (or the same sections in legacy `config/config.toml`):
+
+```toml
+[minimax_api]
+reasoning_effort = "medium" # low | medium | high | xhigh | max
+max_completion_tokens = 8192
+```
+
+Reasoning consumes the completion budget too. Increase `max_completion_tokens` or lower effort after a truncation error; truncated and empty answers are not saved as successful captions. M3.1 forces `reasoning_split = true` and omits ineffective sampling controls. Explicit M3 and legacy model IDs remain unchanged. See the [official MiniMax request contract](https://platform.minimax.io/docs/api-reference/text-openai-api).
+
 For local OCR, VLM, and ALM routes, the GUI reads `config/model.toml` and installs the matching `uv extra`. Do not install every optional profile in one environment because OCR, CUDA, and Transformers combinations can conflict.
 
 ### Qwen3.5 fast path

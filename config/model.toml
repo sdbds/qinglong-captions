@@ -492,6 +492,14 @@ reasoning_effort = "high"  # low | high | max
 thinking = "disabled"  # enabled | disabled
 max_completion_tokens = 8192
 
+[minimax_api]
+reasoning_effort = "medium"  # M3.1 Flash: low | medium | high | xhigh | max
+max_completion_tokens = 8192
+
+[minimax_code]
+reasoning_effort = "medium"  # M3.1 Flash: low | medium | high | xhigh | max
+max_completion_tokens = 8192
+
 [scene_detection]
 detector = "AdaptiveDetector"
 threshold = 0.0

@@ -19,6 +19,13 @@ from rich.progress import Progress
 from rich.text import Text
 
 from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.cloud_vlm.minimax_config import (
+    DEFAULT_MINIMAX_MODEL_ID,
+    DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS,
+    MiniMaxRequestError,
+    minimax_request_options,
+    validate_minimax_response,
+)
 from module.providers.cloud_vlm_base import CloudVLMProvider
 from module.providers.registry import register_provider
 from module.providers.utils import build_vision_messages
@@ -64,7 +71,10 @@ def _inject_tags_into_messages(messages: list[dict[str, Any]], tags: list[str]) 
 def _collect_stream_minimax(completion: Any, console: Console) -> str:
     """收集 MiniMax (OpenAI兼容) 流式响应"""
     chunks: list[str] = []
+    finish_reason = None
     for chunk in completion:
+        if getattr(chunk, "choices", None):
+            finish_reason = getattr(chunk.choices[0], "finish_reason", None) or finish_reason
         try:
             if (
                 hasattr(chunk, "choices")
@@ -77,7 +87,7 @@ def _collect_stream_minimax(completion: Any, console: Console) -> str:
         except Exception:
             pass
     console.print("\n")
-    return "".join(chunks)
+    return validate_minimax_response("".join(chunks), finish_reason)
 
 
 def attempt_minimax(
@@ -92,6 +102,8 @@ def attempt_minimax(
     image_pixels: Optional[Any] = None,
     pair_pixels: Optional[Any] = None,
     reasoning_split: bool = False,
+    reasoning_effort: str | None = None,
+    max_completion_tokens: int = DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS,
     mode: str = "all",
     tags: Optional[List[str]] = None,
 ) -> str:
@@ -125,16 +137,18 @@ def attempt_minimax(
     start_time = time.time()
 
     # 构建请求参数
-    extra_body = {"reasoning_split": reasoning_split} if reasoning_split else None
+    request_options = minimax_request_options(
+        model_path,
+        reasoning_split=reasoning_split,
+        reasoning_effort=reasoning_effort,
+        max_completion_tokens=max_completion_tokens,
+    )
 
     completion = client.chat.completions.create(
         model=model_path,
         messages=messages,
-        temperature=0.7,
-        top_p=0.95,
-        max_tokens=8192,
         stream=True,
-        extra_body=extra_body,
+        **request_options,
     )
 
     if progress and task_id is not None:
@@ -260,7 +274,7 @@ class MiniMaxAPIProvider(CloudVLMProvider):
         # 获取配置
         api_key = self.ctx.args.minimax_api_key
         base_url = getattr(self.ctx.args, "minimax_api_base_url", "https://api.minimax.io/v1")
-        model_path = getattr(self.ctx.args, "minimax_model_path", "MiniMax-M3")
+        model_path = getattr(self.ctx.args, "minimax_model_path", DEFAULT_MINIMAX_MODEL_ID)
 
         client = OpenAI(api_key=api_key, base_url=base_url)
 
@@ -293,6 +307,8 @@ class MiniMaxAPIProvider(CloudVLMProvider):
             image_pixels=media.pixels,
             pair_pixels=media.pair_pixels,
             reasoning_split=reasoning_split,
+            reasoning_effort=minimax_config.get("reasoning_effort"),
+            max_completion_tokens=minimax_config.get("max_completion_tokens", DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS),
             mode=getattr(self.ctx.args, "mode", "all"),
             tags=merged_tags,
         )
@@ -405,7 +421,7 @@ class MiniMaxAPIProvider(CloudVLMProvider):
         from module.providers.utils import classify_remote_api_error
 
         cfg = super().get_retry_config()
-        cfg.classify_error = lambda e: classify_remote_api_error(
+        cfg.classify_error = lambda e: None if isinstance(e, MiniMaxRequestError) else classify_remote_api_error(
             e,
             base_wait=cfg.base_wait,
             retry_markers=("RETRY_EMPTY_CONTENT",),

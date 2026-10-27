@@ -41,10 +41,22 @@ GUI `Setup` 页面可管理以下常用变量：
 
 ```powershell
 $gemini_api_key = $env:GEMINI_API_KEY
-$gemini_model_path = "gemini-3-pro-preview"
+$gemini_model_path = "gemini-3.8-flash"
 ```
 
 不要把真实 Key 写入提交的脚本。当前部分兼容入口仍会把 Key 作为子进程参数传递，因此也不要分享完整命令行或任务日志。
+
+2026-10-27 的均衡默认型号为 Gemini 3.8 Flash、Qwen 3.8 Flash、MiniMax M3.1 Flash（两个入口）、Grok 4.7、豆包 2.1 Lite `260915`、GLM 5.3 Flash 和 Mistral Medium 3.5。MiMo、Step、Kimi 保留现有默认；Kimi 的两个入口分别提供开放平台与 Coding Plan 的 K3.1 Pro/Highspeed ID。CLI、GUI 和标准启动脚本同步更新，个人脚本和明确指定的模型 ID 不自动迁移。Ark 下拉框允许手动添加 `ep-...` endpoint。
+
+MiniMax M3.1 的思考与正文必须分离，不能关闭思考。`config/model.toml` 中的 `[minimax_api]` 和 `[minimax_code]` 分别控制两个入口，旧式单文件配置使用 `config/config.toml` 中的同名 section：
+
+```toml
+[minimax_api]
+reasoning_effort = "medium" # low | medium | high | xhigh | max
+max_completion_tokens = 8192
+```
+
+思考 token 也计入输出额度。出现截断错误时，提高 `max_completion_tokens` 或降低思考强度；截断及空正文不会作为成功字幕保存。M3.1 总是发送 `reasoning_split = true`，不发送无效的采样参数。旧 M3 和自定义旧型号仍可显式选择，不会自动改成 M3.1。参数依据：[MiniMax 官方兼容接口](https://platform.minimax.io/docs/api-reference/text-openai-api)。
 
 ### OpenAI-compatible
 
