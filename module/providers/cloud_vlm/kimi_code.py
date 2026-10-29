@@ -14,7 +14,7 @@ from module.providers.cloud_vlm.kimi_reasoning import (
     DEFAULT_KIMI_CODE_MODEL_ID,
     configured_k3_reasoning_effort,
     configured_kimi_thinking,
-    is_k3_model,
+    supports_kimi_reasoning_effort,
 )
 from module.providers.cloud_vlm_base import CloudVLMProvider
 from module.providers.image_template import (
@@ -116,7 +116,7 @@ class KimiCodeProvider(CloudVLMProvider):
         model_path = self.normalize_model_path(
             getattr(self.ctx.args, "kimi_code_model_path", self.KIMI_CODE_DEFAULT_MODEL)
         )
-        if is_k3_model(model_path):
+        if supports_kimi_reasoning_effort(model_path):
             thinking = ""
             reasoning_effort = configured_k3_reasoning_effort(self.ctx.config, "kimi_code")
         else:

@@ -1,4 +1,4 @@
-"""Shared Kimi K3/K3.1 reasoning-effort configuration."""
+"""Shared Kimi K3/K3.1 and K2.8 reasoning-effort configuration."""
 
 from __future__ import annotations
 
@@ -20,10 +20,16 @@ def is_k3_model(model_path: object) -> bool:
     return str(model_path or "").strip().lower() in K3_MODEL_IDS
 
 
+def supports_kimi_reasoning_effort(model_path: object) -> bool:
+    # The stable coding ID now serves K2.8; its highspeed sibling still serves K2.7.
+    return is_k3_model(model_path) or str(model_path or "").strip().lower() == "kimi-for-coding"
+
+
 def normalize_k3_reasoning_effort(
     value: object,
     default: str = DEFAULT_K3_REASONING_EFFORT,
 ) -> str:
+    """Validate the effort scale shared by K3 and K2.8."""
     effort = str(default if value is None else value).strip().lower()
     if effort not in SUPPORTED_K3_REASONING_EFFORTS:
         expected = ", ".join(sorted(SUPPORTED_K3_REASONING_EFFORTS))

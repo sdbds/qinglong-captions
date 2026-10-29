@@ -940,7 +940,7 @@ class TestKimiCodeUserAgent:
         assert "###Long:" in captured["system_prompt"]
         assert "Do not return only a single long paragraph." in captured["system_prompt"]
 
-    @pytest.mark.parametrize("model_path", ["k3", "k3-256k", "k3.1-pro", "k3.1-pro-highspeed"])
+    @pytest.mark.parametrize("model_path", ["k3", "k3-256k", "k3.1-pro", "k3.1-pro-highspeed", "kimi-for-coding"])
     @pytest.mark.parametrize(
         ("configured_effort", "expected_effort"),
         [
@@ -950,7 +950,7 @@ class TestKimiCodeUserAgent:
             (None, "high"),
         ],
     )
-    def test_k3_reads_reasoning_effort_only_from_kimi_code_config(
+    def test_effort_models_read_reasoning_effort_only_from_kimi_code_config(
         self, configured_effort, expected_effort, model_path
     ):
         from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
@@ -999,9 +999,9 @@ class TestKimiCodeUserAgent:
         assert mock_attempt.call_args.kwargs["reasoning_effort"] == expected_effort
         assert result.metadata["reasoning_effort"] == expected_effort
 
-    @pytest.mark.parametrize("model_path", ["kimi-for-coding", "kimi-for-coding-highspeed"])
+    @pytest.mark.parametrize("model_path", ["kimi-for-coding-highspeed"])
     @pytest.mark.parametrize("configured_thinking", ["enabled", "disabled"])
-    def test_pre_k3_models_keep_thinking_toggle_and_omit_reasoning_effort(
+    def test_legacy_models_keep_thinking_toggle_and_omit_reasoning_effort(
         self, model_path, configured_thinking
     ):
         from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext

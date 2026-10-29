@@ -647,7 +647,8 @@ def test_caption_step_lists_current_kimi_and_kimi_code_models():
     assert CaptionStep().config["kimi_code_thinking"] == "enabled"
 
 
-def test_caption_step_switches_between_k3_effort_and_legacy_thinking_controls():
+@pytest.mark.parametrize("coding_model", ["kimi-for-coding", " KIMI-FOR-CODING ", "k2p5", "kimi-code"])
+def test_caption_step_switches_between_effort_and_legacy_thinking_controls(coding_model):
     CaptionStep = _load_caption_step("test_step4_caption_kimi_reasoning_visibility")
 
     class FakeContainer:
@@ -672,7 +673,7 @@ def test_caption_step_switches_between_k3_effort_and_legacy_thinking_controls():
     }
 
     step._sync_kimi_model_controls("Kimi", "kimi-k2.6")
-    step._sync_kimi_model_controls("Kimi-Code", "kimi-for-coding")
+    step._sync_kimi_model_controls("Kimi-Code", "kimi-for-coding-highspeed")
 
     assert kimi_container.visible is False
     assert kimi_code_container.visible is False
@@ -686,6 +687,16 @@ def test_caption_step_switches_between_k3_effort_and_legacy_thinking_controls():
     assert kimi_code_container.visible is True
     assert kimi_thinking_container.visible is False
     assert kimi_code_thinking_container.visible is False
+
+    step._sync_kimi_model_controls("Kimi-Code", coding_model)
+
+    assert kimi_code_container.visible is True
+    assert kimi_code_thinking_container.visible is False
+
+    step._sync_kimi_model_controls("Kimi-Code", "kimi-for-coding-highspeed")
+
+    assert kimi_code_container.visible is False
+    assert kimi_code_thinking_container.visible is True
 
 
 @pytest.mark.parametrize(

@@ -485,8 +485,8 @@ thinking = "enabled"  # non-K3: enabled | disabled
 reasoning_effort = "high"  # low | high | max
 
 [kimi_code]
-thinking = "enabled"  # non-K3: enabled | disabled
-reasoning_effort = "high"  # low | high | max
+thinking = "enabled"  # Legacy models (e.g. kimi-for-coding-highspeed): enabled | disabled
+reasoning_effort = "high"  # K3 and kimi-for-coding (K2.8): low | high | max
 
 [mimo]
 thinking = "disabled"  # enabled | disabled

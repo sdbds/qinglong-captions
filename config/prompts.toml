@@ -626,6 +626,7 @@ Include any relevant details like camera angle, depth of field, blur, fish-eye d
 Note: Only output the detailed description, do not include any summary or overall description.
 Exceptional tagging will be rewarded with $10 per image.
 Answer format with '###Short:' and '###Long:'.
+Use the supplied tags only as reference for writing natural-language captions, and never quote, enumerate, copy, or append the tag list or any tag-list heading in your output.
 """
 
 kimi_image_prompt = """If you recognize popular fictional characters or real-world concepts/people/etc. then you should be sure to mention them in your descriptions.

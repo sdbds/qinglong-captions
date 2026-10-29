@@ -23,7 +23,7 @@ from module.providers.catalog import route_choices, route_requires_remote_config
 from module.providers.cloud_vlm.kimi_reasoning import (
     DEFAULT_KIMI_CODE_MODEL_ID,
     DEFAULT_KIMI_MODEL_ID,
-    is_k3_model,
+    supports_kimi_reasoning_effort,
 )
 from module.providers.cloud_vlm.minimax_config import DEFAULT_MINIMAX_MODEL_ID
 from module.providers.grok_build_headless import DEFAULT_GROK_BUILD_MODEL
@@ -213,6 +213,10 @@ class CaptionStep:
                 "kimi-for-coding",
                 "kimi-for-coding-highspeed",
             ],
+            "model_labels": {
+                "kimi-for-coding": "kimi-for-coding (K2.8 Preview)",
+                "kimi-for-coding-highspeed": "kimi-for-coding-highspeed (K2.7 Code Highspeed)",
+            },
             "default_model": DEFAULT_KIMI_CODE_MODEL_ID,
             "supports_video": True,
             "supports_task": False,
@@ -546,7 +550,9 @@ class CaptionStep:
         effort_control.set_options(options, value=current_effort)
 
     def _sync_kimi_model_controls(self, api_name: str, model_path: str) -> None:
-        uses_reasoning_effort = is_k3_model(model_path)
+        if api_name == "Kimi-Code":
+            model_path = _normalize_kimi_code_model_path(model_path)
+        uses_reasoning_effort = supports_kimi_reasoning_effort(model_path)
         reasoning_container = self._kimi_reasoning_effort_containers.get(api_name)
         if reasoning_container is not None:
             reasoning_container.set_visibility(uses_reasoning_effort)
@@ -1625,7 +1631,7 @@ class CaptionStep:
                         setattr(self, f"{config['key_name']}_model", model_input)
                     else:
                         model_select = styled_select(
-                            options=dict(zip(config["models"], config["models"])),
+                            options={model: config.get("model_labels", {}).get(model, model) for model in config["models"]},
                             value=config["default_model"],
                             label=t("model_path"),
                             icon="smart_toy",
@@ -1666,7 +1672,7 @@ class CaptionStep:
                             else "kimi_code_reasoning_effort",
                             reasoning_select,
                         )
-                        reasoning_container.set_visibility(is_k3_model(config["default_model"]))
+                        reasoning_container.set_visibility(supports_kimi_reasoning_effort(config["default_model"]))
 
                         _, thinking_config_key = self.KIMI_THINKING_CONFIG[api_name]
                         thinking_container = ui.column().classes("w-full")
@@ -1691,7 +1697,7 @@ class CaptionStep:
                             thinking_select,
                         )
                         thinking_container.set_visibility(
-                            not is_k3_model(config["default_model"])
+                            not supports_kimi_reasoning_effort(config["default_model"])
                         )
 
                     # Gemini 特有：任务名称
