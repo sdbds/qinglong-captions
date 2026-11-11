@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 import re
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pysrt
 from config.config import (
     APPLICATION_EXTENSIONS_SET,
     AUDIO_EXTENSIONS_SET,
+    IMAGE_EXTENSIONS_SET,
     VIDEO_EXTENSIONS_SET,
 )
 from module.providers.base import CaptionResult, CaptionStatus
@@ -17,8 +19,12 @@ from module.providers.image_template import (
     active_image_template,
     postprocess_image_template_text,
 )
+from utils.caption_modes import normalize_sectioned_caption
 from utils.parse_display import extract_code_block_content, process_llm_response
 from utils.path_safety import safe_child_path, safe_leaf_name
+
+
+_FULL_JSON_FENCE = re.compile(r"```(?:json)?[ \t]*\r?\n(.*)\r?\n```", re.IGNORECASE | re.DOTALL)
 
 
 def _deduplicate_filename(filename: str, used_names: set[str]) -> str:
@@ -147,12 +153,28 @@ def normalize_and_validate_subtitle_text(output: str, console=None) -> str:
     return normalized
 
 
-def _caption_result_from_processed(output, metadata: dict | None = None) -> CaptionResult:
+def _parse_json_object(value: str) -> dict | None:
+    if not value:
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _caption_result_from_processed(output, metadata: dict | None = None, *, mode: str | None = None, raw=None) -> CaptionResult:
     metadata = dict(metadata or {})
     if isinstance(output, CaptionResult):
         return output
     if isinstance(output, dict):
-        return CaptionResult(raw=json.dumps(output, ensure_ascii=False), parsed=output, metadata=metadata)
+        normalized = normalize_sectioned_caption(output, mode) if mode is not None else None
+        if normalized is not None:
+            output = normalized
+            raw = None
+        if raw is None:
+            raw = json.dumps(output, ensure_ascii=False)
+        return CaptionResult(raw=raw, parsed=output, metadata=metadata)
     if isinstance(output, list):
         return CaptionResult(raw="\n".join(str(line) for line in output), metadata=metadata)
     return CaptionResult(raw=str(output), metadata=metadata)
@@ -169,6 +191,11 @@ def postprocess_caption_content(output, filepath, args, console):
     if not output:
         console.print(f"[red]No caption content generated for {filepath}[/red]")
         return CaptionResult(raw="", metadata=metadata)
+
+    suffix = Path(filepath).suffix.lower()
+    mime = mimetypes.guess_type(str(filepath))[0] or ""
+    is_image = suffix in IMAGE_EXTENSIONS_SET or mime.startswith("image/")
+    image_mode = getattr(args, "mode", "all") if is_image else None
 
     if isinstance(output, list):
         if output and hasattr(output[0], "markdown") and hasattr(output[0], "index"):
@@ -217,7 +244,7 @@ def postprocess_caption_content(output, filepath, args, console):
             output = "\n".join(output)
 
     if isinstance(output, dict):
-        return _caption_result_from_processed(output, metadata)
+        return _caption_result_from_processed(output, metadata, mode=image_mode)
 
     output = str(output).strip()
     if not output:
@@ -227,7 +254,6 @@ def postprocess_caption_content(output, filepath, args, console):
     template_id = "" if getattr(args, "pair_dir", "") else active_image_template(args)
     output = postprocess_image_template_text(output, template_id)
 
-    suffix = Path(filepath).suffix.lower()
     if suffix in VIDEO_EXTENSIONS_SET or suffix in AUDIO_EXTENSIONS_SET:
         return CaptionResult(raw=normalize_and_validate_subtitle_text(output, console), metadata=metadata)
 
@@ -237,18 +263,22 @@ def postprocess_caption_content(output, filepath, args, console):
     try:
         parsed = json.loads(output)
         if isinstance(parsed, dict):
-            return CaptionResult(raw=output, parsed=parsed, metadata=metadata)
+            return _caption_result_from_processed(parsed, metadata, mode=image_mode, raw=output)
     except json.JSONDecodeError:
-        # JSON image prompt templates may wrap output in a ```json fence; strip and retry.
-        if active_image_template(args):
+        has_template = bool(active_image_template(args))
+        # Backticks inside a JSON string do not delimit the outer fence.
+        match = _FULL_JSON_FENCE.fullmatch(output) if is_image else None
+        fenced = match[1].strip() if match else ""
+        fenced_parsed = _parse_json_object(fenced)
+        if fenced_parsed is None and has_template:
             fenced = extract_code_block_content(output, "json", console)
-            if fenced:
-                try:
-                    fenced_parsed = json.loads(fenced)
-                except json.JSONDecodeError:
-                    fenced_parsed = None
-                if isinstance(fenced_parsed, dict):
-                    return CaptionResult(raw=fenced, parsed=fenced_parsed, metadata=metadata)
+            fenced_parsed = _parse_json_object(fenced)
+        if fenced_parsed is not None:
+            result = _caption_result_from_processed(fenced_parsed, metadata, mode=image_mode, raw=fenced)
+            if has_template or result.parsed != fenced_parsed:
+                return result
+            # Custom JSON is not a plaintext caption, even when nested strings contain headings.
+            return CaptionResult(raw=output, metadata=metadata)
 
     if "###" in output:
         shortdescription, long_description = process_llm_response(output)

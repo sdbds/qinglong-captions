@@ -20,7 +20,44 @@ from typing import Any, Optional
 from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.providers.cloud_vlm_base import CloudVLMProvider
 from module.providers.registry import register_provider
+from utils.caption_modes import normalize_sectioned_caption
 from utils.console_util import print_exception
+
+
+def _ensure_json_instruction(messages: list[dict]) -> list[dict]:
+    """Meet JSON mode's text requirement without changing reusable messages."""
+    if not messages:
+        return messages
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, str):
+            texts = [content]
+        elif isinstance(content, list):
+            texts = [part.get("text") for part in content if isinstance(part, dict) and part.get("type") == "text"]
+        else:
+            texts = []
+        if any(isinstance(text, str) and "json" in text.lower() for text in texts):
+            return messages
+
+    instruction = (
+        "Return only a valid JSON object, without Markdown code fences. "
+        "Follow the requested JSON schema if one is specified; otherwise put the caption "
+        'in a string field named "description".'
+    )
+    result = list(messages)
+    for index, message in enumerate(messages):
+        if message.get("role") != "system":
+            continue
+        content = message.get("content")
+        if isinstance(content, list):
+            content = [*content, {"type": "text", "text": instruction}]
+        else:
+            content = f"{content}\n\n{instruction}" if content else instruction
+        result[index] = {**message, "content": content}
+        break
+    else:
+        result.insert(0, {"role": "system", "content": instruction})
+    return result
 
 
 def _is_json_mode_unsupported(error: Exception) -> bool:
@@ -98,6 +135,7 @@ class OpenAICompatibleProvider(CloudVLMProvider):
         }
         if use_json_mode:
             request_params["response_format"] = {"type": "json_object"}
+            request_params["messages"] = _ensure_json_instruction(messages)
 
         # Provider.execute owns transport retries; the SDK must not multiply them.
         client = OpenAI(api_key=api_key, base_url=base_url, max_retries=0)
@@ -110,6 +148,7 @@ class OpenAICompatibleProvider(CloudVLMProvider):
                     raise
                 self.log("Retrying without JSON mode...", "yellow")
                 del request_params["response_format"]
+                request_params["messages"] = messages
                 completion = client.chat.completions.create(**request_params)
             result = completion.choices[0].message.content or ""
         finally:
@@ -121,7 +160,7 @@ class OpenAICompatibleProvider(CloudVLMProvider):
         if parsed:
             # 根据 mode 过滤字段
             mode = getattr(self.ctx.args, "mode", "all")
-            filtered = self._filter_by_mode(parsed, mode)
+            filtered = self._filter_by_mode(parsed, mode, split_sections=media.mime.startswith("image"))
             return CaptionResult(
                 raw=json.dumps(filtered, ensure_ascii=False),
                 parsed=filtered,
@@ -157,35 +196,23 @@ class OpenAICompatibleProvider(CloudVLMProvider):
         except Exception:
             return None
 
-    def _filter_by_mode(self, parsed: dict, mode: str) -> dict:
+    def _filter_by_mode(self, parsed: dict, mode: str, *, split_sections: bool = True) -> dict:
         """根据 mode 过滤字段"""
-        result = dict(parsed)  # 复制
-        
-        if mode == "short":
-            # short 模式：移除长描述相关字段
-            result.pop("long", None)
-            result.pop("long_description", None)
-            # 保留 short 或 short_description
-            if "short" in result and "short_description" not in result:
-                result["short_description"] = result.pop("short")
-                
-        elif mode == "long":
-            # long 模式：移除短描述相关字段
-            result.pop("short", None)
-            result.pop("short_description", None)
-            # 保留 long 或 long_description
-            if "long" in result and "long_description" not in result:
-                result["long_description"] = result.pop("long")
-        
-        else:  # mode == "all"
-            # 规范化字段名
-            if "short" in result and "short_description" not in result:
-                result["short_description"] = result.pop("short")
-            if "long" in result and "long_description" not in result:
-                result["long_description"] = result.pop("long")
-            if "description" in result and "long_description" not in result:
-                result["long_description"] = result.pop("description")
-        
+        if split_sections:
+            normalized = normalize_sectioned_caption(parsed, mode)
+            if normalized is not None:
+                return normalized
+
+        result = dict(parsed)
+        for name in ("short", "long"):
+            key = f"{name}_description"
+            if mode in ("short", "long") and mode != name:
+                result.pop(name, None)
+                result.pop(key, None)
+            elif name in result and key not in result:
+                result[key] = result.pop(name)
+        if mode not in ("short", "long") and "description" in result and "long_description" not in result:
+            result["long_description"] = result.pop("description")
         return result
 
     def get_retry_config(self):
