@@ -16,7 +16,7 @@ from rich.text import Text
 from rich_pixels import Pixels
 
 from module.providers.catalog import get_first_attr, route_matches_provider
-from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
 from module.providers.registry import register_provider
 from module.providers.utils import build_vision_messages
 from module.providers.vision_api_base import VisionAPIProvider
@@ -262,7 +262,17 @@ class MistralOCRProvider(VisionAPIProvider):
 
     def prepare_media(self, uri: str, mime: str, args) -> MediaContext:
         """Mistral OCR 支持 PDF，需要特殊处理"""
-        media = super().prepare_media(uri, mime, args)
+        if not mime.startswith("application"):
+            return super().prepare_media(uri, mime, args)
+
+        source = Path(uri)
+        media = MediaContext(
+            uri=uri,
+            mime=mime,
+            sha256hash="",
+            modality=MediaModality.DOCUMENT,
+            file_size=source.stat().st_size if source.exists() else 0,
+        )
 
         # PDF 处理
         if mime.startswith("application"):

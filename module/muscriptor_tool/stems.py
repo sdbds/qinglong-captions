@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Callable, Iterable, Sequence
 
+from module.audio_batch import STEM_MIDI_OUTPUT_DIRNAME
 from utils.file_hash import sha256_file
 from utils.path_safety import safe_child_path, safe_leaf_name
 
@@ -14,7 +15,6 @@ from .catalog import OFFICIAL_INSTRUMENT_NAMES
 from .manifest import atomic_write_json, publish_staged_outputs, read_json
 from .options import PreviewRequest, TranscriptionOptions
 
-STEM_MIDI_OUTPUT_DIRNAME = "04_stem_midi"
 STEM_MIDI_SCHEMA_VERSION = 1
 
 # Stem labels identify an instrument family, not always one exact MIDI timbre.

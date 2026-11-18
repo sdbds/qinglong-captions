@@ -61,9 +61,10 @@ from utils.lance_blob import (
     build_lance_value_array,
     is_blob_v2_field,
 )
-from utils.lance_utils import update_or_create_tag
+from utils.lance_utils import is_derived_export_directory, update_or_create_tag
 from module.music_export import atomic_output_path
 from utils.caption_index import CAPTION_INDEX_NAME, CAPTION_TRANSACTION_PREFIX, caption_index_key, caption_index_path, load_caption_index
+from utils.ocr_artifacts import OCR_ARTIFACT_ROOT, is_ocr_artifact_path
 
 console = Console(color_system="truecolor", force_terminal=True)
 image_extensions = get_supported_extensions("image")
@@ -595,8 +596,10 @@ def _sorted_directory_entries(root: Path) -> List[Path]:
 
 
 def _iter_candidate_files(root: Path, recursive: bool = True) -> Iterator[Path]:
+    if is_ocr_artifact_path(root) or is_ocr_artifact_path(root.resolve()) or is_derived_export_directory(root):
+        return
     for path in _sorted_directory_entries(root):
-        if (path.name.casefold() == _IMPORT_COMPONENT_DIR
+        if (path.name.casefold() in {_IMPORT_COMPONENT_DIR, OCR_ARTIFACT_ROOT}
                 or (path.name.startswith(CAPTION_TRANSACTION_PREFIX) and path.is_dir())):
             continue
         if path.is_file():
@@ -647,6 +650,8 @@ def _make_data_item(file_path: Path, caption: Optional[List[str]] = None) -> Dic
 
 
 def _iter_data_items_in_directory(directory: Path, include_text_assets: bool) -> Iterator[Dict[str, Any]]:
+    if is_ocr_artifact_path(directory) or is_ocr_artifact_path(directory.resolve()) or is_derived_export_directory(directory):
+        return
     entries = _sorted_directory_entries(directory)
     index = load_caption_index(directory)
     caption_index = index.captions if index is not None else {}
@@ -661,7 +666,7 @@ def _iter_data_items_in_directory(directory: Path, include_text_assets: bool) ->
     }
 
     for path in entries:
-        if (path.name.casefold() == _IMPORT_COMPONENT_DIR
+        if (path.name.casefold() in {_IMPORT_COMPONENT_DIR, OCR_ARTIFACT_ROOT}
                 or (path.name.startswith(CAPTION_TRANSACTION_PREFIX) and path.is_dir())):
             continue
         if path.is_file():
@@ -874,6 +879,8 @@ def transform2lance(
     load_condition: Callable[..., Iterable[Dict[str, Any]]] = load_data,
     include_text_assets: bool = True,
     data_storage_version: str = DEFAULT_BLOB_DATA_STORAGE_VERSION,
+    *,
+    create_only: bool = False,
 ) -> Optional[lance.LanceDataset]:
     """
     Transform dataset assets into Lance format.
@@ -896,7 +903,7 @@ def transform2lance(
             reader,
             str(dataset_path),
             schema,
-            mode="create" if not_save_disk else "overwrite",
+            mode="create" if create_only or not_save_disk else "overwrite",
             data_storage_version=data_storage_version,
         )
         update_or_create_tag(lancedataset, tag)

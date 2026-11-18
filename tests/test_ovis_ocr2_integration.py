@@ -81,15 +81,12 @@ def test_ovis_ocr2_extra_contains_only_required_direct_dependencies():
 def test_ovis_ocr2_extra_conflicts_with_incompatible_transformers_profiles():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     conflict_groups = pyproject["tool"]["uv"]["conflicts"]
-    ovis_group = next(group for group in conflict_groups if {"extra": "ovis-ocr2"} in group)
-    extras = {entry["extra"] for entry in ovis_group if "extra" in entry}
-
-    assert {
-        "ovis-ocr2",
+    for incompatible in (
         "paddleocr-native",
         "reward-model",
         "deepseek-ocr",
         "unlimited-ocr",
+        "unlimited-ocr2",
         "dots-ocr",
         "penguin-vl-local",
         "hunyuan-ocr",
@@ -98,7 +95,11 @@ def test_ovis_ocr2_extra_conflicts_with_incompatible_transformers_profiles():
         "music-flamingo-local",
         "eureka-audio-local",
         "cohere-transcribe-local",
-    } <= extras
+    ):
+        assert any(
+            {"extra": "ovis-ocr2"} in group and {"extra": incompatible} in group
+            for group in conflict_groups
+        ), f"Missing direct uv conflict: ovis-ocr2 and {incompatible}"
 
 
 def test_gui_exposes_ovis_route_and_installs_ovis_extra_without_fake_rank():

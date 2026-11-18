@@ -7,6 +7,7 @@
 #   "rich_pixels",
 #   "toml",
 #   "tomlkit",
+#   "filelock>=3.32.3,<4",
 # ]
 # ///
 """

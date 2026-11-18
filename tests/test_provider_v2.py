@@ -1056,12 +1056,41 @@ class TestKimiCodeUserAgent:
 
 @pytest.mark.parametrize(
     "model_path",
-    ["kimi-k3", " KIMI-K3 ", "k3", " K3 ", "k3-256k", " K3-256K "],
+    [
+        "kimi-k3",
+        " KIMI-K3 ",
+        "k3",
+        " K3 ",
+        "k3-256k",
+        " K3-256K ",
+        "moonshotai/kimi-k3",
+        "moonshotai/kimi-k3.1-pro",
+        "MoonshotAI/Kimi-K3.1-Pro-Highspeed",
+        "openrouter/moonshotai/kimi-k3",
+    ],
 )
 def test_k3_model_family_recognizes_endpoint_specific_model_ids(model_path):
     from module.providers.cloud_vlm.kimi_reasoning import is_k3_model
 
     assert is_k3_model(model_path) is True
+
+
+@pytest.mark.parametrize(
+    ("model_path", "expected"),
+    [
+        ("kimi-for-coding", True),
+        ("moonshotai/kimi-for-coding", True),
+        ("kimi-k3.1-pro", True),
+        ("moonshotai/kimi-k3.1-pro", True),
+        ("kimi-for-coding-highspeed", False),
+        ("moonshotai/kimi-k2.6", False),
+        ("", False),
+    ],
+)
+def test_supports_kimi_reasoning_effort_matches_prefixed_model_ids(model_path, expected):
+    from module.providers.cloud_vlm.kimi_reasoning import supports_kimi_reasoning_effort
+
+    assert supports_kimi_reasoning_effort(model_path) is expected
 
 
 @pytest.mark.parametrize("model_path", ["kimi-k2.6", "kimi-for-coding", "", None])
@@ -1100,7 +1129,10 @@ def test_k3_reasoning_effort_normalizer_rejects_present_falsy_values(invalid_val
         normalize_k3_reasoning_effort(invalid_value)
 
 
-@pytest.mark.parametrize("model_path", ["kimi-k3", "kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"])
+@pytest.mark.parametrize(
+    "model_path",
+    ["kimi-k3", "kimi-k3.1-pro", "kimi-k3.1-pro-highspeed", "moonshotai/kimi-k3.1-pro"],
+)
 def test_kimi_provider_reads_k3_reasoning_effort_from_kimi_vl_config(model_path):
     from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
     from module.providers.registry import get_registry

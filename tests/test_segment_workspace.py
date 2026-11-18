@@ -40,6 +40,15 @@ def _clips(directory, count):
     return paths
 
 
+def test_segmented_media_preserves_non_kimi_skip_status(tmp_path, monkeypatch):
+    source = tmp_path / "source.wav"
+    source.touch()
+    skipped = CaptionResult.skipped("mimo_high_risk_rejection")
+    monkeypatch.setattr(orchestrator, "split_video_with_imageio_ffmpeg",
+                        lambda *args, output_dir, **kwargs: _clips(output_dir, 2))
+    assert _call(source, lambda **_: skipped) is skipped
+
+
 def test_manifest_order_preserves_twelve_clips_and_old_files(tmp_path, monkeypatch):
     source = tmp_path / "source.wav"
     source.write_bytes(b"source")

@@ -38,7 +38,7 @@ def test_logics_ocr_uses_official_default_prompt():
 
     ctx = ProviderContext(
         console=Console(file=io.StringIO(), force_terminal=False),
-        config={"prompts": {"logics_ocr_prompt": ""}},
+        config={"prompts": {"logics_ocr_prompt": ""}, "logics_ocr": {"model_id": "Logics-MLLM/Logics-Parsing-v2"}},
         args=SimpleNamespace(ocr_model="logics_ocr"),
     )
 

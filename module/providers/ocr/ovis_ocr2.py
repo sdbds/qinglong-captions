@@ -16,6 +16,8 @@ from PIL import Image
 
 from module.providers.backends import OpenAIChatRuntime, RuntimeBackendConfig
 from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
+from module.providers.ocr.document import rebase_generated_images
+from utils.ocr_artifacts import reserve_ocr_artifact_dir
 from module.providers.ocr.ovis_ocr2_contract import OVIS_OCR2_DEFAULT_PROMPT
 from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
@@ -454,7 +456,7 @@ class OvisOCR2Provider(OCRProvider):
             mime=mime,
             sha256hash="",
             modality=MediaModality.DOCUMENT if mime == "application/pdf" else MediaModality.IMAGE,
-            extras={"output_dir": Path(uri).with_suffix("")},
+            extras={"output_dir": reserve_ocr_artifact_dir(uri)},
         )
 
     def _provider_config(self) -> Mapping[str, Any]:
@@ -591,7 +593,7 @@ class OvisOCR2Provider(OCRProvider):
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         start_time = time.time()
-        output_dir = Path(media.extras.get("output_dir") or Path(media.uri).with_suffix(""))
+        output_dir = self.artifact_output_dir(media)
         visual_region_mode = self._get_visual_region_mode()
         runtime = self.get_runtime_backend()
         inferencer = self._create_inferencer(runtime)
@@ -633,7 +635,7 @@ class OvisOCR2Provider(OCRProvider):
 
         self.ctx.console.print(f"[blue]Caption generation took:[/blue] {time.time() - start_time:.2f} seconds")
         return CaptionResult(
-            raw=content,
+            raw=rebase_generated_images(content, output_dir, Path(media.uri).parent),
             metadata={
                 "provider": self.name,
                 "output_dir": str(output_dir),

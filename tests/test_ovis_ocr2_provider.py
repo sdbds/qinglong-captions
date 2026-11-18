@@ -657,12 +657,12 @@ def test_single_image_pipeline_is_backend_independent(tmp_path, backend):
         PromptContext(system="ignored", user="prompt"),
     )
 
-    assert result.raw == 'heading\n<img src="images/bbox_0_0_500_500.jpg" />'
+    assert result.raw == f'heading\n<img src="output-{backend}/images/bbox_0_0_500_500.jpg" />'
     assert result.metadata["runtime_backend"] == backend
     assert result.metadata["failed_pages"] == []
     assert inferencer.calls == [("RGB", (100, 80), "prompt")]
     assert (output_dir / "page.png").exists()
-    assert (output_dir / "result.md").read_text(encoding="utf-8") == result.raw
+    assert (output_dir / "result.md").read_text(encoding="utf-8") == 'heading\n<img src="images/bbox_0_0_500_500.jpg" />'
     assert (output_dir / "images" / "bbox_0_0_500_500.jpg").exists()
 
 
@@ -701,7 +701,7 @@ def test_backend_variants_produce_identical_markdown_and_assets(tmp_path):
         )
         outputs.append(
             (
-                result.raw,
+                result.raw.replace(f'{backend}/images/', 'images/'),
                 (output_dir / "result.md").read_bytes(),
                 (output_dir / "images" / "bbox_0_0_500_500.jpg").read_bytes(),
             )
@@ -738,11 +738,13 @@ def test_pdf_pipeline_writes_page_results_and_rewrites_only_root_paths(tmp_path)
             PromptContext(system="", user="prompt"),
         )
 
-    assert '<img src="page_0001/images/bbox_0_0_500_500.jpg" />' in result.raw
-    assert '<img src="page_0002/images/bbox_500_500_1000_1000.jpg" />' in result.raw
+    assert '<img src="source/page_0001/images/bbox_0_0_500_500.jpg" />' in result.raw
+    assert '<img src="source/page_0002/images/bbox_500_500_1000_1000.jpg" />' in result.raw
     assert "\n<--- Page Split --->\n" in result.raw
     assert '<img src="images/bbox_0_0_500_500.jpg" />' in (output_dir / "page_0001" / "result.md").read_text(encoding="utf-8")
-    assert (output_dir / "result.md").read_text(encoding="utf-8") == result.raw
+    merged_markdown = (output_dir / "result.md").read_text(encoding="utf-8")
+    assert '<img src="page_0001/images/bbox_0_0_500_500.jpg" />' in merged_markdown
+    assert '<img src="page_0002/images/bbox_500_500_1000_1000.jpg" />' in merged_markdown
     assert result.metadata["failed_pages"] == []
 
 

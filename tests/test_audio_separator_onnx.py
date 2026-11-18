@@ -1116,6 +1116,30 @@ def test_collect_existing_stem_candidates_ignores_wrong_model_or_format(tmp_path
     assert [candidate.stem_name for candidate in candidates] == ["vocals"]
 
 
+def test_collect_existing_stems_includes_the_recorded_secondary_output(tmp_path):
+    source_path = tmp_path / "song.wav"
+    output = tmp_path / "song"
+    output.mkdir()
+    vocal_name = "song_(vocals)_primary.wav"
+    secondary_name = "song_(Instrumental)_primary.wav"
+    for name in (vocal_name, secondary_name):
+        (output / name).write_bytes(b"audio")
+    separator = SimpleNamespace(
+        model_tag="primary",
+        metadata=SimpleNamespace(stem_names=("vocals",), num_stems=1, secondary_stem_name="Instrumental"),
+    )
+
+    candidates = collect_existing_stem_midi_candidates(
+        source_path, output, separator=separator, output_format="wav",
+        recorded_outputs=frozenset({vocal_name, secondary_name}),
+    )
+    assert [candidate.stem_name for candidate in candidates] == ["vocals", "Instrumental"]
+    candidates = collect_existing_stem_midi_candidates(
+        source_path, output, separator=separator, output_format="wav", recorded_outputs=frozenset({vocal_name}),
+    )
+    assert [candidate.stem_name for candidate in candidates] == ["vocals"]
+
+
 def test_build_vocal_midi_output_dir_without_model_name(tmp_path):
     song_output_dir = tmp_path / "song_output"
 

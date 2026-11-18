@@ -243,6 +243,7 @@ class OpenAIChatRuntime:
         response_format: Optional[dict[str, Any]] = None,
         stop: Optional[list[str]] = None,
         extra_body: Optional[Mapping[str, Any]] = None,
+        require_complete: bool = False,
     ) -> str:
         if not self.config.base_url:
             raise RuntimeError("OPENAI_RUNTIME_BASE_URL_MISSING")
@@ -270,4 +271,10 @@ class OpenAIChatRuntime:
             request["extra_body"] = dict(extra_body)
 
         completion = client.chat.completions.create(**request)
-        return extract_message_text(completion.choices[0].message.content)
+        choice = completion.choices[0]
+        if require_complete and choice.finish_reason != "stop":
+            raise RuntimeError(
+                f"OCR generation is incomplete (finish_reason={choice.finish_reason}); "
+                "increase the token budget or reduce the document window size."
+            )
+        return extract_message_text(choice.message.content)

@@ -129,7 +129,9 @@ def test_incomplete_segments_cannot_replace_complete_caption(tmp_path, monkeypat
         caption,
         Console(file=io.StringIO()),
     )
-    assert result.status is CaptionStatus.FAILED
+    assert result.status is (CaptionStatus.SKIPPED if outcome == "skipped" else CaptionStatus.FAILED)
+    if outcome == "skipped":
+        assert result.metadata["skip_reason"] == "backend did not produce a caption"
     assert not result.is_persistable
     assert source.with_suffix(".txt").read_text(encoding="utf-8") == "complete previous transcript"
 

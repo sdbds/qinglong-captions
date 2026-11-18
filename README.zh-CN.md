@@ -196,7 +196,7 @@ Caption 负责核心推理：它可连接云端 API、OpenAI-compatible 服务�
 | PSD 图层导出 | [PSD Export](docs/tools/psd_export.md) | `2.4.psdexport.ps1` |
 | 音频分轨 | [Audio Separation](docs/tools/audio_separation.md) | `2.5.audio_separator.ps1` |
 | Image2PSD | [See-through](docs/tools/image2psd.md) | `2.6.image2psd.ps1` |
-| 音频转 MIDI | [MuScriptor](docs/tools/muscriptor.md) | `2.7.music_transcription.ps1` |
+| 音乐转录 | [MuScriptor](docs/tools/muscriptor.md) / [SheetSage2](docs/tools/sheetsage2.md) | `2.7.music_transcription.ps1` |
 | 乐谱 OMR 转录 | [MuSViT](docs/tools/sheet_music.md) | GUI Tools |
 | 文本与文档翻译 | [Translation](docs/tools/text_translation.md) | `5.translate.ps1` |
 

@@ -16,6 +16,9 @@ $Config = @{
     muscriptor_other_instruments = ""                    # Empty = auto; or comma-separated MuScriptor instruments
     muscriptor_preview_mode = "none"                      # none | midi | comparison
     muscriptor_preview_format = "mp3"                    # mp3 | wav
+    sheetsage2_midi = $false                              # Alternative to muscriptor_midi
+    sheetsage2_device = "auto"                            # auto | cpu | cuda | cuda:N
+    sheetsage2_melody_only = $false                        # Omit chord accompaniment
     overwrite       = $false                               # Overwrite existing song output directories
     force_download  = $false                               # Force re-download model artifacts
 }
@@ -140,6 +143,10 @@ if (-not $Config.input_path) {
     Write-Error "input_path is required. Please set it in the configuration."
     exit 1
 }
+if ($Config.muscriptor_midi -and $Config.sheetsage2_midi) {
+    Write-Error "Choose either MuScriptor or SheetSage2 for stem MIDI."
+    exit 1
+}
 
 if ($Config.repo_id) { [void]$ExtArgs.Add("--repo_id=$($Config.repo_id)") }
 if ($Config.model_dir) { [void]$ExtArgs.Add("--model_dir=$($Config.model_dir)") }
@@ -160,6 +167,13 @@ if ($Config.muscriptor_midi) {
     if ($Config.muscriptor_preview_mode -ne "none") {
         [void]$ExtArgs.Add("--muscriptor_preview_mode=$($Config.muscriptor_preview_mode)")
         [void]$ExtArgs.Add("--muscriptor_preview_format=$($Config.muscriptor_preview_format)")
+    }
+}
+if ($Config.sheetsage2_midi) {
+    [void]$ExtArgs.Add("--sheetsage2_midi")
+    [void]$ExtArgs.Add("--sheetsage2_device=$($Config.sheetsage2_device)")
+    if ($Config.sheetsage2_melody_only) {
+        [void]$ExtArgs.Add("--sheetsage2_melody_only")
     }
 }
 if ($Config.overwrite) { [void]$ExtArgs.Add("--overwrite") }

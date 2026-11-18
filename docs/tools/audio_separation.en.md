@@ -1,6 +1,6 @@
 # Audio Separation
 
-The ONNX separator produces six stems and can optionally run harmony separation, GAME vocal-to-MIDI, or MuScriptor transcription for every primary stem.
+The ONNX separator produces six stems and can optionally run harmony separation, GAME vocal-to-MIDI, or stem transcription with MuScriptor or SheetSage2.
 
 ```powershell
 .\2.5.audio_separator.ps1
@@ -8,6 +8,8 @@ python -m module.audio_separator --help
 ```
 
 The base profile is `vocal-midi`; enabling MuScriptor stem MIDI also loads `muscriptor-local`. Inputs may be a file, directory, or Lance dataset; outputs support WAV, FLAC, and MP3. MuScriptor MIDI, optional preview audio, and metadata are written under each song's `04_stem_midi` directory. Preview modes are pure synthesized MIDI or an original-stem-left / synthesized-MIDI-right comparison, in MP3 or WAV.
+
+Enable **All Stems to MIDI** in the GUI to choose the transcription backend. MuScriptor remains the default. SheetSage2 runs in its own `uv` environment and writes each stem's MIDI and annotations under `04_stem_midi/sheetsage2/<stem filename>/`. The PowerShell settings `muscriptor_midi` and `sheetsage2_midi` are mutually exclusive. See [SheetSage2 transcription](sheetsage2.en.md).
 
 Stem labels constrain only what they reliably identify: vocals use `voice`, drums use `drums`, while bass, guitar, and piano retain all acoustic/electric subtypes in their respective families. MuScriptor chooses the subtype. The `other` stem uses automatic detection unless its secondary setting supplies a manual instrument allowlist.
 

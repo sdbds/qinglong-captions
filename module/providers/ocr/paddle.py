@@ -12,6 +12,7 @@ from rich_pixels import Pixels
 
 from module.onnx_runtime import OnnxModelSpec, load_single_model_bundle, resolve_tool_runtime_config
 from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.ocr.document import rebase_generated_images
 from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from utils.parse_display import display_markdown
@@ -653,7 +654,7 @@ class PaddleOCRProvider(OCRProvider):
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         del prompts
-        output_dir = media.extras.get("output_dir")
+        output_dir = self.artifact_output_dir(media)
         config = self._get_paddle_config()
         backend = config["backend"]
 
@@ -691,7 +692,7 @@ class PaddleOCRProvider(OCRProvider):
             metadata["model_tier"] = config["model_tier"]
 
         return CaptionResult(
-            raw=result if isinstance(result, str) else str(result),
+            raw=rebase_generated_images(str(result), output_dir, Path(media.uri).parent),
             metadata={
                 "provider": self.name,
                 "output_dir": str(output_dir),

@@ -21,7 +21,7 @@ from module.providers.local_llm.index_translate import IndexTranslateProvider
 from utils.doc_normalize import NormalizationError, normalize_asset
 from utils.lance_blob import build_lance_value_array, take_blob_files
 from utils.lance_updates import LanceRowUpdate, merge_rows_preserving_schema
-from utils.lance_utils import build_version_tag, get_latest_version_number, sanitize_tag_component, update_or_create_tag
+from utils.lance_utils import build_version_tag, find_existing_lance_dataset, get_latest_version_number, sanitize_tag_component, update_or_create_tag
 from utils.text_chunker import compute_chunk_offsets, slice_by_offsets
 
 console = Console(color_system="truecolor", force_terminal=True)
@@ -313,16 +313,12 @@ def load_or_create_dataset(
         raise FileNotFoundError(f"Input path not found: {input_path}")
 
     if not force_reimport:
-        existing = sorted(source_path.glob('*.lance'))
-        if existing:
-            preferred = source_path / f"{output_name}.lance"
-            if preferred in existing:
-                return preferred, False
-            if len(existing) == 1:
-                return existing[0], False
-            raise TranslationRuntimeError(
-                "Multiple Lance datasets found. Specify --output_name to match one exactly or remove the extras."
-            )
+        try:
+            existing = find_existing_lance_dataset(source_path, output_name)
+        except ValueError as exc:
+            raise TranslationRuntimeError(str(exc)) from exc
+        if existing is not None:
+            return existing, False
 
     console.print("[yellow]Importing source assets into Lance...[/yellow]")
     dataset = transform2lance(

@@ -32,12 +32,11 @@ deepseek_ocr_prompt = """
 <|grounding|>Convert the document to markdown.
 """
 
-unlimited_ocr_prompt = """
-<image>document parsing.
-"""
+# Empty selects the version's native prompt (V2 uses page markers internally).
+unlimited_ocr_prompt = ""
 
-# Logics-Parsing-v2 prompt (official default)
-logics_ocr_prompt = """QwenVL HTML"""
+# V3 uses fixed stateful DSL prompts; empty selects "QwenVL HTML" for V2.
+logics_ocr_prompt = ""
 
 # Infinity Parser2 OCR prompt override (empty uses the provider's doc2md prompt)
 infinity_parser2_ocr_prompt = """
@@ -52,7 +51,7 @@ hunyuan_ocr_prompt = """
 # Leave empty to use provider's default prompt
 glm_ocr_prompt = """Text Recognition:"""
 
-# LightOn OCR prompt (empty uses the model's default OCR behavior)
+# Empty follows lighton_ocr.mode: auto is grounding for V3, plain for V1/V2.
 lighton_ocr_prompt = """
 """
 

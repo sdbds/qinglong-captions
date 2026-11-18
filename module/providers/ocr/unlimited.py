@@ -2,8 +2,9 @@
 Unlimited-OCR Provider
 
 Based on OCRProvider base class, using native Transformers path.
-Model: https://huggingface.co/baidu/Unlimited-OCR
+Models: baidu/Unlimited-OCR-2 and legacy baidu/Unlimited-OCR.
 """
+
 from __future__ import annotations
 
 import time
@@ -18,10 +19,13 @@ from rich_pixels import Pixels
 from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
-from utils.parse_display import display_markdown
+from utils.ocr_model_config import ocr_model_version
 from utils.output_writer import write_markdown_output
+from utils.parse_display import display_markdown
 from utils.stream_util import iter_pdf_pages_high_quality
 from utils.transformer_loader import resolve_device_dtype, transformerLoader
+
+from .document import prepare_document_pages, rebase_generated_images
 
 _TRANS_LOADER: Optional[transformerLoader] = None
 
@@ -57,7 +61,8 @@ def attempt_unlimited_ocr(
     console: Console,
     progress: Optional[Progress],
     task_id: Optional[Any],
-    model_id: str = "baidu/Unlimited-OCR",
+    model_id: str = "baidu/Unlimited-OCR-2",
+    model_version: str = "auto",
     prompt_text: Optional[str] = None,
     pixels: Optional[Pixels] = None,
     output_dir: Optional[str] = None,
@@ -65,7 +70,9 @@ def attempt_unlimited_ocr(
     base_size: Optional[int] = None,
     image_size: Optional[int] = None,
     crop_mode: Optional[bool] = None,
-    max_length: int = 32768,
+    max_length: int = 0,
+    max_new_tokens: int = 0,
+    max_page_tokens: int = 20000,
     no_repeat_ngram_size: int = 35,
     page_budget: int = 30,
 ) -> str:
@@ -75,11 +82,15 @@ def attempt_unlimited_ocr(
       uri: path to the image or PDF file
       prompt_text: OCR instruction for single image; PDF uses internal fixed prompt
       image_mode: "gundam" or "base"; PDF always uses base
-      page_budget: max pages per infer_multi call. PDFs beyond it are parsed in
+      page_budget: V1 only, max pages per infer_multi call. PDFs beyond it are parsed in
         page_budget-sized chunks so the 32K context ceiling cannot silently
         truncate trailing pages. Set <=0 to always use a single call.
     """
     start_time = time.time()
+    version = ocr_model_version("unlimited", model_id, model_version)
+    max_length = int(max_length) or (131072 if version == 2 else 32768)
+    if max_length < 1 or max_new_tokens < 0 or max_page_tokens < 0:
+        raise ValueError("Unlimited OCR token limits must be positive (0 selects automatic defaults)")
 
     if not prompt_text:
         prompt_text = "<image>document parsing."
@@ -92,6 +103,9 @@ def attempt_unlimited_ocr(
     from transformers import AutoModel, AutoTokenizer
 
     _, dtype, attn_impl = resolve_device_dtype()
+    if version == 2:
+        # The remote model implements SR-SWA itself, not HF's flash attention path.
+        attn_impl = "eager"
     global _TRANS_LOADER
     if _TRANS_LOADER is None:
         _TRANS_LOADER = transformerLoader(
@@ -116,10 +130,7 @@ def attempt_unlimited_ocr(
         # Unlimited-OCR custom code comments out mha_flash_attention_2 in
         # ATTENTION_CLASSES; fall back to eager if the resolved impl is unsupported.
         if console:
-            console.print(
-                f"[yellow]attn_impl={attn_impl} not supported by model, "
-                f"falling back to eager[/yellow]"
-            )
+            console.print(f"[yellow]attn_impl={attn_impl} not supported by model, falling back to eager[/yellow]")
         attn_impl = "eager"
         model = _TRANS_LOADER.get_or_load_model(
             model_id,
@@ -133,7 +144,51 @@ def attempt_unlimited_ocr(
             console=console,
         )
 
-    if p.suffix.lower() == ".pdf":
+    if version == 2:
+        from .unlimited_v2 import process_output
+
+        pages = prepare_document_pages(p, Path(output_dir))
+        multiple = len(pages) > 1
+        resolved_base, resolved_image, resolved_crop = _resolve_image_mode_params(image_mode, base_size, image_size, crop_mode)
+        instruction = str(prompt_text or "").strip()
+        if multiple or instruction in {"", "<image>document parsing.", "<image>Multi page parsing."}:
+            instruction = "Multi page parsing."
+        # Let infer construct exactly one <PAGE><image> pair per input image.
+        if "<PAGE>" not in instruction:
+            instruction = instruction.replace("<image>", "")
+        result = model.infer(
+            tokenizer,
+            prompt=instruction,
+            image_file=[str(page) for page in pages] if multiple else str(pages[0]),
+            output_path=output_dir,
+            base_size=resolved_base,
+            image_size=1024 if multiple else resolved_image,
+            crop_mode=False if multiple else resolved_crop,
+            save_results=False,
+            eval_mode=True,
+            return_dict=True,
+            max_length=max_length,
+            max_new_tokens=max_new_tokens or None,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+            ngram_window=1024 if multiple else 128,
+            page_count_guard=True,
+            max_page_tokens=max_page_tokens,
+        )
+        if not isinstance(result, dict) or result.get("finish_reason") != "stop":
+            raise RuntimeError("Unlimited-OCR-2 generation is truncated or incomplete; increase max_length/max_new_tokens")
+        if result.get("num_pages_out") != len(pages):
+            raise RuntimeError("Unlimited-OCR-2 returned incomplete pages")
+        sparse_config = getattr(getattr(model, "config", None), "sparse_attention_config", None) or {}
+        page_token_id = sparse_config.get("page_token_id", 128827)
+        page_tokens = 0
+        for token_id in result.get("token_ids", []):
+            page_tokens = 0 if token_id == page_token_id else page_tokens + 1
+            if max_page_tokens and page_tokens >= max_page_tokens:
+                # The upstream guard forces a new page/EOS at this cap, so even
+                # finish_reason='stop' does not establish complete recognition.
+                raise RuntimeError("Unlimited-OCR-2 hit max_page_tokens; output may be truncated")
+        content = process_output(result["text"], pages, Path(output_dir), model_id=model_id)
+    elif p.suffix.lower() == ".pdf":
         content = _process_pdf(
             p=p,
             model=model,
@@ -165,13 +220,10 @@ def attempt_unlimited_ocr(
     if not content or not content.strip():
         raise RuntimeError("Unlimited-OCR returned empty output")
 
-    # Add two spaces before newlines for markdown hard line breaks
-    content = content.replace("\n", "  \n")
+    if version == 1:
+        content = content.replace("\n", "  \n")
 
-    try:
-        write_markdown_output(Path(output_dir), content)
-    except Exception:
-        pass
+    write_markdown_output(Path(output_dir), content)
 
     try:
         display_markdown(
@@ -209,9 +261,7 @@ def _process_single_image(
     pixels: Optional[Pixels],
 ) -> str:
     """Process a single image using model.infer."""
-    resolved_base, resolved_image, resolved_crop = _resolve_image_mode_params(
-        image_mode, base_size, image_size, crop_mode
-    )
+    resolved_base, resolved_image, resolved_crop = _resolve_image_mode_params(image_mode, base_size, image_size, crop_mode)
 
     img_path = str(p)
     res = model.infer(
@@ -354,7 +404,7 @@ def _process_pdf(
             no_repeat_ngram_size=no_repeat_ngram_size,
         )
         if chunk_text and chunk_text.strip():
-            chunk_texts.append(chunk_text.strip())
+            chunk_texts.append(rebase_generated_images(chunk_text.strip(), chunk_dir, Path(output_dir)))
 
     content = "\n<--- Page Split --->\n".join(chunk_texts).strip()
     if not content:
@@ -366,16 +416,14 @@ def _process_pdf(
 class UnlimitedOCRProvider(OCRProvider):
     """Unlimited-OCR Provider"""
 
-    default_model_id = "baidu/Unlimited-OCR"
+    default_model_id = "baidu/Unlimited-OCR-2"
     default_prompt = "<image>document parsing."
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
         """Execute Unlimited-OCR"""
         if self.get_runtime_backend().is_openai:
-            raise NotImplementedError(
-                "unlimited_ocr does not support the OpenAI-compatible runtime backend yet"
-            )
-        output_dir = media.extras.get("output_dir")
+            raise NotImplementedError("unlimited_ocr does not support the OpenAI-compatible runtime backend yet")
+        output_dir = self.artifact_output_dir(media)
 
         result = attempt_unlimited_ocr(
             uri=media.uri,
@@ -383,6 +431,7 @@ class UnlimitedOCRProvider(OCRProvider):
             progress=self.ctx.progress,
             task_id=self.ctx.task_id,
             model_id=self._get_model_config("model_id", self.default_model_id),
+            model_version=self._get_model_config("model_version", "auto"),
             prompt_text=prompts.user,
             pixels=media.pixels,
             output_dir=str(output_dir) if output_dir else None,
@@ -390,13 +439,15 @@ class UnlimitedOCRProvider(OCRProvider):
             base_size=self._get_model_config("base_size", None),
             image_size=self._get_model_config("image_size", None),
             crop_mode=self._get_model_config("crop_mode", None),
-            max_length=self._get_model_config("max_length", 32768),
+            max_length=self._get_model_config("max_length", 0),
+            max_new_tokens=self._get_model_config("max_new_tokens", 0),
+            max_page_tokens=self._get_model_config("max_page_tokens", 20000),
             no_repeat_ngram_size=self._get_model_config("no_repeat_ngram_size", 35),
             page_budget=self._get_model_config("page_budget", 30),
         )
 
         return CaptionResult(
-            raw=result if isinstance(result, str) else str(result),
+            raw=rebase_generated_images(str(result), output_dir, Path(media.uri).parent),
             metadata={
                 "provider": self.name,
                 "model_id": self._get_model_config("model_id", self.default_model_id),

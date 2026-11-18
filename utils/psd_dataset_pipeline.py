@@ -132,6 +132,7 @@ def process_psd_folder(
             str(export_lance_to_dir),
             version="PSDExport",
             clip_with_caption=False,
+            in_place=False,
         )
 
     return lance_path

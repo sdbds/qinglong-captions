@@ -1,3 +1,5 @@
+import json
+import os
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +13,6 @@ from module import texttranslate
 from module.muscriptor_tool.batch import run_batch
 from module.muscriptor_tool.options import BatchOptions, TranscriptionOptions
 from module.muscriptor_tool.outputs import TranscriptionResult
-from module.muscriptor_tool import manifest
 from module.muscriptor_tool.stems import StemMidiCandidate, transcribe_stem_candidates
 from module.see_through import runner
 
@@ -185,18 +186,29 @@ def test_see_through_unverified_source_restarts_without_destroying_old_outputs(t
     assert runner._select_auto_rig_items(plan) == []
 
 
-def fail_one_metadata_publish(monkeypatch, destination):
-    original = manifest.os.replace
+def fail_one_metadata_publish(monkeypatch, destination, midi_path):
+    original = os.replace
     failed = False
 
-    def replace(source, target):
+    def replace(source, target, **kwargs):
         nonlocal failed
-        if not failed and Path(target) == destination and Path(source).parent.name.startswith(".attempt-"):
+        if not failed and Path(target) == destination:
             failed = True
+            assert midi_path.read_bytes() == b"new success"
+            assert not destination.exists()
             raise OSError("simulated metadata commit failure")
-        return original(source, target)
+        return original(source, target, **kwargs)
 
-    monkeypatch.setattr(manifest.os, "replace", replace)
+    monkeypatch.setattr(os, "replace", replace)
+
+
+def assert_failed_publish(summary):
+    assert summary.failed == 1
+    assert summary.processed == 0
+    (item,) = summary.items
+    report = json.loads(Path(item.metadata_path).read_text(encoding="utf-8"))
+    assert item.status == report["status"] == "failed"
+    assert item.error == report["error"]["message"] == "simulated metadata commit failure"
 
 
 def test_batch_publish_failure_rolls_back_outputs_and_reports_failure(tmp_path, monkeypatch):
@@ -207,10 +219,9 @@ def test_batch_publish_failure_rolls_back_outputs_and_reports_failure(tmp_path, 
     run_batch(**common, transcriber=successful_transcriber)
     item_dir = tmp_path / "out" / "song.wav"
     old_metadata = (item_dir / "metadata.json").read_bytes()
-    fail_one_metadata_publish(monkeypatch, item_dir / "metadata.json")
+    fail_one_metadata_publish(monkeypatch, item_dir / "metadata.json", item_dir / "song.mid")
     summary = run_batch(**common, options=BatchOptions(skip_completed=False), transcriber=replacement_transcriber)
-    assert summary.failed == 1
-    assert summary.processed == 0
+    assert_failed_publish(summary)
     assert (item_dir / "song.mid").read_bytes() == b"old success"
     assert (item_dir / "metadata.json").read_bytes() == old_metadata
 
@@ -224,10 +235,9 @@ def test_stem_publish_failure_rolls_back_outputs_and_reports_failure(tmp_path, m
     first = transcribe_stem_candidates(**common, transcriber=successful_transcriber)
     paths = first.items[0]
     old_metadata = paths.metadata_path.read_bytes()
-    fail_one_metadata_publish(monkeypatch, paths.metadata_path)
+    fail_one_metadata_publish(monkeypatch, paths.metadata_path, paths.midi_path)
     summary = transcribe_stem_candidates(**common, overwrite=True, transcriber=replacement_transcriber)
-    assert summary.failed == 1
-    assert summary.processed == 0
+    assert_failed_publish(summary)
     assert paths.midi_path.read_bytes() == b"old success"
     assert paths.metadata_path.read_bytes() == old_metadata
 

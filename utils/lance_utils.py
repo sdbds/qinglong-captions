@@ -1,10 +1,36 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional
 
 _TAG_SANITIZE_RE = re.compile(r"[^0-9A-Za-z._-]+")
+DERIVED_EXPORT_MARKER = ".qinglong-derived"
+
+
+def is_derived_export_directory(directory: Path) -> bool:
+    marker = directory / DERIVED_EXPORT_MARKER
+    if not marker.is_file() or marker.is_symlink():
+        return False
+    try:
+        manifest = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return (isinstance(manifest, dict) and isinstance(manifest.get("files"), dict)
+            and re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("signature", ""))) is not None)
+
+
+def find_existing_lance_dataset(directory: Path, output_name: str = "dataset") -> Path | None:
+    """Prefer the named dataset; never guess between other candidates."""
+    candidates = [path for path in directory.iterdir() if path.suffix.lower() == ".lance"]
+    preferred = directory / f"{output_name}.lance"
+    if preferred in candidates:
+        return preferred
+    if len(candidates) > 1:
+        raise ValueError("Multiple Lance datasets found. Select the intended .lance directory explicitly.")
+    return next(iter(candidates), None)
 
 
 def sanitize_tag_component(value: Any) -> str:

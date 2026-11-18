@@ -1,7 +1,7 @@
 # Input parameters | 输入参数
 param(
-    [string]$lance_file = "D:/CPL/dataset.lance",  # Lance dataset path | Lance数据集路径
-    [string]$output_dir = "D:/CPL",                # Output directory | 输出目录
+    [string]$lance_file = "./datasets/dataset.lance",  # Lance dataset path | Lance数据集路径
+    [string]$output_dir = "./exports",            # Output directory | 输出目录
     [string]$version = "gemini",                       # Dataset version (gemini/WDtagger/pixtral)
     [bool]$not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 )
@@ -55,8 +55,14 @@ if ($not_clip_with_caption) {
 
 # Run export script | 运行导出脚本
 Write-Output "Starting export from $lance_file to $output_dir"
-& python $arguments
-
-# Wait for user input before closing | 等待用户输入后关闭
-Write-Output "`nExport finished. Press Enter to exit..."
-$null = Read-Host
+& python @arguments
+$exportExitCode = $LASTEXITCODE
+if ($exportExitCode -eq 0) {
+    Write-Output "Export finished"
+} else {
+    Write-Warning "Export failed (exit code $exportExitCode)."
+}
+if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+    $null = Read-Host
+}
+exit $exportExitCode

@@ -16,6 +16,7 @@ from rich.progress import Progress
 from rich_pixels import Pixels
 
 from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.ocr.document import rebase_generated_images
 from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from utils.parse_display import display_markdown
@@ -121,7 +122,7 @@ def attempt_deepseek_ocr(
                         page_content = str(res) if not isinstance(res, str) else res
                 except Exception:
                     page_content = str(res) if not isinstance(res, str) else res
-                all_contents.append(page_content.strip())
+                all_contents.append(rebase_generated_images(page_content.strip(), page_dir, Path(output_dir)))
             finally:
                 pil_img.close()
 
@@ -195,7 +196,7 @@ class DeepSeekOCRProvider(OCRProvider):
         """执行 DeepSeek OCR"""
         if self.get_runtime_backend().is_openai:
             return self.attempt_via_openai_backend(media, prompts)
-        output_dir = media.extras.get("output_dir")
+        output_dir = self.artifact_output_dir(media)
 
         result = attempt_deepseek_ocr(
             uri=media.uri,
@@ -214,5 +215,6 @@ class DeepSeekOCRProvider(OCRProvider):
 
         # 包装为 CaptionResult
         return CaptionResult(
-            raw=result if isinstance(result, str) else str(result), metadata={"provider": self.name, "output_dir": str(output_dir)}
+            raw=rebase_generated_images(str(result), output_dir, Path(media.uri).parent),
+            metadata={"provider": self.name, "output_dir": str(output_dir)},
         )

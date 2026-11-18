@@ -273,6 +273,26 @@ function Get-ProjectPython {
   return $null
 }
 
+function Get-UnlimitedOcrExtra {
+  param (
+    [string]$ModelConfigPath = (Join-Path $PSScriptRoot "config/model.toml"),
+    [string]$PythonExe = (Get-ProjectPython)
+  )
+  if (-not $PythonExe) {
+    throw "Python is required to select the Unlimited OCR dependency profile."
+  }
+  $Selector = @'
+import sys
+from utils.ocr_model_config import unlimited_ocr_extra_from_config
+print(unlimited_ocr_extra_from_config(sys.argv[1]))
+'@
+  $Extra = & $PythonExe -c $Selector $ModelConfigPath
+  if ($LASTEXITCODE -ne 0 -or $Extra -notin @("unlimited-ocr", "unlimited-ocr2")) {
+    throw "Could not resolve the Unlimited OCR dependency profile from model.toml."
+  }
+  return $Extra
+}
+
 function Uninstall-PaddleTorchStack {
   param (
     [string]$PythonExe
@@ -625,7 +645,7 @@ if ($ocr_model) {
     Add-UvExtra "ovis-ocr2"
   }
   elseif ($ocr_model -eq "unlimited_ocr") {
-    Add-UvExtra "unlimited-ocr"
+    Add-UvExtra (Get-UnlimitedOcrExtra)
   }
   elseif ($ocr_model -eq "paddle_ocr") {
     Add-UvExtra "paddleocr-onnx"
@@ -754,6 +774,15 @@ Install-UvDependencyPatch $uv_args
 Write-Output "runtime target environment: $UvEnvName"
 Write-Output "runtime dependency profile: $UvProfile"
 python "./module/captioner.py" $dataset_path $ext_args
-
-Write-Output "Captioner finished"
-Read-Host | Out-Null ;
+$captionExitCode = $LASTEXITCODE
+if ($captionExitCode -eq 0) {
+  Write-Output "Captioner finished"
+} elseif ($captionExitCode -eq 3) {
+  Write-Warning "Captioner partially completed; successful captions were saved."
+} else {
+  Write-Warning "Captioner failed (exit code $captionExitCode)."
+}
+if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+  Read-Host | Out-Null
+}
+exit $captionExitCode

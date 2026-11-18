@@ -51,10 +51,11 @@ class KimiCodeProvider(CloudVLMProvider):
         return normalized
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
-        from openai import OpenAI
+        from openai import BadRequestError, OpenAI
 
         from module.providers.cloud_vlm.kimi_vl import (
             attempt_kimi_vl,
+            kimi_content_filter_skip,
             prepare_kimi_image_system_prompt,
         )
 
@@ -127,23 +128,30 @@ class KimiCodeProvider(CloudVLMProvider):
         )
 
         timing_metadata = {}
-        result = attempt_kimi_vl(
-            client=client,
-            model_path=model_path,
-            messages=messages,
-            console=self.ctx.console,
-            progress=self.ctx.progress,
-            task_id=self.ctx.task_id,
-            uri=media.uri,
-            image_pixels=image_pixels,
-            pair_pixels=pair_pixels,
-            thinking=thinking,
-            reasoning_effort=reasoning_effort,
-            mode=getattr(self.ctx.args, "mode", "all"),
-            timing_metadata=timing_metadata,
-            use_existing_tags=use_existing_tags,
-            image_template_id=image_template_id,
-        )
+        try:
+            result = attempt_kimi_vl(
+                client=client,
+                model_path=model_path,
+                messages=messages,
+                console=self.ctx.console,
+                progress=self.ctx.progress,
+                task_id=self.ctx.task_id,
+                uri=media.uri,
+                image_pixels=image_pixels,
+                pair_pixels=pair_pixels,
+                thinking=thinking,
+                reasoning_effort=reasoning_effort,
+                mode=getattr(self.ctx.args, "mode", "all"),
+                timing_metadata=timing_metadata,
+                use_existing_tags=use_existing_tags,
+                image_template_id=image_template_id,
+            )
+        except BadRequestError as exc:
+            skipped = kimi_content_filter_skip(exc.body, self, media, model_path)
+            if skipped is None:
+                raise
+            return skipped
+
         if "duration_seconds" in timing_metadata:
             timing_metadata["duration_log_label"] = f"Kimi Code caption completed: {Path(media.uri).name}"
         metadata = {

@@ -20,6 +20,8 @@ from PIL import Image, ImageDraw
 from importlib import metadata as importlib_metadata
 from module.providers.backends import OpenAIChatRuntime, find_model_config_section, resolve_runtime_backend
 from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
+from module.providers.ocr.document import rebase_generated_images
+from utils.ocr_artifacts import reserve_ocr_artifact_dir
 from module.providers.directory_name_context import resolve_directory_name_context
 from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
@@ -460,7 +462,7 @@ class DotsOCRProvider(OCRProvider):
         if mime.startswith("image") and self.get_runtime_backend().is_openai:
             blob, pixels = encode_image_to_blob(uri, to_rgb=True, quality=self.get_image_quality())
 
-        output_dir = Path(uri).with_suffix("")
+        output_dir = reserve_ocr_artifact_dir(uri)
 
         media = MediaContext(
             uri=uri,
@@ -977,7 +979,7 @@ class DotsOCRProvider(OCRProvider):
         fitz_preprocess: bool,
         dpi: int,
     ) -> CaptionResult:
-        output_dir = Path(media.extras.get("output_dir") or Path(media.uri).with_suffix(""))
+        output_dir = self.artifact_output_dir(media)
         output_dir.mkdir(parents=True, exist_ok=True)
         runtime = self._get_runtime_backend_for_prompt_mode(prompt_mode)
 
@@ -1006,7 +1008,7 @@ class DotsOCRProvider(OCRProvider):
                 root_markdown = self._build_svg_pdf_markdown(page_dirs)
                 self._write_text_result(output_dir, root_markdown)
                 return CaptionResult(
-                    raw=root_markdown,
+                    raw=rebase_generated_images(root_markdown, output_dir, Path(media.uri).parent),
                     metadata={
                         "provider": self.name,
                         "output_dir": str(output_dir),
@@ -1124,7 +1126,7 @@ class DotsOCRProvider(OCRProvider):
         prompt_text = prompts.user or resolved_prompt
         model_id = self._select_model_id(prompt_mode)
         fitz_preprocess, dpi = self._resolve_image_preprocess_settings()
-        output_dir = Path(media.extras.get("output_dir") or Path(media.uri).with_suffix(""))
+        output_dir = self.artifact_output_dir(media)
         output_dir.mkdir(parents=True, exist_ok=True)
         self.ctx.console.print(f"dots_ocr prompt_mode: {prompt_mode}")
         self.ctx.console.print(f"dots_ocr prompt: {prompt_text}")
@@ -1163,7 +1165,7 @@ class DotsOCRProvider(OCRProvider):
                 root_markdown = self._build_svg_pdf_markdown(page_dirs)
                 self._write_text_result(output_dir, root_markdown)
                 return CaptionResult(
-                    raw=root_markdown,
+                    raw=rebase_generated_images(root_markdown, output_dir, Path(media.uri).parent),
                     metadata={
                         "provider": self.name,
                         "output_dir": str(output_dir),

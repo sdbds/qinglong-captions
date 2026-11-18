@@ -507,7 +507,7 @@ def test_text_prompt_single_image_writes_result_md(monkeypatch, tmp_path):
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
     result = provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
 
-    assert (tmp_path / "sample" / "result.md").read_text(encoding="utf-8") == "# extracted markdown"
+    assert (media.extras["output_dir"] / "result.md").read_text(encoding="utf-8") == "# extracted markdown"
     assert result.raw == "# extracted markdown"
 
 
@@ -532,7 +532,7 @@ def test_layout_prompt_single_image_writes_post_processed_outputs(monkeypatch, t
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
     result = provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
 
-    output_dir = tmp_path / "sample"
+    output_dir = media.extras["output_dir"]
     assert (output_dir / "result.md").read_text(encoding="utf-8") == "Hello"
     assert json.loads((output_dir / "result.json").read_text(encoding="utf-8")) == [
         {"bbox": [0, 0, 32, 32], "category": "Text", "text": "Hello"}
@@ -564,7 +564,7 @@ def test_layout_prompt_fallback_cleaner_writes_filtered_markdown(monkeypatch, tm
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
     result = provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
 
-    output_dir = tmp_path / "sample"
+    output_dir = media.extras["output_dir"]
     markdown = (output_dir / "result.md").read_text(encoding="utf-8")
     assert "Hello" in markdown
     assert "World" in markdown
@@ -689,7 +689,7 @@ def test_svg_prompt_single_image_writes_result_svg(monkeypatch, tmp_path):
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
     result = provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
 
-    assert (tmp_path / "sample" / "result.svg").read_text(encoding="utf-8") == "<svg>ok</svg>"
+    assert (media.extras["output_dir"] / "result.svg").read_text(encoding="utf-8") == "<svg>ok</svg>"
     assert result.raw == "<svg>ok</svg>"
 
 
@@ -719,13 +719,15 @@ def test_svg_prompt_pdf_writes_page_svgs_and_root_markdown(monkeypatch, tmp_path
     media = provider.prepare_media(str(pdf_path), "application/pdf", ctx.args)
     result = provider.attempt(media, provider.resolve_prompts(str(pdf_path), "application/pdf"))
 
-    root_dir = tmp_path / "doc"
+    root_dir = media.extras["output_dir"]
     assert (root_dir / "page_0001" / "result.svg").exists()
     assert (root_dir / "page_0002" / "result.svg").exists()
     root_md = (root_dir / "result.md").read_text(encoding="utf-8")
     assert "page_0001/result.svg" in root_md
     assert "page_0002/result.svg" in root_md
-    assert result.raw == root_md
+    for number in (1, 2):
+        image_path = root_dir.relative_to(tmp_path) / f"page_{number:04d}" / "result.svg"
+        assert f"![]({image_path.as_posix()})" in result.raw
 
 
 def test_pdf_path_uses_upstream_loader_instead_of_legacy_splitter(monkeypatch, tmp_path):
@@ -981,5 +983,5 @@ def test_server_backend_svg_single_image_writes_svg(monkeypatch, tmp_path):
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
     result = provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
 
-    assert (tmp_path / "sample" / "result.svg").read_text(encoding="utf-8") == "<svg>served</svg>"
+    assert (media.extras["output_dir"] / "result.svg").read_text(encoding="utf-8") == "<svg>served</svg>"
     assert result.raw == "<svg>served</svg>"

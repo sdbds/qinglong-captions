@@ -212,7 +212,7 @@ class ChandraOCRProvider(OCRProvider):
         if self.get_runtime_backend().is_openai:
             return self.attempt_via_openai_backend(media, prompts)
 
-        output_dir = media.extras.get("output_dir")
+        output_dir = self.artifact_output_dir(media)
 
         # 读取 prompt_type 配置
         prompt_type = self._get_model_config(

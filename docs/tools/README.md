@@ -21,7 +21,7 @@
 | PSD 图层导出 | [PSD Export](psd_export.md) | `2.4.psdexport.ps1` |
 | 音频分轨 | [音频分轨](audio_separation.md) | `2.5.audio_separator.ps1` |
 | Image2PSD | [Image2PSD / See-through](image2psd.md) | `2.6.image2psd.ps1` |
-| 音乐转录 | [MuScriptor 音频转 MIDI](muscriptor.md) | `2.7.music_transcription.ps1` |
+| 音乐转录 | [MuScriptor 音频转 MIDI](muscriptor.md) / [SheetSage2 主旋律和弦谱](sheetsage2.md) | `2.7.music_transcription.ps1` |
 | 乐谱 OMR | [MuSViT 乐谱转录](sheet_music.md) | GUI Tools / `module.sheet_music_musvit` |
 | 文档翻译 | [文本与文档翻译](text_translation.md) | `5.translate.ps1` |
 

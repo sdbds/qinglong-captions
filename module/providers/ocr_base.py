@@ -17,6 +17,7 @@ from .backends import OpenAIChatRuntime, find_model_config_section, resolve_runt
 from .base import MediaContext, MediaModality, PromptContext, Provider, ProviderType
 from .capabilities import ProviderCapabilities
 from .utils import build_vision_messages, encode_image_to_blob
+from utils.ocr_artifacts import reserve_ocr_artifact_dir
 from utils.output_writer import write_markdown_output
 
 
@@ -74,7 +75,7 @@ class OCRProvider(Provider):
         if mime.startswith("image"):
             blob, pixels = encode_image_to_blob(uri, to_rgb=True, quality=self.get_image_quality())
 
-        output_dir = Path(uri).with_suffix("")
+        output_dir = reserve_ocr_artifact_dir(uri)
 
         return MediaContext(
             uri=uri,
@@ -85,6 +86,13 @@ class OCRProvider(Provider):
             pixels=pixels,
             extras={"output_dir": output_dir},
         )
+
+    @staticmethod
+    def artifact_output_dir(media: MediaContext) -> Path:
+        output_dir = media.extras.get("output_dir")
+        if not output_dir:
+            output_dir = media.extras["output_dir"] = reserve_ocr_artifact_dir(media.uri)
+        return Path(output_dir)
 
     def get_prompts(self, mime: str):
         """
@@ -169,7 +177,7 @@ class OCRProvider(Provider):
 
         runtime = self.get_runtime_backend()
         backend = OpenAIChatRuntime(runtime)
-        output_dir = media.extras.get("output_dir")
+        output_dir = self.artifact_output_dir(media)
 
         def infer_from_blob(blob: str) -> str:
             messages = build_vision_messages(

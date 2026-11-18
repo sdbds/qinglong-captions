@@ -1,7 +1,9 @@
+import asyncio
 import importlib
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,6 +38,24 @@ def _load_step4_module(module_name: str):
         sys.path[:] = original_sys_path
 
     return step4_caption
+
+
+def test_caption_partial_exit_notifies_that_successful_items_were_saved(tmp_path, monkeypatch):
+    page = _load_step4_module("step4_caption_partial_result_test")
+    messages = []
+    monkeypatch.setattr(page, "t", lambda key: key)
+    monkeypatch.setattr(page.ui, "notify", lambda message, **options: messages.append((message, options["type"])))
+
+    async def run_job(_module, _args, **options):
+        options["on_failure"](SimpleNamespace(return_code=3))
+
+    step = SimpleNamespace(
+        dataset_path=SimpleNamespace(value=str(tmp_path)), _has_caption_provider_config=lambda: True,
+        _build_caption_args=lambda _: [], _build_local_extra_args=lambda: [], _build_job_name=lambda: "test",
+        _ensure_execution_panel=lambda: SimpleNamespace(run_job=run_job),
+    )
+    asyncio.run(page.CaptionStep._start_caption(step))
+    assert messages == [("caption_partial", "warning")]
 
 
 class _DummyContainer:

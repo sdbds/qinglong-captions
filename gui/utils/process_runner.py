@@ -71,6 +71,8 @@ _UV_TORCH_EXTRAS = frozenset(
         "moondream",
         "olmocr",
         "deepseek-ocr",
+        "unlimited-ocr",
+        "unlimited-ocr2",
         "logics-ocr",
         "hunyuan-ocr",
         "glm-ocr",
@@ -106,6 +108,8 @@ _UV_TORCHVISION_EXTRAS = frozenset(
         "reward-model",
         "olmocr",
         "deepseek-ocr",
+        "unlimited-ocr",
+        "unlimited-ocr2",
         "logics-ocr",
         "hunyuan-ocr",
         "glm-ocr",
@@ -236,6 +240,7 @@ class NativeRunFiles:
 
 # 脚本路径映射: module_key -> (script_path, default_extra | None)
 # script_path 相对于项目根目录
+_UV_SCRIPT_PREFIX = "-uv-script:"
 SCRIPT_REGISTRY = {
     # step 1 - 数据集导入
     "module.lanceImport": ("./module/lanceImport.py", None),
@@ -253,6 +258,7 @@ SCRIPT_REGISTRY = {
     "module.see_through.cli": ("-m:module.see_through.cli", "see-through"),
     "module.sheet_music_musvit": ("./module/sheet_music_musvit.py", "musvit-onnx"),
     "module.muscriptor_tool.cli": ("-m:module.muscriptor_tool.cli", "muscriptor-local"),
+    "module.sheetsage2_tool": (f"{_UV_SCRIPT_PREFIX}./module/sheetsage2_tool.py", None),
     "utils.preprocess_datasets": ("./utils/preprocess_datasets.py", "image-align"),
     "module.rewardmodel": ("./module/rewardmodel.py", "reward-model"),
     "module.texttranslate": ("./module/texttranslate.py", "translate"),
@@ -260,6 +266,13 @@ SCRIPT_REGISTRY = {
 
 # console_wrapper.py 的绝对路径
 _WRAPPER_PATH = str(Path(__file__).parent / "console_wrapper.py")
+
+
+def get_isolated_uv_script(script_key: str) -> str | None:
+    entry = SCRIPT_REGISTRY.get(script_key)
+    if entry is not None and entry[0].startswith(_UV_SCRIPT_PREFIX):
+        return entry[0].removeprefix(_UV_SCRIPT_PREFIX)
+    return None
 
 
 def _ps_escape(s: str) -> str:
@@ -1324,7 +1337,6 @@ class ProcessRunner:
         try:
             work_dir = Path(cwd) if cwd else Path(self.PROJECT_ROOT)
             env = self._build_env(env_vars)
-            env = self._apply_venv_env(env, venv_path)
             if not use_native:
                 env["PYTHONIOENCODING"] = "utf-8"
                 env["FORCE_COLOR"] = "1"
@@ -1340,47 +1352,53 @@ class ProcessRunner:
                 script_path = "./" + script_key.replace(".", "/") + ".py"
                 default_extra = None
 
-            extra_name = self._resolve_wdtagger_extra(script_key, args, default_extra, uv_extra)
-            extras, groups = self._collect_uv_profiles(extra_name, uv_extra_args)
-            profile_parts = self._profile_parts(extras, groups)
-            runtime_python, python_error = self._runtime_python_from_explicit(python_path, work_dir, env)
-            if python_error:
-                self._running = False
-                self._notify_status(ProcessStatus.ERROR)
-                self._notify_log(python_error.message)
-                return python_error
-            env_name = self._detect_runtime_env_name(work_dir, env, runtime_python, venv_path)
-            environment_key = self._environment_key_from_runtime(runtime_python, venv_path)
-
-            # Step 1: 构建运行命令
             uv = self._find_uv()
-            if uv:
-                patch_result = await self._patch_shared_environment(
-                    uv,
-                    work_dir,
-                    env,
-                    env_name,
-                    extras,
-                    groups,
-                    runtime_python,
-                    environment_key,
-                )
-                if patch_result:
+            if uv_script := get_isolated_uv_script(script_key):
+                if not uv:
+                    raise RuntimeError("uv is required for this tool. Install uv and add it to PATH.")
+                cmd = [uv, "run", "--no-project", "--script", uv_script]
+                self._notify_log("runtime target environment: isolated uv script")
+            else:
+                env = self._apply_venv_env(env, venv_path)
+                extra_name = self._resolve_wdtagger_extra(script_key, args, default_extra, uv_extra)
+                extras, groups = self._collect_uv_profiles(extra_name, uv_extra_args)
+                profile_parts = self._profile_parts(extras, groups)
+                runtime_python, python_error = self._runtime_python_from_explicit(python_path, work_dir, env)
+                if python_error:
                     self._running = False
                     self._notify_status(ProcessStatus.ERROR)
-                    return patch_result
+                    self._notify_log(python_error.message)
+                    return python_error
+                env_name = self._detect_runtime_env_name(work_dir, env, runtime_python, venv_path)
+                environment_key = self._environment_key_from_runtime(runtime_python, venv_path)
 
-            if script_path.startswith("-m:"):
-                cmd = [runtime_python, "-m", script_path.removeprefix("-m:")]
-            else:
-                cmd = [runtime_python, script_path]
+                if uv:
+                    patch_result = await self._patch_shared_environment(
+                        uv,
+                        work_dir,
+                        env,
+                        env_name,
+                        extras,
+                        groups,
+                        runtime_python,
+                        environment_key,
+                    )
+                    if patch_result:
+                        self._running = False
+                        self._notify_status(ProcessStatus.ERROR)
+                        return patch_result
+
+                if script_path.startswith("-m:"):
+                    cmd = [runtime_python, "-m", script_path.removeprefix("-m:")]
+                else:
+                    cmd = [runtime_python, script_path]
+                self._notify_log(f"runtime target environment: {env_name}")
+                if venv_path:
+                    self._notify_log(f"runtime venv: {Path(venv_path).expanduser().resolve()}")
+                self._notify_log(f"runtime python: {runtime_python}")
+                self._notify_log(f"runtime dependency profile: {', '.join(profile_parts)}")
+
             cmd.extend(args)
-
-            self._notify_log(f"runtime target environment: {env_name}")
-            if venv_path:
-                self._notify_log(f"runtime venv: {Path(venv_path).expanduser().resolve()}")
-            self._notify_log(f"runtime python: {runtime_python}")
-            self._notify_log(f"runtime dependency profile: {', '.join(profile_parts)}")
             self._notify_log(f"开始执行: {self.format_command_for_log(cmd, max_parts=15)}")
             self._notify_log(f"工作目录: {work_dir.absolute()}")
             self._notify_log("=" * 60)

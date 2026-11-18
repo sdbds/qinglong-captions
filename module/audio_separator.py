@@ -4,9 +4,13 @@ import argparse
 import hashlib
 import json
 import math
+import os
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from shutil import which
+from tempfile import TemporaryDirectory
 from typing import Callable, Iterable, Mapping, Sequence
 
 import torch
@@ -28,6 +32,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
+from module.audio_batch import SEPARATION_METADATA_NAME, discover_inputs, is_separation_output_dir
 from module.audio_separator_core import (
     DEFAULT_AUDIO_SEPARATOR_MODEL_DIR,
     DEFAULT_AUDIO_SEPARATOR_REPO_ID,
@@ -79,7 +84,6 @@ HARMONY_DRY_STEM_NAME = "dry_vocal"
 HARMONY_BACKING_STEM_NAME = "harmony"
 STEM_MIDI_SILENCE_RMS_DBFS = -60.0
 STEM_MIDI_DBFS_FLOOR = -200.0
-SEPARATION_METADATA_NAME = "separation_metadata.json"
 
 
 @dataclass(frozen=True)
@@ -181,11 +185,23 @@ def report_silent_stem_midi_skip(
     *,
     rms_dbfs: float,
     logger: Callable[[str], object],
-) -> None:
-    removed, cleanup_errors = remove_stale_stem_midi_outputs(candidate)
+    backend: str = "MuScriptor",
+) -> bool:
+    if backend == "SheetSage2":
+        from module.sheetsage2_tool import archive_silent_stem_outputs
+
+        removed = 0
+        cleanup_errors = ()
+        try:
+            for archived in archive_silent_stem_outputs(candidate.input_path):
+                logger(f"[blue]Previous SheetSage2 outputs archived at:[/blue] {archived}")
+        except (OSError, RuntimeError, ValueError) as exc:
+            cleanup_errors = (str(exc),)
+    else:
+        removed, cleanup_errors = remove_stale_stem_midi_outputs(candidate)
     if cleanup_errors:
         logger(
-            "[yellow]Could not remove stale MIDI for silent stem:[/yellow] "
+            "[yellow]Could not retire stale MIDI for silent stem:[/yellow] "
             f"{cleanup_errors[0]}"
             + (
                 f" (+{len(cleanup_errors) - 1} more cleanup error(s))"
@@ -198,6 +214,7 @@ def report_silent_stem_midi_skip(
         f"{candidate.input_path} | max 1s RMS={rms_dbfs:.1f} dBFS"
         + (f" | removed {removed} stale output(s)" if removed else "")
     )
+    return not cleanup_errors
 
 
 def select_vocal_stem(stems: Mapping[str, torch.Tensor]) -> tuple[str, torch.Tensor] | None:
@@ -414,12 +431,12 @@ def _plan_song_outputs(
     return plans
 
 
-def _separation_complete(plan: SongOutputPlan) -> bool:
+def _completed_separation_outputs(plan: SongOutputPlan) -> frozenset[str]:
     metadata = read_json(plan.output_dir / SEPARATION_METADATA_NAME)
     if not metadata or metadata.get("schema_version") != 1 or metadata.get("status") != "ok":
-        return False
+        return frozenset()
     outputs = metadata.get("outputs")
-    return bool(
+    if (
         metadata.get("run_signature") == plan.run_signature
         and isinstance(outputs, list)
         and outputs
@@ -427,7 +444,9 @@ def _separation_complete(plan: SongOutputPlan) -> bool:
             isinstance(name, str) and Path(name).name == name and (plan.output_dir / name).is_file()
             for name in outputs
         )
-    )
+    ):
+        return frozenset(outputs)
+    return frozenset()
 
 
 def _write_separation_metadata(plan: SongOutputPlan, *, status: str, outputs: Sequence[Path] = ()) -> None:
@@ -459,9 +478,13 @@ def collect_existing_stem_midi_candidates(
     *,
     separator: AudioSeparator,
     output_format: str,
+    recorded_outputs: frozenset[str] | None = None,
 ) -> list[StemMidiCandidate]:
     metadata = getattr(separator, "metadata", None)
     stem_names = tuple(getattr(metadata, "stem_names", ()) or ())
+    secondary = getattr(metadata, "secondary_stem_name", None)
+    if len(stem_names) == 1 and secondary and secondary not in stem_names:
+        stem_names += (secondary,)
     candidates: list[StemMidiCandidate] = []
     for stem_name in stem_names:
         input_path = build_stem_output_path(
@@ -471,7 +494,7 @@ def collect_existing_stem_midi_candidates(
             model_tag=separator.model_tag,
             output_format=output_format,
         )
-        if input_path.is_file():
+        if (recorded_outputs is None or input_path.name in recorded_outputs) and input_path.is_file():
             candidates.append(
                 StemMidiCandidate(
                     source_path=source_path,
@@ -483,9 +506,34 @@ def collect_existing_stem_midi_candidates(
     return candidates
 
 
+def _run_sheetsage2_stems(
+    candidates: Sequence[StemMidiCandidate], *, device: str, melody_only: bool, skip_completed: bool,
+) -> int:
+    uv = which("uv")
+    if not uv:
+        raise RuntimeError("uv is required for SheetSage2. Install it and add it to PATH.")
+    env = os.environ.copy()
+    # The isolated script needs build isolation for upstream source packages.
+    env.pop("UV_NO_BUILD_ISOLATION", None)
+    env["PYTHONUTF8"] = "1"
+    with TemporaryDirectory(prefix="sheetsage2-stems-") as directory:
+        manifest = Path(directory) / "stems.json"
+        atomic_write_json(manifest, {"stems": [str(candidate.input_path) for candidate in candidates]})
+        cmd = [
+            uv, "run", "--no-project", "--script", str(ROOT / "module" / "sheetsage2_tool.py"),
+            "--stem-manifest", str(manifest), f"--device={device}",
+        ]
+        if melody_only:
+            cmd.append("--melody-only")
+        if not skip_completed:
+            cmd.append("--no-skip-completed")
+        return subprocess.run(cmd, cwd=ROOT, env=env, check=False).returncode
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Separate audio into 6 stems and optionally run a second harmony split on vocals.")
     parser.add_argument("input_path", help="Input audio file, directory, or .lance dataset")
+    parser.add_argument("--audio_files_only", action="store_true", help="Scan source audio directly without creating a Lance dataset")
     parser.add_argument(
         "--repo_id",
         default=DEFAULT_AUDIO_SEPARATOR_REPO_ID,
@@ -586,11 +634,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_VOCAL_MIDI_EST_THRESHOLD,
         help="Note presence threshold for GAME estimation",
     )
-    parser.add_argument(
+    stem_backend = parser.add_mutually_exclusive_group()
+    stem_backend.add_argument(
         "--muscriptor_midi",
         action="store_true",
         help="After separation completes, transcribe every primary stem to MIDI with MuScriptor",
     )
+    stem_backend.add_argument(
+        "--sheetsage2_midi",
+        action="store_true",
+        help="After separation completes, transcribe primary stems with SheetSage2",
+    )
+    parser.add_argument("--sheetsage2_device", default=DEFAULT_DEVICE, help="SheetSage2 device: auto, cpu, cuda, or cuda:N")
+    parser.add_argument("--sheetsage2_melody_only", action="store_true", help="Omit chord accompaniment from SheetSage2 scores and MIDI")
+    parser.add_argument("--sheetsage2_no_skip_completed", action="store_true", help="Rerun SheetSage2 without redoing completed separation")
     parser.add_argument(
         "--muscriptor_model",
         choices=("small", "medium", "large"),
@@ -642,11 +699,26 @@ def run_audio_separator(args: argparse.Namespace) -> int:
         return 1
 
     output_root = resolve_output_root(input_path).expanduser()
-    audio_files, input_root = collect_audio_inputs(input_path)
-    if not audio_files:
-        console.print(f"[yellow]No supported audio files found under:[/yellow] {input_path}")
-        return 1
     try:
+        if args.audio_files_only:
+            items = discover_inputs(input_path, output_dir=None, recursive=True, skip_separation_outputs=True)
+            audio_files = [item.source_path for item in items]
+            input_root = input_path if input_path.is_dir() else None
+        else:
+            audio_files, input_root = collect_audio_inputs(input_path)
+            if input_root is not None:
+                root = input_root.resolve()
+                # A folder's Lance index can include outputs of an earlier separation run.
+                audio_files = [
+                    path for path in audio_files if not any(
+                        is_separation_output_dir(parent)
+                        for parent in path.resolve().parents
+                        if parent != root and parent.is_relative_to(root)
+                    )
+                ]
+        if not audio_files:
+            console.print(f"[yellow]No supported audio files found under:[/yellow] {input_path}")
+            return 1
         song_plans = _plan_song_outputs(audio_files, output_root=output_root, input_root=input_root, args=args)
     except (OSError, ValueError) as exc:
         print_exception(console, exc, prefix="Audio output planning failed")
@@ -659,6 +731,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
     vocal_midi_candidates: list[VocalMidiCandidate] = []
     stem_midi_candidates: list[StemMidiCandidate] = []
     stem_midi_silent_skipped = 0
+    stem_midi_backend = "SheetSage2" if args.sheetsage2_midi else "MuScriptor" if args.muscriptor_midi else None
 
     with Progress(
         "[progress.description]{task.description}",
@@ -688,14 +761,16 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                 source_path = song_plan.source_path
                 song_output_dir = song_plan.output_dir
 
-                if not args.overwrite and _separation_complete(song_plan):
+                recorded_outputs = _completed_separation_outputs(song_plan) if not args.overwrite else frozenset()
+                if recorded_outputs:
                     progress_console.print(f"[yellow]Skipping existing song directory:[/yellow] {song_output_dir}")
-                    if args.muscriptor_midi:
+                    if stem_midi_backend:
                         existing_candidates = collect_existing_stem_midi_candidates(
                             source_path,
                             song_output_dir,
                             separator=separator,
                             output_format=args.output_format,
+                            recorded_outputs=recorded_outputs,
                         )
                         audible_candidates: list[StemMidiCandidate] = []
                         sample_rate = int(
@@ -711,24 +786,26 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                             except Exception as exc:
                                 progress_console.print(
                                     "[yellow]Could not check existing stem for silence; "
-                                    f"MuScriptor will try it normally:[/yellow] {candidate.input_path} "
+                                    f"{stem_midi_backend} will try it normally:[/yellow] {candidate.input_path} "
                                     f"({type(exc).__name__}: {exc})"
                                 )
                                 audible_candidates.append(candidate)
                                 continue
                             if is_silent:
                                 stem_midi_silent_skipped += 1
-                                report_silent_stem_midi_skip(
+                                if not report_silent_stem_midi_skip(
                                     candidate,
                                     rms_dbfs=rms_dbfs,
                                     logger=progress_console.print,
-                                )
+                                    backend=stem_midi_backend,
+                                ):
+                                    failures += 1
                                 continue
                             audible_candidates.append(candidate)
                         stem_midi_candidates.extend(audible_candidates)
                         if audible_candidates:
                             progress_console.print(
-                                f"[blue]Reusing {len(audible_candidates)} audible primary stem(s) for MuScriptor MIDI.[/blue]"
+                                f"[blue]Reusing {len(audible_candidates)} audible primary stem(s) for {stem_midi_backend} MIDI.[/blue]"
                             )
                     skipped += 1
                     progress.update(task, advance=1)
@@ -755,6 +832,8 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                     # Inference can fail without touching an older successful generation.
                     _write_separation_metadata(song_plan, status="writing")
                     written_outputs: list[Path] = []
+                    song_midi_candidates: list[StemMidiCandidate] = []
+                    silent_midi_candidates: list[tuple[StemMidiCandidate, float]] = []
                     selected_vocal = select_vocal_stem(stems) if (args.harmony_separation or args.vocal_midi) else None
                     vocal_output_path: Path | None = None
                     vocal_midi_candidate: VocalMidiCandidate | None = None
@@ -772,7 +851,7 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                             output_format=args.output_format,
                         )
                         written_outputs.append(output_path)
-                        if args.muscriptor_midi:
+                        if stem_midi_backend:
                             candidate = StemMidiCandidate(
                                 source_path=source_path,
                                 song_output_dir=song_output_dir,
@@ -788,18 +867,20 @@ def run_audio_separator(args: argparse.Namespace) -> int:
                                 sample_rate=sample_rate,
                             )
                             if is_silent:
-                                stem_midi_silent_skipped += 1
-                                report_silent_stem_midi_skip(
-                                    candidate,
-                                    rms_dbfs=rms_dbfs,
-                                    logger=progress_console.print,
-                                )
+                                silent_midi_candidates.append((candidate, rms_dbfs))
                             else:
-                                stem_midi_candidates.append(candidate)
+                                song_midi_candidates.append(candidate)
                         if selected_vocal is not None and stem_name == selected_vocal[0]:
                             vocal_output_path = output_path
 
                     _write_separation_metadata(song_plan, status="ok", outputs=written_outputs)
+                    stem_midi_candidates.extend(song_midi_candidates)
+                    for candidate, rms_dbfs in silent_midi_candidates:
+                        stem_midi_silent_skipped += 1
+                        if not report_silent_stem_midi_skip(
+                            candidate, rms_dbfs=rms_dbfs, logger=progress_console.print, backend=stem_midi_backend,
+                        ):
+                            failures += 1
                     if args.vocal_midi:
                         vocal_midi_candidate = VocalMidiCandidate(
                             source_path=source_path,
@@ -981,6 +1062,24 @@ def run_audio_separator(args: argparse.Namespace) -> int:
     stem_midi_partial = 0
     stem_midi_error = None
 
+    if args.sheetsage2_midi:
+        if not stem_midi_candidates:
+            console.print("[yellow]No audible primary stems for SheetSage2 MIDI.[/yellow]")
+        else:
+            console.print(f"[blue]Transcribing {len(stem_midi_candidates)} stem(s) with SheetSage2...[/blue]")
+            try:
+                code = _run_sheetsage2_stems(
+                    stem_midi_candidates,
+                    device=args.sheetsage2_device,
+                    melody_only=bool(args.sheetsage2_melody_only),
+                    skip_completed=not (args.overwrite or args.sheetsage2_no_skip_completed),
+                )
+                if code:
+                    raise RuntimeError(f"SheetSage2 exited with code {code}; separated audio was kept.")
+            except (OSError, RuntimeError, ValueError) as exc:
+                failures += 1
+                print_exception(console, exc, prefix="SheetSage2 stem MIDI failed")
+
     if args.muscriptor_midi:
         if not stem_midi_candidates:
             if stem_midi_silent_skipped:
@@ -1082,13 +1181,17 @@ def run_audio_separator(args: argparse.Namespace) -> int:
             style="bold red",
             markup=False,
         )
+    stem_midi_stats = (
+        f"stem_midi_backend=SheetSage2 stem_midi_silent_skipped={stem_midi_silent_skipped} "
+        if args.sheetsage2_midi else
+        f"stem_midi_processed={stem_midi_processed} stem_midi_skipped={stem_midi_skipped} "
+        f"stem_midi_silent_skipped={stem_midi_silent_skipped} stem_midi_partial={stem_midi_partial} "
+    )
     console.print(
         f"[bold]Finished.[/bold] processed={processed} skipped={skipped} "
         f"harmony_processed={harmony_processed} harmony_skipped={harmony_skipped} "
         f"vocal_midi_processed={vocal_midi_processed} vocal_midi_skipped={vocal_midi_skipped} "
-        f"stem_midi_processed={stem_midi_processed} stem_midi_skipped={stem_midi_skipped} "
-        f"stem_midi_silent_skipped={stem_midi_silent_skipped} "
-        f"stem_midi_partial={stem_midi_partial} "
+        f"{stem_midi_stats}"
         f"failed={failures}"
     )
     return 1 if failures else 0

@@ -88,14 +88,14 @@ def test_json_companion_ownership_is_checked_before_any_write(tmp_path, second_w
     first = _dataset(tmp_path / "first.lance", [
         _row(image, "image/png", [json.dumps({"description": "image caption", "provider": "image"})]),
     ])
-    extract_from_lance(first, str(tmp_path / "out"), clip_with_caption=False)
+    extract_from_lance(first, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     json_path = tmp_path / "scene.json"
     previous = json_path.read_bytes()
     payload = {"markdown": "document caption", "provider": "document"}
     with pytest.raises(ValueError, match="[Oo]wnership|[Uu]nowned"):
         if second_writer == "export":
             second = _dataset(tmp_path / "second.lance", [_row(document, "application/pdf", [json.dumps(payload)])])
-            extract_from_lance(second, str(tmp_path / "out"), clip_with_caption=False)
+            extract_from_lance(second, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
         else:
             write_caption_output(document, payload, "application/pdf")
     assert json_path.read_bytes() == previous

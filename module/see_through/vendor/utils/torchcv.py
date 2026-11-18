@@ -16,7 +16,12 @@ def build_alpha_pyramid_torch(argb_tensor, dk=1.2):
         if min(H, W) == 1:
             break
 
-        argb_tensor = torch.nn.functional.interpolate(argb_tensor, (int(W / dk), int(H / dk)), align_corners=False, mode='bilinear')
+        argb_tensor = torch.nn.functional.interpolate(
+            argb_tensor,
+            (int(H / dk), int(W / dk)),
+            align_corners=False,
+            mode='bilinear',
+        )
 
     return pyramid[::-1]
 
@@ -43,7 +48,12 @@ def pad_rgb_torch(argb_tensor, return_format='rgb', input_format='argb'):
         layer_c = argb_tensor[:, 1:]
         layer_a = argb_tensor[:, :1]
         b, c, layer_h, layer_w = layer_c.shape
-        fg = torch.nn.functional.interpolate(fg, (layer_w, layer_h), align_corners=False, mode='bilinear')
+        fg = torch.nn.functional.interpolate(
+            fg,
+            (layer_h, layer_w),
+            align_corners=False,
+            mode='bilinear',
+        )
         # fg = cv2.resize(fg, (layer_w, layer_h), interpolation=cv2.INTER_LINEAR)
         fg = layer_c + fg * (1.0 - layer_a)
 

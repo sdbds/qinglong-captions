@@ -451,7 +451,8 @@ class ExecutionTabs:
     def mark_job(self, job) -> None:
         tab = self.find_tab(getattr(job, "tab_id", None)) or self.active_tab
         tab.current_job_id = getattr(job, "id", None)
-        tab.status = "busy"
+        if tab.status == "ready":
+            tab.status = "busy"
         self._render_tabs()
         self._notify_tab_change()
 

@@ -290,6 +290,39 @@ def test_process_batch_persists_only_successful_caption_pairs(monkeypatch, tmp_p
     assert update_calls[0][1] == ["caption"]
 
 
+def test_process_batch_skips_remaining_segments_of_kimi_filtered_video(monkeypatch, tmp_path):
+    from module.caption_pipeline import orchestrator
+    from module.providers.base import CaptionResult
+
+    rows = _make_rows(tmp_path, ["blocked.mp4", "next.mp4"], mime="video/mp4")
+    rows[0]["duration"] = 6000
+    update_calls, sidecar_calls = _patch_process_batch_io(monkeypatch, rows)
+    monkeypatch.setattr(orchestrator, "split_video_with_imageio_ffmpeg", _fake_segment_split)
+    console = _quiet_console()
+    requests = []
+
+    def caption(*, uri, **_kwargs):
+        name = Path(uri).name
+        requests.append(name)
+        if name == "blocked_1.mp4":
+            return CaptionResult.skipped("kimi_content_filter", metadata={"provider": "kimi_vl"})
+        return CaptionResult(raw="1\n00:00:00,000 --> 00:00:01,000\ncaption\n")
+
+    orchestrator.process_batch(
+        _process_batch_args(tmp_path, segment_time=2),
+        {},
+        api_process_batch_fn=caption,
+        transform2lance_fn=lambda **_kwargs: None,
+        extract_from_lance_fn=lambda *_args, **_kwargs: None,
+        console_obj=console,
+    )
+
+    assert requests == ["blocked_0.mp4", "blocked_1.mp4", "next.mp4"]
+    assert [Path(call[0]).name for call in sidecar_calls] == ["next.mp4"]
+    assert update_calls[0][0] == [rows[1]["uri"]]
+    assert "1 persisted, 1 skipped, 0 failed" in console.file.getvalue()
+
+
 def test_process_batch_uses_rebuilt_dataset_for_extract(monkeypatch, tmp_path):
     from module.caption_pipeline.orchestrator import process_batch
 
@@ -1116,12 +1149,11 @@ def test_process_batch_application_document_remains_serial_in_phase_1(monkeypatc
     assert max_in_flight == 1
 
 
-def test_concurrent_failure_skips_dataset_update_but_keeps_successful_sidecars(monkeypatch, tmp_path):
+def test_concurrent_provider_failure_commits_only_successful_items(monkeypatch, tmp_path):
     import time
 
-    import pytest
-
     from module.caption_pipeline.orchestrator import process_batch
+    from module.caption_outcome import CaptionBatchOutcome
 
     rows = _make_rows(tmp_path, ["ok.png", "fail.png"])
     update_calls, sidecar_calls = _patch_process_batch_io(monkeypatch, rows)
@@ -1135,19 +1167,23 @@ def test_concurrent_failure_skips_dataset_update_but_keeps_successful_sidecars(m
         time.sleep(0.01)
         return "ok caption"
 
-    with pytest.raises(RuntimeError) as exc_info:
-        process_batch(
-            _process_batch_args(tmp_path, cloud_max_concurrency=2),
-            {},
-            api_process_batch_fn=fake_api_process_batch_fn,
-            transform2lance_fn=lambda **_kwargs: None,
-            extract_from_lance_fn=lambda *_args, **_kwargs: None,
-            console_obj=_quiet_console(),
-        )
+    console = _quiet_console()
+    extract_calls = []
+    outcome = process_batch(
+        _process_batch_args(tmp_path, cloud_max_concurrency=2),
+        {},
+        api_process_batch_fn=fake_api_process_batch_fn,
+        transform2lance_fn=lambda **_kwargs: None,
+        extract_from_lance_fn=lambda *_args, **kwargs: extract_calls.append(kwargs),
+        console_obj=console,
+    )
 
-    assert "fail.png" in str(exc_info.value)
-    assert "fake_cloud" in str(exc_info.value)
-    assert update_calls == []
+    assert outcome == CaptionBatchOutcome(persisted=1, skipped=0, failed=1)
+    assert "fail.png" in console.file.getvalue() and "provider boom" in console.file.getvalue()
+    assert [([Path(uri).name for uri in uris], captions) for uris, captions, _ in update_calls] == [
+        (["ok.png"], ["ok caption"]),
+    ]
+    assert extract_calls[0]["include_uris"] == {rows[0]["uri"]}
     assert [Path(call[0]).name for call in sidecar_calls] == ["ok.png"]
 
 

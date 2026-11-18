@@ -245,7 +245,7 @@ class FireRedOCRProvider(OCRProvider):
         if self.get_runtime_backend().is_openai:
             return self.attempt_via_openai_backend(media, prompts)
 
-        output_dir = media.extras.get("output_dir")
+        output_dir = self.artifact_output_dir(media)
 
         result = attempt_firered_ocr(
             uri=media.uri,

@@ -1,4 +1,8 @@
+[CmdletBinding(PositionalBinding = $false)]
 param(
+    [ValidateSet("muscriptor", "sheetsage2")]
+    [string]$Backend = "muscriptor",
+
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$Arguments
 )
@@ -15,6 +19,11 @@ $UvCommand = Get-Command uv -ErrorAction SilentlyContinue
 if (-not $UvCommand) {
     Write-Error "uv was not found on PATH. Run 1.install-uv-qinglong.ps1 first."
     exit 1
+}
+
+if ($Backend -eq "sheetsage2") {
+    & $UvCommand.Source run --no-project --script "./module/sheetsage2_tool.py" @Arguments
+    exit $LASTEXITCODE
 }
 
 $PythonCandidates = @(

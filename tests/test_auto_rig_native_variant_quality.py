@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
+from time import perf_counter
 
 import pytest
 
@@ -33,31 +35,81 @@ from module.auto_rig.native_variants import NativeVariantCandidate, NativeVarian
 _SHA256_ZERO = "sha256:" + "0" * 64
 
 
-def test_disk_dilation_scales_to_release_canvas_radii() -> None:
+def _dilation_timings(trace: str, cutoff: float) -> tuple[str, str]:
+    stages = [("startup", 0.0)]
+    for phase, stamp in re.findall(r"^DILATION (\w+) \+(\d+\.\d+)s$", trace, re.MULTILINE):
+        offset = float(stamp)
+        if offset <= cutoff:
+            stages.append((phase, offset))
+    ends = [offset for _, offset in stages[1:]] + [cutoff]
+    timings = ", ".join(f"{phase}={(end - start) * 1000:.2f}ms" for (phase, start), end in zip(stages, ends))
+    return stages[-1][0], timings
+
+
+def test_disk_dilation_scales_to_release_canvas_radii(tmp_path: Path) -> None:
     script = """
+import sys
+from time import perf_counter
+
+origin = float(sys.argv[1])
+
+def enter(phase):
+    print(f"DILATION {phase} +{perf_counter() - origin:.9f}s", flush=True)
+
+enter("imports")
 import numpy as np
-
 from module.auto_rig.native_variant_quality import _disk_dilate
+# _disk_dilate imports this lazily; charge that cost to imports, not computation.
+from scipy.ndimage import distance_transform_edt
 
+enter("setup")
 mask = np.zeros((256, 256), dtype=bool)
 mask[128, 128] = True
+enter("dilation")
 result = _disk_dilate(mask, 128)
+enter("validation")
 assert result.shape == mask.shape
 assert result[128, 128]
 assert not result[0, 0]
-print("ok")
+enter("shutdown")
 """
 
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=Path(__file__).resolve().parents[1],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=8,
-    )
+    limit = 8
+    log_path = tmp_path / "disk-dilation.log"
+    timed_out = False
+    # A real file retains the last flushed checkpoint even when the child is killed.
+    with log_path.open("wb") as log:
+        started = perf_counter()
+        with subprocess.Popen(
+            [sys.executable, "-u", "-c", script, str(started)],
+            cwd=Path(__file__).resolve().parents[1],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        ) as child:
+            try:
+                child.wait(timeout=max(0.0, started + limit - perf_counter()))
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                child.kill()
+            elapsed = perf_counter() - started
 
-    assert completed.stdout.strip() == "ok"
+    trace = log_path.read_text(encoding="utf-8", errors="replace")
+    timed_out = timed_out or elapsed > limit
+    phase, timings = _dilation_timings(trace, min(elapsed, limit))
+    if timed_out:
+        status = f"timed out ({limit}s total limit)"
+    elif child.returncode or phase != "shutdown":
+        status = f"failed (child exit code {child.returncode})"
+    else:
+        status = "ok"
+    summary = f"Disk dilation {status}: stage={phase}; total={elapsed:.3f}s; {timings}"
+    if phase == "startup":
+        summary += ". No child checkpoint received before cutoff."
+    with log_path.open("a", encoding="utf-8") as log:
+        print(summary, file=log)
+    if status != "ok":
+        pytest.fail(f"{summary}\n{trace.strip()}\nTrace: {log_path}", pytrace=False)
+    print(summary)
 
 
 def _alpha(width: int, height: int, points: set[tuple[int, int]]) -> bytes:

@@ -203,3 +203,18 @@ def test_core_tests_only_fake_real_vendor_symbols():
                     failures.append(f"{rel_path}: fake {module_name}.{attr_name} does not exist in real module")
 
     assert not failures, "\n".join(failures)
+
+
+def test_pad_rgb_torch_preserves_non_square_geometry():
+    import torch
+
+    from module.see_through.vendor.utils.torchcv import pad_rgb_torch
+
+    argb = torch.zeros((1, 4, 40, 64), dtype=torch.float32)
+    argb[:, 0] = 1.0
+    argb[:, 1:] = 0.25
+
+    padded = pad_rgb_torch(argb, return_format="argb")
+
+    assert padded.shape == argb.shape
+    torch.testing.assert_close(padded, argb)

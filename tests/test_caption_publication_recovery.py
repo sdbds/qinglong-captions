@@ -154,7 +154,8 @@ def test_structured_index_failure_rolls_back_and_retry_succeeds(tmp_path, monkey
                 "uris": str(source), "mime": "image/png", "blob": None,
                 "captions": [json.dumps({"description": description})],
             }])
-        return lanceexport.extract_from_lance(datasets[description], str(tmp_path / "out"), clip_with_caption=False)
+        return lanceexport.extract_from_lance(datasets[description], str(tmp_path / "out"), clip_with_caption=False,
+                                              in_place=True)
 
     if previous_success:
         write("previous")
@@ -213,11 +214,12 @@ def test_failed_caption_writer_does_not_leave_unowned_structured_files(tmp_path,
 
     with monkeypatch.context() as context:
         context.setattr(lanceexport, "save_caption", incomplete_write)
-        lanceexport.extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False)
+        with pytest.raises(OSError, match=r"image\.png"):
+            lanceexport.extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
 
     assert not source.with_suffix(".json").exists()
     assert not source.with_suffix(".txt").exists()
-    lanceexport.extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False)
+    lanceexport.extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     assert source.with_suffix(".txt").read_text(encoding="utf-8") == "caption"
 
 
@@ -238,7 +240,8 @@ def test_failed_caption_also_restores_portable_media(tmp_path, monkeypatch, prev
 
     with monkeypatch.context() as context:
         context.setattr(lanceexport, "save_caption", incomplete_write)
-        lanceexport.extract_from_lance(replacement, str(output), clip_with_caption=False)
+        with pytest.raises(OSError, match=r"missing\.png"):
+            lanceexport.extract_from_lance(replacement, str(output), clip_with_caption=False)
 
     assert {path: path.read_bytes() for path in paths if path.exists()} == before
     lanceexport.extract_from_lance(replacement, str(output), clip_with_caption=False)
@@ -252,6 +255,7 @@ def test_failed_index_commit_does_not_publish_document_pages(tmp_path, monkeypat
     markdown = '<header style="background-color: #f5f5f5;"><strong> Page 1 </strong></header>\nPage body'
     dataset = _dataset(tmp_path, [{"uris": str(source), "mime": "application/pdf", "blob": None,
                                    "captions": [markdown]}])
+    output = tmp_path / "out"
 
     def fail_commit(*args):
         raise OSError("simulated index failure")
@@ -259,11 +263,11 @@ def test_failed_index_commit_does_not_publish_document_pages(tmp_path, monkeypat
     with monkeypatch.context() as context:
         context.setattr(lanceexport, "write_caption_index", fail_commit)
         with pytest.raises(OSError, match="simulated index"):
-            lanceexport.extract_from_lance(dataset, str(tmp_path / "out"))
+            lanceexport.extract_from_lance(dataset, str(output))
 
-    assert not source.with_suffix("").exists()
-    lanceexport.extract_from_lance(dataset, str(tmp_path / "out"))
-    assert (source.with_suffix("") / "document_1.md").is_file()
+    assert not (output / "document").exists()
+    lanceexport.extract_from_lance(dataset, str(output))
+    assert (output / "document" / "document_1.md").is_file()
 
 
 def test_mixed_json_write_failure_is_rolled_back(tmp_path, monkeypatch):
@@ -280,10 +284,11 @@ def test_mixed_json_write_failure_is_rolled_back(tmp_path, monkeypatch):
 
     with monkeypatch.context() as context:
         context.setattr(lanceexport.json, "dump", fail_json_write)
-        lanceexport.extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False)
+        with pytest.raises(OSError, match=r"image\.png"):
+            lanceexport.extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
 
     assert {path: path.read_bytes() for path in paths} == before
-    lanceexport.extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False)
+    lanceexport.extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     assert json.loads(source.with_suffix(".json").read_text(encoding="utf-8"))["description"] == "replacement"
     assert "before" in source.with_suffix(".txt").read_text(encoding="utf-8")
 

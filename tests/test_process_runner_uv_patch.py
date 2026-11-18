@@ -62,6 +62,29 @@ def test_patch_shared_environment_reads_pyproject_without_lockfile(tmp_path, mon
     assert install_cmd[install_cmd.index("--extra") + 1] == "qwen-vl-local"
 
 
+def test_sheetsage2_launches_uv_script_without_patching_shared_python(monkeypatch, tmp_path):
+    runner = ProcessRunner()
+    commands = []
+
+    async def run(cmd, work_dir, env):
+        commands.append(cmd)
+        return 0
+
+    async def patch(*args, **kwargs):
+        raise AssertionError("SheetSage2 must not patch the project environment")
+
+    monkeypatch.setattr(runner, "_find_uv", lambda: "uv")
+    monkeypatch.setattr(runner, "_patch_shared_environment", patch)
+    monkeypatch.setattr(runner, "_run_logged_subprocess", run)
+
+    result = asyncio.run(runner.run_python_script(
+        "module.sheetsage2_tool", ["a song.wav"], cwd=str(tmp_path), native_console=False,
+    ))
+
+    assert result.status is ProcessStatus.SUCCESS
+    assert commands == [["uv", "run", "--no-project", "--script", "./module/sheetsage2_tool.py", "a song.wav"]]
+
+
 def test_patch_shared_environment_ignores_existing_lockfile_and_reads_pyproject(tmp_path, monkeypatch):
     _write_project(tmp_path, with_lock=True, optional_deps={"qwen-vl-local": ["torch==2.11.0", "accelerate"]})
     runner = ProcessRunner()

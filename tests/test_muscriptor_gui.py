@@ -147,6 +147,117 @@ def test_music_transcription_maps_complete_batch_args(monkeypatch, tmp_path: Pat
     assert not any(argument.startswith("--beam-size") for argument in captured["args"])
 
 
+def test_sheetsage2_switch_shows_its_own_settings_without_changing_muscriptor():
+    step = step6_tools.ToolsStep()
+    step._render_music_transcription_tool()
+
+    step.music_transcription_backend.value = "sheetsage2"
+
+    assert step._music_transcription_sheetsage2_settings.visible
+    assert not step._music_transcription_muscriptor_settings.visible
+    assert step.music_transcription_model.value == "large"
+
+    step.music_transcription_backend.value = "muscriptor"
+    assert step._music_transcription_muscriptor_settings.visible
+    assert not step._music_transcription_sheetsage2_settings.visible
+
+
+def test_sheetsage2_submission_uses_only_its_own_arguments(monkeypatch, tmp_path):
+    step = _configured_step(tmp_path)
+    step.config.update(
+        music_transcription_backend="sheetsage2",
+        sheetsage2_device="cuda:1",
+        sheetsage2_melody_only=True,
+    )
+    captured = []
+
+    async def run_job(script_key, args, **kwargs):
+        captured.append((script_key, args, kwargs.get("runner_kwargs")))
+
+    step.panel = SimpleNamespace(run_job=run_job)
+    monkeypatch.setattr(step6_tools.ui, "notify", lambda message, **kwargs: None)
+
+    asyncio.run(step._start_music_transcription())
+
+    assert captured == [(
+        "module.sheetsage2_tool",
+        [str(tmp_path / "audio"), "--device=cuda:1", "--melody-only", "--no-skip-completed"],
+        {"native_console": False},
+    )]
+
+
+def test_sheetsage2_pre_separation_uses_shared_audio_separator_job(monkeypatch, tmp_path):
+    step = _configured_step(tmp_path)
+    step.config.update(
+        music_transcription_backend="sheetsage2",
+        sheetsage2_device="cuda:1",
+        sheetsage2_melody_only=True,
+        sheetsage2_pre_separate=True,
+    )
+    jobs = []
+
+    async def run_job(script_key, args, **kwargs):
+        jobs.append((script_key, args, kwargs["runner_kwargs"]))
+
+    step.panel = SimpleNamespace(run_job=run_job)
+    monkeypatch.setattr(step6_tools.ui, "notify", lambda message, **kwargs: None)
+
+    asyncio.run(step._start_music_transcription())
+
+    script, args, runner_kwargs = jobs[0]
+    assert script == "module.audio_separator"
+    assert args[0] == str(tmp_path / "audio")
+    assert {
+        "--audio_files_only", "--sheetsage2_midi", "--sheetsage2_device=cuda:1",
+        "--sheetsage2_melody_only", "--sheetsage2_no_skip_completed",
+    } <= set(args)
+    assert "--overwrite" not in args
+    assert runner_kwargs == {"native_console": False}
+
+
+def test_audio_separator_stem_midi_backend_shows_only_its_own_settings():
+    step = step6_tools.ToolsStep()
+    step._render_audio_separator_tool()
+
+    assert not step._audio_separator_stem_midi_container.visible
+    step.audio_separator_stem_midi_toggle.set_toggle_value(True)
+    assert step._audio_separator_stem_midi_container.visible
+    assert step.audio_separator_stem_midi_backend.value == "muscriptor"
+    assert step._audio_separator_muscriptor_container.visible
+    assert not step._audio_separator_sheetsage2_container.visible
+    step.audio_separator_stem_midi_backend.value = "sheetsage2"
+    assert step._audio_separator_sheetsage2_container.visible
+    assert not step._audio_separator_muscriptor_container.visible
+
+
+def test_audio_separator_submits_sheetsage2_without_muscriptor_profile(monkeypatch, tmp_path):
+    step = step6_tools.ToolsStep()
+    step.audio_separator_input = SimpleNamespace(value=str(tmp_path))
+    step.audio_separator_output_format = SimpleNamespace(value="flac")
+    step.config.update(
+        audio_separator_muscriptor_midi=True,
+        audio_separator_stem_midi_backend="sheetsage2",
+        audio_separator_sheetsage2_device="cpu",
+        audio_separator_sheetsage2_melody_only=True,
+        audio_separator_muscriptor_other_mode="specify",
+    )
+    jobs = []
+
+    async def run_job(script_key, args, **kwargs):
+        jobs.append((script_key, args, kwargs["runner_kwargs"]))
+
+    step.panel = SimpleNamespace(run_job=run_job)
+    monkeypatch.setattr(step6_tools.ui, "notify", lambda message, **kwargs: None)
+
+    asyncio.run(step._start_audio_separator())
+
+    script, args, runner_kwargs = jobs[0]
+    assert script == "module.audio_separator"
+    assert {"--output_format=flac", "--sheetsage2_midi", "--sheetsage2_device=cpu", "--sheetsage2_melody_only"} <= set(args)
+    assert not any(arg.startswith("--muscriptor") for arg in args)
+    assert runner_kwargs == {"native_console": False}
+
+
 def test_preview_off_and_auto_batch_size_omit_inactive_arguments(monkeypatch, tmp_path: Path):
     step = _configured_step(tmp_path, preview_mode="none")
     step.config["music_transcription_batch_size"] = 0

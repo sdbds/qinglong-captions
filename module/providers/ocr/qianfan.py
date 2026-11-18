@@ -16,6 +16,7 @@ import torch
 from PIL import Image
 
 from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.ocr.document import rebase_generated_images
 from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from utils.output_writer import write_markdown_output
@@ -361,7 +362,7 @@ class QianfanOCRProvider(OCRProvider):
             raise NotImplementedError("qianfan_ocr does not support the OpenAI-compatible runtime backend yet")
 
         start_time = time.time()
-        output_dir = Path(media.extras.get("output_dir"))
+        output_dir = self.artifact_output_dir(media)
         model_id = self._get_model_config("model_id", self.default_model_id)
         max_new_tokens = int(self._get_model_config("max_new_tokens", 16384))
         input_size = int(self._get_model_config("input_size", 448))
@@ -434,4 +435,7 @@ class QianfanOCRProvider(OCRProvider):
         elapsed = time.time() - start_time
         self.ctx.console.print(f"[blue]Caption generation took:[/blue] {elapsed:.2f} seconds")
 
-        return CaptionResult(raw=content, metadata={"provider": self.name, "output_dir": str(output_dir)})
+        return CaptionResult(
+            raw=rebase_generated_images(content, output_dir, Path(media.uri).parent),
+            metadata={"provider": self.name, "output_dir": str(output_dir)},
+        )

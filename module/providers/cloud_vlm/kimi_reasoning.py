@@ -16,13 +16,18 @@ DEFAULT_KIMI_THINKING = "enabled"
 SUPPORTED_KIMI_THINKING = frozenset({"enabled", "disabled"})
 
 
+def _model_basename(model_path: object) -> str:
+    """Drop any ``org/`` routing prefix so hosted aliases match bare model IDs."""
+    return str(model_path or "").strip().lower().rsplit("/", 1)[-1]
+
+
 def is_k3_model(model_path: object) -> bool:
-    return str(model_path or "").strip().lower() in K3_MODEL_IDS
+    return _model_basename(model_path) in K3_MODEL_IDS
 
 
 def supports_kimi_reasoning_effort(model_path: object) -> bool:
     # The stable coding ID now serves K2.8; its highspeed sibling still serves K2.7.
-    return is_k3_model(model_path) or str(model_path or "").strip().lower() == "kimi-for-coding"
+    return is_k3_model(model_path) or _model_basename(model_path) == "kimi-for-coding"
 
 
 def normalize_k3_reasoning_effort(

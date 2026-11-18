@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
@@ -75,6 +77,7 @@ class CaptionIndex:
     captions: dict[str, str] = field(default_factory=dict)
     files: dict[str, str] = field(default_factory=dict)
     origins: dict[str, str] = field(default_factory=dict)
+    primary_sha256: dict[str, str] = field(default_factory=dict)
     _file_names: dict[str, str] = field(init=False, repr=False, compare=False)
     _file_owners: dict[str, str] = field(init=False, repr=False, compare=False)
     _active_owners: dict[str, str] = field(init=False, repr=False, compare=False)
@@ -120,6 +123,9 @@ class CaptionIndex:
         if identity in self._file_owners or identity in self._active_owners:
             raise ValueError("Primary source overlaps an owned caption file")
         return identity
+
+    def owns_file(self, filename: str) -> bool:
+        return caption_file_identity(filename) in self._file_owners
 
     def validate_file_claim(self, source_key: str, filename: str, *, require_owned: bool = False) -> str:
         source_identity = self._source_identity(source_key)
@@ -242,6 +248,18 @@ def load_caption_index(directory: Path, *, strict: bool = False) -> CaptionIndex
             # An exported directory may be imported on a different platform.
             origins[key] = origin
             sources.add(source)
+        raw_hashes = payload.get("primary_sha256", {})
+        if not isinstance(raw_hashes, dict):
+            raise ValueError("Invalid published primary hashes")
+        primary_hashes = {}
+        for name, digest in raw_hashes.items():
+            if not isinstance(name, str) or not name or "/" in name or "\\" in name or Path(name).name != name:
+                raise ValueError("Invalid published primary filename")
+            key = caption_index_key(Path(directory) / name, directory)
+            if (key not in origins or key in primary_hashes or not isinstance(digest, str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+                raise ValueError("Invalid published primary source origin or hash")
+            primary_hashes[key] = digest
         files = payload.get("files", {name: key for key, name in captions.items()})
         if not isinstance(files, dict):
             raise ValueError("Invalid caption index file ownership")
@@ -274,15 +292,32 @@ def load_caption_index(directory: Path, *, strict: bool = False) -> CaptionIndex
                 del owned[previous_name]
                 owned[name] = key
                 target_owners[identity] = (name, key)
-        return CaptionIndex(captions, owned, origins)
+        return CaptionIndex(captions, owned, origins, primary_hashes)
     except (OSError, ValueError) as exc:
         if strict:
-            raise ValueError(f"Cannot overwrite invalid or unowned caption index: {path}") from exc
+            raise ValueError(f"Cannot overwrite invalid or unowned caption index: {path} ({exc})") from exc
         return None
+
+
+def unowned_srt_paths(candidates: Iterable[Path]) -> set[Path]:
+    """Keep manual subtitle inputs distinct from generated, index-owned captions."""
+    protected = set()
+    indexes = {}
+    for path in candidates:
+        while path.is_file():
+            if path.parent not in indexes:
+                indexes[path.parent] = load_caption_index(path.parent, strict=True)
+            index = indexes[path.parent]
+            if index is not None and index.owns_file(path.name):
+                break
+            protected.add(path)
+            path = path.with_name(f"{path.stem}.caption{path.suffix}")
+    return protected
 
 
 def write_caption_index(directory: Path, index: CaptionIndex) -> None:
     payload = {"kind": "caption_index", "schema_version": 1,
-               "captions": index.captions, "files": index.files, "origins": index.origins}
+               "captions": index.captions, "files": index.files, "origins": index.origins,
+               "primary_sha256": index.primary_sha256}
     with atomic_output_path(Path(directory) / CAPTION_INDEX_NAME) as temporary:
         temporary.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")

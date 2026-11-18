@@ -17,11 +17,15 @@ from __future__ import annotations
 # ]
 # ///
 import argparse
+import hashlib
 import json
+import os
 import re
+import stat
 from contextlib import ExitStack
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, Union
+from typing import Any, Dict, Iterable, List, Optional, Protocol, Union
 
 import lance
 import pysrt
@@ -40,11 +44,16 @@ from rich.progress import (
 )
 
 from config.config import CONSOLE_COLORS, DATASET_SCHEMA, get_supported_extensions
+from module.music_export import atomic_output_path
 from utils.caption_index import CAPTION_INDEX_NAME, CaptionFileTransaction, CaptionIndex, caption_file_identity, caption_index_key, load_caption_index, write_caption_index
+from utils.caption_index import unowned_srt_paths
+from utils.file_hash import sha256_file
+from utils.lance_utils import DERIVED_EXPORT_MARKER as _DERIVED_EXPORT_MARKER
 from utils.lance_blob import take_blob_files
 from utils.console_util import print_exception
+from utils.ocr_export import OCRAsset, plan_ocr_image_assets, publish_ocr_image_assets, rebase_ocr_page_images
 from utils.output_writer import ResolvedPaths, caption_extension_from_payload, caption_path_avoiding_sources, caption_text, disambiguate_caption_bases, normalize_caption_extension
-from utils.path_safety import safe_child_path, safe_leaf_name
+from utils.path_safety import safe_leaf_name
 from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
 
 console = Console(color_system="truecolor", force_terminal=True)
@@ -83,30 +92,27 @@ def save_blob(
     metadata: Dict[str, Any],
     media_type: str,
 ) -> bool:
-    """Save binary blob to file.
+    """Save binary data or a readable Lance blob."""
+    return _save_blob_with_hash(uri, blob, metadata, media_type) is not None
 
-    Args:
-        uri: Target path
-        blob: Binary data or BlobFile
-        metadata: File metadata
-        media_type: Type of media (image/video/audio)
 
-    Returns:
-        bool: True if successful
-    """
+class _SnapshotMismatch(ValueError):
+    pass
+
+
+def _save_blob_with_hash(uri, blob, metadata, media_type, *, expected_hash=None) -> str | None:
     try:
-        uri.parent.mkdir(parents=True, exist_ok=True)
-
-        # Handle both bytes and blob-like readers without depending on Lance runtime types.
-        if hasattr(blob, "read") and callable(getattr(blob, "read")):
-            with open(uri, "wb") as f:
-                while True:
-                    chunk = blob.read(8192)  # Read in chunks
-                    if not chunk:
-                        break
-                    f.write(chunk)
-        else:
-            uri.write_bytes(blob)
+        digest = hashlib.sha256()
+        with atomic_output_path(uri) as temporary:
+            with temporary.open("wb") as stream:
+                chunks = iter(lambda: blob.read(1024 * 1024), b"") if callable(getattr(blob, "read", None)) else (blob,)
+                for chunk in chunks:
+                    stream.write(chunk)
+                    digest.update(chunk)
+            published_hash = digest.hexdigest()
+            if (isinstance(expected_hash, str) and re.fullmatch(r"[0-9a-fA-F]{64}", expected_hash)
+                    and expected_hash.lower() != published_hash):
+                raise _SnapshotMismatch(f"Original no longer matches the selected snapshot hash for {uri}")
 
         # Print media-specific metadata
         meta_info = []
@@ -150,10 +156,12 @@ def save_blob(
         # 使用配置的颜色
         color = CONSOLE_COLORS.get(media_type, "white")
         console.print(f"[{color}]{media_type}: {uri} ({meta_str}) saved successfully.[/{color}]")
-        return True
+        return published_hash
+    except _SnapshotMismatch:
+        raise
     except Exception as e:
         print_exception(console, e, prefix=f"Error saving {media_type} {uri}")
-        return False
+        return None
 
 
 def _resolve_caption_target_path(
@@ -269,7 +277,7 @@ def save_caption(
         print_exception(console, e, prefix="Error saving caption")
         return False
 
-def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
+def save_caption_by_pages(caption_path: Path, caption_lines: List[str], *, rebase_ocr_images: bool = False) -> bool:
     """将多页文档分割为单独的页面并分别保存
 
     Args:
@@ -453,6 +461,9 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str]) -> bool:
                 # 如果没有匹配到图片，只进行路径格式转换
                 processed_page_content = re.sub(img_pattern, r"![\1](\3)", page_content)
 
+            if rebase_ocr_images:
+                processed_page_content = rebase_ocr_page_images(processed_page_content)
+
             page_filename = f"{caption_path.stem}_{page_number}.md"
             page_file_path = output_dir / page_filename
 
@@ -533,33 +544,125 @@ def _validate_export_paths(planned_paths, generated_directories=(), protected_pa
             raise ValueError(f"Generated directory collision with a primary or planned output: {path}")
 
 
+def _validate_destination_entry(path: Path) -> None:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return
+    if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+        raise ValueError(f"Export destination is a link: {path}")
+    if stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
+        raise ValueError(f"Export destination has multiple hard links: {path}")
+
+
+def _portable_child(root: Path, name: str) -> Path:
+    path = root / name
+    if path.parent != root or (os.name == "nt" and (":" in name or path.is_reserved() or name.rstrip(" .") != name)):
+        raise ValueError(f"Invalid export filename: {name!r}")
+    _validate_destination_entry(path)
+    return path
+
+
+@dataclass
+class _ExportPlan:
+    targets: dict[str, tuple[Path, Path]]
+    protected_paths: ResolvedPaths
+    caption_targets: dict[str, Path]
+    indexes: dict[Path, CaptionIndex]
+    portable_uris: set[str]
+    selected_uris: set[str]
+    derived: dict[str, tuple[Path, str]]
+    ocr_assets: dict[str, set[OCRAsset]]
+
+
+def _derived_signature(dataset, uri, caption_lines, media_target, row_hash, *, uses_original):
+    source = Path(uri)
+    # Only local fallback bytes can change independently of the selected snapshot.
+    source_stat = source.stat() if uses_original and source.is_file() else None
+    identity = ("content-hash", row_hash) if row_hash else (str(dataset.uri), dataset.version)
+    payload = (
+        *identity, uri, media_target.name, caption_lines,
+        (source_stat.st_size, source_stat.st_mtime_ns) if source_stat else None,
+    )
+    return hashlib.sha256(json.dumps(payload).encode("utf-8")).hexdigest()
+
+
+def _derived_manifest(directory: Path, signature: str) -> dict:
+    files = {}
+    for path in directory.iterdir():
+        if path.name == _DERIVED_EXPORT_MARKER:
+            continue
+        _validate_destination_entry(path)
+        info = path.stat()
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"Unexpected derived export entry: {path}")
+        files[path.name] = [info.st_size, info.st_mtime_ns]
+    return {"signature": signature, "files": files}
+
+
+def _completed_derived_export(directory: Path, signature: str) -> bool:
+    _validate_destination_entry(directory)
+    if not directory.exists():
+        return False
+    marker = directory / _DERIVED_EXPORT_MARKER
+    try:
+        _validate_destination_entry(marker)
+        if json.loads(marker.read_text(encoding="utf-8")) == _derived_manifest(directory, signature):
+            return True
+    except (OSError, ValueError):
+        pass
+    raise ValueError(f"Conflicting derived export directory: {directory}; choose a fresh output directory")
+
+
 def _plan_export_targets(dataset, output_path: Path, captions_path: Optional[Path], *,
                          caption_suffix="", caption_extension=None, allowed_caption_types=None,
-                         clip_with_caption=False):
+                         clip_with_caption=False, in_place=False, include_uris=None, verify_primary_bytes=False):
     uris = [uri for batch in dataset.scanner(columns=["uris"]).to_batches() for uri in batch["uris"].to_pylist()]
     if len(set(uris)) != len(uris):
         raise ValueError("Cannot export ambiguous duplicate source URIs")
+    output_path = output_path.resolve()
+    captions_path = captions_path.resolve() if captions_path is not None else None
+    selected_uris = set(uris) if include_uris is None else set(uris).intersection(include_uris)
+    portable_uris = {uri for uri in uris if not in_place or not Path(uri).exists()}
     targets = {}
     for uri in uris:
         source = Path(uri)
-        media_target = source if source.exists() else safe_child_path(output_path, safe_leaf_name(uri))
-        caption_base = safe_child_path(captions_path, safe_leaf_name(uri)) if captions_path else media_target
+        leaf = safe_leaf_name(uri)
+        media_target = _portable_child(output_path, leaf) if uri in portable_uris else source
+        caption_base = _portable_child(captions_path, leaf) if captions_path else media_target
         targets[uri] = (media_target, caption_base)
-    caption_bases = disambiguate_caption_bases({uri: base for uri, (_, base) in targets.items()})
+
+    caption_bases = disambiguate_caption_bases(
+        {uri: base for uri, (_, base) in targets.items()}, child_path=_portable_child,
+    )
     for uri, (media_target, caption_base) in targets.items():
         if caption_bases[uri] != caption_base:
             caption_base = caption_bases[uri]
-            if not Path(uri).exists():
-                media_target = safe_child_path(output_path, caption_base.name)
+            if uri in portable_uris:
+                media_target = _portable_child(output_path, caption_base.name)
             targets[uri] = (media_target, caption_base)
-    protected = ResolvedPaths([*uris, *(target for target, _ in targets.values())])
+    manual_srts = unowned_srt_paths(
+        base.with_suffix(".srt") for uri, (_, base) in targets.items()
+        if uri not in portable_uris and _media_type_for_uri(Path(uri)) in {"audio", "video"}
+    ) if in_place and captions_path is None and not caption_suffix else ()
+    protected = ResolvedPaths([*uris, *(target for target, _ in targets.values()), *manual_srts])
     planned_paths = [(media_target, uri) for uri, (media_target, _) in targets.items()]
-    generated_directories = []
+    derived = {}
     caption_targets = {}
     companion_targets = {}
+    ocr_assets = {}
+    planned_ocr_paths = {}
     if "captions" in dataset.schema.names:
-        for batch in dataset.scanner(columns=["uris", "captions"]).to_batches():
-            for uri, lines in zip(batch["uris"].to_pylist(), batch["captions"].to_pylist()):
+        columns = ["uris", "captions"]
+        if clip_with_caption and not caption_suffix:
+            columns.extend(name for name in ("hash", "blob") if name in dataset.schema.names)
+        for batch in dataset.scanner(columns=columns).to_batches():
+            row_hashes = batch["hash"].to_pylist() if "hash" in columns else [None] * len(batch)
+            # Lance scans blob descriptors, not their contents; empty blobs are present too.
+            has_blobs = batch["blob"].is_valid().to_pylist() if "blob" in columns else [False] * len(batch)
+            for uri, lines, row_hash, has_blob in zip(batch["uris"].to_pylist(), batch["captions"].to_pylist(), row_hashes, has_blobs):
+                if uri not in selected_uris:
+                    continue
                 media_type = _media_type_for_uri(Path(uri))
                 if not lines or not any(line and line.strip() for line in lines):
                     continue
@@ -573,43 +676,77 @@ def _plan_export_targets(dataset, output_path: Path, captions_path: Optional[Pat
                 if json_target is not None:
                     planned_paths.append((json_target, f"JSON caption for {uri}"))
                     companion_targets[uri] = json_target
+                if not in_place and target.suffix.lower() == ".md":
+                    payload = _extract_structured_caption_payload(lines)
+                    text = caption_text(payload)
+                    markdown = text if text.strip() and sum(bool(line and line.strip()) for line in lines) == 1 else "".join(lines)
+                    assets = plan_ocr_image_assets(markdown, Path(uri), target, targets[uri][0])
+                    if assets:
+                        ocr_assets[uri] = assets
+                        for asset in assets:
+                            previous = planned_ocr_paths.setdefault(asset.destination, asset.source)
+                            if previous != asset.source:
+                                raise ValueError(f"Conflicting OCR asset export: {asset.destination}")
                 if clip_with_caption and not caption_suffix:
+                    directory = None
                     if media_type in {"audio", "video"} and target.suffix.lower() == ".srt":
                         media_target = targets[uri][0]
-                        generated_directories.append((media_target.parent / f"{media_target.stem}_clip", uri))
-                    elif target.suffix.lower() == ".md" and any('<header style="background-color: #f5f5f5;' in line for line in lines):
-                        generated_directories.append((target.with_suffix(""), uri))
+                        directory = media_target.parent / f"{media_target.stem}_clip"
+                    elif (not in_place and target.suffix.lower() == ".md"
+                          and any('<header style="background-color: #f5f5f5;' in line for line in lines)):
+                        directory = target.with_suffix("")
+                    if directory is not None:
+                        _portable_child(directory.parent, directory.name)
+                        media_target = targets[uri][0]
+                        uses_original = uri not in portable_uris or (not has_blob and Path(uri).resolve() != media_target)
+                        signature = _derived_signature(dataset, uri, lines, media_target, row_hash, uses_original=uses_original)
+                        derived[uri] = (directory, signature)
     indexes = {}
 
     def index_for(directory):
         directory = directory.resolve()
         if directory not in indexes:
-            indexes[directory] = load_caption_index(directory, strict=True) or CaptionIndex()
-            planned_paths.append((directory / CAPTION_INDEX_NAME, "caption index"))
+            index_path = directory / CAPTION_INDEX_NAME
             lock_path = directory / _CAPTION_INDEX_LOCK_NAME
+            if not in_place:
+                _validate_destination_entry(index_path)
+                _validate_destination_entry(lock_path)
+            indexes[directory] = load_caption_index(directory, strict=True) or CaptionIndex()
+            planned_paths.append((index_path, "caption index"))
             if lock_path.is_file() and lock_path.stat().st_size:
                 raise ValueError(f"Cannot overwrite an unowned caption index lock: {lock_path}")
             planned_paths.append((lock_path, "caption index lock"))
         return indexes[directory]
 
     for uri, (media_target, _) in targets.items():
-        if not Path(uri).exists():
+        if uri in selected_uris and uri in portable_uris:
             directory = media_target.parent.resolve()
             index = index_for(directory)
             key = caption_index_key(media_target, directory)
             index.validate_origin(key, Path(uri), require_known=media_target.exists() or key in index.captions)
+            if media_target.is_file():
+                previous_hash = index.primary_sha256.get(key)
+                if previous_hash is None or (verify_primary_bytes and sha256_file(media_target) != previous_hash):
+                    raise ValueError(f"Cannot verify ownership of the current primary: {media_target}")
     for uri, target in caption_targets.items():
         directory = target.parent.resolve()
         index = index_for(directory)
         key = caption_index_key(targets[uri][0], directory)
-        if not Path(uri).exists():
+        if not in_place:
+            _portable_child(target.parent, target.name)
+        if uri in portable_uris:
             index.validate_origin(key, Path(uri), require_known=target.exists() or key in index.captions)
-        index.validate_file_claim(key, target.name)
+        index.validate_file_claim(key, target.name, require_owned=not in_place and target.exists())
         companion = companion_targets.get(uri)
         if companion is not None:
+            if not in_place:
+                _portable_child(companion.parent, companion.name)
             index.validate_file_claim(key, companion.name, require_owned=companion.exists())
-    _validate_export_paths(planned_paths, generated_directories, protected)
-    return targets, protected, caption_targets, indexes
+    planned_paths.extend((path, f"OCR asset from {source}") for path, source in planned_ocr_paths.items())
+    _validate_export_paths(planned_paths, [(path, uri) for uri, (path, _) in derived.items()], protected)
+    for directory, signature in derived.values():
+        _completed_derived_export(directory, signature)
+    return _ExportPlan(targets, protected, caption_targets, indexes, portable_uris, selected_uris, derived, ocr_assets)
 
 
 def extract_from_lance(
@@ -621,43 +758,48 @@ def extract_from_lance(
     caption_suffix: str = "",
     caption_extension: Optional[str] = None,
     allowed_caption_types: Optional[List[str]] = None,
+    *,
+    in_place: bool = False,
+    include_uris: Optional[Iterable[str]] = None,
 ) -> None:
-    """
-    Extract images and captions from Lance dataset.
+    """Export copies to output_dir, or explicitly publish beside existing sources.
+
+    include_uris limits publication without dropping other rows from collision checks.
+    Paginated Markdown is generated only for copy exports, never beside the source.
     """
     ds = lance.dataset(lance_or_path, version=version) if isinstance(lance_or_path, str) else lance_or_path
 
-    output_path = Path(output_dir)
+    output_path = Path(output_dir).resolve()
 
     captions_dir_path = None
     if caption_dir:
-        captions_dir_path = Path(caption_dir)
+        captions_dir_path = Path(caption_dir).resolve()
 
     allowed_caption_type_set = set(allowed_caption_types) if allowed_caption_types else None
     plan_options = dict(
         caption_suffix=caption_suffix, caption_extension=caption_extension,
         allowed_caption_types=allowed_caption_type_set, clip_with_caption=clip_with_caption,
+        in_place=in_place, include_uris=None if include_uris is None else frozenset(include_uris),
     )
     plan = _plan_export_targets(ds, output_path, captions_dir_path, **plan_options)
-    directories = sorted(plan[3], key=caption_file_identity)
+    if not plan.selected_uris:
+        return
+    directories = sorted(plan.indexes, key=caption_file_identity)
     with ExitStack() as locks:
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
             locks.enter_context(FileLock(str(directory / _CAPTION_INDEX_LOCK_NAME), preserve_lock_file=True))
         # A waiting exporter must validate against the last committed generation.
-        plan = _plan_export_targets(ds, output_path, captions_dir_path, **plan_options)
-        if not set(plan[3]).issubset(directories):
+        plan = _plan_export_targets(ds, output_path, captions_dir_path, verify_primary_bytes=True, **plan_options)
+        if not set(plan.indexes).issubset(directories):
             raise RuntimeError("Export source locations changed while acquiring locks; retry the export")
         _extract_planned_dataset(
             ds, output_path, captions_dir_path, plan,
-            clip_with_caption=clip_with_caption, caption_suffix=caption_suffix,
-            caption_extension=caption_extension, allowed_caption_type_set=allowed_caption_type_set,
+            caption_suffix=caption_suffix, caption_extension=caption_extension,
         )
 
 
-def _extract_planned_dataset(ds, output_path, captions_dir_path, plan, *, clip_with_caption,
-                             caption_suffix, caption_extension, allowed_caption_type_set):
-    export_targets, protected_paths, caption_targets, caption_indexes = plan
+def _extract_planned_dataset(ds, output_path, captions_dir_path, plan, *, caption_suffix, caption_extension):
     output_path.mkdir(parents=True, exist_ok=True)
     if captions_dir_path is not None:
         captions_dir_path.mkdir(parents=True, exist_ok=True)
@@ -665,6 +807,7 @@ def _extract_planned_dataset(ds, output_path, captions_dir_path, plan, *, clip_w
     dirty_indexes = set()
     transactions = {}
     postprocess_items = []
+    failed_writes = []
     with ExitStack() as publications, ExitStack() as index_writes, Progress(
         "[progress.description]{task.description}",
         SpinnerColumn(spinner_name="dots"),
@@ -683,6 +826,8 @@ def _extract_planned_dataset(ds, output_path, captions_dir_path, plan, *, clip_w
     ) as progress:
         global console
 
+        publish_ocr_asset = publications.enter_context(publish_ocr_image_assets())
+
         def publication_for(directory):
             if directory not in transactions:
                 transactions[directory] = publications.enter_context(CaptionFileTransaction(directory))
@@ -691,14 +836,14 @@ def _extract_planned_dataset(ds, output_path, captions_dir_path, plan, *, clip_w
 
         def retain_origin(source, media_target, directory):
             publication_for(directory)
-            entries = caption_indexes[directory]
+            entries = plan.indexes[directory]
             entries.set_origin(caption_index_key(media_target, directory), source)
             if directory not in dirty_indexes:
                 index_writes.callback(write_caption_index, directory, entries)
                 dirty_indexes.add(directory)
 
         console = progress.console
-        task = progress.add_task("[green]Extracting files...", total=ds.count_rows())
+        task = progress.add_task("[green]Extracting files...", total=len(plan.selected_uris))
         row_offset = 0
 
         for batch in ds.to_batches():
@@ -708,27 +853,43 @@ def _extract_planned_dataset(ds, output_path, captions_dir_path, plan, *, clip_w
                 for field in DATASET_SCHEMA
                 if field[0] != "blob" and field[0] in batch_field_names
             }
-            indices = list(range(row_offset, row_offset + len(batch)))
-            blobs = take_blob_files(ds, indices, "blob") if "blob" in batch_field_names else [None] * len(batch)
+            uris = metadata_batch["uris"]
+            selected = [i for i, uri in enumerate(uris) if uri in plan.selected_uris]
+            copy_rows = [
+                i for i in selected if uris[i] in plan.portable_uris
+                and not (Path(uris[i]).is_file() and Path(uris[i]).resolve() == plan.targets[uris[i]][0])
+            ]
+            blobs = {}
+            if copy_rows and "blob" in batch_field_names:
+                blobs = dict(zip(copy_rows, take_blob_files(ds, [row_offset + i for i in copy_rows], "blob")))
+            copy_rows = set(copy_rows)
             row_offset += len(batch)
 
-            for i in range(len(batch)):
+            for i in selected:
                 metadata = {key: values[i] for key, values in metadata_batch.items()}
-                uri = Path(metadata["uris"])
-                blob = blobs[i]
+                source_uri = uris[i]
+                uri = Path(source_uri)
+                blob = blobs.get(i)
 
                 suffix = uri.suffix.lower()
                 media_type = _media_type_for_uri(uri)
 
-                blob_target, caption_file_path = export_targets[str(metadata["uris"])]
-                source_missing = not uri.exists()
+                blob_target, caption_file_path = plan.targets[source_uri]
                 media_publication = None
-                if source_missing and blob:
+                if i in copy_rows and (blob is not None or uri.is_file()):
                     if media_type:
                         media_publication = publication_for(blob_target.parent.resolve())
                         media_publication.watch(blob_target)
-                        if not save_blob(blob_target, blob, metadata, media_type):
+                        if blob is None:
+                            with uri.open("rb") as source_file:
+                                published_hash = _save_blob_with_hash(
+                                    blob_target, source_file, metadata, media_type, expected_hash=metadata.get("hash"),
+                                )
+                        else:
+                            published_hash = _save_blob_with_hash(blob_target, blob, metadata, media_type)
+                        if not published_hash:
                             media_publication.restore(blob_target)
+                            failed_writes.append(f"media for {source_uri}")
                             progress.advance(task)
                             continue
                     else:
@@ -737,15 +898,12 @@ def _extract_planned_dataset(ds, output_path, captions_dir_path, plan, *, clip_w
                         continue
 
                 caption = metadata.get("captions", [])
-                actual_caption_path = caption_targets.get(str(metadata["uris"]))
-                should_save_caption = actual_caption_path is not None and bool(caption) and (
-                    allowed_caption_type_set is None or media_type in allowed_caption_type_set
-                )
-                if should_save_caption:
+                actual_caption_path = plan.caption_targets.get(source_uri)
+                if actual_caption_path is not None:
                     caption_file_path.parent.mkdir(parents=True, exist_ok=True)
                     directory = actual_caption_path.parent.resolve()
                     _, json_path = _caption_output_paths(
-                        caption_file_path, caption, media_type, caption_suffix, caption_extension, protected_paths,
+                        caption_file_path, caption, media_type, caption_suffix, caption_extension, plan.protected_paths,
                     )
                     output_paths = [actual_caption_path] + ([json_path] if json_path is not None else [])
                     publication = publication_for(directory)
@@ -756,44 +914,76 @@ def _extract_planned_dataset(ds, output_path, captions_dir_path, plan, *, clip_w
                         media_type,
                         caption_suffix=caption_suffix,
                         caption_extension=caption_extension,
-                        protected_paths=protected_paths,
+                        protected_paths=plan.protected_paths,
                     )
 
                     if not saved:
                         publication.restore(*output_paths)
                         if media_publication is not None:
                             media_publication.restore(blob_target)
+                        failed_writes.append(f"caption for {source_uri}")
                         progress.advance(task)
                         continue
-                    entries = caption_indexes[directory]
+                    for asset in sorted(plan.ocr_assets.get(source_uri, ()), key=lambda item: item.destination):
+                        publish_ocr_asset(asset)
+                    entries = plan.indexes[directory]
                     key = caption_index_key(blob_target, directory)
                     entries.set_caption(key, actual_caption_path.name)
                     if json_path is not None:
                         entries.claim_file(key, json_path.name)
-                    if source_missing:
+                    if source_uri in plan.portable_uris:
                         retain_origin(uri, blob_target, blob_target.parent.resolve())
                         retain_origin(uri, blob_target, directory)
                     if directory not in dirty_indexes:
                         index_writes.callback(write_caption_index, directory, entries)
                         dirty_indexes.add(directory)
-                    if clip_with_caption and not caption_suffix:
-                        postprocess_items.append((blob_target, actual_caption_path, media_type, caption))
+                    if source_uri in plan.derived and (media_type not in {"audio", "video"}
+                                                      or media_publication is not None or uri.is_file()):
+                        postprocess_items.append((blob_target, actual_caption_path, media_type, caption, plan.derived[source_uri]))
 
                 if media_publication is not None:
-                    retain_origin(uri, blob_target, blob_target.parent.resolve())
+                    directory = blob_target.parent.resolve()
+                    retain_origin(uri, blob_target, directory)
+                    plan.indexes[directory].primary_sha256[caption_index_key(blob_target, directory)] = published_hash
                 progress.advance(task)
 
+    def save_clip_caption(path, lines, media_type):
+        saved = save_caption(path, lines, media_type)
+        if not saved:
+            failed_writes.append(f"clip caption for {path}")
+        return saved
+
     # Derived pages/clips must not precede the commit of their source captions.
-    for blob_target, caption_path, media_type, caption in postprocess_items:
-        if media_type in {"audio", "video"} and caption_path.suffix.lower() == ".srt" and blob_target.is_file():
+    for blob_target, caption_path, media_type, caption, (directory, signature) in postprocess_items:
+        is_clip = media_type in {"audio", "video"} and caption_path.suffix.lower() == ".srt"
+        if is_clip and not blob_target.is_file():
+            continue
+        if _completed_derived_export(directory, signature):
+            continue
+        # Reserve the namespace before handing it to writers that overwrite files.
+        directory.mkdir()
+        if is_clip:
             subs = pysrt.open(caption_path, encoding="utf-8")
+            previous_failures = len(failed_writes)
             try:
-                split_video_with_imageio_ffmpeg(blob_target, subs, save_caption)
+                split_video_with_imageio_ffmpeg(blob_target, subs, save_clip_caption)
             except Exception as e:
                 print_exception(console, e, prefix="Error splitting video")
-                split_media_stream_clips(blob_target, media_type, subs, save_caption)
-        elif caption_path.suffix.lower() == ".md":
-            split_md_document(caption_path, caption, save_caption)
+                split_media_stream_clips(blob_target, media_type, subs, save_clip_caption)
+            if len(failed_writes) != previous_failures:
+                continue
+        elif not save_caption_by_pages(caption_path, caption, rebase_ocr_images=True):
+            failed_writes.append(f"document pages for {caption_path}")
+            continue
+        manifest = _derived_manifest(directory, signature)
+        with (directory / _DERIVED_EXPORT_MARKER).open("x", encoding="utf-8") as marker:
+            json.dump(manifest, marker)
+
+    if failed_writes:
+        details = "; ".join(failed_writes[:10])
+        if len(failed_writes) > 10:
+            details += f"; and {len(failed_writes) - 10} more"
+        raise OSError(f"Export incomplete: {len(failed_writes)} failed write(s): {details}")
 
 
 def main():
@@ -801,8 +991,13 @@ def main():
     parser.add_argument("lance_file", help="Path to the .lance file")
     parser.add_argument(
         "--output_dir",
-        default="./dataset",
-        help="Directory to save extracted data",
+        default="./exports",
+        help="Directory to save extracted copies (default: %(default)s)",
+    )
+    parser.add_argument("--caption_dir", help="Optional separate directory for exported captions")
+    parser.add_argument(
+        "--in_place", "--in-place", action="store_true",
+        help="Write captions beside the original media instead of exporting copies",
     )
     parser.add_argument(
         "--version",
@@ -837,6 +1032,8 @@ def main():
         args.output_dir,
         args.version,
         not args.not_clip_with_caption,
+        caption_dir=args.caption_dir,
+        in_place=args.in_place,
         caption_suffix=args.caption_suffix,
         caption_extension=args.caption_extension,
         allowed_caption_types=allowed_caption_types or None,

@@ -32,6 +32,13 @@ UNSUPPORTED_JSON = _error(
     400, "response_format of type json_object is not supported with this model.",
     param="response_format", code="unsupported_value",
 )
+KIMI_CONTENT_FILTER = (400, {"error": {
+    "code": 400,
+    "message": "The request was rejected because it was considered high risk",
+    "param": "prompt",
+    "type": "content_filter",
+    "innererror": {"content_filter_result": {"porn": {"filtered": True, "note": "xingxingwei"}}},
+}})
 
 
 def _provider(tmp_path, **overrides):
@@ -172,6 +179,7 @@ def test_openai_format_fallback_exhaustion_is_failed(monkeypatch, tmp_path):
     _error(400, "max_tokens is not supported with this model", param="max_tokens"),
     _error(401, "Unauthorized"),
     _error(400, "Messages must contain the word JSON when response_format is json_object", param="messages"),
+    KIMI_CONTENT_FILTER,
 ])
 def test_openai_other_client_errors_are_not_retried_as_format_downgrades(monkeypatch, tmp_path, error):
     requests, _, _ = _endpoint(monkeypatch, [error, _completion("Should not be accepted.")])
@@ -179,6 +187,43 @@ def test_openai_other_client_errors_are_not_retried_as_format_downgrades(monkeyp
 
     with pytest.raises(openai.APIStatusError):
         provider.execute(str(source), "image/jpeg", "offline-hash")
+
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(("provider_name", "key_arg"), [
+    ("kimi_vl", "kimi_api_key"),
+    ("kimi_code", "kimi_code_api_key"),
+])
+@pytest.mark.parametrize(("response", "should_skip"), [
+    pytest.param(KIMI_CONTENT_FILTER, True, id="filter-type"),
+    pytest.param(_error(400, "Filtered prompt", code="content_filter"), True, id="filter-code"),
+    pytest.param(_error(400, "Invalid max_tokens", param="max_tokens"), False, id="other-400"),
+])
+def test_kimi_only_skips_content_filter_bad_requests(monkeypatch, tmp_path, provider_name, key_arg, response, should_skip):
+    from module.providers import get_registry
+
+    requests, _, _ = _endpoint(monkeypatch, [response])
+    source = tmp_path / "input.jpg"
+    Image.new("RGB", (32, 32), "red").save(source)
+    log = io.StringIO()
+    provider = get_registry().get_provider(provider_name)(ProviderContext(
+        console=Console(file=log, width=100),
+        config={"prompts": {"image_prompt": "Describe the image."}},
+        args=make_provider_args(max_retries=3, wait_time=0, **{key_arg: "offline-placeholder"}),
+    ))
+
+    if should_skip:
+        result = provider.execute(str(source), "image/jpeg", "offline-hash")
+        assert result.status is CaptionStatus.SKIPPED
+        assert not result.is_persistable
+        assert result.metadata["provider"] == provider_name
+        assert result.metadata["skip_reason"] == "kimi_content_filter"
+        assert "Skipping input.jpg" in log.getvalue()
+        assert "Traceback" not in log.getvalue()
+    else:
+        with pytest.raises(openai.BadRequestError):
+            provider.execute(str(source), "image/jpeg", "offline-hash")
 
     assert len(requests) == 1
 

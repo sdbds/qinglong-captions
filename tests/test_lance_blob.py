@@ -1,4 +1,5 @@
 import importlib
+import importlib.util
 import io
 import sys
 import types
@@ -54,8 +55,14 @@ def _load_module_without_lance_runtime_types(monkeypatch, module_name: str):
     fake_lance.dataset = lambda *args, **kwargs: None
     fake_lance.write_dataset = lambda *args, **kwargs: None
     monkeypatch.setitem(sys.modules, "lance", fake_lance)
-    sys.modules.pop(module_name, None)
-    return importlib.import_module(module_name)
+    package, leaf = module_name.rsplit(".", 1)
+    path = ROOT.joinpath(*module_name.split(".")).with_suffix(".py")
+    spec = importlib.util.spec_from_file_location(f"{package}._runtime_probe_{leaf}", path)
+    assert spec is not None and spec.loader is not None
+    probe = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, probe)
+    spec.loader.exec_module(probe)
+    return probe
 
 
 def test_lanceexport_imports_without_blobfile_runtime_symbol(monkeypatch):
@@ -66,6 +73,17 @@ def test_lanceexport_imports_without_blobfile_runtime_symbol(monkeypatch):
 def test_lanceimport_imports_without_lancedataset_runtime_symbol(monkeypatch):
     module = _load_module_without_lance_runtime_types(monkeypatch, "module.lanceImport")
     assert hasattr(module, "transform2lance")
+
+
+@pytest.mark.parametrize("leaf", ["lanceexport", "lanceImport"])
+def test_runtime_type_probe_leaves_real_lance_modules_intact(monkeypatch, leaf):
+    name = f"module.{leaf}"
+    original = importlib.import_module(name)
+    package = importlib.import_module("module")
+    with monkeypatch.context() as probe:
+        _load_module_without_lance_runtime_types(probe, name)
+    assert sys.modules[name] is original
+    assert getattr(package, leaf) is original
 
 
 def test_lanceimport_cli_defaults_to_no_binary_save():

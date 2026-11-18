@@ -270,7 +270,7 @@ def test_attempt_single_image_writes_cleaned_result_md(monkeypatch, tmp_path):
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
     result = provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
 
-    assert (tmp_path / "sample" / "result.md").read_text(encoding="utf-8") == "# final"
+    assert (media.extras["output_dir"] / "result.md").read_text(encoding="utf-8") == "# final"
     assert result.raw == "# final"
 
 
@@ -290,10 +290,11 @@ def test_attempt_single_image_renders_placeholder_images(monkeypatch, tmp_path):
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
     result = provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
 
-    result_md = (tmp_path / "sample" / "result.md").read_text(encoding="utf-8")
+    output_dir = media.extras["output_dir"]
+    result_md = (output_dir / "result.md").read_text(encoding="utf-8")
     assert result_md == "Before\n\n![image](images/image-001.png)"
-    assert result.raw == "Before\n\n![image](images/image-001.png)"
-    crop_path = tmp_path / "sample" / "images" / "image-001.png"
+    crop_path = output_dir / "images" / "image-001.png"
+    assert result.raw == f"Before\n\n![image]({crop_path.relative_to(tmp_path).as_posix()})"
     assert crop_path.exists()
     with Image.open(crop_path) as crop:
         assert crop.size == (50, 50)
@@ -328,10 +329,11 @@ def test_attempt_pdf_writes_cleaned_page_results_and_merged_markdown(monkeypatch
     media = provider.prepare_media(str(pdf_path), "application/pdf", ctx.args)
     result = provider.attempt(media, provider.resolve_prompts(str(pdf_path), "application/pdf"))
 
-    assert (tmp_path / "sample" / "page_0001" / "page_0001.png").exists()
-    assert (tmp_path / "sample" / "page_0001" / "result.md").read_text(encoding="utf-8") == "# page 1"
-    assert (tmp_path / "sample" / "page_0002" / "result.md").read_text(encoding="utf-8") == "# page 2"
-    assert (tmp_path / "sample" / "result.md").read_text(encoding="utf-8") == "# page 1\n<--- Page Split --->\n# page 2"
+    output_dir = media.extras["output_dir"]
+    assert (output_dir / "page_0001" / "page_0001.png").exists()
+    assert (output_dir / "page_0001" / "result.md").read_text(encoding="utf-8") == "# page 1"
+    assert (output_dir / "page_0002" / "result.md").read_text(encoding="utf-8") == "# page 2"
+    assert (output_dir / "result.md").read_text(encoding="utf-8") == "# page 1\n<--- Page Split --->\n# page 2"
     assert result.raw == "# page 1\n<--- Page Split --->\n# page 2"
 
 
@@ -366,7 +368,7 @@ def test_attempt_pdf_renders_placeholder_images_for_pages_and_root_markdown(monk
     media = provider.prepare_media(str(pdf_path), "application/pdf", ctx.args)
     result = provider.attempt(media, provider.resolve_prompts(str(pdf_path), "application/pdf"))
 
-    root_dir = tmp_path / "sample"
+    root_dir = media.extras["output_dir"]
     page1_md = (root_dir / "page_0001" / "result.md").read_text(encoding="utf-8")
     page2_md = (root_dir / "page_0002" / "result.md").read_text(encoding="utf-8")
     merged_md = (root_dir / "result.md").read_text(encoding="utf-8")
@@ -378,6 +380,9 @@ def test_attempt_pdf_renders_placeholder_images_for_pages_and_root_markdown(monk
         "<--- Page Split --->\n"
         "![image](page_0002/images/page_0002-image-001.png)"
     )
-    assert result.raw == merged_md
+    for number in (1, 2):
+        page_name = f"page_{number:04d}"
+        crop_path = root_dir.relative_to(tmp_path) / page_name / "images" / f"{page_name}-image-001.png"
+        assert f"![image]({crop_path.as_posix()})" in result.raw
     assert (root_dir / "page_0001" / "images" / "page_0001-image-001.png").exists()
     assert (root_dir / "page_0002" / "images" / "page_0002-image-001.png").exists()

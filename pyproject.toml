@@ -232,9 +232,23 @@ unlimited-ocr = [
     "PyMuPDF",
     "img2pdf",
 ]
+unlimited-ocr2 = [
+    "qinglong-captions[torch-base]",
+    "transformers[serving]==4.52.1",
+    "huggingface-hub==0.36.0",
+    "tokenizers==0.21.4",
+    "matplotlib",
+    "einops>=0.8.2",
+    "addict",
+    "easydict",
+    "psutil",
+    "triton-windows; sys_platform == 'win32'",
+    "PyMuPDF",
+    "img2pdf",
+]
 logics-ocr = [
     "qinglong-captions[torch-base]",
-    "transformers[serving]>=4.57.0",
+    "transformers[serving]>=5.6.0,<6",
     "flash-attn==2.8.4; sys_platform == 'linux'",
     "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
     "Pillow>=12",
@@ -286,7 +300,7 @@ firered-ocr = [
 ]
 lighton-ocr = [
     "qinglong-captions[torch-base]",
-    "transformers[serving]>=5.0.0",
+    "transformers[serving]>=5.5.4,<6",
     "flash-attn==2.8.4; sys_platform == 'linux'",
     "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
     "Pillow>=12",
@@ -487,6 +501,42 @@ allow-direct-references = true
 [tool.uv]
 package = false
 conflicts = [
+    # Unlimited 2 uses the upstream-tested Transformers 4.52.1 / Hub 0.36 stack.
+    [{ extra = "unlimited-ocr2" }, { group = "test" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "unlimited-ocr" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "paddleocr-native" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "reward-model" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "translate" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "see-through" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "wdtagger-cl-tagger-v2" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "pixai-onnx-export" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "deepseek-ocr" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "logics-ocr" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "hunyuan-ocr" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "glm-ocr" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "lighton-ocr" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "dots-ocr" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "qianfan-ocr" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "infinity-parser2-ocr" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "ovis-ocr2" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "qwen-vl-local" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "penguin-vl-local" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "gemma4-local" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "marlin-2b-local" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "lfm-vl-local" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "music-flamingo-local" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "eureka-audio-local" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "acestep-transcriber-local" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "cohere-transcribe-local" }],
+    # New Logics/LightOn Qwen3.5 paths cannot share older/capped HF stacks.
+    [{ extra = "logics-ocr" }, { extra = "reward-model" }],
+    [{ extra = "logics-ocr" }, { extra = "unlimited-ocr" }],
+    [{ extra = "logics-ocr" }, { extra = "eureka-audio-local" }],
+    [{ extra = "logics-ocr" }, { extra = "cohere-transcribe-local" }],
+    [{ extra = "lighton-ocr" }, { extra = "reward-model" }],
+    [{ extra = "lighton-ocr" }, { extra = "unlimited-ocr" }],
+    [{ extra = "lighton-ocr" }, { extra = "eureka-audio-local" }],
+    [{ extra = "lighton-ocr" }, { extra = "cohere-transcribe-local" }],
     [
         { extra = "paddleocr-native" },
         { extra = "wdtagger-pixai" },

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -9,10 +10,12 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
+from config.loader import _CONFIG_FILES
 from module.reward_policy import (
     DEFAULT_SCORER,
     Threshold,
     assign_threshold,
+    load_reward_policy,
     normalize_thresholds,
     parse_reward_policy,
     save_threshold_profile,
@@ -157,11 +160,45 @@ max_score = 2.0
 
 
 def test_checked_in_reward_policy_has_one_active_owner_and_no_thresholds():
-    model = tomllib.loads((ROOT / "config" / "model.toml").read_text(encoding="utf-8"))
-    general = tomllib.loads((ROOT / "config" / "general.toml").read_text(encoding="utf-8"))
-    legacy = tomllib.loads((ROOT / "config" / "config.toml").read_text(encoding="utf-8"))
+    def shipped_config(name: str) -> dict:
+        # The GUI writes to tracked TOMLs. Check staged distribution data, not
+        # local preferences; in a source archive the files are the distribution.
+        if (ROOT / ".git").exists():
+            text = subprocess.check_output(
+                ["git", "show", f":config/{name}"], cwd=ROOT, encoding="utf-8"
+            )
+        else:
+            text = (ROOT / "config" / name).read_text(encoding="utf-8")
+        return tomllib.loads(text)
 
-    assert DEFAULT_SCORER == "aesthetic_predictor_v2_5"
-    assert model["reward_model"] == {"default_scorer": DEFAULT_SCORER}
-    assert "reward_model" not in general
-    assert legacy["reward_model"] == {"default_scorer": DEFAULT_SCORER}
+    configs = {name: shipped_config(name) for name in (*_CONFIG_FILES, "config.toml")}
+    split_owners = {name for name in _CONFIG_FILES if "reward_model" in configs[name]}
+    assert split_owners == {"model.toml"}
+    for name in ("model.toml", "config.toml"):
+        config = configs[name]
+        assert config["reward_model"]["default_scorer"] == DEFAULT_SCORER, name
+        assert "quality" not in config["reward_model"], name
+        assert not any(parse_reward_policy(config).profiles.values()), name
+
+
+def test_custom_reward_policy_reloads_saved_and_cleared_thresholds(tmp_path: Path):
+    (tmp_path / "config.toml").write_text(
+        '[reward_model]\ndefault_scorer = "legacy"\n', encoding="utf-8"
+    )
+    assert load_reward_policy(tmp_path).default_scorer == "legacy"
+
+    model = tmp_path / "model.toml"
+    model.write_text('[reward_model]\ndefault_scorer = "custom"\n', encoding="utf-8")
+    save_threshold_profile(
+        model, "other", [{"name": "keep", "max_score": 2.5, "color": "blue"}]
+    )
+
+    policy = load_reward_policy(tmp_path)
+    assert policy.default_scorer == "custom"
+    assert policy.thresholds_for("custom") == ()
+    assert policy.thresholds_for("other") == (Threshold("keep", 2.5, "blue"),)
+
+    save_threshold_profile(model, "other", [])
+    policy = load_reward_policy(tmp_path)
+    assert policy.default_scorer == "custom"
+    assert policy.thresholds_for("other") == ()

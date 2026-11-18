@@ -203,6 +203,52 @@ def test_run_job_refreshes_state_when_runtime_prepare_fails(monkeypatch):
     assert panel.status_label.text.startswith("默认任务 | error")
 
 
+def test_isolated_script_runs_in_task_tab_without_provisioning_its_venv(monkeypatch):
+    from datetime import datetime
+
+    from gui.components.execution_tabs import ExecutionTabs, TaskTab
+
+    panel = _make_panel()
+    tab = TaskTab("tab-0002", "Music", 2, ".", ".runtime_venvs/tab-0002", None, datetime.now(), status="missing")
+    tabs = ExecutionTabs.__new__(ExecutionTabs)
+    tabs.tabs = [tab]
+    tabs.active_tab_id = tab.id
+    tabs._render_tabs = lambda: None
+    tabs._notify_tab_change = lambda: None
+    panel.execution_tabs = tabs
+    submitted = []
+
+    async def not_ready(tab):
+        return False
+
+    async def submit(script_key, args, **kwargs):
+        submitted.append(kwargs)
+        job = SimpleNamespace(
+            id="isolated-job", name="SheetSage2", tab_id=kwargs["tab_id"], status=JobStatus.RUNNING, log_buffer=LogBuffer(),
+        )
+
+        async def wait():
+            assert tab.current_job_id == job.id
+            job.status = JobStatus.SUCCESS
+            return ProcessResult(ProcessStatus.SUCCESS)
+
+        job.wait = wait
+        return job
+
+    monkeypatch.setattr(tabs, "ensure_active_tab_runtime_ready", not_ready)
+    monkeypatch.setattr(tabs, "active_tab_is_preparing", lambda: False)
+    monkeypatch.setattr(tabs, "_tab_is_preparing", lambda tab_id: False)
+    monkeypatch.setattr("gui.components.execution_panel.job_manager.submit", submit)
+    monkeypatch.setattr("gui.components.execution_panel.ui.notify", lambda *args, **kwargs: None)
+
+    result = asyncio.run(panel.run_job("module.sheetsage2_tool", ["song.wav"], name="SheetSage2"))
+
+    assert result.status is ProcessStatus.SUCCESS
+    assert submitted == [{"name": "SheetSage2", "tab_id": tab.id, "tab_name": tab.name}]
+    assert tab.status == "missing"
+    assert tab.current_job_id is None
+
+
 def test_run_job_attaches_job_log_without_clearing_source(monkeypatch):
     panel = _make_panel()
     result = ProcessResult(ProcessStatus.SUCCESS, 0, "ok")

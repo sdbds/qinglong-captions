@@ -40,7 +40,7 @@ def _export_in_process(dataset_path, output_path, barrier, caption_dir=None):
 
     with patch.object(lanceexport, "load_caption_index", read_same_initial_snapshot):
         lanceexport.extract_from_lance(lance.dataset(dataset_path), output_path,
-                                       clip_with_caption=False, caption_dir=caption_dir)
+                                       clip_with_caption=False, caption_dir=caption_dir, in_place=True)
 
 
 def test_process_exports_to_shared_directory_preserve_both_indexes(tmp_path):
@@ -143,10 +143,10 @@ def test_index_commit_failure_releases_lock_for_retry(tmp_path, monkeypatch):
     with monkeypatch.context() as context:
         context.setattr(lanceexport, "write_caption_index", fail_commit)
         with pytest.raises(OSError, match="simulated"):
-            lanceexport.extract_from_lance(ds, str(tmp_path / "out"), clip_with_caption=False)
+            lanceexport.extract_from_lance(ds, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     with FileLock(str(tmp_path / ".qinglong-captions.json.lock"), timeout=0):
         pass
-    lanceexport.extract_from_lance(ds, str(tmp_path / "out"), clip_with_caption=False)
+    lanceexport.extract_from_lance(ds, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     assert load_data(str(tmp_path))[0]["caption"] == ["caption"]
 
 
@@ -157,7 +157,7 @@ def test_existing_nonempty_lock_file_is_not_truncated(tmp_path):
     lock = tmp_path / ".qinglong-captions.json.lock"
     lock.write_text("user file", encoding="utf-8")
     with pytest.raises(ValueError, match="unowned.*lock"):
-        lanceexport.extract_from_lance(ds, str(tmp_path / "out"), clip_with_caption=False)
+        lanceexport.extract_from_lance(ds, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     assert lock.read_text(encoding="utf-8") == "user file"
     assert not source.with_suffix(".txt").exists()
 
@@ -180,7 +180,7 @@ def test_lock_file_created_after_preflight_is_preserved_on_rejection(tmp_path, m
 
     monkeypatch.setattr(lanceexport, "_plan_export_targets", introduce_user_file)
     with pytest.raises(ValueError, match="unowned.*lock"):
-        lanceexport.extract_from_lance(ds, str(tmp_path / "out"), clip_with_caption=False)
+        lanceexport.extract_from_lance(ds, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     assert lock.read_text(encoding="utf-8") == "user file"
     assert not source.with_suffix(".txt").exists()
 
@@ -206,7 +206,7 @@ def test_distinct_directories_have_one_lock_order_regardless_of_row_order(tmp_pa
     expected = {paths[0]: ["first"], paths[1]: ["second"]}
     for index, order in enumerate((paths, paths[::-1])):
         ds = _dataset(tmp_path, f"{index}.lance", order, [expected[path][0] for path in order])
-        lanceexport.extract_from_lance(ds, str(tmp_path / "out"), clip_with_caption=False)
+        lanceexport.extract_from_lance(ds, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     assert len(acquisitions) == 4
     assert acquisitions[:2] == acquisitions[2:]
     assert {Path(item["file_path"]): item["caption"] for item in load_data(str(sources))} == expected

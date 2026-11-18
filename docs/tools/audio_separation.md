@@ -1,6 +1,6 @@
 # 音频分轨
 
-音频分轨工具使用 ONNX 模型把音乐拆为六个 stems，并可继续进行 harmony 分离、GAME 人声转 MIDI，或 MuScriptor 全分轨转 MIDI。
+音频分轨工具使用 ONNX 模型把音乐拆为六个 stems，并可继续进行 harmony 分离、GAME 人声转 MIDI，或用 MuScriptor / SheetSage2 逐轨转 MIDI。
 
 ## 入口
 
@@ -15,7 +15,8 @@ Python 入口：`python -m module.audio_separator --help`。基础依赖 profile
 - 输入：单个音频文件、目录或 `.lance` 数据集。
 - 输出：`wav`、`flac` 或 `mp3` stems。
 - 默认输出六轨；`harmony_separation` 开启后增加二次人声/和声处理。
-- `muscriptor_midi` 开启后，本次生成的六个主分轨会写入每首歌的 `04_stem_midi` 目录。
+- 在 GUI 开启「全部分轨转 MIDI」后选择模型，默认仍是 MuScriptor。PowerShell 脚本配置中的 `muscriptor_midi` 和 `sheetsage2_midi` 互斥。
+- MuScriptor 的分轨 MIDI 写入每首歌的 `04_stem_midi`。SheetSage2 使用独立的 `uv` 环境，逐轨输出到 `04_stem_midi/sheetsage2/<分轨文件名>/`；[查看用法](sheetsage2.md)。
 - MuScriptor 二级设置可为每个分轨同时生成纯 MIDI 试听，或“左声道原分轨 / 右声道 MIDI 合成”的对照试听；格式支持 MP3 和 WAV。
 - `segment_size`、`overlap` 和 `batch_size` 控制推理速度、边界质量和显存占用。
 
@@ -31,4 +32,4 @@ Python 入口：`python -m module.audio_separator --help`。基础依赖 profile
 
 试听需要系统 `PATH` 中可用的 FluidSynth，并使用 MuScriptor 官方默认 `MuseScore_General.sf2` SoundFont。开启试听时会在模型加载前统一检查依赖；检查失败不会删除已经存在的 MIDI。MuScriptor 官方权重需要先接受 Hugging Face 条款并运行 `hf auth login`。
 
-首次运行需要下载相应模型。排查问题时先关闭 harmony、GAME 人声 MIDI 与 MuScriptor 分轨 MIDI，只验证基础六轨输出。
+首次运行需要下载相应模型。排查问题时先关闭 harmony、GAME 人声 MIDI 与全部分轨转 MIDI，只验证基础六轨输出。

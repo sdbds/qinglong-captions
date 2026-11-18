@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import math
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import copy
 from dataclasses import dataclass, field, replace
@@ -17,12 +18,16 @@ from rich.progress import (
 )
 
 from config.config import APPLICATION_EXTENSIONS_SET, AUDIO_EXTENSIONS_SET, VIDEO_EXTENSIONS_SET
+from module.caption_outcome import CaptionBatchOutcome
 from module.caption_pipeline.dataset_sync import CaptionUpdate, update_dataset_captions
 from module.caption_pipeline.postprocess import postprocess_caption_content
 from module.caption_pipeline.scene_alignment import align_subtitles_with_scenes, create_scene_detector
 from module.providers.catalog import provider_segmentation_policy, route_provider_name
 from module.providers.base import CaptionResult, CaptionStatus
 from module.providers.subscription_quota import report_startup_subscription_quota
+from utils.caption_index import unowned_srt_paths
+from utils.file_hash import sha256_file
+from utils.lance_utils import find_existing_lance_dataset
 from utils.output_writer import ResolvedPaths, caption_text, disambiguate_caption_bases, write_caption_output
 from utils.rich_progress import create_caption_progress
 from utils.stream_util import (
@@ -58,13 +63,22 @@ def _resolve_dataset(args, transform2lance_fn):
     if dataset_type is not None and isinstance(args.dataset_dir, dataset_type):
         return args.dataset_dir
 
-    if args.gemini_api_key == "" and args.mistral_api_key == "":
-        return transform2lance_fn(dataset_dir=args.dataset_dir)
-    return transform2lance_fn(dataset_dir=args.dataset_dir, save_binary=False)
+    source = Path(args.dataset_dir)
+    if not source.is_dir():
+        raise FileNotFoundError(f"Caption input directory not found: {source}")
+    existing = source if source.suffix.lower() == ".lance" else find_existing_lance_dataset(source)
+    if existing is not None:
+        return lance.dataset(str(existing))
+    dataset = transform2lance_fn(dataset_dir=str(source), save_binary=False, create_only=True)
+    if dataset is None:
+        raise RuntimeError(f"Could not create a Lance dataset for {source}")
+    return dataset
 
 
 def _serialize_subtitles(subs: pysrt.SubRipFile) -> str:
-    return "".join(str(sub) for sub in subs)
+    buffer = io.StringIO()
+    subs.write_into(buffer, eol="\n")
+    return buffer.getvalue()
 
 
 def _structured_description(payload: dict) -> str:
@@ -310,6 +324,8 @@ def _process_segmented_media_in_workspace(filepath, mime, duration, sha256hash, 
         chunk_output = postprocess_caption_content(chunk_output, uri, clip_args, console)
         if not _is_persistable_caption(chunk_output):
             progress.update(clip_task, visible=False)
+            if isinstance(chunk_output, CaptionResult) and chunk_output.status is CaptionStatus.SKIPPED:
+                return chunk_output
             reason = getattr(chunk_output, "error", None) or "no persistable caption"
             error = f"Segment {index + 1}/{num_chunks} failed: {reason}"
             console.print(f"[red]{error}; keeping existing captions unchanged[/red]")
@@ -340,8 +356,8 @@ def _process_segmented_media_in_workspace(filepath, mime, duration, sha256hash, 
 
         if subtitle_mode is None:
             subtitle_mode = True
-            sub_path = Path(filepath).with_suffix(".srt")
-            if sub_path.exists():
+            sub_path = getattr(args, "segment_srt_source", Path(filepath).with_suffix(".srt"))
+            if sub_path in unowned_srt_paths([sub_path]):
                 merged_subs.extend(pysrt.open(sub_path, encoding="utf-8"))
 
         chunk_subs = pysrt.from_string(_caption_raw(chunk_output))
@@ -404,8 +420,11 @@ def _collect_caption_jobs(scanner) -> list[CaptionJob]:
     uris = [job.filepath for job in jobs]
     if len(set(uris)) != len(uris):
         raise ValueError("Cannot caption ambiguous duplicate source URIs")
-    protected = ResolvedPaths(uris)
     bases = disambiguate_caption_bases({uri: Path(uri) for uri in uris})
+    manual_srts = unowned_srt_paths(
+        bases[job.filepath].with_suffix(".srt") for job in jobs if job.mime.startswith(("audio/", "video/"))
+    )
+    protected = ResolvedPaths([*uris, *manual_srts])
     return [replace(job, caption_base=bases[job.filepath], protected_paths=protected) for job in jobs]
 
 
@@ -464,30 +483,29 @@ def _process_single_caption_job(
 
     segment_time = _resolve_media_segment_time(args, job.mime, config)
     media_args = _with_media_segment_time(args, segment_time)
-    if _should_process_without_segmentation(args, job.mime, job.duration, segment_time, config):
-        output = api_process_batch_fn(
-            uri=job.filepath,
-            mime=job.mime,
-            config=config,
-            args=media_args,
-            sha256hash=job.sha256hash,
-            progress=progress,
-            task_id=task_id,
-        )
-        output = postprocess_caption_content(output, job.filepath, media_args, console_obj)
-    else:
-        output = _process_segmented_media(
-            job.filepath,
-            job.mime,
-            job.duration,
-            job.sha256hash,
-            media_args,
-            config,
-            progress,
-            task_id,
-            api_process_batch_fn,
-            console_obj,
-        )
+    if job.caption_base is not None and job.caption_base != Path(job.filepath):
+        media_args = copy(media_args)
+        media_args.segment_srt_source = job.caption_base.with_suffix(".srt")
+    try:
+        if _should_process_without_segmentation(args, job.mime, job.duration, segment_time, config):
+            output = api_process_batch_fn(
+                uri=job.filepath,
+                mime=job.mime,
+                config=config,
+                args=media_args,
+                sha256hash=job.sha256hash,
+                progress=progress,
+                task_id=task_id,
+            )
+            output = postprocess_caption_content(output, job.filepath, media_args, console_obj)
+        else:
+            output = _process_segmented_media(
+                job.filepath, job.mime, job.duration, job.sha256hash, media_args,
+                config, progress, task_id, api_process_batch_fn, console_obj,
+            )
+    except Exception as exc:
+        # A bad provider response is local to this item. Publication errors below remain fatal.
+        output = CaptionResult.failed(f"{type(exc).__name__}: {exc}")
 
     can_align_subtitles = job.mime.startswith(("video", "audio")) and (
         (isinstance(output, CaptionResult) and not output.is_structured and output)
@@ -525,6 +543,10 @@ def _process_single_caption_job(
             caption_base=job.caption_base, protected_paths=job.protected_paths,
         )
         console_obj.print(f"[green]Saved captions to {text_path}[/green]")
+    elif not (isinstance(output, CaptionResult) and output.status is CaptionStatus.SKIPPED):
+        if not isinstance(output, CaptionResult) or output.status is not CaptionStatus.FAILED:
+            output = CaptionResult.failed("No persistable caption returned")
+        console_obj.print(f"Caption failed for {job.filepath}: {output.error}", style="red", markup=False)
 
     _print_deferred_caption_timing(output, console_obj)
 
@@ -601,16 +623,31 @@ def process_batch(
     extract_from_lance_fn,
     console_obj,
     load_data_fn=None,
-):
+) -> CaptionBatchOutcome:
+    merge_batch_size = getattr(args, "merge_batch_size", 1000)
+    if not isinstance(merge_batch_size, int) or merge_batch_size <= 0:
+        raise ValueError("merge_batch_size must be a positive integer")
     setattr(args, "cloud_max_concurrency", _positive_int(getattr(args, "cloud_max_concurrency", 1), 1))
     dataset = _resolve_dataset(args, transform2lance_fn)
     scanner = dataset.scanner(
-        columns=["uris", "blob", "mime", "captions", "duration", "hash"],
+        columns=["uris", "mime", "duration", "hash"],
         scan_in_order=True,
-        late_materialization=["blob"],
-        batch_size=1,
     )
     jobs = _collect_caption_jobs(scanner)
+    if not jobs:
+        raise ValueError("No media found in the caption dataset")
+    for job in jobs:
+        if not Path(job.filepath).is_file():
+            raise FileNotFoundError(
+                f"Source media not found: {job.filepath}. Restore the original files before captioning; "
+                "no captions were changed."
+            )
+        expected = str(job.sha256hash or "")
+        if re.fullmatch(r"[0-9a-fA-F]{64}", expected) and sha256_file(job.filepath) != expected.lower():
+            raise ValueError(
+                f"Source media changed since import: {job.filepath}. Restore the original or explicitly "
+                "import a new snapshot; no captions were changed."
+            )
     report_startup_subscription_quota(args, jobs, console_obj)
     concurrent_provider, concurrent_max_workers = _resolve_batch_cloud_concurrency(args, jobs, console_obj)
 
@@ -681,22 +718,27 @@ def process_batch(
         isinstance(result.output, CaptionResult) and result.output.status is CaptionStatus.SKIPPED
         for result in ordered_results
     )
-    failed_count = sum(
-        isinstance(result.output, CaptionResult) and result.output.status is CaptionStatus.FAILED
-        for result in ordered_results
-    )
-    console_obj.print(
-        f"[cyan]Caption outcomes: {len(caption_updates)} persisted, "
-        f"{skipped_count} skipped, {failed_count} failed[/cyan]"
-    )
+    outcome = CaptionBatchOutcome(len(caption_updates), skipped_count, len(jobs) - len(caption_updates) - skipped_count)
 
     dataset = update_dataset_captions(
         dataset,
         caption_updates,
-        merge_batch_size=getattr(args, "merge_batch_size", 1000),
+        merge_batch_size=merge_batch_size,
         console=console_obj,
         dataset_dir=args.dataset_dir,
         transform2lance_fn=transform2lance_fn,
         load_data_fn=load_data_fn,
     )
-    extract_from_lance_fn(dataset, args.dataset_dir, clip_with_caption=not args.not_clip_with_caption)
+    if caption_updates:
+        location = args.dataset_dir if isinstance(args.dataset_dir, (str, Path)) else args.dataset_dir.uri
+        root = Path(location)
+        output_dir = str(root.parent if root.suffix.lower() == ".lance" else root)
+        extract_from_lance_fn(
+            dataset, output_dir, clip_with_caption=not args.not_clip_with_caption, in_place=True,
+            include_uris={update.uri for update in caption_updates},
+        )
+    console_obj.print(
+        f"[cyan]Caption outcomes: {outcome.persisted} persisted, "
+        f"{outcome.skipped} skipped, {outcome.failed} failed[/cyan]"
+    )
+    return outcome

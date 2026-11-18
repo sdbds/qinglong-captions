@@ -128,8 +128,10 @@ def test_case_only_extension_reexport_keeps_roundtrip_associations(tmp_path):
         expected[source] = [caption]
 
     dataset = _dataset(tmp_path, rows)
-    extract_from_lance(dataset, str(tmp_path / "out"), caption_extension=".txt", clip_with_caption=False)
-    extract_from_lance(dataset, str(tmp_path / "out"), caption_extension=".TXT", clip_with_caption=False)
+    extract_from_lance(dataset, str(tmp_path / "out"), caption_extension=".txt", clip_with_caption=False,
+                       in_place=True)
+    extract_from_lance(dataset, str(tmp_path / "out"), caption_extension=".TXT", clip_with_caption=False,
+                       in_place=True)
 
     assert load_caption_index(source_root, strict=True) is not None
     imported = load_data(str(source_root))

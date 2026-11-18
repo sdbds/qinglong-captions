@@ -1,6 +1,10 @@
+import tomllib
 from pathlib import Path
 
 import pytest
+import yaml
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 
 
 pytestmark = pytest.mark.compat
@@ -118,10 +122,18 @@ def test_test_workflow_runs_authoritative_offline_unit_suite_on_python_311():
 
 
 def test_test_workflow_runs_marker_based_compatibility_matrix():
-    content = WORKFLOW.read_text(encoding="utf-8")
+    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["compatibility"]
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    versions = sorted(Version(v) for v in job["strategy"]["matrix"]["python-version"])
+    assert versions, "The compatibility job must test at least one Python minor version"
+    first, last = versions[0], versions[-1]
+    # The project supports a contiguous range of Python minor releases.
+    assert versions == [Version(f"{first.major}.{minor}") for minor in range(first.minor, last.minor + 1)]
+    covered = SpecifierSet(f">={first},<{last.major}.{last.minor + 1}")
+    assert covered == SpecifierSet(project["requires-python"])
 
-    assert 'python-version: ["3.10", "3.12"]' in content
-    assert '& $env:VENV_PYTHON -m pytest tests -q --strict-markers -m compat' in content
+    command = '& $env:VENV_PYTHON -m pytest tests -q --strict-markers -m compat'
+    assert any(command in step.get("run", "").splitlines() for step in job["steps"])
 
 
 def test_test_workflow_has_narrow_static_correctness_gate():

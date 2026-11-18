@@ -31,4 +31,8 @@ python -m module.lanceexport --help
 - `caption_suffix` 和 `caption_extension` 控制字幕文件名和格式。
 - `allowed_caption_types` 可限制导出的 caption media type。
 
+独立导出默认把媒体和字幕复制到 `./exports` 或选定的输出目录，不改源文件旁的字幕。可以用 `--caption_dir` 为字幕单独选目录。库保存了媒体二进制时使用该版本的内容，否则从原文件复制。目标内有无法确认归属的同名文件时，请选空目录；不要为了让导出通过而删除自己的文件。只有明确使用 `--in_place` 时才会回写源文件旁的字幕。
+
+分页 Markdown 在独立导出时生成。原地发布只写主文档，避免占用素材旁边的同名目录；音视频仍可按字幕裁剪。程序不会覆盖归属不明的裁剪目录。可验证且未变化的派生文件可在重跑时复用。
+
 同一个 Lance 数据集不要被多个写任务同时修改。批量处理前保留备份，并在导出前确认 version/tag。

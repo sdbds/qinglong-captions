@@ -10,6 +10,7 @@ import lance
 import pyarrow as pa
 import pytest
 import torch
+from filelock import FileLock
 from rich.console import Console
 
 import module.audio_separator as separator_cli
@@ -24,6 +25,7 @@ def audio_cli(monkeypatch, tmp_path):
         pytest.skip("ffmpeg is required for audio round-trip coverage")
     separated = []
     transcribed = []
+    closed = []
 
     def read_audio(path):
         return read_audio_via_ffmpeg(path, ffmpeg_executable=ffmpeg, sample_rate=44100, channels=1)
@@ -50,7 +52,7 @@ def audio_cli(monkeypatch, tmp_path):
             return write_audio(waveform, output_path, output_format)
 
         def close(self):
-            pass
+            closed.append(True)
 
     class Loaded:
         progress_event_type = type("Progress", (), {})
@@ -65,7 +67,7 @@ def audio_cli(monkeypatch, tmp_path):
     monkeypatch.setattr(separator_cli, "console", Console(file=io.StringIO(), force_terminal=False, color_system=None))
     monkeypatch.setattr(separator_cli, "AudioSeparator", Separator)
     monkeypatch.setattr(runtime, "load_model", lambda *args, **kwargs: Loaded())
-    return SimpleNamespace(separated=separated, transcribed=transcribed, write=write_audio)
+    return SimpleNamespace(separated=separated, transcribed=transcribed, closed=closed, write=write_audio)
 
 
 @pytest.mark.parametrize("overwrite", [False, True])
@@ -144,3 +146,96 @@ def test_source_content_change_cannot_reuse_previous_separation(tmp_path, audio_
     audio_cli.write(torch.full((1, 4410), 0.5), source)
     assert separator_cli.main(args) == 0
     assert audio_cli.transcribed == [0.125, 0.5]
+
+
+def test_sheetsage2_runs_after_close_and_reuses_only_current_primary_stems(monkeypatch, tmp_path, audio_cli):
+    source = tmp_path / "Track with spaces.wav"
+    audio_cli.write(torch.full((1, 4410), 0.25), source)
+    child_inputs = []
+
+    def run(command, **kwargs):
+        assert len(audio_cli.closed) == len(child_inputs) + 1
+        assert command[1:4] == ["run", "--no-project", "--script"]
+        assert Path(command[4]).name == "sheetsage2_tool.py"
+        assert "--device=cuda:1" in command and "--melody-only" in command
+        manifest = Path(command[command.index("--stem-manifest") + 1])
+        child_inputs.append(json.loads(manifest.read_text(encoding="utf-8"))["stems"])
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(separator_cli, "which", lambda name: "uv", raising=False)
+    monkeypatch.setattr(separator_cli, "subprocess", SimpleNamespace(run=run), raising=False)
+    args = [
+        str(tmp_path), "--audio_files_only", "--sheetsage2_midi",
+        "--sheetsage2_device=cuda:1", "--sheetsage2_melody_only",
+    ]
+    assert separator_cli.main(args) == 0
+    stem_dir = tmp_path / "Track with spaces.wav.stems"
+    expected = str(stem_dir / "Track with spaces_(vocals)_review.wav")
+    assert Path(expected).is_file()
+    audio_cli.write(torch.full((1, 4410), 0.5), stem_dir / "unrelated.wav")
+
+    assert separator_cli.main(args) == 0
+    assert child_inputs == [[expected], [expected]]
+    assert audio_cli.separated == [source]
+    assert audio_cli.transcribed == []
+    assert not list(tmp_path.glob("*.lance"))
+
+    # The Audio Separator tab may later index this folder, including its generated WAVs.
+    lance.write_dataset(pa.table({
+        "uris": [str(source), expected, str(stem_dir / "unrelated.wav")],
+        "mime": ["audio/wav"] * 3,
+    }), tmp_path / "sources.lance")
+    assert separator_cli.main([arg for arg in args if arg != "--audio_files_only"]) == 0
+    assert child_inputs == [[expected], [expected], [expected]]
+    assert audio_cli.separated == [source]
+
+
+def test_sheetsage2_archives_only_previous_outputs_for_a_now_silent_stem(monkeypatch, tmp_path, audio_cli):
+    source = tmp_path / "song.wav"
+    audio_cli.write(torch.full((1, 4410), 0.25), source)
+    assert separator_cli.main([str(source)]) == 0
+    stem = tmp_path / "song.wav.stems" / "song_(vocals)_review.wav"
+    target = stem.parent / "04_stem_midi" / "sheetsage2" / stem.name
+    target.mkdir(parents=True)
+    (target / "transcription.mid").write_bytes(b"old MIDI")
+    (target / "score.abc").write_text("Edited score", encoding="utf-8")
+    (target / "notes.txt").write_text("My notes", encoding="utf-8")
+    (target / "metadata.json").write_text(json.dumps({
+        "signature": {"model": "m-a-p/SheetSage2", "source": str(stem)},
+        "files": {"transcription.mid": 8, "score.abc": 12},
+    }), encoding="utf-8")
+    audio_cli.write(torch.zeros((1, 4410)), source)
+
+    def unexpected_worker(*args, **kwargs):
+        raise AssertionError("silent stems should not launch the SheetSage2 environment")
+
+    monkeypatch.setattr(separator_cli, "_run_sheetsage2_stems", unexpected_worker)
+    assert separator_cli.main([str(source), "--sheetsage2_midi"]) == 0
+    assert not (target / "transcription.mid").exists()
+    assert not (target / "score.abc").exists()
+    assert [path.read_text(encoding="utf-8") for path in target.rglob("score.abc")] == ["Edited score"]
+    assert (target / "notes.txt").read_text(encoding="utf-8") == "My notes"
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_silent_retirement_failure_reports_incomplete_but_keeps_audio(tmp_path, audio_cli, overwrite):
+    source = tmp_path / "song.wav"
+    audio_cli.write(torch.zeros((1, 4410)), source)
+    assert separator_cli.main([str(source)]) == 0
+    stem = tmp_path / "song.wav.stems" / "song_(vocals)_review.wav"
+    target = stem.parent / "04_stem_midi" / "sheetsage2" / stem.name
+    target.mkdir(parents=True)
+    (target / "transcription.mid").write_bytes(b"previous MIDI")
+    (target / "metadata.json").write_text(json.dumps({
+        "signature": {"model": "m-a-p/SheetSage2", "source": str(stem)}, "files": {"transcription.mid": 13},
+    }), encoding="utf-8")
+    args = [str(source), "--sheetsage2_midi", *(["--overwrite"] if overwrite else [])]
+
+    with FileLock(target.parent / ".sheetsage2.lock"):
+        assert separator_cli.main(args) == 1
+    assert (target / "transcription.mid").read_bytes() == b"previous MIDI"
+    assert stem.is_file()
+    assert json.loads((stem.parent / "separation_metadata.json").read_text(encoding="utf-8"))["status"] == "ok"
+
+    assert separator_cli.main([str(source), "--sheetsage2_midi"]) == 0
+    assert not (target / "transcription.mid").exists()

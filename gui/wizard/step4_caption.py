@@ -19,6 +19,9 @@ from gui.utils.kimi_reasoning_config import (
 )
 from gui.utils.toml_helpers import assess_current_model_fit as assess_current_model_fit_from_toml
 from gui.utils.toml_helpers import load_current_route_model_ids as load_current_route_model_ids_from_toml
+from gui.utils.toml_helpers import find_model_config_section
+from utils.ocr_model_config import unlimited_ocr_extra
+from module.caption_outcome import PARTIAL_CAPTION_EXIT_CODE
 from module.providers.catalog import route_choices, route_requires_remote_config
 from module.providers.cloud_vlm.kimi_reasoning import (
     DEFAULT_KIMI_CODE_MODEL_ID,
@@ -373,7 +376,6 @@ class CaptionStep:
         "infinity_parser2_ocr": ("#1", "86.0"),
         "chandra_ocr": ("#1", "85.9"),
         "dots_ocr": ("#2", "83.9"),
-        "lighton_ocr": ("#3", "83.2"),
         "olmocr": ("#6", "82.4"),
         "paddle_ocr": ("#7", "80.0"),
         "qianfan_ocr": ("#8", "79.8"),
@@ -997,7 +999,15 @@ class CaptionStep:
         if self._grok_build_enabled():
             return extra_args
 
-        self._append_extra(extra_args, seen, self.OCR_EXTRA_MAP.get(self.ocr_model.value or ""))
+        ocr_route = self.ocr_model.value or ""
+        ocr_extra = self.OCR_EXTRA_MAP.get(ocr_route)
+        if ocr_route == "unlimited_ocr":
+            selected = find_model_config_section(ocr_route)
+            section = selected[1] if selected else {}
+            ocr_extra = unlimited_ocr_extra(
+                section.get("model_id", "baidu/Unlimited-OCR-2"), section.get("model_version", "auto")
+            )
+        self._append_extra(extra_args, seen, ocr_extra)
         self._append_extra(extra_args, seen, self.VLM_EXTRA_MAP.get(self.vlm_image_model.value or ""))
         self._append_extra(extra_args, seen, self.ALM_EXTRA_MAP.get(self._current_alm_model()))
         if any(
@@ -1889,6 +1899,12 @@ class CaptionStep:
 
         panel = self._ensure_execution_panel()
 
+        def on_failure(result):
+            if result.return_code == PARTIAL_CAPTION_EXIT_CODE:
+                ui.notify(t("caption_partial"), type="warning")
+            else:
+                ui.notify(t("caption_failed"), type="negative")
+
         await panel.run_job(
             "module.captioner",
             args,
@@ -1896,7 +1912,7 @@ class CaptionStep:
             runner_kwargs=runner_kwargs,
             pre_log=pre_log,
             on_success=lambda r: ui.notify(t("caption_success"), type="positive"),
-            on_failure=lambda r: ui.notify(t("caption_failed"), type="negative"),
+            on_failure=on_failure,
         )
 
 

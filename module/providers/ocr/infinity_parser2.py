@@ -14,6 +14,7 @@ from rich.progress import Progress
 from rich_pixels import Pixels
 
 from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
+from utils.ocr_artifacts import reserve_ocr_artifact_dir
 from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from utils.console_util import print_exception
@@ -347,7 +348,7 @@ class InfinityParser2OCRProvider(OCRProvider):
             mime=mime,
             sha256hash="",
             modality=MediaModality.DOCUMENT if mime.startswith("application") else MediaModality.IMAGE,
-            extras={"output_dir": Path(uri).with_suffix("")},
+            extras={"output_dir": reserve_ocr_artifact_dir(uri)},
         )
 
     def get_prompts(self, mime: str):
@@ -362,7 +363,7 @@ class InfinityParser2OCRProvider(OCRProvider):
         if self.get_runtime_backend().is_openai:
             raise NotImplementedError("infinity_parser2_ocr does not support the OpenAI-compatible runtime backend yet")
 
-        output_dir = media.extras.get("output_dir")
+        output_dir = self.artifact_output_dir(media)
         model_id = self._get_model_config("model_id", self.default_model_id)
         result = attempt_infinity_parser2_ocr(
             uri=media.uri,

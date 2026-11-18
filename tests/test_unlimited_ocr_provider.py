@@ -41,7 +41,7 @@ def _pdf_page(pdf_path: Path, page_number: int, image: Image.Image, *, page_coun
 def test_unlimited_ocr_default_model_id():
     from module.providers.ocr.unlimited import UnlimitedOCRProvider
 
-    assert UnlimitedOCRProvider.default_model_id == "baidu/Unlimited-OCR"
+    assert UnlimitedOCRProvider.default_model_id == "baidu/Unlimited-OCR-2"
 
 
 def test_unlimited_ocr_default_prompt():
@@ -137,6 +137,7 @@ def test_attempt_single_image_calls_infer(tmp_path, monkeypatch):
     mod._TRANS_LOADER.get_or_load_model.return_value = mock_model
 
     result = mod.attempt_unlimited_ocr(
+        model_id="baidu/Unlimited-OCR",
         uri=str(img_path),
         console=_console(),
         progress=None,
@@ -186,6 +187,7 @@ def test_attempt_pdf_calls_infer_multi(tmp_path, monkeypatch):
     mod._TRANS_LOADER.get_or_load_model.return_value = mock_model
 
     result = mod.attempt_unlimited_ocr(
+        model_id="baidu/Unlimited-OCR",
         uri=str(pdf_path),
         console=_console(),
         progress=None,
@@ -212,8 +214,14 @@ def test_attempt_pdf_chunks_when_over_budget(tmp_path, monkeypatch):
     pdf_path.write_bytes(b"%PDF-1.4\n")
     output_dir = tmp_path / "out"
 
+    def infer_multi(*_args, output_path, **_kwargs):
+        images = Path(output_path) / "images"
+        images.mkdir()
+        (images / "crop.png").touch()
+        return "![crop](images/crop.png)"
+
     mock_model = MagicMock()
-    mock_model.infer_multi.return_value = "chunk text"
+    mock_model.infer_multi.side_effect = infer_multi
     mock_tokenizer = MagicMock()
 
     monkeypatch.setattr(mod, "_TRANS_LOADER", MagicMock())
@@ -232,6 +240,7 @@ def test_attempt_pdf_chunks_when_over_budget(tmp_path, monkeypatch):
     mod._TRANS_LOADER.get_or_load_model.return_value = mock_model
 
     result = mod.attempt_unlimited_ocr(
+        model_id="baidu/Unlimited-OCR",
         uri=str(pdf_path),
         console=_console(),
         progress=None,
@@ -243,6 +252,8 @@ def test_attempt_pdf_chunks_when_over_budget(tmp_path, monkeypatch):
     # 5 pages / budget 2 -> 3 chunks -> 3 infer_multi calls, joined by page split
     assert mock_model.infer_multi.call_count == 3
     assert result.count("<--- Page Split --->") == 2
+    for chunk in range(1, 4):
+        assert f"![crop](chunk_{chunk:04d}/images/crop.png)" in result
     for call in mock_model.infer_multi.call_args_list:
         assert len(call.kwargs["image_files"]) <= 2
 
@@ -274,6 +285,7 @@ def test_attempt_pdf_budget_zero_forces_single_call(tmp_path, monkeypatch):
     mod._TRANS_LOADER.get_or_load_model.return_value = mock_model
 
     result = mod.attempt_unlimited_ocr(
+        model_id="baidu/Unlimited-OCR",
         uri=str(pdf_path),
         console=_console(),
         progress=None,
@@ -310,6 +322,7 @@ def test_attempt_empty_output_raises(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError, match="returned empty output"):
         mod.attempt_unlimited_ocr(
+        model_id="baidu/Unlimited-OCR",
             uri=str(img_path),
             console=_console(),
             progress=None,
@@ -340,6 +353,7 @@ def test_attempt_single_image_reads_result_md(tmp_path, monkeypatch):
     mod._TRANS_LOADER.get_or_load_model.return_value = mock_model
 
     result = mod.attempt_unlimited_ocr(
+        model_id="baidu/Unlimited-OCR",
         uri=str(img_path),
         console=_console(),
         progress=None,
@@ -378,6 +392,7 @@ def test_attempt_pdf_reads_result_md_with_tuple_return(tmp_path, monkeypatch):
     mod._TRANS_LOADER.get_or_load_model.return_value = mock_model
 
     result = mod.attempt_unlimited_ocr(
+        model_id="baidu/Unlimited-OCR",
         uri=str(pdf_path),
         console=_console(),
         progress=None,

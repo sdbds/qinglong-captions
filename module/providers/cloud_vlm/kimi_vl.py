@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
@@ -47,6 +48,20 @@ from utils.stream_util import format_description
 # ---------------------------------------------------------------------------
 # Shared helpers – used by both KimiVLProvider and KimiCodeProvider
 # ---------------------------------------------------------------------------
+
+def kimi_content_filter_skip(
+    body: Any, provider: CloudVLMProvider, media: MediaContext, model_path: str
+) -> CaptionResult | None:
+    """Convert a Kimi HTTP 400 with an explicit content filter marker to a skip."""
+    if isinstance(body, Mapping):
+        body = body.get("error", body)
+    if not isinstance(body, Mapping) or "content_filter" not in (body.get("type"), body.get("code")):
+        return None
+
+    uri = getattr(provider.ctx.args, "directory_name_source_uri", "") or media.uri
+    provider.ctx.console.print(Text(f"Skipping {Path(uri).name}: Kimi content filter (HTTP 400)", style="yellow"))
+    return CaptionResult.skipped("kimi_content_filter", metadata={"provider": provider.name, "model": model_path})
+
 
 def ensure_kimi_dual_caption_prompt(system_prompt: str) -> str:
     """Normalize the default Kimi caption prompt to request short and long text."""
@@ -354,7 +369,7 @@ class KimiVLProvider(CloudVLMProvider):
         return getattr(args, "kimi_api_key", "") != "" and mime.startswith(("image", "video"))
 
     def attempt(self, media: MediaContext, prompts: PromptContext) -> CaptionResult:
-        from openai import OpenAI
+        from openai import BadRequestError, OpenAI
 
         base_url = getattr(self.ctx.args, "kimi_base_url", "https://api.moonshot.cn/v1")
         client = OpenAI(api_key=self.ctx.args.kimi_api_key, base_url=base_url)
@@ -419,23 +434,30 @@ class KimiVLProvider(CloudVLMProvider):
         )
 
         timing_metadata: dict[str, Any] = {}
-        result = attempt_kimi_vl(
-            client=client,
-            model_path=model_path,
-            messages=messages,
-            console=self.ctx.console,
-            progress=self.ctx.progress,
-            task_id=self.ctx.task_id,
-            uri=media.uri,
-            image_pixels=image_pixels,
-            pair_pixels=pair_pixels,
-            thinking=thinking,
-            reasoning_effort=reasoning_effort,
-            mode=getattr(self.ctx.args, "mode", "all"),
-            timing_metadata=timing_metadata,
-            use_existing_tags=use_existing_tags,
-            image_template_id=image_template_id,
-        )
+        try:
+            result = attempt_kimi_vl(
+                client=client,
+                model_path=model_path,
+                messages=messages,
+                console=self.ctx.console,
+                progress=self.ctx.progress,
+                task_id=self.ctx.task_id,
+                uri=media.uri,
+                image_pixels=image_pixels,
+                pair_pixels=pair_pixels,
+                thinking=thinking,
+                reasoning_effort=reasoning_effort,
+                mode=getattr(self.ctx.args, "mode", "all"),
+                timing_metadata=timing_metadata,
+                use_existing_tags=use_existing_tags,
+                image_template_id=image_template_id,
+            )
+        except BadRequestError as exc:
+            skipped = kimi_content_filter_skip(exc.body, self, media, model_path)
+            if skipped is None:
+                raise
+            return skipped
+
         if "duration_seconds" in timing_metadata:
             timing_metadata["duration_log_label"] = f"Kimi VL caption completed: {Path(media.uri).name}"
         metadata = {"provider": self.name, "model": model_path, **timing_metadata}

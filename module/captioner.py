@@ -676,4 +676,4 @@ if __name__ == "__main__":
 
     config = load_runtime_config(args.config_dir)
 
-    process_batch(args, config)
+    sys.exit(process_batch(args, config).exit_code)

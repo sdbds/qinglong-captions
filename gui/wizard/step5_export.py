@@ -4,9 +4,9 @@ from nicegui import ui
 from pathlib import Path
 from typing import Dict, Any
 from gui.theme import get_classes, COLORS
-from components.path_selector import create_path_selector
-from components.advanced_inputs import toggle_switch, styled_select
-from components.execution_panel import ExecutionPanel
+from gui.components.path_selector import create_path_selector
+from gui.components.advanced_inputs import toggle_switch, styled_select
+from gui.components.execution_panel import ExecutionPanel
 from gui.utils.i18n import t
 
 
@@ -14,6 +14,7 @@ class ExportStep:
     """数据集导出页面"""
 
     VERSIONS = ["gemini", "WDtagger", "pixtral"]
+    DEFAULT_OUTPUT_DIR = "./exports"
 
     def __init__(self):
         self.config: Dict[str, Any] = {
@@ -42,7 +43,7 @@ class ExportStep:
                         # Lance 文件路径
                         self.lance_file = create_path_selector(
                             label=t("lance_file"),
-                            selection_type="file",
+                            selection_type="file_or_dir",
                             placeholder=t("lance_file_placeholder"),
                             file_filter="*.lance",
                         )
@@ -68,10 +69,7 @@ class ExportStep:
                             label=t("output_dir"), selection_type="dir", placeholder=t("output_dir_placeholder")
                         )
 
-                        # 默认使用 datasets 目录
-                        default_output = Path("./datasets")
-                        if default_output.exists():
-                            self.output_dir.value = str(default_output)
+                        self.output_dir.value = self.DEFAULT_OUTPUT_DIR
 
                         # 版本选择 - 带图标的现代化下拉框
                         self.version = styled_select(
@@ -115,7 +113,7 @@ class ExportStep:
             ui.notify(t("select_valid_lance"), type="warning")
             return
 
-        output_dir = self.output_dir.value or "./datasets"
+        output_dir = self.output_dir.value or self.DEFAULT_OUTPUT_DIR
         version = self.version.value
 
         # 构建参数

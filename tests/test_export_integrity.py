@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import lance
@@ -16,10 +17,13 @@ from utils.output_writer import write_caption_output
 
 
 def _dataset(root, records):
-    schema = build_lance_schema([
+    fields = [
         ("uris", pa.string()), ("mime", pa.string()),
         ("captions", pa.list_(pa.string())), ("blob", pa.large_binary()),
-    ])
+    ]
+    if any("hash" in row for row in records):
+        fields.append(("hash", pa.string()))
+    schema = build_lance_schema(fields)
     arrays = [build_lance_value_array([row.get(field.name) for row in records], field) for field in schema]
     return lance.write_dataset(pa.Table.from_arrays(arrays, schema=schema), str(root / "test.lance"), data_storage_version="2.2")
 
@@ -30,11 +34,276 @@ def _png(color):
     return buffer.getvalue()
 
 
-def test_portable_export_preserves_duplicate_leaf_names_and_captions(tmp_path):
+def test_standalone_export_uses_dedicated_default_directory(tmp_path, monkeypatch):
+    from module.lanceexport import main
+
+    source = tmp_path / "sample.png"
+    source.write_bytes(_png("red"))
+    dataset = _dataset(tmp_path, [{"uris": str(source), "mime": "image/png", "captions": ["exported"]}])
+    dataset.tags.create("gemini", dataset.version)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["lanceexport", dataset.uri, "--not_clip_with_caption"])
+
+    main()
+
+    assert (tmp_path / "exports" / "sample.png").read_bytes() == _png("red")
+    assert (tmp_path / "exports" / "sample.txt").read_text(encoding="utf-8").strip() == "exported"
+    assert not source.with_suffix(".txt").exists()
+
+
+@pytest.mark.parametrize("stored_blob", [False, True])
+def test_default_export_leaves_existing_source_and_sidecars_untouched(tmp_path, stored_blob):
+    originals = tmp_path / "originals"
+    originals.mkdir()
+    source = originals / "sample.png"
+    source.write_bytes(_png("red"))
+    source.with_suffix(".txt").write_text("original caption", encoding="utf-8")
+    source.with_suffix(".json").write_text("original metadata", encoding="utf-8")
+    before = {path.name: path.read_bytes() for path in originals.iterdir()}
+    dataset = _dataset(tmp_path, [{
+        "uris": str(source), "mime": "image/png", "blob": _png("blue") if stored_blob else None,
+        "captions": ['{"description": "exported caption"}'],
+    }])
+    output = tmp_path / "out"
+    for _ in range(2):
+        extract_from_lance(dataset, str(output), clip_with_caption=False)
+        assert (output / "sample.png").read_bytes() == _png("blue" if stored_blob else "red")
+        assert (output / "sample.txt").read_text(encoding="utf-8") == "exported caption"
+        assert json.loads((output / "sample.json").read_text(encoding="utf-8")) == {
+            "description": "exported caption",
+        }
+        assert {path.name: path.read_bytes() for path in originals.iterdir()} == before
+
+
+def test_default_export_does_not_overwrite_existing_unowned_primary(tmp_path):
+    source = tmp_path / "sample.png"
+    source.write_bytes(_png("red"))
+    output = tmp_path / "out"
+    output.mkdir()
+    (output / "sample.png").write_bytes(_png("blue"))
+    dataset = _dataset(tmp_path, [{"uris": str(source), "mime": "image/png", "captions": ["exported"]}])
+
+    with pytest.raises(ValueError, match="origin|ownership"):
+        extract_from_lance(dataset, str(output), clip_with_caption=False)
+
+    assert (output / "sample.png").read_bytes() == _png("blue")
+    assert not (output / "sample.txt").exists()
+    assert not source.with_suffix(".txt").exists()
+
+
+@pytest.mark.parametrize("restore_original", [False, True])
+@pytest.mark.parametrize("separate_captions", [False, True])
+def test_caption_only_export_never_adopts_a_later_unowned_primary(tmp_path, restore_original, separate_captions):
+    source = tmp_path / "sample.png"
+    output = tmp_path / "out"
+    captions = tmp_path / "captions" if separate_captions else output
+    dataset = _dataset(tmp_path, [{"uris": str(source), "mime": "image/png", "captions": ["annotation"]}])
+    options = {"caption_dir": str(captions), "clip_with_caption": False}
+    for _ in range(2):
+        extract_from_lance(dataset, str(output), **options)
+    assert (captions / "sample.txt").read_text(encoding="utf-8").strip() == "annotation"
+    target = output / "sample.png"
+    assert not target.exists()
+    target.write_bytes(_png("blue"))
+    if restore_original:
+        source.write_bytes(_png("red"))
+
+    with pytest.raises(ValueError, match="origin|ownership|primary"):
+        extract_from_lance(dataset, str(output), **options)
+
+    assert target.read_bytes() == _png("blue")
+
+
+@pytest.mark.parametrize("legacy_index", [False, True])
+def test_export_requires_evidence_for_the_current_primary_bytes(tmp_path, legacy_index):
+    from utils.caption_index import CAPTION_INDEX_NAME
+
+    source = tmp_path / "missing.png"
+    output = tmp_path / "out"
+    dataset = _dataset(tmp_path, [{"uris": str(source), "mime": "image/png", "blob": _png("red"),
+                                   "captions": ["annotation"]}])
+    extract_from_lance(dataset, str(output), clip_with_caption=False)
+    index_path = output / CAPTION_INDEX_NAME
+    if legacy_index:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        index_path.write_text(json.dumps({key: value for key, value in index.items()
+                                         if key in {"kind", "schema_version", "captions", "files", "origins"}}),
+                              encoding="utf-8")
+    else:
+        (output / "missing.png").write_bytes(_png("blue"))
+    expected = (output / "missing.png").read_bytes()
+    before_index = index_path.read_bytes()
+
+    with pytest.raises(ValueError, match="origin|ownership|primary"):
+        extract_from_lance(dataset, str(output), clip_with_caption=False)
+
+    assert (output / "missing.png").read_bytes() == expected
+    assert index_path.read_bytes() == before_index
+
+
+def test_blobless_export_rejects_an_original_that_no_longer_matches_its_row(tmp_path):
+    source = tmp_path / "sample.png"
+    source.write_bytes(_png("red"))
+    output = tmp_path / "out"
+    expected_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    dataset = _dataset(tmp_path, [{"uris": str(source), "mime": "image/png", "hash": expected_hash,
+                                   "captions": ["annotation"]}])
+    extract_from_lance(dataset, str(output), clip_with_caption=False)
+    before = {file.name: file.read_bytes() for file in output.iterdir() if file.is_file()}
+    source.write_bytes(_png("blue"))
+
+    with pytest.raises(ValueError, match="hash|digest|snapshot"):
+        extract_from_lance(dataset, str(output), clip_with_caption=False)
+
+    assert {file.name: file.read_bytes() for file in output.iterdir() if file.is_file()} == before
+    assert source.read_bytes() == _png("blue")
+
+
+@pytest.mark.parametrize("separate_captions", [False, True])
+def test_default_export_does_not_claim_an_unowned_caption(tmp_path, separate_captions):
+    source = tmp_path / "sample.png"
+    source.write_bytes(_png("red"))
+    output = tmp_path / "out"
+    captions = tmp_path / "captions" if separate_captions else output
+    options = {"clip_with_caption": False, "caption_dir": str(captions) if separate_captions else None}
+    dataset = _dataset(tmp_path, [{"uris": str(source), "mime": "image/png", "captions": []}])
+    extract_from_lance(dataset, str(output), **options)
+    caption = captions / "sample.txt"
+    caption.write_text("unrelated text", encoding="utf-8")
+    new_root = tmp_path / "annotated"
+    new_root.mkdir()
+    annotated = _dataset(new_root, [{"uris": str(source), "mime": "image/png", "captions": ["exported"]}])
+
+    with pytest.raises(ValueError, match="unowned|ownership|origin"):
+        extract_from_lance(annotated, str(output), **options)
+
+    assert caption.read_text(encoding="utf-8") == "unrelated text"
+    assert not source.with_suffix(".txt").exists()
+
+
+def test_selected_in_place_rows_keep_full_dataset_collision_protection(tmp_path):
+    source = tmp_path / "sample.png"
+    skipped = tmp_path / "sample.jpg"
+    missing = tmp_path / "missing.png"
+    source.write_bytes(_png("red"))
+    skipped.write_bytes(_png("blue"))
+    old_caption = skipped.with_suffix(".txt")
+    old_caption.write_text("untouched", encoding="utf-8")
+    dataset = _dataset(tmp_path, [
+        {"uris": str(source), "mime": "image/png", "captions": ["selected"]},
+        {"uris": str(skipped), "mime": "image/jpeg", "captions": ["do not publish"]},
+        {"uris": str(missing), "mime": "image/png", "blob": _png("blue"), "captions": ["do not restore"]},
+    ])
+    output = tmp_path / "out"
+
+    extract_from_lance(dataset, str(output), clip_with_caption=False, in_place=True, include_uris={str(source)})
+
+    assert old_caption.read_text(encoding="utf-8") == "untouched"
+    assert [path.read_text(encoding="utf-8").strip() for path in tmp_path.glob("sample__*.txt")] == ["selected"]
+    assert not list(output.glob("*"))
+
+
+@pytest.mark.parametrize("existing_pages", [False, True])
+def test_default_export_keeps_existing_derived_pages_untouched_on_rerun(tmp_path, existing_pages):
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"source document")
+    output = tmp_path / "out"
+    page = output / "report" / "report_1.md"
+    if existing_pages:
+        page.parent.mkdir(parents=True)
+        page.write_text("existing document", encoding="utf-8")
+    dataset = _dataset(tmp_path, [{
+        "uris": str(source), "mime": "application/pdf",
+        "captions": ['<header style="background-color: #f5f5f5;"><strong> Page 1 </strong></header>Page body'],
+    }])
+
+    if existing_pages:
+        with pytest.raises(ValueError, match="derived|page"):
+            extract_from_lance(dataset, str(output))
+        assert page.read_text(encoding="utf-8") == "existing document"
+        assert not (output / "report.md").exists()
+    else:
+        for _ in range(2):
+            extract_from_lance(dataset, str(output))
+        assert page.read_text(encoding="utf-8") == "Page body"
+        assert (output / "report.md").is_file()
+    assert not source.with_suffix(".md").exists()
+
+
+@pytest.mark.parametrize("stored_hash", [False, True])
+def test_blob_backed_pages_reuse_the_snapshot_after_original_changes_or_disappears(tmp_path, stored_hash):
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"earlier local document")
+    blob = b"selected document snapshot"
+    record = {"uris": str(source), "mime": "application/pdf", "blob": blob,
+              "captions": ['<header style="background-color: #f5f5f5;"><strong> Page 1 </strong></header>text']}
+    if stored_hash:
+        record["hash"] = hashlib.sha256(blob).hexdigest()
+    dataset = _dataset(tmp_path, [record])
+    output = tmp_path / "out"
+    extract_from_lance(dataset, str(output))
+    page = output / "report" / "report_1.md"
+    first_mtime = page.stat().st_mtime_ns
+
+    source.write_bytes(b"edited local document of a different length")
+    extract_from_lance(dataset, str(output))
+    source.unlink()
+    extract_from_lance(dataset, str(output))
+
+    assert (output / "report.pdf").read_bytes() == blob
+    assert page.read_text(encoding="utf-8") == "text"
+    assert page.stat().st_mtime_ns == first_mtime
+
+
+def test_default_export_rejects_changed_derived_inputs_without_replacing_outputs(tmp_path):
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"source document")
+    output = tmp_path / "out"
+    page = '<header style="background-color: #f5f5f5;"><strong> Page 1 </strong></header>'
+    dataset = _dataset(tmp_path, [{
+        "uris": str(source), "mime": "application/pdf", "captions": [page + "first"],
+    }])
+    extract_from_lance(dataset, str(output))
+    source.write_bytes(b"changed document")
+
+    with pytest.raises(ValueError, match="derived"):
+        extract_from_lance(dataset, str(output))
+
+    assert (output / "report.pdf").read_bytes() == b"source document"
+    assert (output / "report.md").read_text(encoding="utf-8") == page + "first"
+    assert (output / "report" / "report_1.md").read_text(encoding="utf-8") == "first"
+
+
+def test_default_export_does_not_claim_an_edited_derived_output(tmp_path):
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"source document")
+    output = tmp_path / "out"
+    dataset = _dataset(tmp_path, [{
+        "uris": str(source), "mime": "application/pdf",
+        "captions": ['<header style="background-color: #f5f5f5;"><strong> Page 1 </strong></header>Page body'],
+    }])
+    extract_from_lance(dataset, str(output))
+    page = output / "report" / "report_1.md"
+    page.write_text("local edit", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="derived"):
+        extract_from_lance(dataset, str(output))
+
+    assert page.read_text(encoding="utf-8") == "local edit"
+
+
+@pytest.mark.parametrize("existing_sources", [False, True])
+def test_portable_export_preserves_duplicate_leaf_names_and_captions(tmp_path, existing_sources):
     records = [
         {"uris": str(tmp_path / folder / "same.png"), "mime": "image/png", "captions": [caption], "blob": _png(color)}
         for folder, color, caption in [("a", "red", "red caption"), ("b", "blue", "blue caption")]
     ]
+    if existing_sources:
+        for record in records:
+            primary = Path(record["uris"])
+            primary.parent.mkdir()
+            primary.write_bytes(record["blob"])
+            record["blob"] = None
     dataset = _dataset(tmp_path, records)
     output = tmp_path / "output"
     extract_from_lance(dataset, str(output), clip_with_caption=False)
@@ -69,7 +338,8 @@ def test_text_caption_export_never_replaces_primary_source(tmp_path, explicit_ex
     source = tmp_path / "original.txt"
     source.write_text("ORIGINAL SOURCE", encoding="utf-8")
     dataset = _dataset(tmp_path, [{"uris": str(source), "mime": "text/plain", "captions": ["ANNOTATION"], "blob": None}])
-    extract_from_lance(dataset, str(tmp_path / "out"), caption_extension=explicit_extension, clip_with_caption=False)
+    extract_from_lance(dataset, str(tmp_path / "out"), caption_extension=explicit_extension, clip_with_caption=False,
+                       in_place=True)
     assert source.read_text(encoding="utf-8") == "ORIGINAL SOURCE"
     assert (tmp_path / "original.caption.txt").read_text(encoding="utf-8").strip() == "ANNOTATION"
 
@@ -83,7 +353,7 @@ def test_export_preserves_other_primary_files_that_share_caption_stem(tmp_path):
         {"uris": str(image), "mime": "image/png", "captions": ["IMAGE CAPTION"], "blob": None},
         {"uris": str(text), "mime": "text/plain", "captions": [], "blob": None},
     ])
-    extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False)
+    extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     assert text.read_text(encoding="utf-8") == "PRIMARY TEXT"
     assert any(path.read_text(encoding="utf-8").strip() == "IMAGE CAPTION" for path in tmp_path.glob("*.txt") if path != text)
 
@@ -175,8 +445,81 @@ def test_failed_caption_save_does_not_clip_with_stale_subtitles(tmp_path, monkey
     monkeypatch.setattr(exporter, "save_caption", lambda *args, **kwargs: False)
     calls = []
     monkeypatch.setattr(exporter, "split_video_with_imageio_ffmpeg", lambda *args: calls.append(args))
-    extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=True)
+    with pytest.raises(OSError, match=r"video\.mp4"):
+        extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=True)
     assert calls == []
+
+
+@pytest.mark.parametrize("failure", ["media", "caption"])
+def test_export_reports_failed_row_but_commits_later_successful_rows(tmp_path, monkeypatch, failure):
+    from module import lanceexport
+    from utils.caption_index import load_caption_index
+
+    output = tmp_path / "out"
+    dataset = _dataset(tmp_path, [
+        {"uris": str(tmp_path / name), "mime": "image/png", "blob": _png("red"), "captions": ["annotation"]}
+        for name in ("bad.png", "good.png")
+    ])
+    if failure == "media":
+        original_atomic = lanceexport.atomic_output_path
+
+        def fail_first_media(path):
+            if path == output / "bad.png":
+                raise OSError("simulated media write failure")
+            return original_atomic(path)
+
+        monkeypatch.setattr(lanceexport, "atomic_output_path", fail_first_media)
+        dataset.tags.create("gemini", dataset.version)
+        monkeypatch.setattr(sys, "argv", ["lanceexport", dataset.uri, "--output_dir", str(output), "--not_clip_with_caption"])
+        with pytest.raises(OSError, match=r"bad\.png"):
+            lanceexport.main()
+    else:
+        def fail_first_caption(path, mode, **kwargs):
+            if path == output / "bad.txt" and mode == "w":
+                raise OSError("simulated caption write failure")
+            return open(path, mode, **kwargs)
+
+        monkeypatch.setattr(lanceexport, "open", fail_first_caption, raising=False)
+        with pytest.raises(OSError, match=r"bad\.png"):
+            extract_from_lance(dataset, str(output), clip_with_caption=False)
+
+    assert not (output / "bad.png").exists()
+    assert not (output / "bad.txt").exists()
+    assert (output / "good.png").read_bytes() == _png("red")
+    assert (output / "good.txt").read_text(encoding="utf-8").strip() == "annotation"
+    index = load_caption_index(output, strict=True)
+    assert index.captions == {"good.png": "good.txt"}
+    assert set(index.primary_sha256) == {"good.png"}
+
+
+def test_failed_clip_caption_is_reported_and_never_marked_complete(tmp_path, monkeypatch):
+    from module import lanceexport
+    from utils.lance_utils import DERIVED_EXPORT_MARKER
+
+    output = tmp_path / "out"
+    captions = ["1\n00:00:00,000 --> 00:00:01,000\nclip caption\n"]
+    dataset = _dataset(tmp_path, [{"uris": str(tmp_path / "audio.wav"), "mime": "audio/wav",
+                                   "blob": b"audio", "captions": captions}])
+    clip_dir = output / "audio_clip"
+
+    def write_clip(media, subs, writer):
+        clip = clip_dir / "audio_1.wav"
+        clip.write_bytes(media.read_bytes())
+        writer(clip, [subs[0].text], "image")
+
+    def fail_clip_caption(path, mode, **kwargs):
+        if path == clip_dir / "audio_1.txt" and mode == "w":
+            raise OSError("simulated clip caption write failure")
+        return open(path, mode, **kwargs)
+
+    monkeypatch.setattr(lanceexport, "split_video_with_imageio_ffmpeg", write_clip)
+    monkeypatch.setattr(lanceexport, "open", fail_clip_caption, raising=False)
+    with pytest.raises(OSError, match=r"audio_1"):
+        extract_from_lance(dataset, str(output))
+
+    assert (output / "audio.wav").read_bytes() == b"audio"
+    assert (output / "audio.srt").read_text(encoding="utf-8") == captions[0]
+    assert not (clip_dir / DERIVED_EXPORT_MARKER).exists()
 
 
 def test_clip_association_survives_portable_duplicate_basename_renaming(tmp_path, monkeypatch):
@@ -227,10 +570,62 @@ def test_export_rejects_shared_clip_namespace_only_when_clipping(tmp_path, monke
     ])
     monkeypatch.setattr(exporter, "split_video_with_imageio_ffmpeg", lambda *args: None)
     with pytest.raises(ValueError, match="[Cc]ollision|[Aa]mbiguous"):
-        extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=True)
+        extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=True, in_place=True)
     assert not list(tmp_path.glob("*.srt"))
-    extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False)
+    extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     assert len(list(tmp_path.glob("*.srt"))) == 2
+
+
+@pytest.mark.parametrize("in_place", [False, True])
+def test_export_reuses_unchanged_clips_after_dataset_version_bump(tmp_path, monkeypatch, in_place):
+    from module import lanceexport
+
+    source = tmp_path / "audio.wav"
+    original = b"example audio"
+    source.write_bytes(original)
+    captions = ["1\n00:00:00,000 --> 00:00:01,000\nunchanged\n"]
+    dataset = _dataset(tmp_path, [{
+        "uris": str(source), "mime": "audio/wav", "captions": captions, "blob": original,
+        "hash": hashlib.sha256(original).hexdigest(),
+    }])
+    runs = []
+
+    def write_clip(media, subs, writer):
+        clip_dir = media.parent / f"{media.stem}_clip"
+        clip_dir.mkdir(exist_ok=True)
+        clip = clip_dir / f"{media.stem}_1.wav"
+        clip.write_bytes(media.read_bytes())
+        runs.append(clip)
+
+    monkeypatch.setattr(lanceexport, "split_video_with_imageio_ffmpeg", write_clip)
+    output = tmp_path / "out"
+    extract_from_lance(dataset, str(output), in_place=in_place)
+    original_version = dataset.version
+    dataset.add_columns({"version_marker": "CAST(1 AS INT)"})
+    newer = lance.dataset(dataset.uri)
+    assert newer.version > original_version
+    extract_from_lance(newer, str(output), in_place=in_place)
+
+    assert len(runs) == 1
+    assert runs[0].read_bytes() == original
+
+
+def test_in_place_export_rejects_unowned_clip_dir_before_any_writes(tmp_path):
+    source = tmp_path / "audio.wav"
+    source.write_bytes(b"example audio")
+    clip = tmp_path / "audio_clip" / "audio_1.wav"
+    clip.parent.mkdir()
+    clip.write_bytes(b"user clip")
+    dataset = _dataset(tmp_path, [{
+        "uris": str(source), "mime": "audio/wav",
+        "captions": ["1\n00:00:00,000 --> 00:00:01,000\ncaption\n"],
+    }])
+
+    with pytest.raises(ValueError, match="derived"):
+        extract_from_lance(dataset, str(tmp_path / "out"), in_place=True)
+
+    assert not source.with_suffix(".srt").exists()
+    assert clip.read_bytes() == b"user clip"
 
 
 def test_export_clip_namespace_cannot_contain_dataset_primary(tmp_path, monkeypatch):
@@ -248,12 +643,12 @@ def test_export_clip_namespace_cannot_contain_dataset_primary(tmp_path, monkeypa
     ])
     monkeypatch.setattr(exporter, "split_video_with_imageio_ffmpeg", lambda *args: None)
     with pytest.raises(ValueError, match="[Cc]ollision|[Aa]mbiguous"):
-        extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=True)
+        extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=True, in_place=True)
     assert not source.with_suffix(".srt").exists()
     assert primary.read_bytes() == b"primary"
 
 
-def test_export_page_namespace_cannot_contain_dataset_primary(tmp_path):
+def test_in_place_export_keeps_legacy_document_page_directory_untouched(tmp_path):
     source = tmp_path / "report.pdf"
     source.write_bytes(b"document")
     primary = tmp_path / "report" / "report_1.md"
@@ -264,10 +659,11 @@ def test_export_page_namespace_cannot_contain_dataset_primary(tmp_path):
         {"uris": str(source), "mime": "application/pdf", "blob": None, "captions": [page]},
         {"uris": str(primary), "mime": "text/markdown", "blob": None, "captions": []},
     ])
-    with pytest.raises(ValueError, match="[Cc]ollision|[Aa]mbiguous"):
-        extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=True)
-    assert not source.with_suffix(".md").exists()
+    extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=True, in_place=True)
+
+    assert source.with_suffix(".md").read_text(encoding="utf-8") == page
     assert primary.read_text(encoding="utf-8") == "primary"
+    assert list(primary.parent.iterdir()) == [primary]
 
 
 @pytest.mark.parametrize("external_captions", [False, True])
@@ -285,7 +681,7 @@ def test_exported_duplicate_names_roundtrip_through_directory_import(tmp_path, e
     ])
     caption_dir = tmp_path / "captions" if external_captions else None
     extract_from_lance(dataset, str(tmp_path / "out"), caption_dir=str(caption_dir) if caption_dir else None,
-                       clip_with_caption=False)
+                       clip_with_caption=False, in_place=True)
     items = load_data(str(sources), texts_dir=str(caption_dir) if caption_dir else None)
     assert {Path(item["file_path"]): item["caption"] for item in items} == {
         paths[0]: ["first caption"], paths[1]: ["second caption"],
@@ -307,7 +703,7 @@ def test_exported_text_annotation_is_not_imported_as_an_extra_document(tmp_path)
     source = sources / "original.txt"
     source.write_text("source body", encoding="utf-8")
     dataset = _dataset(tmp_path, [{"uris": str(source), "mime": "text/plain", "captions": ["annotation"], "blob": None}])
-    extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False)
+    extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     items = load_data(str(sources))
     assert [(Path(item["file_path"]), item["caption"]) for item in items] == [(source, ["annotation"])]
     assert source.read_text(encoding="utf-8") == "source body"
@@ -320,7 +716,7 @@ def test_export_rejects_unowned_caption_index_before_writing(tmp_path):
     index.write_text("user content", encoding="utf-8")
     dataset = _dataset(tmp_path, [{"uris": str(source), "mime": "image/png", "captions": ["annotation"], "blob": None}])
     with pytest.raises(ValueError, match="[Ii]ndex"):
-        extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False)
+        extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     assert not source.with_suffix(".txt").exists()
     assert index.read_text(encoding="utf-8") == "user content"
 
@@ -343,7 +739,7 @@ def test_export_commits_one_caption_index_per_directory(tmp_path, monkeypatch):
         actual_writer(directory, entries)
 
     monkeypatch.setattr(exporter, "write_caption_index", record_commit)
-    extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False)
+    extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     assert commits == [tmp_path]
 
 
@@ -359,9 +755,9 @@ def test_reexport_keeps_old_annotations_owned_without_deleting_them(tmp_path):
         {"uris": str(path), "mime": "image/png", "captions": [caption], "blob": None}
         for path, caption in zip(paths, ["first", "second"])
     ])
-    extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False)
+    extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     previous = {path: path.read_bytes() for path in sources.glob("*.txt")}
-    extract_from_lance(dataset, str(tmp_path / "out"), caption_suffix="_zh", clip_with_caption=False)
+    extract_from_lance(dataset, str(tmp_path / "out"), caption_suffix="_zh", clip_with_caption=False, in_place=True)
     assert all(path.read_bytes() == content for path, content in previous.items())
     assert {Path(item["file_path"]): item["caption"] for item in load_data(str(sources))} == {
         paths[0]: ["first"], paths[1]: ["second"],
@@ -403,6 +799,6 @@ def test_caption_index_preserves_valid_leading_spaces_in_filenames(tmp_path):
     source.write_bytes(_png("red"))
     dataset = _dataset(tmp_path, [{"uris": str(source), "mime": "image/png", "captions": ["annotation"], "blob": None}])
     for _ in range(2):
-        extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False)
+        extract_from_lance(dataset, str(tmp_path / "out"), clip_with_caption=False, in_place=True)
     images = [item for item in load_data(str(tmp_path)) if Path(item["file_path"]).suffix == ".png"]
     assert [(Path(item["file_path"]), item["caption"]) for item in images] == [(source, ["annotation"])]

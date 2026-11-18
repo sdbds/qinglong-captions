@@ -13,7 +13,7 @@ from gui.theme import COLORS, get_classes
 from gui.utils.i18n import t
 from gui.utils.job_manager import JobStatus, job_manager
 from gui.utils.log_buffer import LogBuffer
-from gui.utils.process_runner import ProcessResult, ProcessStatus
+from gui.utils.process_runner import ProcessResult, ProcessStatus, get_isolated_uv_script
 
 if TYPE_CHECKING:
     from gui.components.execution_tabs import TaskTab
@@ -186,23 +186,23 @@ class ExecutionPanel:
             return ProcessResult(ProcessStatus.ERROR, -1, message)
 
         merged_runner_kwargs = dict(runner_kwargs or {})
-        try:
-            ready = await self.execution_tabs.ensure_active_tab_runtime_ready(tab)
-        except asyncio.CancelledError:
-            self._safe_sync_active_tab_state()
-            return ProcessResult(ProcessStatus.ERROR, -1, t("task_stopped"))
-        if not ready:
-            self._safe_sync_active_tab_state()
-            return ProcessResult(ProcessStatus.ERROR, -1, t("task_tab_not_ready", "当前任务 tab 的 venv 尚未就绪"))
-        if self.execution_tabs.find_tab(tab_id) is not tab:
-            self._safe_sync_active_tab_state()
-            return ProcessResult(ProcessStatus.ERROR, -1, t("task_tab_not_ready", "当前任务 tab 的 venv 尚未就绪"))
+        if get_isolated_uv_script(script_key):
+            merged_runner_kwargs.update(tab_id=tab_id, tab_name=tab.name)
+        else:
+            try:
+                ready = await self.execution_tabs.ensure_active_tab_runtime_ready(tab)
+            except asyncio.CancelledError:
+                self._safe_sync_active_tab_state()
+                return ProcessResult(ProcessStatus.ERROR, -1, t("task_stopped"))
+            if not ready or self.execution_tabs.find_tab(tab_id) is not tab:
+                self._safe_sync_active_tab_state()
+                return ProcessResult(ProcessStatus.ERROR, -1, t("task_tab_not_ready", "当前任务 tab 的 venv 尚未就绪"))
 
-        tab_kwargs = self.execution_tabs.runner_kwargs(tab)
-        if tab_kwargs is None:
-            self._safe_sync_active_tab_state()
-            return ProcessResult(ProcessStatus.ERROR, -1, t("task_tab_not_ready", "当前任务 tab 的 venv 尚未就绪"))
-        merged_runner_kwargs.update(tab_kwargs)
+            tab_kwargs = self.execution_tabs.runner_kwargs(tab)
+            if tab_kwargs is None:
+                self._safe_sync_active_tab_state()
+                return ProcessResult(ProcessStatus.ERROR, -1, t("task_tab_not_ready", "当前任务 tab 的 venv 尚未就绪"))
+            merged_runner_kwargs.update(tab_kwargs)
 
         try:
             job = await job_manager.submit(script_key, args, name=name, **merged_runner_kwargs)

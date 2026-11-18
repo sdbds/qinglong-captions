@@ -4,7 +4,8 @@ import base64
 import json
 import mimetypes
 import re
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+from urllib.parse import quote
 
 import pysrt
 
@@ -20,6 +21,7 @@ from module.providers.image_template import (
     postprocess_image_template_text,
 )
 from utils.caption_modes import normalize_sectioned_caption
+from utils.ocr_artifacts import relative_artifact_url, reserve_ocr_artifact_dir
 from utils.parse_display import extract_code_block_content, process_llm_response
 from utils.path_safety import safe_child_path, safe_leaf_name
 
@@ -33,11 +35,11 @@ def _deduplicate_filename(filename: str, used_names: set[str]) -> str:
     suffix = Path(filename).suffix
     counter = 2
 
-    while candidate.lower() in used_names:
+    while candidate.casefold() in used_names:
         candidate = f"{stem}_{counter}{suffix}"
         counter += 1
 
-    used_names.add(candidate.lower())
+    used_names.add(candidate.casefold())
     return candidate
 
 
@@ -50,9 +52,10 @@ def _assign_ocr_image_names(images) -> tuple[list[str], dict[str, str], dict[str
     for index, image in enumerate(images, start=1):
         raw_name = str(getattr(image, "id", "") or "")
         default_name = f"image_{index}.png"
+        leaf = safe_leaf_name(raw_name, default_name=default_name)
+        leaf = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", leaf).rstrip(" .")
         safe_name = _deduplicate_filename(
-            safe_leaf_name(raw_name, default_name=default_name),
-            used_names,
+            leaf if leaf and not PureWindowsPath(leaf).is_reserved() else default_name, used_names,
         )
         assigned_names.append(safe_name)
 
@@ -81,7 +84,7 @@ def _rewrite_ocr_image_paths(markdown: str, parent_dir: str, raw_name_map: dict[
             safe_name = leaf_name_map.get(Path(normalized_target).name)
         if not safe_name:
             return match.group(0)
-        return f"![{match.group(1)}]({parent_dir}/{safe_name})"
+        return f"![{match.group(1)}]({parent_dir}/{quote(safe_name)})"
 
     return pattern.sub(replace, markdown)
 
@@ -200,7 +203,8 @@ def postprocess_caption_content(output, filepath, args, console):
     if isinstance(output, list):
         if output and hasattr(output[0], "markdown") and hasattr(output[0], "index"):
             combined_output = []
-            for page in output:
+            artifact_dir = None
+            for page_number, page in enumerate(output, start=1):
                 page_index = page.index if hasattr(page, "index") else "unknown"
                 combined_output.append(
                     '<header style="background-color: #f5f5f5; padding: 8px; margin-bottom: 20px; text-align: center; border-bottom: 1px solid #ddd;">\n'
@@ -210,27 +214,31 @@ def postprocess_caption_content(output, filepath, args, console):
 
                 page_markdown = page.markdown if hasattr(page, "markdown") else str(page)
                 page_images = list(getattr(page, "images", []) or [])
-                image_names, raw_name_map, leaf_name_map = _assign_ocr_image_names(page_images)
+                page_images = [image for image in page_images if getattr(image, "image_base64", "")]
+                if page_images and getattr(args, "document_image", False):
+                    if artifact_dir is None:
+                        artifact_dir = reserve_ocr_artifact_dir(filepath)
+                    image_dir = artifact_dir / f"page_{page_number:04d}"
+                    image_dir.mkdir()
+                    image_names, raw_name_map, leaf_name_map = _assign_ocr_image_names(page_images)
+                    saved_names = set()
 
-                if page_images and args.document_image:
-                    parent_dir = Path(filepath).stem
-                    page_markdown = _rewrite_ocr_image_paths(page_markdown, parent_dir, raw_name_map, leaf_name_map)
-
-                    for image_index, image in enumerate(page_images):
-                        if not getattr(image, "image_base64", ""):
-                            continue
+                    for image, image_name in zip(page_images, image_names):
                         try:
                             image_data = _decode_base64_image(image.image_base64)
-                            image_dir = Path(filepath).with_suffix("")
-                            image_dir.mkdir(parents=True, exist_ok=True)
-                            image_path = safe_child_path(
-                                image_dir,
-                                image_names[image_index],
-                                default_name=f"image_{image_index + 1}.png",
-                            )
-                            image_path.write_bytes(image_data)
+                            image_path = safe_child_path(image_dir, image_name)
+                            with image_path.open("xb") as image_file:
+                                image_file.write(image_data)
+                            saved_names.add(image_name)
                         except Exception as exc:
                             console.print(f"[yellow]Error saving OCR image: {exc}[/yellow]")
+
+                    page_markdown = _rewrite_ocr_image_paths(
+                        page_markdown,
+                        relative_artifact_url(image_dir, Path(filepath).parent),
+                        {raw: name for raw, name in raw_name_map.items() if name in saved_names},
+                        {leaf: name for leaf, name in leaf_name_map.items() if name in saved_names},
+                    )
 
                 combined_output.append(f"{page_markdown}\n\n")
                 combined_output.append(

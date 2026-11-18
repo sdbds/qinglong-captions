@@ -58,7 +58,7 @@ def caption_output_path(source_path: Path, mime: str, output=None, *, caption_ba
     )
 
 
-def disambiguate_caption_bases(bases: dict[str, Path]) -> dict[str, Path]:
+def disambiguate_caption_bases(bases: dict[str, Path], *, child_path=safe_child_path) -> dict[str, Path]:
     stems = Counter(caption_file_identity(base.with_suffix("").resolve()) for base in bases.values())
     planned = {}
     occupied = set()
@@ -66,7 +66,7 @@ def disambiguate_caption_bases(bases: dict[str, Path]) -> dict[str, Path]:
         if stems[caption_file_identity(base.with_suffix("").resolve())] > 1:
             source_name = Path(safe_leaf_name(uri))
             digest = hashlib.sha256(uri.encode("utf-8")).hexdigest()[:16]
-            base = safe_child_path(base.parent, f"{source_name.stem[:160]}__{digest}{source_name.suffix}")
+            base = child_path(base.parent, f"{source_name.stem[:160]}__{digest}{source_name.suffix}")
         identity = caption_file_identity(base.with_suffix("").resolve())
         if identity in occupied:
             raise ValueError(f"Ambiguous caption base collision: {base}")

@@ -85,7 +85,7 @@ def test_pyproject_declares_lighton_ocr_extra():
     assert "lighton-ocr" in optional_deps
     lighton_deps = optional_deps["lighton-ocr"]
     assert "qinglong-captions[torch-base]" in lighton_deps
-    assert any(dep.startswith("transformers[serving]>=5.0.0") for dep in lighton_deps)
+    assert any(dep.startswith("transformers[serving]>=5.5.4") for dep in lighton_deps)
 
 
 def test_pyproject_declares_logics_ocr_extra():
@@ -95,7 +95,7 @@ def test_pyproject_declares_logics_ocr_extra():
     assert "logics-ocr" in optional_deps
     logics_deps = optional_deps["logics-ocr"]
     assert "qinglong-captions[torch-base]" in logics_deps
-    assert any(dep.startswith("transformers[serving]>=4.57.0") for dep in logics_deps)
+    assert any(dep.startswith("transformers[serving]>=5.6.0") for dep in logics_deps)
     assert "PyMuPDF" in logics_deps
     assert "img2pdf" in logics_deps
 
@@ -338,7 +338,12 @@ def test_caption_step_includes_infinity_parser2_ocr_extra():
     assert step._build_local_extra_args() == ["--extra", "infinity-parser2-ocr"]
 
 
-def test_caption_step_includes_unlimited_ocr_extra():
+def test_caption_step_includes_unlimited_ocr_extra(tmp_path, monkeypatch):
+    from gui.utils import toml_helpers
+
+    config_path = tmp_path / "model.toml"
+    config_path.write_text('[unlimited_ocr]\nmodel_id = "baidu/Unlimited-OCR"\n', encoding="utf-8")
+    monkeypatch.setattr(toml_helpers, "_MODEL_CONFIG_PATH", config_path)
     CaptionStep = _load_caption_step("test_step4_caption_unlimited_ocr")
 
     step = CaptionStep()
@@ -347,6 +352,20 @@ def test_caption_step_includes_unlimited_ocr_extra():
     step.alm_model = SimpleNamespace(value="")
 
     assert step._build_local_extra_args() == ["--extra", "unlimited-ocr"]
+
+
+def test_caption_step_selects_unlimited_v2_extra_for_an_opaque_model_path(tmp_path, monkeypatch):
+    from gui.utils import toml_helpers
+
+    config_path = tmp_path / "model.toml"
+    config_path.write_text('[unlimited_ocr]\nmodel_id = "local/renamed"\nmodel_version = "2"\n', encoding="utf-8")
+    monkeypatch.setattr(toml_helpers, "_MODEL_CONFIG_PATH", config_path)
+    CaptionStep = _load_caption_step("test_step4_caption_unlimited_v2")
+    step = CaptionStep()
+    step.ocr_model = SimpleNamespace(value="unlimited_ocr")
+    step.vlm_image_model = SimpleNamespace(value="")
+    step.alm_model = SimpleNamespace(value="")
+    assert step._build_local_extra_args() == ["--extra", "unlimited-ocr2"]
 
 
 def test_caption_step_includes_paddleocr_onnx_extra():
@@ -1182,7 +1201,7 @@ def test_captioner_ps1_mentions_unlimited_ocr_extra():
     content = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8")
 
     assert '"unlimited_ocr"' in content
-    assert 'Add-UvExtra "unlimited-ocr"' in content
+    assert "Add-UvExtra (Get-UnlimitedOcrExtra)" in content
 
 
 def test_captioner_ps1_uses_generic_extra_fallback_for_music_flamingo():
@@ -1331,12 +1350,12 @@ def test_config_declares_unlimited_ocr_defaults():
     assert "base_size = 1024" in model_toml
     assert "image_size = 640" in model_toml
     assert "crop_mode = true" in model_toml
-    assert "max_length = 32768" in model_toml
+    assert "max_length = 0" in model_toml
     assert "no_repeat_ngram_size = 35" in model_toml
     assert "page_budget = 30" in model_toml
 
     assert "[unlimited_ocr]" in runtime_toml
-    assert 'model_id = "baidu/Unlimited-OCR"' in runtime_toml
+    assert 'model_id = "baidu/Unlimited-OCR-2"' in runtime_toml
     assert "unlimited_ocr_prompt" in runtime_toml
     assert "unlimited_ocr_prompt" in prompts_toml
 
@@ -1353,12 +1372,12 @@ def test_config_declares_logics_ocr_defaults():
     assert "max_pixels = 7372800" in model_toml
 
     assert "[logics_ocr]" in runtime_toml
-    assert 'model_id = "Logics-MLLM/Logics-Parsing-v2"' in runtime_toml
+    assert 'model_id = "Logics-MLLM/Logics-Parsing-V3"' in runtime_toml
     assert "max_new_tokens = 16384" in runtime_toml
-    assert "min_pixels = 3136" in runtime_toml
-    assert "max_pixels = 7372800" in runtime_toml
+    assert "min_pixels = 0" in runtime_toml
+    assert "max_pixels = 0" in runtime_toml
 
-    assert 'logics_ocr_prompt = """QwenVL HTML"""' in prompts_toml
+    assert toml.loads(prompts_toml)["prompts"]["logics_ocr_prompt"] == ""
 
 
 def test_runtime_prompt_config_files_parse_with_toml_library():
