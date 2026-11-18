@@ -37,6 +37,7 @@ from utils.wdtagger_opencv import (
     OPENCV_DISTRIBUTION_PACKAGES,
     build_wdtagger_opencv_install_plan,
 )
+from utils.deepseek_runtime import runtime_profile, runtime_python as deepseek_python, uses_project_env
 
 _TRANSIENT_SPINNER_FRAMES = frozenset("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 _PROGRESS_PERCENT_RE = re.compile(r"\d{1,3}%")
@@ -71,6 +72,8 @@ _UV_TORCH_EXTRAS = frozenset(
         "moondream",
         "olmocr",
         "deepseek-ocr",
+        "deepseek-ocr-native",
+        "deepseek-ocr-legacy",
         "unlimited-ocr",
         "unlimited-ocr2",
         "logics-ocr",
@@ -108,6 +111,8 @@ _UV_TORCHVISION_EXTRAS = frozenset(
         "reward-model",
         "olmocr",
         "deepseek-ocr",
+        "deepseek-ocr-native",
+        "deepseek-ocr-legacy",
         "unlimited-ocr",
         "unlimited-ocr2",
         "logics-ocr",
@@ -1359,16 +1364,35 @@ class ProcessRunner:
                 cmd = [uv, "run", "--no-project", "--script", uv_script]
                 self._notify_log("runtime target environment: isolated uv script")
             else:
-                env = self._apply_venv_env(env, venv_path)
                 extra_name = self._resolve_wdtagger_extra(script_key, args, default_extra, uv_extra)
                 extras, groups = self._collect_uv_profiles(extra_name, uv_extra_args)
                 profile_parts = self._profile_parts(extras, groups)
+                deepseek = runtime_profile(extras) if script_key == "module.captioner" else None
+                if deepseek and uses_project_env(work_dir, python_path, venv_path):
+                    if not uv:
+                        raise RuntimeError("uv is required to provision the isolated DeepSeek OCR runtime")
+                    project = work_dir.resolve()
+                    self._notify_log(f"Preparing DeepSeek OCR runtime: {deepseek}")
+                    code = await self._run_logged_subprocess(
+                        [sys.executable, "-m", "utils.deepseek_runtime", "--root", str(project), "--extra", deepseek, "--uv", uv],
+                        project, env,
+                    )
+                    self.process = None
+                    if code:
+                        raise RuntimeError(f"DeepSeek runtime preparation failed (exit {code}); the project venv was not used")
+                    venv_path = str(project / ".runtime_venvs" / deepseek)
+                    python_path = str(deepseek_python(Path(venv_path)))
+                elif deepseek and venv_path and not python_path:
+                    python_path = str(deepseek_python(Path(venv_path)))
+                env = self._apply_venv_env(env, venv_path)
                 runtime_python, python_error = self._runtime_python_from_explicit(python_path, work_dir, env)
                 if python_error:
                     self._running = False
                     self._notify_status(ProcessStatus.ERROR)
                     self._notify_log(python_error.message)
                     return python_error
+                if deepseek and python_path:
+                    runtime_python = str(Path(python_path).expanduser().absolute())
                 env_name = self._detect_runtime_env_name(work_dir, env, runtime_python, venv_path)
                 environment_key = self._environment_key_from_runtime(runtime_python, venv_path)
 

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 import base64
 import io
 import re
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -17,10 +16,10 @@ from PIL import Image
 from module.providers.backends import OpenAIChatRuntime, RuntimeBackendConfig
 from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
 from module.providers.ocr.document import rebase_generated_images
-from utils.ocr_artifacts import reserve_ocr_artifact_dir
 from module.providers.ocr.ovis_ocr2_contract import OVIS_OCR2_DEFAULT_PROMPT
 from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
+from utils.ocr_artifacts import reserve_ocr_artifact_dir
 from utils.output_writer import write_markdown_output
 from utils.parse_display import display_markdown
 from utils.stream_util import iter_pdf_pages_high_quality
@@ -304,7 +303,7 @@ class _DirectPageInferencer:
             from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
         except ImportError as exc:
             raise ImportError(
-                "OvisOCR2 Direct inference requires transformers[serving]>=5.7.0. Install the ovis-ocr2 extra."
+                "OvisOCR2 Direct inference requires the Qwen3.5 runtime. Install the ovis-ocr2 extra."
             ) from exc
 
         device, dtype, attn_impl = resolve_device_dtype()

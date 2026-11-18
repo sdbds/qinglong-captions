@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
 
 from gui.utils import process_runner as process_runner_module
 from gui.utils.process_runner import SCRIPT_REGISTRY, ProcessRunner, ProcessStatus
@@ -160,8 +161,9 @@ def test_patch_shared_environment_does_not_uninstall_torch_stack_for_paddleocr_o
     assert commands[0][commands[0].index("--extra") + 1] == "paddleocr-onnx"
 
 
-def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_path, monkeypatch):
-    _write_project(tmp_path, with_lock=True, optional_deps={"penguin-vl-local": ["torch==2.11.0", "torchvision"]})
+@pytest.mark.parametrize("extra", ["penguin-vl-local", "deepseek-ocr", "deepseek-ocr-native", "deepseek-ocr-legacy"])
+def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_path, monkeypatch, extra):
+    _write_project(tmp_path, with_lock=True, optional_deps={extra: ["torch==2.11.0", "torchvision"]})
     runner = ProcessRunner()
     commands: list[list[str]] = []
 
@@ -183,7 +185,7 @@ def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_pat
                 )
             },
             "test-env",
-            ["penguin-vl-local"],
+            [extra],
             [],
         ),
     )
@@ -202,7 +204,7 @@ def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_pat
     second = install_cmd.index("--reinstall-package", install_cmd.index("--reinstall-package") + 1)
     assert install_cmd[second + 1] == "torchvision"
     assert install_cmd[install_cmd.index("-r") + 1] == "pyproject.toml"
-    assert install_cmd[install_cmd.index("--extra") + 1] == "penguin-vl-local"
+    assert install_cmd[install_cmd.index("--extra") + 1] == extra
 
 
 def test_patch_shared_environment_treats_cohere_transcribe_as_torch_profile(tmp_path, monkeypatch):

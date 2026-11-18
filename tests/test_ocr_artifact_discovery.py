@@ -12,7 +12,7 @@ from rich.console import Console
 from module.caption_pipeline.postprocess import postprocess_caption_content
 from module.lanceImport import load_data
 from module.providers.base import PromptContext, ProviderContext
-from module.providers.ocr import deepseek, paddle, unlimited
+from module.providers.ocr import deepseek, deepseek_native, paddle, unlimited
 from module.providers.ocr.document import rebase_generated_images
 from module.providers.ocr.dots import DotsOCRProvider
 from module.providers.ocr.glm import GLMOCRProvider
@@ -129,7 +129,8 @@ def test_rebase_only_changes_links_to_existing_local_assets(tmp_path):
     )
 
 
-def test_deepseek_preserves_links_to_page_local_images_in_both_markdown_outputs(tmp_path, monkeypatch):
+@pytest.mark.parametrize(("engine", "label", "filename"), [("legacy", "crop", "crop.png"), ("native", "image", "0.png")])
+def test_deepseek_preserves_links_to_page_local_images_in_both_markdown_outputs(tmp_path, monkeypatch, engine, label, filename):
     source = tmp_path / "scan.pdf"
     source.touch()
 
@@ -139,26 +140,36 @@ def test_deepseek_preserves_links_to_page_local_images_in_both_markdown_outputs(
         (output / "images" / "crop.png").touch()
         (output / "result.mmd").write_text("![crop](images/crop.png)", encoding="utf-8")
 
-    monkeypatch.setattr(deepseek, "resolve_device_dtype", lambda: ("cpu", None, "eager"))
-    monkeypatch.setattr(deepseek, "_TRANS_LOADER", SimpleNamespace(
-        get_or_load_processor=lambda *args, **kwargs: None,
-        get_or_load_model=lambda *args, **kwargs: SimpleNamespace(infer=infer),
-    ))
-    monkeypatch.setattr(deepseek, "iter_pdf_pages_high_quality", lambda *_: [
+    if engine == "legacy":
+        mod = deepseek
+        provider = _provider(deepseek.DeepSeekLegacyOCRProvider)
+        provider.ctx.config["deepseek_ocr"] = {"model_id": str(tmp_path / "legacy-fixture")}
+        monkeypatch.setattr(mod, "version", lambda _: "4.46.3")
+        monkeypatch.setattr(mod, "_TRANS_LOADER", SimpleNamespace(
+            get_or_load_processor=lambda *args, **kwargs: None,
+            get_or_load_model=lambda *args, **kwargs: SimpleNamespace(infer=infer),
+        ))
+    else:
+        mod = deepseek_native
+        provider = _provider(deepseek.DeepSeekOCRProvider)
+        prediction = "<|ref|>image<|/ref|><|det|>[[0,0,999,999]]<|/det|>"
+        monkeypatch.setattr(mod, "_load_runtime", lambda *_: (None, None))
+        monkeypatch.setattr(mod, "_generate_page", lambda *_: (prediction, prediction))
+    monkeypatch.setattr(mod, "resolve_device_dtype", lambda **_: ("cpu", None, "eager"))
+    monkeypatch.setattr(mod, "iter_pdf_pages_high_quality", lambda *_: [
         SimpleNamespace(page_number=1, image=Image.new("RGB", (2, 2))),
     ])
-    monkeypatch.setattr(deepseek, "display_markdown", lambda **_: None)
-    provider = _provider(deepseek.DeepSeekOCRProvider)
+    monkeypatch.setattr(mod, "display_markdown", lambda **_: None)
     media = provider.prepare_media(str(source), "application/pdf", provider.ctx.args)
 
     result = provider.attempt(media, PromptContext(system="", user=""))
 
     output = media.extras["output_dir"]
     page_dir = output / "page_0001"
-    assert (page_dir / "result.md").read_text(encoding="utf-8") == "![crop](images/crop.png)"
-    assert (output / "result.md").read_text(encoding="utf-8") == "![crop](page_0001/images/crop.png)"
-    link = re.search(r"!\[crop\]\(([^)]+)\)", result.raw)[1]
-    assert (source.parent / unquote(link)) == page_dir / "images" / "crop.png"
+    assert (page_dir / "result.md").read_text(encoding="utf-8") == f"![{label}](images/{filename})"
+    assert (output / "result.md").read_text(encoding="utf-8") == f"![{label}](page_0001/images/{filename})"
+    link = re.search(rf"!\[{label}\]\(([^)]+)\)", result.raw)[1]
+    assert (source.parent / unquote(link)) == page_dir / "images" / filename
 
 
 @pytest.mark.parametrize("provider_name, mod, cls, attempt_name", [

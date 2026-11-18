@@ -20,7 +20,7 @@ from gui.utils.kimi_reasoning_config import (
 from gui.utils.toml_helpers import assess_current_model_fit as assess_current_model_fit_from_toml
 from gui.utils.toml_helpers import load_current_route_model_ids as load_current_route_model_ids_from_toml
 from gui.utils.toml_helpers import find_model_config_section
-from utils.ocr_model_config import unlimited_ocr_extra
+from utils.ocr_model_config import DEEPSEEK_LEGACY_MODEL, deepseek_ocr_extra, unlimited_ocr_extra
 from module.caption_outcome import PARTIAL_CAPTION_EXIT_CODE
 from module.providers.catalog import route_choices, route_requires_remote_config
 from module.providers.cloud_vlm.kimi_reasoning import (
@@ -431,6 +431,8 @@ class CaptionStep:
         "unlimited_ocr": "unlimited-ocr",
         "paddle_ocr": "paddleocr-onnx",
         "deepseek_ocr": "deepseek-ocr",
+        "deepseek_ocr_native": "deepseek-ocr-native",
+        "deepseek_ocr_legacy": "deepseek-ocr-legacy",
         "logics_ocr": "logics-ocr",
         "lighton_ocr": "lighton-ocr",
         "dots_ocr": "dots-ocr",
@@ -1001,7 +1003,16 @@ class CaptionStep:
 
         ocr_route = self.ocr_model.value or ""
         ocr_extra = self.OCR_EXTRA_MAP.get(ocr_route)
-        if ocr_route == "unlimited_ocr":
+        if ocr_route == "deepseek_ocr":
+            selected = find_model_config_section(ocr_route)
+            section = selected[1] if selected else {}
+            ocr_extra = deepseek_ocr_extra(
+                section.get("model_id", DEEPSEEK_LEGACY_MODEL),
+                base_size=section.get("base_size", 1024),
+                image_size=section.get("image_size", 768),
+                crop_mode=section.get("crop_mode", True),
+            )
+        elif ocr_route == "unlimited_ocr":
             selected = find_model_config_section(ocr_route)
             section = selected[1] if selected else {}
             ocr_extra = unlimited_ocr_extra(

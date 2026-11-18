@@ -17,4 +17,6 @@ The summary counts persisted, policy-skipped and failed items. Exit code `0` mea
 
 Important controls include `dataset_path`, `pair_dir`, `mode`, retry/wait settings, segment length, and optional scene detection. Local routes install matching extras from `config/model.toml`. OpenAI-compatible configuration is documented in [its dedicated guide](../openai_compatible.md).
 
+The standard local `deepseek_ocr` route uses built-in DeepSeek OCR 2 on Transformers **5.23.0**, tested on the same GPU against native 5.17.0 and legacy 4.46.3. Existing prompts and configured remote services are unchanged. `deepseek_ocr_legacy` with the isolated `deepseek-ocr-legacy` extra explicitly runs the former backend. See the [migration and reproducible GPU comparison](deepseek_ocr2.md).
+
 API keys may still appear in child-process arguments and task logs. Do not share raw commands, process lists, or unredacted logs.

@@ -92,7 +92,7 @@ $wait_time = 1
 $max_retries = 100
 $segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds, cohere_transcribe_local disables splitting, other routes use 600 seconds
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "infinity_parser2_ocr", "ovis_ocr2", "unlimited_ocr", "deepseek_ocr", "logics_ocr", "lighton_ocr", "dots_ocr", "qianfan_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "infinity_parser2_ocr", "ovis_ocr2", "unlimited_ocr", "deepseek_ocr", "deepseek_ocr_native", "deepseek_ocr_legacy", "logics_ocr", "lighton_ocr", "dots_ocr", "qianfan_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image/video tasks
@@ -273,6 +273,39 @@ function Get-ProjectPython {
   return $null
 }
 
+function Get-DeepSeekOcrExtra {
+  param (
+    [string]$ModelConfigPath = (Join-Path $PSScriptRoot "config/model.toml"),
+    [string]$PythonExe = (Get-ProjectPython)
+  )
+  if (-not $PythonExe) {
+    throw "Python is required to select the DeepSeek OCR dependency profile."
+  }
+  $Selector = @'
+import sys
+from utils.ocr_model_config import deepseek_ocr_extra_from_config
+print(deepseek_ocr_extra_from_config(sys.argv[1]))
+'@
+  $Extra = & $PythonExe -c $Selector $ModelConfigPath
+  if ($LASTEXITCODE -ne 0 -or $Extra -notin @("deepseek-ocr", "deepseek-ocr-legacy")) {
+    throw "Could not resolve the DeepSeek OCR dependency profile from $ModelConfigPath."
+  }
+  return $Extra
+}
+
+function Get-DeepSeekRuntimePython {
+  param ([string]$Extra)
+  $Bootstrap = Get-ProjectPython
+  if (-not $Bootstrap) {
+    throw "Python is required to prepare the isolated DeepSeek OCR runtime."
+  }
+  $Runtime = & $Bootstrap -m utils.deepseek_runtime --root $PSScriptRoot --extra $Extra
+  if ($LASTEXITCODE -ne 0 -or -not $Runtime -or -not (Test-Path -LiteralPath $Runtime -PathType Leaf)) {
+    throw "DeepSeek runtime preparation failed; the shared project environment was not used."
+  }
+  return $Runtime
+}
+
 function Get-UnlimitedOcrExtra {
   param (
     [string]$ModelConfigPath = (Join-Path $PSScriptRoot "config/model.toml"),
@@ -319,7 +352,8 @@ function Uninstall-PaddleTorchStack {
 
 function Install-UvDependencyPatch {
   param (
-    [System.Collections.ArrayList]$ArgsList
+    [System.Collections.ArrayList]$ArgsList,
+    [string]$PythonExe
   )
 
   if ($ArgsList.Count -eq 0) {
@@ -343,7 +377,7 @@ function Install-UvDependencyPatch {
 
   $UniqueExtras = @($Extras | Select-Object -Unique)
   $UniqueGroups = @($Groups | Select-Object -Unique)
-  $PythonExe = Get-ProjectPython
+  if (-not $PythonExe) { $PythonExe = Get-ProjectPython }
 
   if ($UniqueExtras -contains "paddleocr-native") {
     Uninstall-PaddleTorchStack -PythonExe $PythonExe
@@ -368,7 +402,7 @@ function Install-UvDependencyPatch {
     [void]$InstallArgs.Add($Group)
   }
 
-  Write-Output "使用共享 .venv 增量安装依赖补丁"
+  Write-Output "使用目标环境增量安装依赖补丁"
   Write-Output "直接使用 uv pip install -r pyproject.toml 安装当前依赖 profile"
   Write-Output "uv pip install target environment: $UvEnvName"
   Write-Output "uv pip install dependency profile: $Profile"
@@ -651,7 +685,13 @@ if ($ocr_model) {
     Add-UvExtra "paddleocr-onnx"
   }
   elseif ($ocr_model -eq "deepseek_ocr") {
-    Add-UvExtra "deepseek-ocr"
+    Add-UvExtra (Get-DeepSeekOcrExtra)
+  }
+  elseif ($ocr_model -eq "deepseek_ocr_native") {
+    Add-UvExtra "deepseek-ocr-native"
+  }
+  elseif ($ocr_model -eq "deepseek_ocr_legacy") {
+    Add-UvExtra "deepseek-ocr-legacy"
   }
   elseif ($ocr_model -eq "logics_ocr") {
     Add-UvExtra "logics-ocr"
@@ -767,13 +807,37 @@ if ($tags_highlightrate -ne 0.4) {
   [void]$ext_args.Add("--tags_highlightrate=$tags_highlightrate")
 }
 
-# run train
-$UvEnvName = Get-UvEnvName
-$UvProfile = Get-UvProfile $uv_args
-Install-UvDependencyPatch $uv_args
-Write-Output "runtime target environment: $UvEnvName"
-Write-Output "runtime dependency profile: $UvProfile"
-python "./module/captioner.py" $dataset_path $ext_args
+function Invoke-CaptionWithRuntime {
+  param ([System.Collections.ArrayList]$ArgsList, [string]$DatasetPath, [System.Collections.ArrayList]$CaptionArgs)
+  $RuntimePython = $null
+  $DeepSeek = @($ArgsList | Where-Object { $_ -in @("--extra=deepseek-ocr", "--extra=deepseek-ocr-native", "--extra=deepseek-ocr-legacy") })
+  if ($DeepSeek.Count -gt 1) { throw "Select one DeepSeek OCR runtime per run." }
+  $PreviousVenv = $env:VIRTUAL_ENV
+  $PreviousPath = $env:PATH
+  try {
+    if ($DeepSeek.Count) {
+      $RuntimePython = Get-DeepSeekRuntimePython -Extra $DeepSeek[0].Substring(8)
+      $ScriptsDir = Split-Path -Parent $RuntimePython
+      $env:VIRTUAL_ENV = Split-Path -Parent $ScriptsDir
+      $env:PATH = "$ScriptsDir$([IO.Path]::PathSeparator)$PreviousPath"
+    }
+    Install-UvDependencyPatch -ArgsList $ArgsList -PythonExe $RuntimePython
+    Write-Output "runtime target environment: $(Get-UvEnvName)"
+    Write-Output "runtime dependency profile: $(Get-UvProfile $ArgsList)"
+    if ($RuntimePython) {
+      & $RuntimePython "./module/captioner.py" $DatasetPath $CaptionArgs
+    } else {
+      python "./module/captioner.py" $DatasetPath $CaptionArgs
+    }
+  } finally {
+    if ($DeepSeek.Count) {
+      $env:VIRTUAL_ENV = $PreviousVenv
+      $env:PATH = $PreviousPath
+    }
+  }
+}
+
+Invoke-CaptionWithRuntime -ArgsList $uv_args -DatasetPath $dataset_path -CaptionArgs $ext_args
 $captionExitCode = $LASTEXITCODE
 if ($captionExitCode -eq 0) {
   Write-Output "Captioner finished"

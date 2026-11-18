@@ -8,11 +8,12 @@ from typing import Any
 
 from utils.stream_util import split_name_series
 
-
 DOCUMENT_OCR_PROVIDER_NAMES = frozenset(
     {
         "chandra_ocr",
         "deepseek_ocr",
+        "deepseek_ocr_native",
+        "deepseek_ocr_legacy",
         "dots_ocr",
         "firered_ocr",
         "glm_ocr",

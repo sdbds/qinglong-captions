@@ -49,10 +49,9 @@ def test_dependency_profiles_isolate_unlimited_versions_and_include_qwen35():
     }
     assert "4.57.1" in requirements["unlimited-ocr"].specifier
     assert "4.52.1" in requirements["unlimited-ocr2"].specifier
-    assert "5.6.0" in requirements["logics-ocr"].specifier
-    assert "4.57.1" not in requirements["logics-ocr"].specifier
-    assert "5.5.4" in requirements["lighton-ocr"].specifier
-    assert "5.0.0" not in requirements["lighton-ocr"].specifier
+    for name in ("logics-ocr", "lighton-ocr"):
+        assert "5.10.1" in requirements[name].specifier
+        assert all(version not in requirements[name].specifier for version in ("4.57.1", "5.6.0", "6.0.0"))
     conflicts = [{item.get("extra") for item in group} for group in project["tool"]["uv"]["conflicts"]]
     for other in ("unlimited-ocr", "logics-ocr", "lighton-ocr", "translate", "paddleocr-native"):
         assert any({"unlimited-ocr2", other} <= group for group in conflicts)

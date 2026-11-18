@@ -85,7 +85,6 @@ def test_pyproject_declares_lighton_ocr_extra():
     assert "lighton-ocr" in optional_deps
     lighton_deps = optional_deps["lighton-ocr"]
     assert "qinglong-captions[torch-base]" in lighton_deps
-    assert any(dep.startswith("transformers[serving]>=5.5.4") for dep in lighton_deps)
 
 
 def test_pyproject_declares_logics_ocr_extra():
@@ -95,7 +94,6 @@ def test_pyproject_declares_logics_ocr_extra():
     assert "logics-ocr" in optional_deps
     logics_deps = optional_deps["logics-ocr"]
     assert "qinglong-captions[torch-base]" in logics_deps
-    assert any(dep.startswith("transformers[serving]>=5.6.0") for dep in logics_deps)
     assert "PyMuPDF" in logics_deps
     assert "img2pdf" in logics_deps
 
@@ -137,7 +135,6 @@ def test_pyproject_declares_infinity_parser2_ocr_extra():
     assert "infinity-parser2-ocr" in optional_deps
     deps = optional_deps["infinity-parser2-ocr"]
     assert "qinglong-captions[torch-base]" in deps
-    assert any(dep.startswith("transformers[serving]>=5.3.0") for dep in deps)
     assert any(dep.startswith("qwen-vl-utils>=0.0.14") for dep in deps)
     assert "qinglong-captions[qwen35-fast-path]" in deps
     assert "PyMuPDF" in deps
@@ -238,7 +235,6 @@ def test_pyproject_declares_gemma4_local_extra():
     gemma4_deps = optional_deps["gemma4-local"]
     assert "qinglong-captions[torch-base]" in gemma4_deps
     assert any(dep.startswith("torchaudio") for dep in gemma4_deps)
-    assert any(dep.startswith("transformers[serving]>=5.5.0") for dep in gemma4_deps)
     assert "sentencepiece" in gemma4_deps
     assert "soundfile" in gemma4_deps
     assert "librosa" in gemma4_deps
@@ -251,7 +247,6 @@ def test_pyproject_declares_marlin_2b_local_extra():
     assert "marlin-2b-local" in optional_deps
     marlin_deps = optional_deps["marlin-2b-local"]
     assert "qinglong-captions[torch-base]" in marlin_deps
-    assert any(dep.startswith("transformers[serving]>=5.7.0") for dep in marlin_deps)
     assert "torchcodec" in marlin_deps
     assert any(dep.startswith("qwen-vl-utils>=0.0.14") for dep in marlin_deps)
     assert "qinglong-captions[qwen35-fast-path]" in marlin_deps

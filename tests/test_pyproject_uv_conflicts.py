@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+from packaging.requirements import Requirement
+
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
@@ -41,8 +44,57 @@ def _has_extra_conflict(*extras: str) -> bool:
     return any(expected <= conflict_set for conflict_set in _load_extra_conflict_sets())
 
 
-def test_deepseek_ocr_conflicts_with_lfm_vl_local():
-    assert _has_extra_conflict("deepseek-ocr", "lfm-vl-local")
+def _transformers_requirement(extra: str) -> Requirement:
+    requirements = map(Requirement, _load_optional_dependencies()[extra])
+    requirement, = (req for req in requirements if req.name == "transformers")
+    assert requirement.extras == {"serving"}
+    return requirement
+
+
+@pytest.mark.parametrize("extra", [
+    "translate", "logics-ocr", "lighton-ocr", "infinity-parser2-ocr",
+    "ovis-ocr2", "gemma4-local", "marlin-2b-local",
+])
+def test_transformers_v5_profiles_exclude_affected_and_yanked_releases(extra):
+    versions = _transformers_requirement(extra).specifier
+    assert all(v not in versions for v in ("4.57.6", "5.2.0", "5.4.0", "5.9.0", "5.10.0"))
+    assert "5.17.0" in versions
+
+
+@pytest.mark.parametrize("extra", [
+    "moondream", "olmocr", "nanonets-ocr", "firered-ocr",
+    "chandra-ocr", "step-vl-local", "reka-edge-local",
+])
+def test_flexible_transformers_profiles_exclude_pre_448_but_still_accept_v4(extra):
+    versions = _transformers_requirement(extra).specifier
+    assert all(v not in versions for v in ("4.45.2", "4.46.3", "4.47.1"))
+    assert "4.57.6" in versions
+    assert _has_extra_conflict("deepseek-ocr-legacy", extra)
+
+
+def test_legacy_deepseek_ocr_conflicts_with_lfm_vl_local():
+    assert _has_extra_conflict("deepseek-ocr-legacy", "lfm-vl-local")
+
+
+def test_default_deepseek_extra_installs_only_the_gpu_validated_transformers_release():
+    deps = _load_optional_dependencies()
+    assert deps["deepseek-ocr"] == ["qinglong-captions[deepseek-ocr-native]"]
+    native, = (requirement for requirement in map(Requirement, deps["deepseek-ocr-native"]) if requirement.name == "transformers")
+    assert str(native.specifier) == "==5.23.0"
+
+
+@pytest.mark.parametrize("name", ["deepseek-ocr", "deepseek-ocr-native"])
+def test_both_native_deepseek_names_isolate_incompatible_profiles_only(name):
+    for other in (
+        "deepseek-ocr-legacy", "paddleocr-native", "unlimited-ocr", "unlimited-ocr2", "dots-ocr",
+        "reward-model", "penguin-vl-local", "eureka-audio-local", "cohere-transcribe-local", "mega-asr-local",
+        "music-flamingo-local", "hunyuan-ocr", "glm-ocr", "qwen-vl-local",
+    ):
+        assert _has_extra_conflict(name, other), other
+    for other in ("ovis-ocr2", "logics-ocr", "lighton-ocr", "lfm-vl-local", "moondream", "nanonets-ocr"):
+        assert not _has_extra_conflict(name, other), other
+    assert not _has_extra_conflict("deepseek-ocr", "deepseek-ocr-native")
+    assert any({"extra": name} in group and {"group": "test"} in group for group in _load_conflicts())
 
 
 def test_penguin_vl_local_conflicts_with_lfm_vl_local():
@@ -84,7 +136,6 @@ def test_lighton_ocr_conflicts_with_translate():
 def test_translate_extra_uses_hy_mt2_dependency_stack():
     translate_deps = _load_optional_dependencies()["translate"]
 
-    assert "transformers[serving]>=5.6.0" in translate_deps
     assert "compressed-tensors>=0.14.0" in translate_deps
 
 
@@ -110,7 +161,7 @@ def test_paddleocr_native_extra_keeps_legacy_paddle_gpu_stack():
 def test_dots_ocr_conflicts_with_known_transformers_incompatible_extras():
     expected_pairs = [
         ("dots-ocr", "translate"),
-        ("dots-ocr", "deepseek-ocr"),
+        ("dots-ocr", "deepseek-ocr-legacy"),
         ("dots-ocr", "penguin-vl-local"),
         ("dots-ocr", "lighton-ocr"),
         ("dots-ocr", "hunyuan-ocr"),
@@ -133,7 +184,7 @@ def test_wdtagger_no_longer_conflicts_with_transformers_only_profiles():
 def test_logics_ocr_conflicts_with_known_transformers_incompatible_extras():
     expected_pairs = [
         ("logics-ocr", "translate"),
-        ("logics-ocr", "deepseek-ocr"),
+        ("logics-ocr", "deepseek-ocr-legacy"),
         ("logics-ocr", "dots-ocr"),
         ("logics-ocr", "penguin-vl-local"),
         ("logics-ocr", "music-flamingo-local"),
@@ -147,7 +198,7 @@ def test_eureka_audio_conflicts_with_known_transformers_incompatible_extras():
     expected_pairs = [
         ("eureka-audio-local", "music-flamingo-local"),
         ("eureka-audio-local", "translate"),
-        ("eureka-audio-local", "deepseek-ocr"),
+        ("eureka-audio-local", "deepseek-ocr-legacy"),
         ("eureka-audio-local", "dots-ocr"),
         ("eureka-audio-local", "penguin-vl-local"),
         ("eureka-audio-local", "qwen-vl-local"),
@@ -170,7 +221,7 @@ def test_cohere_transcribe_conflicts_with_translate():
 def test_marlin_2b_local_conflicts_with_known_transformers_incompatible_extras():
     expected_pairs = [
         ("marlin-2b-local", "translate"),
-        ("marlin-2b-local", "deepseek-ocr"),
+        ("marlin-2b-local", "deepseek-ocr-legacy"),
         ("marlin-2b-local", "dots-ocr"),
         ("marlin-2b-local", "penguin-vl-local"),
         ("marlin-2b-local", "qwen-vl-local"),
@@ -186,7 +237,7 @@ def test_marlin_2b_local_conflicts_with_known_transformers_incompatible_extras()
 def test_infinity_parser2_ocr_conflicts_with_known_transformers_incompatible_extras():
     expected_pairs = [
         ("infinity-parser2-ocr", "paddleocr-native"),
-        ("infinity-parser2-ocr", "deepseek-ocr"),
+        ("infinity-parser2-ocr", "deepseek-ocr-legacy"),
         ("infinity-parser2-ocr", "dots-ocr"),
         ("infinity-parser2-ocr", "penguin-vl-local"),
         ("infinity-parser2-ocr", "eureka-audio-local"),
@@ -202,7 +253,7 @@ def test_infinity_parser2_ocr_conflicts_with_known_transformers_incompatible_ext
 def test_unlimited_ocr_conflicts_with_known_transformers_incompatible_extras():
     expected_pairs = [
         ("unlimited-ocr", "paddleocr-native"),
-        ("unlimited-ocr", "deepseek-ocr"),
+        ("unlimited-ocr", "deepseek-ocr-legacy"),
         ("unlimited-ocr", "dots-ocr"),
         ("unlimited-ocr", "penguin-vl-local"),
         ("unlimited-ocr", "eureka-audio-local"),

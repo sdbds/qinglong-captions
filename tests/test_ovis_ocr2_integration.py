@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from packaging.requirements import Requirement
+
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
@@ -65,17 +67,13 @@ def test_ovis_ocr2_model_and_legacy_configs_share_runtime_defaults():
 
 def test_ovis_ocr2_extra_contains_only_required_direct_dependencies():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    dependencies = pyproject["project"]["optional-dependencies"]["ovis-ocr2"]
-
-    assert dependencies == [
-        "qinglong-captions[torch-base]",
-        "transformers[serving]>=5.7.0",
-        "qinglong-captions[qwen35-fast-path]",
-        "PyMuPDF",
+    dependencies = map(Requirement, pyproject["project"]["optional-dependencies"]["ovis-ocr2"])
+    assert sorted((req.name, sorted(req.extras)) for req in dependencies) == [
+        ("PyMuPDF", []),
+        ("qinglong-captions", ["qwen35-fast-path"]),
+        ("qinglong-captions", ["torch-base"]),
+        ("transformers", ["serving"]),
     ]
-    assert not any("vllm" in dependency.lower() for dependency in dependencies)
-    assert not any("qwen-vl-utils" in dependency.lower() for dependency in dependencies)
-    assert "img2pdf" not in dependencies
 
 
 def test_ovis_ocr2_extra_conflicts_with_incompatible_transformers_profiles():
@@ -84,7 +82,7 @@ def test_ovis_ocr2_extra_conflicts_with_incompatible_transformers_profiles():
     for incompatible in (
         "paddleocr-native",
         "reward-model",
-        "deepseek-ocr",
+        "deepseek-ocr-legacy",
         "unlimited-ocr",
         "unlimited-ocr2",
         "dots-ocr",

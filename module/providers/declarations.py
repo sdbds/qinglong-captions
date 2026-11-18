@@ -194,6 +194,20 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
         capabilities=capabilities(supports_images=True, supports_documents=True),
     ),
     ProviderDeclaration(
+        name="deepseek_ocr_native",
+        module_path="module.providers.ocr.deepseek_native",
+        priority=131,
+        routes=(route("ocr_model", order=81),),
+        capabilities=capabilities(supports_images=True, supports_documents=True),
+    ),
+    ProviderDeclaration(
+        name="deepseek_ocr_legacy",
+        module_path="module.providers.ocr.deepseek",
+        priority=132,
+        routes=(route("ocr_model", order=82),),
+        capabilities=capabilities(supports_images=True, supports_documents=True),
+    ),
+    ProviderDeclaration(
         name="logics_ocr",
         module_path="module.providers.ocr.logics",
         priority=140,

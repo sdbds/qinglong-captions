@@ -81,7 +81,8 @@ translate = [
     "markitdown[all]",
     "sentencepiece",
     "qinglong-captions[torch-base]",
-    "transformers[serving]>=5.6.0",
+    # 5.10.0 fixed the template-save advisory but was yanked on PyPI.
+    "transformers[serving]>=5.10.1",
     "compressed-tensors>=0.14.0",
     "matplotlib",
     "einops",
@@ -162,13 +163,13 @@ pixai-onnx-export = [
 ]
 moondream = [
     "qinglong-captions[torch-base]",
-    "transformers[serving]>=4.44.0",
+    "transformers[serving]>=4.48.0",
     "accelerate>=0.34.0",
     "Pillow>=9.5.0",
 ]
 olmocr = [
     "qinglong-captions[torch-base]",
-    "transformers[serving]>=4.44.0",
+    "transformers[serving]>=4.48.0",
     "accelerate>=0.34.0",
     "Pillow>=9.5.0",
     "sentencepiece>=0.1.99",
@@ -205,6 +206,15 @@ psdexport = [
     "psd-tools[composite]",
 ]
 deepseek-ocr = [
+    "qinglong-captions[deepseek-ocr-native]",
+]
+deepseek-ocr-native = [
+    "qinglong-captions[torch-base]",
+    # Upgrade only after repeating the native vs. legacy OCR acceptance run.
+    "transformers==5.23.0",
+    "PyMuPDF",
+]
+deepseek-ocr-legacy = [
     "qinglong-captions[torch-base]",
     "transformers[serving]==4.46.3",
     "tokenizers==0.20.3",
@@ -248,7 +258,7 @@ unlimited-ocr2 = [
 ]
 logics-ocr = [
     "qinglong-captions[torch-base]",
-    "transformers[serving]>=5.6.0,<6",
+    "transformers[serving]>=5.10.1,<6",
     "flash-attn==2.8.4; sys_platform == 'linux'",
     "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
     "Pillow>=12",
@@ -279,14 +289,14 @@ glm-ocr = [
 ]
 nanonets-ocr = [
     "qinglong-captions[torch-base]",
-    "transformers[serving]>=4.45.0",
+    "transformers[serving]>=4.48.0",
     "pillow",
     "flash-attn>=2.8.4; sys_platform != 'darwin'",
     "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
 ]
 firered-ocr = [
     "qinglong-captions[torch-base]",
-    "transformers[serving]",
+    "transformers[serving]>=4.48.0",
     "matplotlib",
     "einops",
     "addict",
@@ -300,7 +310,7 @@ firered-ocr = [
 ]
 lighton-ocr = [
     "qinglong-captions[torch-base]",
-    "transformers[serving]>=5.5.4,<6",
+    "transformers[serving]>=5.10.1,<6",
     "flash-attn==2.8.4; sys_platform == 'linux'",
     "flash-attn==2.8.4; sys_platform == 'win32' and python_version == '3.11'",
     "Pillow>=12",
@@ -331,7 +341,7 @@ qianfan-ocr = [
 infinity-parser2-ocr = [
     "qinglong-captions[torch-base]",
     "qinglong-captions[qwen35-fast-path]",
-    "transformers[serving]>=5.3.0",
+    "transformers[serving]>=5.10.1",
     "tokenizers>=0.22.2",
     "qwen-vl-utils>=0.0.14",
     "Pillow>=12",
@@ -342,14 +352,14 @@ infinity-parser2-ocr = [
 ]
 ovis-ocr2 = [
     "qinglong-captions[torch-base]",
-    "transformers[serving]>=5.7.0",
+    "transformers[serving]>=5.10.1",
     "qinglong-captions[qwen35-fast-path]",
     "PyMuPDF",
 ]
 chandra-ocr = [
     "qinglong-captions[torch-base]",
     "qinglong-captions[qwen35-fast-path]",
-    "transformers[serving]",
+    "transformers[serving]>=4.48.0",
     "matplotlib",
     "einops",
     "addict",
@@ -374,7 +384,7 @@ qwen-vl-local = [
 ]
 step-vl-local = [
     "qinglong-captions[torch-base]",
-    "transformers[serving]",
+    "transformers[serving]>=4.48.0",
     "flash-attn==2.8.4; sys_platform == 'linux'",
     "flash-attn==2.8.4; sys_platform == 'win32'",
 ]
@@ -389,7 +399,7 @@ penguin-vl-local = [
 ]
 reka-edge-local = [
     "qinglong-captions[torch-base]",
-    "transformers[serving]",
+    "transformers[serving]>=4.48.0",
     "flash-attn==2.8.4; sys_platform == 'linux'",
     "flash-attn==2.8.4; sys_platform == 'win32'",
     "tiktoken",
@@ -398,7 +408,7 @@ reka-edge-local = [
 gemma4-local = [
     "qinglong-captions[torch-base]",
     "torchaudio",
-    "transformers[serving]>=5.5.0",
+    "transformers[serving]>=5.10.1",
     "sentencepiece",
     "soundfile",
     "librosa",
@@ -407,7 +417,7 @@ gemma4-local = [
 marlin-2b-local = [
     "qinglong-captions[torch-base]",
     "qinglong-captions[qwen35-fast-path]",
-    "transformers[serving]>=5.7.0",
+    "transformers[serving]>=5.10.1",
     "torchcodec",
     "qwen-vl-utils>=0.0.14",
     "av",
@@ -501,6 +511,41 @@ allow-direct-references = true
 [tool.uv]
 package = false
 conflicts = [
+    # Keep the public default and explicit native alias compatible with one another.
+    # uv conflict groups are mutually exclusive, so each incompatibility is a pair.
+    [{ extra = "deepseek-ocr" }, { extra = "deepseek-ocr-legacy" }],
+    [{ extra = "deepseek-ocr" }, { extra = "dots-ocr" }],
+    [{ extra = "deepseek-ocr" }, { extra = "unlimited-ocr" }],
+    [{ extra = "deepseek-ocr" }, { extra = "unlimited-ocr2" }],
+    [{ extra = "deepseek-ocr" }, { extra = "penguin-vl-local" }],
+    [{ extra = "deepseek-ocr" }, { extra = "reward-model" }],
+    [{ extra = "deepseek-ocr" }, { extra = "eureka-audio-local" }],
+    [{ extra = "deepseek-ocr" }, { extra = "cohere-transcribe-local" }],
+    [{ extra = "deepseek-ocr" }, { extra = "mega-asr-local" }],
+    [{ extra = "deepseek-ocr" }, { extra = "paddleocr-native" }],
+    [{ extra = "deepseek-ocr" }, { extra = "music-flamingo-local" }],
+    [{ extra = "deepseek-ocr" }, { extra = "hunyuan-ocr" }],
+    [{ extra = "deepseek-ocr" }, { extra = "glm-ocr" }],
+    [{ extra = "deepseek-ocr" }, { extra = "qwen-vl-local" }],
+    [{ extra = "deepseek-ocr" }, { group = "test" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "deepseek-ocr-legacy" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "dots-ocr" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "unlimited-ocr" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "unlimited-ocr2" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "penguin-vl-local" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "reward-model" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "eureka-audio-local" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "cohere-transcribe-local" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "mega-asr-local" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "paddleocr-native" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "music-flamingo-local" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "hunyuan-ocr" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "glm-ocr" }],
+    [{ extra = "deepseek-ocr-native" }, { extra = "qwen-vl-local" }],
+    [{ extra = "deepseek-ocr-native" }, { group = "test" }],
+    # Only the legacy checkpoint loader requires 4.46.3.
+    [{ extra = "deepseek-ocr-legacy" }, { extra = "moondream" }],
+    [{ extra = "deepseek-ocr-legacy" }, { extra = "nanonets-ocr" }],
     # Unlimited 2 uses the upstream-tested Transformers 4.52.1 / Hub 0.36 stack.
     [{ extra = "unlimited-ocr2" }, { group = "test" }],
     [{ extra = "unlimited-ocr2" }, { extra = "unlimited-ocr" }],
@@ -510,7 +555,7 @@ conflicts = [
     [{ extra = "unlimited-ocr2" }, { extra = "see-through" }],
     [{ extra = "unlimited-ocr2" }, { extra = "wdtagger-cl-tagger-v2" }],
     [{ extra = "unlimited-ocr2" }, { extra = "pixai-onnx-export" }],
-    [{ extra = "unlimited-ocr2" }, { extra = "deepseek-ocr" }],
+    [{ extra = "unlimited-ocr2" }, { extra = "deepseek-ocr-legacy" }],
     [{ extra = "unlimited-ocr2" }, { extra = "logics-ocr" }],
     [{ extra = "unlimited-ocr2" }, { extra = "hunyuan-ocr" }],
     [{ extra = "unlimited-ocr2" }, { extra = "glm-ocr" }],
@@ -546,7 +591,7 @@ conflicts = [
         { extra = "pixai-onnx-export" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "pixai-onnx-export" },
     ],
     [
@@ -578,7 +623,7 @@ conflicts = [
         { extra = "paddleocr" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "translate" },
     ],
     [
@@ -614,47 +659,47 @@ conflicts = [
         { extra = "mega-asr-local" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "step-vl-local" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "penguin-vl-local" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "hunyuan-ocr" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "glm-ocr" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "firered-ocr" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "chandra-ocr" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "qwen-vl-local" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "reka-edge-local" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "lfm-vl-local" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "lighton-ocr" },
     ],
     [
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "dots-ocr" },
     ],
     [
@@ -663,7 +708,7 @@ conflicts = [
     ],
     [
         { extra = "logics-ocr" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
     ],
     [
         { extra = "logics-ocr" },
@@ -687,7 +732,7 @@ conflicts = [
     ],
     [
         { extra = "qianfan-ocr" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
     ],
     [
         { extra = "qianfan-ocr" },
@@ -706,7 +751,7 @@ conflicts = [
         # pinned older stacks, <5.3 caps, and forked Transformers runtimes.
         { extra = "infinity-parser2-ocr" },
         { extra = "paddleocr-native" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "dots-ocr" },
         { extra = "penguin-vl-local" },
         { extra = "eureka-audio-local" },
@@ -719,7 +764,7 @@ conflicts = [
         # pinned older stacks, <5.3 caps, and forked Transformers runtimes.
         { extra = "unlimited-ocr" },
         { extra = "paddleocr-native" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "dots-ocr" },
         { extra = "penguin-vl-local" },
         { extra = "eureka-audio-local" },
@@ -733,7 +778,7 @@ conflicts = [
         { extra = "ovis-ocr2" },
         { extra = "paddleocr-native" },
         { extra = "reward-model" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "unlimited-ocr" },
         { extra = "dots-ocr" },
         { extra = "penguin-vl-local" },
@@ -814,7 +859,7 @@ conflicts = [
     ],
     [
         { extra = "olmocr" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
     ],
     [
         { extra = "olmocr" },
@@ -870,7 +915,7 @@ conflicts = [
     ],
     [
         { extra = "paddleocr-native" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
     ],
     [
         { extra = "paddleocr-native" },
@@ -950,7 +995,7 @@ conflicts = [
     ],
     [
         { group = "test" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
     ],
     [
         { group = "test" },
@@ -1058,7 +1103,7 @@ conflicts = [
     ],
     [
         { extra = "music-flamingo-local" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
     ],
     [
         { extra = "music-flamingo-local" },
@@ -1094,7 +1139,7 @@ conflicts = [
         { extra = "eureka-audio-local" },
         { extra = "music-flamingo-local" },
         { extra = "translate" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "dots-ocr" },
         { extra = "penguin-vl-local" },
         { extra = "qwen-vl-local" },
@@ -1106,7 +1151,7 @@ conflicts = [
         # out of environments pinned to older or forked Transformers stacks.
         { extra = "marlin-2b-local" },
         { extra = "translate" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "dots-ocr" },
         { extra = "penguin-vl-local" },
         { extra = "qwen-vl-local" },
@@ -1120,7 +1165,7 @@ conflicts = [
         { extra = "acestep-transcriber-local" },
         { extra = "music-flamingo-local" },
         { extra = "translate" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "dots-ocr" },
         { extra = "penguin-vl-local" },
         { extra = "qwen-vl-local" },
@@ -1135,7 +1180,7 @@ conflicts = [
         { extra = "eureka-audio-local" },
         { extra = "acestep-transcriber-local" },
         { extra = "cohere-transcribe-local" },
-        { extra = "deepseek-ocr" },
+        { extra = "deepseek-ocr-legacy" },
         { extra = "dots-ocr" },
         { extra = "penguin-vl-local" },
         { extra = "qwen-vl-local" },

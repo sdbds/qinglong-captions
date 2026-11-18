@@ -6,6 +6,9 @@ import json
 import re
 from pathlib import Path
 
+DEEPSEEK_LEGACY_MODEL = "deepseek-ai/DeepSeek-OCR-2"
+DEEPSEEK_NATIVE_MODEL = "deepseek-community/DeepSeek-OCR-2"
+
 
 def ocr_model_version(family: str, model_id: str, model_version: str | int = "auto") -> int:
     supported = {"unlimited": (1, 2), "logics": (2, 3), "lighton": (1, 2, 3)}
@@ -48,7 +51,7 @@ def unlimited_ocr_extra(model_id: str, model_version: str | int = "auto") -> str
     return "unlimited-ocr2" if ocr_model_version("unlimited", model_id, model_version) == 2 else "unlimited-ocr"
 
 
-def unlimited_ocr_extra_from_config(config_path: str | Path) -> str:
+def _config_section(config_path: str | Path, name: str) -> dict:
     try:
         import tomllib
     except ImportError:  # The bootstrap launcher may still use Python 3.10.
@@ -56,5 +59,37 @@ def unlimited_ocr_extra_from_config(config_path: str | Path) -> str:
 
     path = Path(config_path)
     config = tomllib.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-    section = config.get("unlimited_ocr", {})
+    return config.get(name, {})
+
+
+def unlimited_ocr_extra_from_config(config_path: str | Path) -> str:
+    section = _config_section(config_path, "unlimited_ocr")
     return unlimited_ocr_extra(section.get("model_id", "baidu/Unlimited-OCR-2"), section.get("model_version", "auto"))
+
+
+def deepseek_native_model_id(
+    model_id: str, *, base_size: int = 1024, image_size: int = 768, crop_mode: bool = True,
+) -> str | None:
+    """Translate only the verified stock checkpoint; never substitute a remote model for a local directory."""
+    path = Path(model_id).expanduser()
+    if path.is_dir():
+        config = path / "config.json"
+        if config.is_file() and json.loads(config.read_text(encoding="utf-8")).get("model_type") == "deepseek_ocr2":
+            return str(path.resolve())
+        return None
+    if model_id in (DEEPSEEK_LEGACY_MODEL, DEEPSEEK_NATIVE_MODEL) and (base_size, image_size, crop_mode) == (1024, 768, True):
+        return DEEPSEEK_NATIVE_MODEL
+    return None
+
+
+def deepseek_ocr_extra(model_id: str, *, base_size: int = 1024, image_size: int = 768, crop_mode: bool = True) -> str:
+    native_id = deepseek_native_model_id(model_id, base_size=base_size, image_size=image_size, crop_mode=crop_mode)
+    return "deepseek-ocr" if native_id is not None else "deepseek-ocr-legacy"
+
+
+def deepseek_ocr_extra_from_config(config_path: str | Path) -> str:
+    section = _config_section(config_path, "deepseek_ocr")
+    return deepseek_ocr_extra(
+        section.get("model_id", DEEPSEEK_LEGACY_MODEL), base_size=section.get("base_size", 1024),
+        image_size=section.get("image_size", 768), crop_mode=section.get("crop_mode", True),
+    )
