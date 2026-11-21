@@ -3,6 +3,7 @@ import shlex
 import subprocess
 import sys
 import tomllib
+import venv
 from pathlib import Path
 
 import pytest
@@ -46,7 +47,6 @@ def test_test_workflow_uses_cpu_pytorch_index_and_uv_cache():
         "HF_HOME: huggingface",
         'XFORMERS_FORCE_DISABLE_TRITON: "1"',
         "UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu",
-        'UV_NO_BUILD_ISOLATION: "1"',
         'UV_NO_CACHE: "0"',
         "UV_LINK_MODE: symlink",
         "UV_INDEX_STRATEGY: unsafe-best-match",
@@ -70,6 +70,53 @@ def test_test_workflow_fails_fast_when_ci_test_dependency_export_fails():
     assert 'throw "render ci test project failed"' in setup
     assert 'throw "uv export failed"' in setup
     assert 'throw "uv pip install failed"' in setup
+
+
+def test_cold_ci_export_builds_source_metadata_in_isolation(tmp_path):
+    # Source-only dependency with a local PEP 517 backend; never fetch packages.
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "pyproject.toml").write_text(
+        '[build-system]\nrequires = []\nbuild-backend = "backend"\nbackend-path = ["."]\n',
+        encoding="utf-8",
+    )
+    (source / "backend.py").write_text(
+        "from pathlib import Path\nimport os, sys\n"
+        "def prepare_metadata_for_build_wheel(metadata_directory, config_settings=None):\n"
+        "    if Path(sys.prefix).resolve() == Path(os.environ['CI_RUNNER_PREFIX']).resolve():\n"
+        "        raise RuntimeError('build ran in the bare matrix interpreter')\n"
+        "    info = Path(metadata_directory) / 'source_only-1.dist-info'\n"
+        "    info.mkdir()\n"
+        "    (info / 'METADATA').write_text('Metadata-Version: 2.1\\nName: source-only\\nVersion: 1\\n')\n"
+        "    return info.name\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "ci-probe"\nversion = "1"\nrequires-python = ">=3.11"\n'
+        f'[dependency-groups]\ntest = ["source-only @ {source.as_uri()}"]\n',
+        encoding="utf-8",
+    )
+    runner = tmp_path / "runner"
+    venv.create(runner, with_pip=False)
+    python = runner / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    output = tmp_path / "requirements.txt"
+    variables = {
+        "$UvExportProjectDir": str(tmp_path), "$RunnerPython": str(python),
+        "$IndexStrategy": "unsafe-best-match", "$RequirementsFile": str(output),
+    }
+    workflow, setup = _workflow_and_setup()
+    command = next(line for line in setup.splitlines() if line.startswith("uv export "))
+    env = {k: v for k, v in os.environ.items() if not k.startswith("UV_") and k not in {"PYTHONPATH", "VIRTUAL_ENV"}}
+    env.update(UV_OFFLINE="1", UV_NO_INDEX="1", UV_CACHE_DIR=str(tmp_path / "empty-cache"), CI_RUNNER_PREFIX=str(runner))
+    build_isolation = yaml.safe_load(workflow)["env"].get("UV_NO_BUILD_ISOLATION")
+    if build_isolation is not None:
+        env["UV_NO_BUILD_ISOLATION"] = str(build_isolation)
+    result = subprocess.run(
+        [variables.get(token, token) for token in shlex.split(command)],
+        env=env, cwd=tmp_path, capture_output=True, text=True, timeout=45,
+    )
+    assert result.returncode == 0, result.stderr
+    assert any(line and not line.startswith("#") for line in output.read_text(encoding="utf-8").splitlines())
 
 
 def test_test_workflow_preinstalls_build_bootstrap_packages_before_ci_test_export():
