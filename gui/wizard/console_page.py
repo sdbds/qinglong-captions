@@ -4,6 +4,7 @@
 """
 
 from collections import deque
+from collections.abc import Iterable
 
 from nicegui import ui, context
 from gui.theme import apply_theme
@@ -12,7 +13,7 @@ from gui.utils.log_buffer import log_buffer
 from gui.utils.i18n import t
 
 _MAX_CONSOLE_LINES = 2000
-_MAX_CONSOLE_CHUNKS = 200
+_LINES_PER_BLOCK = 64
 
 
 def render_console_page():
@@ -23,8 +24,8 @@ def render_console_page():
     auto_scroll = {"value": True}
     sub_id = {"value": None}
     buffer = {"lines": []}
-    displayed_lines: deque[str] = deque(maxlen=_MAX_CONSOLE_LINES)
-    chunk_count = {"value": 0}
+    blocks: deque[tuple[ui.html, list[str]]] = deque()
+    visible_count = 0
     last_seq = {"value": 0}
     flush_timer = {"ref": None}
 
@@ -110,9 +111,10 @@ def render_console_page():
             scroll_switch.on_value_change(on_scroll_change)
 
             def clear_display():
-                displayed_lines.clear()
+                nonlocal visible_count
+                blocks.clear()
+                visible_count = 0
                 buffer["lines"].clear()
-                chunk_count["value"] = 0
                 log_container.clear()
 
             clear_btn = ui.button(icon="delete_sweep", on_click=clear_display)
@@ -126,14 +128,35 @@ def render_console_page():
     with scroll_area:
         log_container = ui.element("div").classes("console-body")
 
-    def _rebuild_dom():
-        log_container.clear()
-        chunk_count["value"] = 0
-        if displayed_lines:
-            html_parts = [converter.convert_line(line) for line in displayed_lines]
-            with log_container:
-                ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
-            chunk_count["value"] = 1
+    def append_lines(lines: Iterable[str]) -> None:
+        nonlocal visible_count
+        # Convert in stream order, including discarded lines that can change the ANSI style.
+        fresh = list(deque((converter.convert_line(line) + "<br>" for line in lines), maxlen=_MAX_CONSOLE_LINES))
+        if not fresh:
+            return
+        visible_count += len(fresh)
+        while visible_count > _MAX_CONSOLE_LINES:
+            node, rows = blocks[0]
+            drop = min(len(rows), visible_count - _MAX_CONSOLE_LINES)
+            visible_count -= drop
+            if drop == len(rows):
+                blocks.popleft()
+                node.delete()
+            else:
+                del rows[:drop]
+                node.set_content("".join(rows))
+
+        # Only the two boundary blocks can change; all interior HTML stays on the client.
+        if blocks and len(blocks[-1][1]) < _LINES_PER_BLOCK:
+            node, rows = blocks[-1]
+            room = _LINES_PER_BLOCK - len(rows)
+            rows.extend(fresh[:room])
+            node.set_content("".join(rows))
+            fresh = fresh[room:]
+        with log_container:
+            for i in range(0, len(fresh), _LINES_PER_BLOCK):
+                rows = fresh[i:i + _LINES_PER_BLOCK]
+                blocks.append((ui.html("".join(rows), sanitize=False), rows))
 
     # 先订阅再回放历史，避免回放与订阅间隙丢行
     def on_new_line(seq: int, line: str):
@@ -144,12 +167,8 @@ def render_console_page():
     # -- 回放已有日志（仅保留最近 _MAX_CONSOLE_LINES 行） --
     history = log_buffer.get_all_lines()
     if history:
-        trimmed = history[-_MAX_CONSOLE_LINES:]
-        for seq, line in trimmed:
-            displayed_lines.append(line)
-            if seq > last_seq["value"]:
-                last_seq["value"] = seq
-        _rebuild_dom()
+        last_seq["value"] = history[-1][0]
+        append_lines(line for _, line in history)
         scroll_area.scroll_to(percent=1.0)
 
     # -- 定时批量刷新（0.1s，全屏控制台可更激进，受行数与块数上限约束）--
@@ -169,18 +188,8 @@ def render_console_page():
         if not fresh_lines:
             return
 
-        will_overflow = len(displayed_lines) + len(fresh_lines) > _MAX_CONSOLE_LINES
-        displayed_lines.extend(fresh_lines)
-
         try:
-            if will_overflow or chunk_count["value"] >= _MAX_CONSOLE_CHUNKS:
-                _rebuild_dom()
-            else:
-                html_parts = [converter.convert_line(line) for line in fresh_lines]
-                with log_container:
-                    ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
-                chunk_count["value"] += 1
-
+            append_lines(fresh_lines)
             if auto_scroll["value"]:
                 scroll_area.scroll_to(percent=1.0)
         except RuntimeError:

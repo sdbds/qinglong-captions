@@ -355,6 +355,49 @@ def test_codex_app_server_pool_recovers_after_replacement_failure_and_scopes_res
     pool.close()
 
 
+def test_pool_returns_recovered_client_when_startup_exhausts_request_deadline(monkeypatch):
+    from module.providers import codex_app_server as cas
+
+    clock = [20.0]
+    created = []
+    attempts = 0
+
+    def create_client(_config):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 2:
+            raise RuntimeError("replacement unavailable")
+        if attempts == 3:
+            clock[0] += 2.0
+        client = MagicMock()
+        created.append(client)
+        return client
+
+    def caption(self, **kwargs):
+        if self.client is created[0]:
+            raise cas.CodexAppServerError("connection closed", kind="transport")
+        return "caption"
+
+    monkeypatch.setattr(cas, "_create_sdk_client", create_client)
+    monkeypatch.setattr(cas.CodexAppServerCaptionClient, "caption_image", caption)
+    pool = cas.CodexAppServerClientPool(cas.CodexAppServerConfig(), 1)
+    request = dict(image_path="unused.png", prompt="describe", timeout=0.1)
+    try:
+        with monkeypatch.context() as patch_clock:
+            patch_clock.setattr(cas, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+            with pytest.raises(cas.CodexAppServerError, match="connection closed"):
+                pool.caption_image(**request)
+            with pytest.raises(cas.CodexAppServerError, match="exhausting the request timeout"):
+                pool.caption_image(**request)
+        # The real deadline bounds this assertion even if the slot was lost.
+        assert pool.caption_image(**request) == "caption"
+    finally:
+        pool.close()
+    assert attempts == 3
+    for client in created:
+        client.close.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # 4. lanceexport.py & config/general.toml fixes
 # ---------------------------------------------------------------------------

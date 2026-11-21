@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 
 from module.wdtagger import constants
+from module.wdtagger.model_defaults import LogitsInputName
 from module.wdtagger.pixai import PixaiInferenceContext, process_pixai_batch
 from utils.console_util import print_exception
 from utils.wdtagger_siglip2 import Siglip2InferenceContext, process_siglip2_batch
@@ -111,7 +112,7 @@ def load_pil_batch(uris, *, preserve_alpha=False):
     return [uri for uri, _ in valid_pairs], [image for _, image in valid_pairs]
 
 
-def process_batch(images, session, input_name, apply_sigmoid: bool = False):
+def process_batch(images, session, input_name, apply_sigmoid: bool | None = None):
     if isinstance(input_name, PixaiInferenceContext):
         return process_pixai_batch(images, session, input_name)
     try:
@@ -121,6 +122,8 @@ def process_batch(images, session, input_name, apply_sigmoid: bool = False):
         batch_data = np.ascontiguousarray(np.stack(images))
         outputs = session.run(None, {input_name: batch_data})
 
+        if apply_sigmoid is None:
+            apply_sigmoid = isinstance(input_name, LogitsInputName)
         if not apply_sigmoid:
             return outputs[0]
 

@@ -48,7 +48,8 @@ env:
 jobs:
   full-unit:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    # The deterministic CPU rig/renderer tests run before the rest of the offline suite.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -198,4 +199,4 @@ jobs:
       - name: Verify CI and static isolation contracts
         shell: pwsh
         run: |
-          & $env:VENV_PYTHON -m pytest tests/test_test_workflow.py tests/test_test_isolation_contract.py::test_ordinary_tests_do_not_mutate_import_state_at_module_scope -q --strict-markers
+          & $env:VENV_PYTHON -m pytest tests/test_test_workflow.py tests/test_test_isolation_contract.py::test_ordinary_tests_do_not_mutate_import_state_at_module_scope -q --strict-markers --noconftest

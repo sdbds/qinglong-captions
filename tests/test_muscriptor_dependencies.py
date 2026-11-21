@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import toml
@@ -11,6 +14,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _project() -> dict:
     return toml.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+
+def test_muscriptor_module_entrypoint_can_show_help_without_model_weights():
+    result = subprocess.run(
+        [sys.executable, "-m", "module.muscriptor_tool.cli", "--help"],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "transcribe" in result.stdout
+    assert "batch" in result.stdout
 
 
 def test_muscriptor_extra_is_pinned_and_uses_shared_torch_profile():

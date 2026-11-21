@@ -22,7 +22,6 @@ class _Element:
 @pytest.fixture
 def pages(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "TABS_CONFIG_PATH", tmp_path / "tabs.toml")
-    monkeypatch.setattr(module.ExecutionTabs, "_ensure_styles", lambda self: None)
     monkeypatch.setattr(module.ExecutionTabs, "_render_tabs", lambda self: None)
     for name in ("row", "element", "icon"):
         monkeypatch.setattr(module.ui, name, lambda *args, **kwargs: _Element())

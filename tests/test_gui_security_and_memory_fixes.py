@@ -27,19 +27,98 @@ def test_apply_theme_is_idempotent(monkeypatch):
     assert css_calls[0][1].get("shared") is True
 
 
-def test_log_viewer_and_execution_tabs_inject_shared_styles(monkeypatch):
-    from gui.components import execution_tabs as tabs_mod
-    from gui.components import log_viewer as lv_mod
+def test_first_page_includes_lazy_execution_panel_styles_before_client_connects(monkeypatch):
+    from nicegui import Client, ui
+    from gui import theme
 
-    calls = []
-    monkeypatch.setattr(lv_mod.LogViewer, "_styles_injected", False)
-    monkeypatch.setattr(tabs_mod.ExecutionTabs, "_styles_injected", False)
-    monkeypatch.setattr(lv_mod.ui, "add_head_html", lambda html, **kw: calls.append(kw))
+    monkeypatch.setattr(Client, "shared_head_html", "")
+    monkeypatch.setattr(theme, "_theme_applied", False)
+    for path in ["/caption", "/import"]:
+        client = Client(ui.page(path))
+        try:
+            with client:
+                theme.apply_theme()
+            assert client.head_html.count(".task-tab-btn--active") == 1
+            assert client.head_html.count(".log-scroll-area .q-scrollarea__thumb--v") == 1
+        finally:
+            client.delete()
 
-    lv_mod.LogViewer._ensure_scroll_styles()
-    tabs_mod.ExecutionTabs._ensure_styles()
 
-    assert calls == [{"shared": True}, {"shared": True}]
+@pytest.fixture
+def live_console(monkeypatch):
+    from nicegui import Client, ui
+    from gui.utils.log_buffer import LogBuffer
+    from gui.wizard import console_page
+
+    source = LogBuffer()
+    timers = []
+    monkeypatch.setattr(console_page, "log_buffer", source)
+    monkeypatch.setattr(console_page, "apply_theme", lambda: None)
+    monkeypatch.setattr(ui, "timer", lambda _, cb: timers.append(cb) or SimpleNamespace(active=True))
+    monkeypatch.setattr(ui.scroll_area, "scroll_to", lambda *_a, **_kw: None)
+    client = Client(ui.page("/console"))
+    def open_console(history=()):
+        for line in history:
+            source.push(line)
+        with client:
+            console_page.render_console_page()
+        body = next(el for el in client.elements.values() if "console-body" in el.classes)
+        return source, timers[0], client, body
+
+    try:
+        yield open_console
+    finally:
+        client.delete()
+
+
+def _console_rows(body):
+    return [row for block in body.default_slot.children for row in block.content.split("<br>")[:-1]]
+
+
+def test_full_console_appends_without_resending_the_entire_window(live_console):
+    from nicegui import ui
+
+    source, flush, client, body = live_console()
+    for i in range(2000):
+        source.push(str(i))
+    flush()
+    for i in [2000, 2001, 2002]:
+        client.outbox.updates.clear()
+        source.push(str(i))
+        flush()
+        transmitted = [el.content for el in client.outbox.updates.values() if isinstance(el, ui.html)]
+        assert 0 < sum(block.count("<br>") for block in transmitted) < 200
+    assert _console_rows(body) == [str(i) for i in range(3, 2003)]
+
+
+def test_eviction_preserves_ansi_history_and_continues_the_live_color(live_console):
+    source, flush, _, body = live_console()
+    for i in range(1999):
+        source.push(str(i))
+    source.push("\x1b[31mred")
+    flush()
+    source.push("still red")
+    flush()
+    rows = _console_rows(body)
+    assert rows[0] == "1"
+    assert rows[-2:] == [
+        '<span style="color:#cd0000 !important">red</span>',
+        '<span style="color:#cd0000 !important">still red</span>',
+    ]
+
+
+def test_console_limits_history_and_large_batches_without_losing_ansi_state(live_console):
+    history = ["\x1b[31mstart red", *map(str, range(2000))]
+    source, flush, _, body = live_console(history)
+    rows = _console_rows(body)
+    assert len(rows) == 2000
+    assert rows[0] == '<span style="color:#cd0000 !important">0</span>'
+
+    source.push("\x1b[0mreset")
+    for i in range(3000):
+        source.push(str(i))
+    flush()
+    assert _console_rows(body) == [str(i) for i in range(1000, 3000)]
 
 
 def test_clipboard_copy_helpers_safely_encode_js_payloads(monkeypatch):

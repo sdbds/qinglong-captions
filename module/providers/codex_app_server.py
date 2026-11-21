@@ -1187,28 +1187,29 @@ class CodexAppServerClientPool:
     ) -> CodexAppServerResult:
         deadline = _timeout_deadline(timeout)
         client = self._acquire_client(deadline)
-        client_timeout = _remaining_timeout_for_stage(deadline, "caption_image") if deadline is not None else timeout
+        discard_client = False
         try:
-            result = client.caption_image(
-                image_path=image_path,
-                prompt=prompt,
-                output_schema=output_schema,
-                structured=structured,
-                timeout=client_timeout,
-                progress_callback=progress_callback,
-            )
-        except CodexAppServerError as exc:
-            if _should_reset_client_after_failure(exc.kind):
-                client.close()
-                self._replace_closed_client()
+            client_timeout = _remaining_timeout_for_stage(deadline, "caption_image") if deadline is not None else timeout
+            try:
+                return client.caption_image(
+                    image_path=image_path,
+                    prompt=prompt,
+                    output_schema=output_schema,
+                    structured=structured,
+                    timeout=client_timeout,
+                    progress_callback=progress_callback,
+                )
+            except CodexAppServerError as exc:
+                discard_client = _should_reset_client_after_failure(exc.kind)
+                raise
+        finally:
+            if discard_client:
+                try:
+                    client.close()
+                finally:
+                    self._replace_closed_client()
             else:
                 self._return_client(client)
-            raise
-        except Exception:
-            self._return_client(client)
-            raise
-        self._return_client(client)
-        return result
 
 
 _CLIENT_CACHE: dict[tuple[Any, ...], CodexAppServerCaptionClient] = {}

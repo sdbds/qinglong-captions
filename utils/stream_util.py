@@ -471,45 +471,31 @@ def calculate_dimensions(
     Returns:
         一个包含新 (宽度, 高度) 的元组。
     """
-    if max_pixels is None and max_long_edge is None and max_short_edge is None:
-        # 如果没有提供限制，则仅将尺寸调整为 img_scale_num 的倍数
-        new_width = max(img_scale_num, round(width / img_scale_num) * img_scale_num)
-        new_height = max(img_scale_num, round(height / img_scale_num) * img_scale_num)
-        return int(new_width), int(new_height)
+    step = img_scale_num
+    if min(width, height, step) <= 0:
+        raise ValueError("width, height and img_scale_num must be positive")
+    if any(limit is not None and limit < step for limit in (max_long_edge, max_short_edge)):
+        raise ValueError("edge limits must allow at least one img_scale_num step")
+    if max_pixels is not None and max_pixels < step * step:
+        raise ValueError("max_pixels must allow at least one grid cell")
 
-    # 1. 根据 max_long_edge 计算缩放因子
-    scale_factor_side = 1.0
+    # Apply limits in whole grid cells before rounding either edge.
+    long, short = max(width, height) / step, min(width, height) / step
+    scale = 1.0
     if max_long_edge is not None:
-        long_edge = max(width, height)
-        if long_edge > max_long_edge:
-            scale_factor_side = max_long_edge / long_edge
-
+        scale = min(scale, (max_long_edge // step) / long)
     if max_short_edge is not None:
-        short_edge = min(width, height)
-        if short_edge > max_short_edge:
-            short_edge_scale_factor = max_short_edge / short_edge
-            # Use the smaller scaling factor to satisfy both constraints
-            scale_factor_side = min(scale_factor_side, short_edge_scale_factor)
+        scale = min(scale, (max_short_edge // step) / short)
+    cells = None if max_pixels is None else max_pixels // (step * step)
+    if cells is not None:
+        # Even an extremely thin image needs one full cell on its short edge.
+        scale = min(scale, math.sqrt(cells / (long * short)), cells / long)
 
-    # 2. 根据 max_pixels 计算缩放因子
-    scale_factor_pixels = 1.0
-    if max_pixels is not None:
-        current_pixels = width * height
-        if current_pixels > max_pixels:
-            scale_factor_pixels = math.sqrt(max_pixels / current_pixels)
-
-    # 3. 确定最终的缩放因子（取限制性更强的那个）
-    final_scale_factor = min(scale_factor_side, scale_factor_pixels)
-
-    # 4. 计算新尺寸
-    new_width = width * final_scale_factor
-    new_height = height * final_scale_factor
-
-    # 5. 调整尺寸使其为 img_scale_num 的倍数
-    final_width = max(img_scale_num, round(new_width / img_scale_num) * img_scale_num)
-    final_height = max(img_scale_num, round(new_height / img_scale_num) * img_scale_num)
-
-    return int(final_width), int(final_height)
+    long, short = long * scale, short * scale
+    a, b = max(1, round(long)), max(1, round(short))
+    if cells is not None and a * b > cells:
+        a, b = max(1, math.floor(long)), max(1, math.floor(short))
+    return (a * step, b * step) if width >= height else (b * step, a * step)
 
 
 def split_name_series(names: str) -> str:

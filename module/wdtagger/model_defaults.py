@@ -24,6 +24,10 @@ PIXAI_THRESHOLDS = {"general": 0.17, "character": 0.27, "style": 0.15, "copyrigh
 _VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)([a-z]+)?$")
 
 
+class LogitsInputName(str):
+    """An ONNX feed name for a legacy tagger that returns logits, not probabilities."""
+
+
 def is_pixai_repo(repo_id: str) -> bool:
     return str(repo_id).strip() in {PIXAI_REPO_ID, PIXAI_SOURCE_REPO_ID}
 

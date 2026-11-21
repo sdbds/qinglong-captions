@@ -7,6 +7,7 @@ from __future__ import annotations
 #   "pylance>=2.0.1",
 #   "pysrt",
 #   "rich>=13.5.0",
+#   "markdown-it-py>=3",
 #   "imageio>=2.31.1",
 #   "imageio-ffmpeg>=0.4.8",
 #   "numpy",
@@ -51,7 +52,7 @@ from utils.file_hash import sha256_file
 from utils.lance_utils import DERIVED_EXPORT_MARKER as _DERIVED_EXPORT_MARKER
 from utils.lance_blob import take_blob_files
 from utils.console_util import print_exception
-from utils.ocr_export import OCRAsset, plan_ocr_image_assets, publish_ocr_image_assets, rebase_ocr_page_images
+from utils.ocr_export import OCRAsset, plan_ocr_image_assets, publish_ocr_image_assets, rewrite_page_images
 from utils.output_writer import ResolvedPaths, caption_extension_from_payload, caption_path_avoiding_sources, caption_text, disambiguate_caption_bases, normalize_caption_extension
 from utils.path_safety import safe_leaf_name
 from utils.stream_util import split_media_stream_clips, split_video_with_imageio_ffmpeg
@@ -345,7 +346,7 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str], *, rebas
 
                     # 保存部分内容
                     section_file_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(section_file_path, "w", encoding="utf-8") as f:
+                    with open(section_file_path, "w", encoding="utf-8", newline="") as f:
                         f.write(section_content)
 
                     console.print(
@@ -359,7 +360,7 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str], *, rebas
                 output_dir.mkdir(parents=True, exist_ok=True)
                 single_file_path = output_dir / f"{caption_path.stem}.md"
 
-                with open(single_file_path, "w", encoding="utf-8") as f:
+                with open(single_file_path, "w", encoding="utf-8", newline="") as f:
                     f.write(combined_text)
                 console.print(f"[{CONSOLE_COLORS['text']}]text: {single_file_path} saved successfully.[/{CONSOLE_COLORS['text']}]")
                 return True
@@ -407,9 +408,6 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str], *, rebas
             # 移除页脚
             page_content = re.sub(r'(?s)<footer\s+style="[^"]*">.*?</footer>', "", page_content)
 
-            # 清理可能的多余空行
-            page_content = re.sub(r"\n{3,}", "\n\n", page_content)
-
             # 添加到页面内容列表
             page_contents.append((page_number, page_content))
 
@@ -419,31 +417,13 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str], *, rebas
 
         # 保存每一页为独立文件
         for page_number, page_content in page_contents:
-            # 处理图片路径，将路径从子文件夹改为同级
-            img_pattern = r"!\[(.*?)\]\(([^/]+)/([^/)]+)\)"
-
-            # 先处理图片路径，将路径从子文件夹改为同级，再移除重复引用（保留首次出现）
-            processed_page_content = re.sub(img_pattern, r"![\1](\3)", page_content)
-            seen_images = set()
-            normalized_img_pattern = r"!\[([^\]]*)\]\(([^)]+)\)"
-
-            def _dedupe_image(match):
-                img_ref = match.group(2)
-                if img_ref in seen_images:
-                    return ""
-                seen_images.add(img_ref)
-                return match.group(0)
-
-            processed_page_content = re.sub(normalized_img_pattern, _dedupe_image, processed_page_content)
-
-            if rebase_ocr_images:
-                processed_page_content = rebase_ocr_page_images(processed_page_content)
+            processed_page_content = rewrite_page_images(page_content, rebase=rebase_ocr_images)
 
             page_filename = f"{caption_path.stem}_{page_number}.md"
             page_file_path = output_dir / page_filename
 
             # 保存页面内容
-            with open(page_file_path, "w", encoding="utf-8") as f:
+            with open(page_file_path, "w", encoding="utf-8", newline="") as f:
                 f.write(processed_page_content)
 
             console.print(f"[{CONSOLE_COLORS['text']}]text: {page_file_path} saved successfully.[/{CONSOLE_COLORS['text']}]")

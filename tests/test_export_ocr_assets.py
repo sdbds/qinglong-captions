@@ -14,6 +14,96 @@ from module.caption_pipeline.postprocess import postprocess_caption_content
 from module.lanceexport import extract_from_lance
 from tests.test_export_integrity import _dataset, _png
 from utils.ocr_artifacts import relative_artifact_url, reserve_ocr_artifact_dir
+from utils.output_writer import write_caption_output
+
+
+@pytest.mark.parametrize("extract_images, route", [(True, "mistral_ocr"), (False, "")])
+def test_mistral_pdf_preserves_pages_and_requested_images_through_postprocessing(tmp_path, monkeypatch, extract_images, route):
+    from unittest.mock import Mock
+
+    from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
+    from module.providers.vision_api import pixtral
+
+    source = tmp_path / "scan.pdf"
+    source.write_bytes(b"%PDF")
+    image_bytes = _png("green")
+    payload = base64.b64encode(image_bytes).decode() if extract_images else None
+    images = [SimpleNamespace(id=name, image_base64=payload) for name in ("fig #1.png", "fig(2).png")]
+    pages = [
+        SimpleNamespace(index=0, markdown='### A heading\n![chart](fig #1.png)\n![plot](fig(2).png "Plot")'
+                                          '\n`![example](fig #1.png)`', images=images),
+        SimpleNamespace(index=1, markdown="", images=[]),
+        SimpleNamespace(index=2, markdown="Final page", images=[]),
+    ]
+    client = Mock()
+    client.ocr.process.return_value = SimpleNamespace(pages=pages)
+    monkeypatch.setattr(pixtral, "_create_mistral_client", lambda args: client)
+    args = SimpleNamespace(mistral_api_key="test", ocr_model=route, document_image=extract_images, mode="short")
+    console = Console(file=io.StringIO())
+    provider = pixtral.MistralOCRProvider(ProviderContext(args=args, config={}, console=console))
+    media = MediaContext(uri=str(source), mime="application/pdf", sha256hash="", modality=MediaModality.DOCUMENT,
+                         extras={"signed_url": "https://example.invalid/scan.pdf"})
+
+    response = provider.attempt(media, PromptContext(system="", user=""))
+    result = postprocess_caption_content(response, source, args, console)
+
+    assert result.is_persistable and result.metadata["provider"] == "mistral_ocr"
+    caption, _ = write_caption_output(source, result, media.mime)
+    markdown = caption.read_text(encoding="utf-8")
+    assert markdown.count("<header") == 3 and markdown.count("<footer") == 3
+    assert markdown.index("### A heading") < markdown.index(" Page 2 ") < markdown.index("Final page")
+    link = unquote(re.search(r"!\[chart\]\(([^)]+)\)", markdown).group(1))
+    if extract_images:
+        assert (source.parent / link).read_bytes() == image_bytes
+        plot = re.search(r'!\[plot\]\(([^ ]+) "Plot"\)', markdown).group(1)
+        assert (source.parent / unquote(plot)).read_bytes() == image_bytes
+        assert "`![example](fig #1.png)`" in markdown
+    else:
+        assert not list(tmp_path.rglob("*.png"))
+    assert client.ocr.process.call_args.kwargs["include_image_base64"] is extract_images
+
+
+def test_blank_ocr_pages_cannot_replace_a_caption_with_only_headers(tmp_path):
+    from module.providers.base import PagedOCRResult
+
+    response = PagedOCRResult(raw="", pages=[SimpleNamespace(index=0, markdown="  ", images=[])])
+    result = postprocess_caption_content(response, tmp_path / "empty.pdf", SimpleNamespace(), Console(file=io.StringIO()))
+    assert not result.is_persistable
+
+
+@pytest.mark.parametrize("extract", [True, False])
+def test_image_only_ocr_page_cannot_publish_unreferenced_figures(tmp_path, extract):
+    from module.providers.base import PagedOCRResult
+
+    data = _png("green")
+    figure = SimpleNamespace(id="only figure.png", image_base64=base64.b64encode(data).decode())
+    page = SimpleNamespace(index=0, markdown="", images=[figure])
+    result = postprocess_caption_content(
+        PagedOCRResult(raw="", pages=[page]), tmp_path / "scan.pdf", SimpleNamespace(document_image=extract),
+        Console(file=io.StringIO()),
+    )
+    if extract:
+        assert result.is_persistable
+        links = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", result.raw)
+        assert len(links) == 1 and (tmp_path / unquote(links[0])).read_bytes() == data
+    else:
+        assert not result.is_persistable and not list(tmp_path.rglob("*.png"))
+
+
+def test_ocr_links_prefer_the_complete_decoded_id_over_an_ambiguous_filename(tmp_path):
+    source = tmp_path / "scan.pdf"
+    images = [
+        SimpleNamespace(id=f"scans {label}/diagram.png", image_base64=base64.b64encode(_png(color)).decode())
+        for label, color in (("A", "red"), ("B", "blue"))
+    ]
+    page = SimpleNamespace(index=0, images=images, markdown=(
+        "![a](scans%20A/diagram.png)\n![b](scans%20B/diagram.png)\n![ambiguous](diagram.png)"
+    ))
+    result = postprocess_caption_content([page], source, SimpleNamespace(document_image=True), Console(file=io.StringIO()))
+    for label, color in (("a", "red"), ("b", "blue")):
+        link = re.search(rf"!\[{label}\]\(([^)]+)\)", result.raw).group(1)
+        assert (source.parent / unquote(link)).read_bytes() == _png(color)
+    assert "![ambiguous](diagram.png)" in result.raw
 
 
 def _ocr_document(tmp_path, *, name="scan.pdf", color="blue"):

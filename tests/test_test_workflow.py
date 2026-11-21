@@ -1,3 +1,7 @@
+import os
+import shlex
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -174,6 +178,22 @@ def test_test_workflow_has_lightweight_static_correctness_gate():
         "tests/test_test_isolation_contract.py::test_ordinary_tests_do_not_mutate_import_state_at_module_scope "
         "-q --strict-markers"
     ) in steps_run
+
+
+def test_static_pytest_command_collects_without_runtime_dependencies():
+    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["static-correctness"]
+    command = next(step["run"] for step in job["steps"] if "-m pytest " in step.get("run", ""))
+    args = shlex.split(command.split("-m pytest ", 1)[1])
+    # A full development venv must not mask imports missing from the lint job.
+    probe = (
+        "import sys; sys.modules['torch'] = sys.modules['rich'] = None; "
+        "import pytest; sys.exit(pytest.main(['--collect-only', *sys.argv[1:]]))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe, *args], cwd=ROOT, capture_output=True, text=True,
+        env={**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"}, timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_test_workflow_covers_all_runtime_and_ci_trigger_roots():

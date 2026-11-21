@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 from urllib.parse import unquote
 
+from utils.markdown_images import iter_image_links
 from utils.ocr_artifacts import (
     OCR_ARTIFACT_ROOT,
     ensure_ocr_artifact_root,
@@ -20,10 +21,7 @@ from utils.ocr_artifacts import (
     require_ocr_artifact_root,
 )
 
-_IMAGE_URLS = (
-    re.compile(r"!\[[^\]\n]*\]\((?P<url><[^>\n]+>|[^)\s]+)(?=\s|\))"),
-    re.compile(r"<img\b[^>\n]*?\s+src\s*=\s*(?P<quote>['\"])(?P<url>[^'\"\n]+)(?=(?P=quote))", re.IGNORECASE),
-)
+_LEGACY_PAGE_IMAGE = re.compile(r"(?!\.{1,2}/)[^/:?#\\]+/([^/\\?#]+)")
 _RUN_NAME = re.compile(r"[a-f0-9]{16}-[a-z0-9_]{8}")
 _PORTABLE_SOURCE = ".portable-source"
 
@@ -42,18 +40,42 @@ def _managed_parts(url: str) -> tuple[str, ...] | None:
     return parts
 
 
-def rebase_ocr_page_images(markdown: str) -> str:
-    """Pages are published one directory below their parent caption."""
-    def replace(match: re.Match) -> str:
-        url = match["url"]
-        if _managed_parts(url) is None:
-            return match[0]
-        relative = f"<../{url[1:]}" if url.startswith("<") else f"../{url}"
-        return match[0][:match.start("url") - match.start()] + relative
+def rewrite_page_images(markdown: str, *, rebase: bool, normalize_legacy: bool = True) -> str:
+    links = list(iter_image_links(markdown))
+    flat_targets = {}
+    if normalize_legacy:
+        for link in links:
+            if link.is_markdown:
+                match = _LEGACY_PAGE_IMAGE.fullmatch(link.href)
+                target = match[1] if match else link.href
+                flat_targets.setdefault(target, set()).add(link.href)
 
-    for pattern in _IMAGE_URLS:
-        markdown = pattern.sub(replace, markdown)
-    return markdown
+    seen, pieces, cursor = set(), [], 0
+    for link in links:
+        url = markdown[link.url_start:link.url_end]
+        if normalize_legacy and link.is_markdown and link.href in seen:
+            pieces.append(markdown[cursor:link.start])
+            cursor = link.end
+            continue
+        if link.is_markdown:
+            seen.add(link.href)
+        if rebase and _managed_parts(link.href) is not None:
+            replacement = "../" + url
+        elif normalize_legacy and link.is_markdown and (match := _LEGACY_PAGE_IMAGE.fullmatch(link.href)):
+            # Flatten old one-folder layouts only when distinct images cannot collide.
+            if len(flat_targets[match[1]]) != 1 or "/" not in url:
+                continue
+            replacement = url.split("/", 1)[1]
+        else:
+            continue
+        pieces.extend((markdown[cursor:link.url_start], replacement))
+        cursor = link.url_end
+    pieces.append(markdown[cursor:])
+    return "".join(pieces)
+
+
+def rebase_ocr_page_images(markdown: str) -> str:
+    return rewrite_page_images(markdown, rebase=True, normalize_legacy=False)
 
 
 def _physical_entry(path: Path, *, directory: bool) -> os.stat_result | None:
@@ -141,19 +163,18 @@ class OCRAsset:
 
 def plan_ocr_image_assets(markdown: str, source: Path, caption_target: Path, media_target: Path) -> set[OCRAsset]:
     assets = set()
-    for pattern in _IMAGE_URLS:
-        for match in pattern.finditer(markdown):
-            parts = _managed_parts(match["url"])
-            if parts is None:
-                continue
-            if not _RUN_NAME.fullmatch(parts[1]):
-                raise ValueError(f"Invalid OCR asset run: {match['url']}")
-            # Markdown resolves beside the caption; a later Lance import resolves beside the media.
-            for parent in {caption_target.parent, media_target.parent}:
-                assets.add(OCRAsset(
-                    source.parent.resolve() / parts[0], parent / parts[0], parts[1:],
-                    source.name, media_target.name,
-                ))
+    for link in iter_image_links(markdown):
+        parts = _managed_parts(link.href)
+        if parts is None:
+            continue
+        if not _RUN_NAME.fullmatch(parts[1]):
+            raise ValueError(f"Invalid OCR asset run: {link.href}")
+        # Markdown resolves beside the caption; a later Lance import resolves beside the media.
+        for parent in {caption_target.parent, media_target.parent}:
+            assets.add(OCRAsset(
+                source.parent.resolve() / parts[0], parent / parts[0], parts[1:],
+                source.name, media_target.name,
+            ))
     for asset in sorted(assets, key=lambda item: item.destination):
         asset.verify_source()
         asset.verify_destination()

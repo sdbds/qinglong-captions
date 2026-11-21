@@ -16,7 +16,7 @@ from rich.text import Text
 from rich_pixels import Pixels
 
 from module.providers.catalog import get_first_attr, route_matches_provider
-from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
+from module.providers.base import CaptionResult, MediaContext, MediaModality, PagedOCRResult, PromptContext
 from module.providers.registry import register_provider
 from module.providers.utils import build_vision_messages
 from module.providers.vision_api_base import VisionAPIProvider
@@ -47,6 +47,73 @@ def _create_mistral_client(args) -> Any:
         api_key=get_first_attr(args, "mistral_api_key", "pixtral_api_key", default="")
     )
 
+
+def _request_pdf_ocr(
+    *,
+    client: Any,
+    uri: str,
+    console: Console,
+    progress: Optional[Progress],
+    task_id: Optional[Any],
+    document_image: bool,
+    signed_url_url: Optional[str],
+) -> PagedOCRResult:
+    start_time = time.time()
+    ocr_response = client.ocr.process(
+        model="mistral-ocr-latest",
+        document={
+            "type": "document_url",
+            "document_url": signed_url_url,
+        },
+        include_image_base64=document_image,
+    )
+    pages = ocr_response.pages
+    console.print(f"[bold cyan]PDF共有 {len(pages)} 页[/bold cyan]")
+    page_markdowns: List[str] = []
+
+    for page in pages:
+        # Try preview first image on the page
+        ocr_pixels = None
+        if page.images and len(page.images) > 0:
+            first_image = page.images[0]
+            if hasattr(first_image, "image_base64") and first_image.image_base64:
+                try:
+                    base64_str = first_image.image_base64
+                    if base64_str.startswith("data:"):
+                        base64_content = base64_str.split(",", 1)[1]
+                        image_data = base64.b64decode(base64_content)
+                    else:
+                        image_data = base64.b64decode(base64_str)
+                    with Image.open(io.BytesIO(image_data)) as ocr_image:
+                        ocr_pixels = Pixels.from_image(
+                            ocr_image,
+                            resize=(max(1, ocr_image.width // 18), max(1, ocr_image.height // 18)),
+                        )
+                except Exception as e:
+                    print_exception(console, e, prefix="Error loading image", summary_style="yellow")
+                    ocr_pixels = None
+            else:
+                console.print("[yellow]Image found but no base64 data available[/yellow]")
+        page_md = str(getattr(page, "markdown", "") or "")
+        if page_md.strip():
+            page_markdowns.append(page_md)
+        display_markdown(
+            title=f"{Path(uri).name} - Page {page.index + 1}",
+            markdown_content=page_md,
+            pixels=ocr_pixels,
+            panel_height=32,
+            console=console,
+        )
+
+    elapsed_time = time.time() - start_time
+    if progress and task_id is not None:
+        progress.update(task_id, description="Generating captions")
+    if elapsed_time < 0:
+        elapsed_time = 0
+    console.print(f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds")
+    return PagedOCRResult(raw="\n\n".join(page_markdowns), pages=pages, metadata={"provider": "mistral_ocr"})
+
+
 def attempt_pixtral(
     *,
     client: Any,
@@ -76,67 +143,16 @@ def attempt_pixtral(
     Returns:
       - For image chat: str content (model response)
       - For image OCR: str markdown
-      - For application OCR: list of pages (each with markdown/optional image), and side-effect displays
+      - For application OCR: joined Markdown text (legacy helper)
     May raise exceptions like RETRY_PIXTRAL_* to trigger with_retry.
     """
-    start_time = time.time()
-
     if mime.startswith("application"):
-        # PDF OCR path
-        ocr_response = client.ocr.process(
-            model="mistral-ocr-latest",
-            document={
-                "type": "document_url",
-                "document_url": signed_url_url,
-            },
-            include_image_base64=document_image,
-        )
-        pages = ocr_response.pages
-        console.print(f"[bold cyan]PDF共有 {len(pages)} 页[/bold cyan]")
-        page_markdowns: List[str] = []
+        return _request_pdf_ocr(
+            client=client, uri=uri, console=console, progress=progress, task_id=task_id,
+            document_image=document_image, signed_url_url=signed_url_url,
+        ).raw
 
-        for page in pages:
-            # Try preview first image on the page
-            ocr_pixels = None
-            if page.images and len(page.images) > 0:
-                first_image = page.images[0]
-                if hasattr(first_image, "image_base64") and first_image.image_base64:
-                    try:
-                        base64_str = first_image.image_base64
-                        if base64_str.startswith("data:"):
-                            base64_content = base64_str.split(",", 1)[1]
-                            image_data = base64.b64decode(base64_content)
-                        else:
-                            image_data = base64.b64decode(base64_str)
-                        with Image.open(io.BytesIO(image_data)) as ocr_image:
-                            ocr_pixels = Pixels.from_image(
-                                ocr_image,
-                                resize=(max(1, ocr_image.width // 18), max(1, ocr_image.height // 18)),
-                            )
-                    except Exception as e:
-                        print_exception(console, e, prefix="Error loading image", summary_style="yellow")
-                        ocr_pixels = None
-                else:
-                    console.print("[yellow]Image found but no base64 data available[/yellow]")
-            page_md = str(getattr(page, "markdown", "") or "")
-            if page_md.strip():
-                page_markdowns.append(page_md)
-            display_markdown(
-                title=f"{Path(uri).name} - Page {page.index + 1}",
-                markdown_content=page_md,
-                pixels=ocr_pixels,
-                panel_height=32,
-                console=console,
-            )
-
-        elapsed_time = time.time() - start_time
-        if progress and task_id is not None:
-            progress.update(task_id, description="Generating captions")
-        if elapsed_time < 0:
-            elapsed_time = 0
-        console.print(f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds")
-        return "\n\n".join(page_markdowns)
-
+    start_time = time.time()
     if ocr:
         # Image OCR
         ocr_response = client.ocr.process(
@@ -331,10 +347,8 @@ class MistralOCRProvider(VisionAPIProvider):
             if not signed_url:
                 return CaptionResult.failed("PDF upload failed", metadata={"error": "PDF upload failed"})
 
-            result = attempt_pixtral(
+            return _request_pdf_ocr(
                 client=client,
-                model_path=get_first_attr(self.ctx.args, "mistral_model_path", "pixtral_model_path", default=""),
-                mime=media.mime,
                 console=self.ctx.console,
                 progress=self.ctx.progress,
                 task_id=self.ctx.task_id,

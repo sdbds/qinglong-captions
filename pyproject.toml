@@ -13,7 +13,9 @@ dependencies = [
     "filelock>=3.32.3,<4",
     "pylance>=6.0.1",
     "rich",
+    "markdown-it-py>=3",
     "rich_pixels",
+    "psutil; sys_platform == 'win32'",  # Terminate the full headless CLI process tree on timeout.
     "pandas",
     "pillow>=13.0.0",
     "pillow-heif",
@@ -502,6 +504,9 @@ test = [
     "pytest",
     "ruff==0.12.2",
     "einops",
+    "diffusers>=0.35.1",
+    # Arrow 26 checks for NumPy 2 at import; the CPU geometry reference needs 1.26.
+    "pyarrow<26",
     "transformers>=4.57.0",
     "torch==2.11.0",
     "torchvision",

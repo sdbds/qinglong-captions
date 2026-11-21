@@ -5,7 +5,7 @@ import json
 import mimetypes
 import re
 from pathlib import Path, PureWindowsPath
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import pysrt
 
@@ -15,12 +15,13 @@ from config.config import (
     IMAGE_EXTENSIONS_SET,
     VIDEO_EXTENSIONS_SET,
 )
-from module.providers.base import CaptionResult, CaptionStatus
+from module.providers.base import CaptionResult, CaptionStatus, PagedOCRResult
 from module.providers.image_template import (
     active_image_template,
     postprocess_image_template_text,
 )
 from utils.caption_modes import normalize_sectioned_caption
+from utils.markdown_images import iter_image_links
 from utils.ocr_artifacts import relative_artifact_url, reserve_ocr_artifact_dir
 from utils.parse_display import extract_code_block_content, process_llm_response
 from utils.path_safety import safe_child_path, safe_leaf_name
@@ -47,6 +48,7 @@ def _assign_ocr_image_names(images) -> tuple[list[str], dict[str, str], dict[str
     assigned_names: list[str] = []
     raw_name_map: dict[str, str] = {}
     leaf_name_map: dict[str, str] = {}
+    ambiguous_leaves: set[str] = set()
     used_names: set[str] = set()
 
     for index, image in enumerate(images, start=1):
@@ -64,9 +66,14 @@ def _assign_ocr_image_names(images) -> tuple[list[str], dict[str, str], dict[str
 
         if raw_name:
             leaf_name = Path(raw_name.replace("\\", "/")).name
-            if leaf_name and leaf_name not in leaf_name_map:
-                leaf_name_map[leaf_name] = safe_name
+            if leaf_name:
+                if leaf_name in leaf_name_map:
+                    ambiguous_leaves.add(leaf_name)
+                else:
+                    leaf_name_map[leaf_name] = safe_name
 
+    for name in ambiguous_leaves:
+        del leaf_name_map[name]
     return assigned_names, raw_name_map, leaf_name_map
 
 
@@ -74,19 +81,33 @@ def _rewrite_ocr_image_paths(markdown: str, parent_dir: str, raw_name_map: dict[
     if not raw_name_map and not leaf_name_map:
         return markdown
 
-    pattern = re.compile(r"!\[(.*?)\]\(([^)]+)\)")
+    # Some OCR IDs contain literal spaces in unbracketed Markdown destinations.
+    # Mask only known IDs while parsing; source offsets and untouched text stay exact.
+    scan = markdown
+    spaced = sorted((name for name in raw_name_map.keys() | leaf_name_map.keys() if " " in name), key=len, reverse=True)
+    if spaced:
+        names = "|".join(re.escape(name) for name in spaced)
+        scan = re.sub(r"(?<=[(/\\])(?:" + names + r")(?=\)|[ \t]+[\"'(])",
+                      lambda m: m[0].replace(" ", "_"), markdown)
 
-    def replace(match: re.Match[str]) -> str:
-        target = match.group(2).strip()
-        normalized_target = target.replace("\\", "/")
-        safe_name = raw_name_map.get(target) or raw_name_map.get(normalized_target)
-        if not safe_name:
-            safe_name = leaf_name_map.get(Path(normalized_target).name)
-        if not safe_name:
-            return match.group(0)
-        return f"![{match.group(1)}]({parent_dir}/{quote(safe_name)})"
-
-    return pattern.sub(replace, markdown)
+    parts = []
+    offset = 0
+    for link in iter_image_links(scan):
+        target = markdown[link.url_start:link.url_end]
+        if re.match(r"(?:[a-z][a-z0-9+.-]*:|//|#)", target, re.IGNORECASE):
+            continue
+        candidates = [target, target.replace("\\", "/")]
+        if scan[link.url_start:link.url_end] == target:
+            candidates.append(unquote(link.href))
+        safe_name = next((raw_name_map[key] for key in candidates if key in raw_name_map), None)
+        if safe_name is None:
+            leaves = (Path(key).name for key in candidates)
+            safe_name = next((leaf_name_map[key] for key in leaves if key in leaf_name_map), None)
+        if safe_name:
+            parts.extend((markdown[offset:link.url_start], f"{parent_dir}/{quote(safe_name)}"))
+            offset = link.url_end
+    parts.append(markdown[offset:])
+    return "".join(parts)
 
 
 def _decode_base64_image(image_base64: str) -> bytes:
@@ -188,7 +209,9 @@ def postprocess_caption_content(output, filepath, args, console):
         return output
 
     metadata = dict(output.metadata) if isinstance(output, CaptionResult) else {}
-    if isinstance(output, CaptionResult):
+    if isinstance(output, PagedOCRResult):
+        output = output.pages
+    elif isinstance(output, CaptionResult):
         output = output.payload
 
     if not output:
@@ -204,6 +227,7 @@ def postprocess_caption_content(output, filepath, args, console):
         if output and hasattr(output[0], "markdown") and hasattr(output[0], "index"):
             combined_output = []
             artifact_dir = None
+            has_content = False
             for page_number, page in enumerate(output, start=1):
                 page_index = page.index if hasattr(page, "index") else "unknown"
                 combined_output.append(
@@ -212,7 +236,7 @@ def postprocess_caption_content(output, filepath, args, console):
                     "</header>\n\n"
                 )
 
-                page_markdown = page.markdown if hasattr(page, "markdown") else str(page)
+                page_markdown = str(getattr(page, "markdown", "") or "")
                 page_images = list(getattr(page, "images", []) or [])
                 page_images = [image for image in page_images if getattr(image, "image_base64", "")]
                 if page_images and getattr(args, "document_image", False):
@@ -226,6 +250,8 @@ def postprocess_caption_content(output, filepath, args, console):
                     for image, image_name in zip(page_images, image_names):
                         try:
                             image_data = _decode_base64_image(image.image_base64)
+                            if not image_data:
+                                raise ValueError("Empty OCR image data")
                             image_path = safe_child_path(image_dir, image_name)
                             with image_path.open("xb") as image_file:
                                 image_file.write(image_data)
@@ -233,13 +259,20 @@ def postprocess_caption_content(output, filepath, args, console):
                         except Exception as exc:
                             console.print(f"[yellow]Error saving OCR image: {exc}[/yellow]")
 
-                    page_markdown = _rewrite_ocr_image_paths(
-                        page_markdown,
-                        relative_artifact_url(image_dir, Path(filepath).parent),
-                        {raw: name for raw, name in raw_name_map.items() if name in saved_names},
-                        {leaf: name for leaf, name in leaf_name_map.items() if name in saved_names},
-                    )
+                    url = relative_artifact_url(image_dir, Path(filepath).parent)
+                    if page_markdown.strip():
+                        page_markdown = _rewrite_ocr_image_paths(
+                            page_markdown, url,
+                            {raw: name for raw, name in raw_name_map.items() if name in saved_names},
+                            {leaf: name for leaf, name in leaf_name_map.items() if name in saved_names},
+                        )
+                    else:
+                        page_markdown = "\n\n".join(
+                            f"![Figure {i}]({url}/{quote(name)})"
+                            for i, name in enumerate(image_names, start=1) if name in saved_names
+                        )
 
+                has_content = has_content or bool(page_markdown.strip())
                 combined_output.append(f"{page_markdown}\n\n")
                 combined_output.append(
                     '<footer style="background-color: #f5f5f5; padding: 8px; margin-top: 20px; text-align: center; border-top: 1px solid #ddd;">\n'
@@ -247,7 +280,8 @@ def postprocess_caption_content(output, filepath, args, console):
                     "</footer>\n\n"
                 )
                 combined_output.append('<div style="page-break-after: always;"></div>\n\n')
-            output = "".join(combined_output)
+            # Page markup is already the final document, not an image-caption template.
+            return CaptionResult(raw="".join(combined_output).strip() if has_content else "", metadata=metadata)
         else:
             output = "\n".join(output)
 

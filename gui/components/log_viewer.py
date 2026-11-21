@@ -21,8 +21,6 @@ class LogViewer:
     也可通过 attach_job(job) 动态切换到指定 Job 的日志流。
     """
 
-    _styles_injected = False
-
     @staticmethod
     def _history_lines(history: list[tuple[int, str]], max_lines: int) -> list[str]:
         """提取需要在初始渲染时回放的历史日志。"""
@@ -35,7 +33,6 @@ class LogViewer:
         log_source: Optional[LogBuffer] = None,
         embedded: bool = False,
     ):
-        self._ensure_scroll_styles()
         self.max_lines = max_lines
         self._height = height
         self._embedded = embedded
@@ -147,41 +144,6 @@ class LogViewer:
 
         # 定时刷新缓冲区（150ms 间隔）
         self._flush_timer = ui.timer(0.15, self._flush_buffer)
-
-    @classmethod
-    def _ensure_scroll_styles(cls):
-        """为日志滚动区注入更明显的滚动条样式。"""
-        if cls._styles_injected:
-            return
-        ui.add_head_html(f"""
-        <style>
-            .log-scroll-area .q-scrollarea__bar,
-            .log-scroll-area .q-scrollarea__thumb {{
-                opacity: 0.9 !important;
-            }}
-
-            .log-scroll-area .q-scrollarea__bar--v {{
-                width: 10px !important;
-                background: var(--ql-inset-bg) !important;
-                border-radius: 999px !important;
-            }}
-
-            .log-scroll-area .q-scrollarea__thumb--v {{
-                width: 10px !important;
-                background: linear-gradient(180deg, var(--ql-accent) 0%, var(--ql-secondary) 100%) !important;
-                border-radius: 999px !important;
-            }}
-
-            .log-scroll-area .q-scrollarea__container {{
-                width: 100% !important;
-            }}
-            .log-scroll-area .q-scrollarea__content {{
-                width: 100% !important;
-                min-width: 100% !important;
-            }}
-        </style>
-        """, shared=True)
-        cls._styles_injected = True
 
     @staticmethod
     def _is_near_bottom(vertical_position: float, vertical_size: float, container_size: float, threshold: float = 24.0) -> bool:

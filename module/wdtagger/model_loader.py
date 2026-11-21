@@ -7,6 +7,7 @@ from huggingface_hub import hf_hub_download
 
 from module.onnx_runtime import OnnxModelSpec, load_single_model_bundle, resolve_tool_runtime_config
 from module.wdtagger import constants
+from module.wdtagger.model_defaults import LogitsInputName
 from module.wdtagger.pixai import is_pixai_repo, load_pixai_bundle
 from module.wdtagger.taxonomy import (
     LabelData,
@@ -137,6 +138,8 @@ def load_model_and_tags(
         bundle = load_single_model_bundle_fn(spec=spec, runtime_config=runtime_config, logger=constants.console.print)
         ort_sess = bundle.session
         input_name = bundle.input_metas[0].name if bundle.input_metas else ort_sess.get_inputs()[0].name
+        if args.repo_id.startswith("cella110n/cl_tagger"):
+            input_name = LogitsInputName(input_name)
         constants.console.print(f"[blue]Providers: {bundle.providers}[/blue]")
 
     constants.console.print(f"[blue]Tags loaded: {total_tags} total[/blue]")

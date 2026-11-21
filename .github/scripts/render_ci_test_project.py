@@ -36,6 +36,10 @@ def build_ci_test_project_text(source_text: str) -> str:
         raise TypeError("[project].dependencies must be a list")
     if not isinstance(test_dependencies, list):
         raise TypeError("[dependency-groups].test must be a list")
+    # The offline PSD, mesh and atlas tests use the shipped CPU geometry stack.
+    geometry_dependencies = project["optional-dependencies"]["auto-rig"]
+    if not isinstance(geometry_dependencies, list):
+        raise TypeError("[project.optional-dependencies].auto-rig must be a list")
 
     lines = [
         "[project]",
@@ -45,7 +49,7 @@ def build_ci_test_project_text(source_text: str) -> str:
         f"dependencies = {json.dumps(dependencies, ensure_ascii=False)}",
         "",
         "[dependency-groups]",
-        f"test = {json.dumps(test_dependencies, ensure_ascii=False)}",
+        f"test = {json.dumps([*test_dependencies, *geometry_dependencies], ensure_ascii=False)}",
         "",
         "[tool.uv]",
         "package = false",

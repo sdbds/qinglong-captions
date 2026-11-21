@@ -246,6 +246,13 @@ class CaptionResult:
 
 
 @dataclass
+class PagedOCRResult(CaptionResult):
+    """Keep SDK pages for artifact publication, without putting image bytes in metadata."""
+
+    pages: list[Any] = field(default_factory=list, repr=False)
+
+
+@dataclass
 class ProviderContext:
     """Provider 运行时上下文"""
 

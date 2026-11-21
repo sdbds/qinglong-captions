@@ -1179,7 +1179,8 @@ def test_concurrent_provider_failure_commits_only_successful_items(monkeypatch, 
     )
 
     assert outcome == CaptionBatchOutcome(persisted=1, skipped=0, failed=1)
-    assert "fail.png" in console.file.getvalue() and "provider boom" in console.file.getvalue()
+    log = " ".join(console.file.getvalue().split())
+    assert "fail.png" in log and "provider boom" in log
     assert [([Path(uri).name for uri in uris], captions) for uris, captions, _ in update_calls] == [
         (["ok.png"], ["ok caption"]),
     ]

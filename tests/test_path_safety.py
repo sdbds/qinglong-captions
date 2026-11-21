@@ -49,7 +49,7 @@ def test_assign_ocr_image_names_deduplicates_and_builds_rewrite_maps():
     assert names == ["unsafe.png", "unsafe_2.png", "plain.png", "PLAIN_2.png"]
     assert raw_name_map["../unsafe.png"] == "unsafe.png"
     assert raw_name_map["nested/unsafe.png"] == "unsafe_2.png"
-    assert leaf_name_map["unsafe.png"] == "unsafe.png"
+    assert "unsafe.png" not in leaf_name_map  # Two distinct IDs share this basename.
     assert leaf_name_map["plain.png"] == "plain.png"
 
 

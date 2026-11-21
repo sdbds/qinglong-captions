@@ -13,7 +13,17 @@ SCRIPT = ROOT / ".github" / "scripts" / "render_ci_test_project.py"
 PYPROJECT = ROOT / "pyproject.toml"
 
 
-def test_render_ci_test_project_preserves_base_and_test_dependencies_only(tmp_path):
+def test_offline_runtime_can_write_numpy_values_to_lance(tmp_path):
+    import lance
+    import numpy as np
+    import pyarrow as pa
+
+    values = np.array([1, 2], dtype=np.int32)
+    dataset = lance.write_dataset(pa.table({"value": values}), tmp_path / "smoke.lance")
+    assert dataset.to_table().to_pydict() == {"value": [1, 2]}
+
+
+def test_render_ci_test_project_includes_offline_geometry_without_gpu_extras(tmp_path):
     output = tmp_path / "pyproject.toml"
 
     subprocess.run(
@@ -28,6 +38,7 @@ def test_render_ci_test_project_preserves_base_and_test_dependencies_only(tmp_pa
     assert rendered["project"]["version"] == source["project"]["version"]
     assert rendered["project"]["requires-python"] == source["project"]["requires-python"]
     assert rendered["project"]["dependencies"] == source["project"]["dependencies"]
-    assert rendered["dependency-groups"] == {"test": source["dependency-groups"]["test"]}
+    geometry = source["project"]["optional-dependencies"]["auto-rig"]
+    assert rendered["dependency-groups"] == {"test": [*source["dependency-groups"]["test"], *geometry]}
     assert "optional-dependencies" not in rendered["project"]
     assert rendered["tool"]["uv"] == {"package": False}

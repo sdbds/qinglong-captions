@@ -243,15 +243,12 @@ def _get_task_tab_store() -> TaskTabStore:
 class ExecutionTabs:
     """Browser-like task tab bar that owns per-tab runtime venv selection."""
 
-    _styles_injected = False
-
     def __init__(
         self,
         *,
         on_tab_change: Optional[Callable[[TaskTab], None]] = None,
         on_tab_log: Optional[Callable[[str, str, str], None]] = None,
     ):
-        self._ensure_styles()
         self._store = _get_task_tab_store()
         self.tabs = self._store.tabs
         self.active_tab_id = self.tabs[0].id
@@ -269,67 +266,6 @@ class ExecutionTabs:
                 ui.icon("add", size="18px")
 
         self._render_tabs()
-
-    @classmethod
-    def _ensure_styles(cls) -> None:
-        if cls._styles_injected:
-            return
-        ui.add_head_html("""
-        <style>
-            .task-tab-btn,
-            .task-tab-close,
-            .task-tab-add {
-                appearance: none;
-                border: 1px solid var(--ql-border);
-                background: var(--ql-surface);
-                color: var(--ql-text-secondary);
-                font: inherit;
-                height: 32px;
-                box-shadow: none;
-                outline: none;
-                cursor: pointer;
-                transition: none !important;
-                animation: none !important;
-            }
-
-            .task-tab-btn {
-                padding: 0 12px;
-                max-width: 180px;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            }
-
-            .task-tab-btn--active {
-                background: var(--ql-surface-raised);
-                color: var(--ql-text);
-                border-color: var(--ql-border-hover);
-                font-weight: 600;
-            }
-
-            .task-tab-btn--inactive {
-                opacity: 0.86;
-            }
-
-            .task-tab-close,
-            .task-tab-add {
-                width: 32px;
-                min-width: 32px;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                padding: 0;
-            }
-
-            .task-tab-close:hover,
-            .task-tab-add:hover,
-            .task-tab-btn:hover {
-                background: var(--ql-surface-raised);
-                color: var(--ql-text);
-            }
-        </style>
-        """, shared=True)
-        cls._styles_injected = True
 
     @property
     def active_tab(self) -> TaskTab:

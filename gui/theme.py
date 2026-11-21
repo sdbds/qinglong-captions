@@ -1293,6 +1293,84 @@ button[class*="slider-value"]:hover {
 .toggle-container.active .toggle-label { color: var(--ql-toggle-active-text); }
 .toggle-container.active .toggle-status { color: var(--ql-toggle-active-text); }
 
+/* ===== Execution Panel ===== */
+.task-tab-btn,
+.task-tab-close,
+.task-tab-add {
+    appearance: none;
+    border: 1px solid var(--ql-border);
+    background: var(--ql-surface);
+    color: var(--ql-text-secondary);
+    font: inherit;
+    height: 32px;
+    box-shadow: none;
+    outline: none;
+    cursor: pointer;
+    transition: none !important;
+    animation: none !important;
+}
+
+.task-tab-btn {
+    padding: 0 12px;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.task-tab-btn--active {
+    background: var(--ql-surface-raised);
+    color: var(--ql-text);
+    border-color: var(--ql-border-hover);
+    font-weight: 600;
+}
+
+.task-tab-btn--inactive {
+    opacity: 0.86;
+}
+
+.task-tab-close,
+.task-tab-add {
+    width: 32px;
+    min-width: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.task-tab-close:hover,
+.task-tab-add:hover,
+.task-tab-btn:hover {
+    background: var(--ql-surface-raised);
+    color: var(--ql-text);
+}
+
+.log-scroll-area .q-scrollarea__bar,
+.log-scroll-area .q-scrollarea__thumb {
+    opacity: 0.9 !important;
+}
+
+.log-scroll-area .q-scrollarea__bar--v {
+    width: 10px !important;
+    background: var(--ql-inset-bg) !important;
+    border-radius: 999px !important;
+}
+
+.log-scroll-area .q-scrollarea__thumb--v {
+    width: 10px !important;
+    background: linear-gradient(180deg, var(--ql-accent) 0%, var(--ql-secondary) 100%) !important;
+    border-radius: 999px !important;
+}
+
+.log-scroll-area .q-scrollarea__container {
+    width: 100% !important;
+}
+.log-scroll-area .q-scrollarea__content {
+    width: 100% !important;
+    min-width: 100% !important;
+}
+
 /* ===== Log Output ===== */
 .log-container {
     background: var(--ql-console-bg);
