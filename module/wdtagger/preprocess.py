@@ -111,7 +111,7 @@ def load_pil_batch(uris, *, preserve_alpha=False):
     return [uri for uri, _ in valid_pairs], [image for _, image in valid_pairs]
 
 
-def process_batch(images, session, input_name):
+def process_batch(images, session, input_name, apply_sigmoid: bool = False):
     if isinstance(input_name, PixaiInferenceContext):
         return process_pixai_batch(images, session, input_name)
     try:
@@ -120,6 +120,9 @@ def process_batch(images, session, input_name):
 
         batch_data = np.ascontiguousarray(np.stack(images))
         outputs = session.run(None, {input_name: batch_data})
+
+        if not apply_sigmoid:
+            return outputs[0]
 
         def stable_sigmoid(x):
             return 1 / (1 + np.exp(-np.clip(x, -30, 30)))

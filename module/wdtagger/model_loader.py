@@ -69,7 +69,6 @@ def _load_parent_map(args, *, hf_hub_download_fn=hf_hub_download):
                 filename=constants.PARENTS_CSV,
                 local_dir=args.model_dir,
                 force_download=True,
-                force_filename=constants.PARENTS_CSV,
                 repo_type="dataset",
             )
         )

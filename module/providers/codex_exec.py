@@ -200,10 +200,13 @@ def run_codex_exec_caption(
         schema_path=schema_path,
         output_path=output_path,
     )
+    from module.providers.grok_build_headless import _unwrap_npm_cmd_shim
+
+    exec_command = _unwrap_npm_cmd_shim(command)
     run_env = build_codex_exec_env(env, codex_home=config.codex_home)
     try:
         completed = subprocess.run(
-            command,
+            exec_command,
             input=prompt,
             text=True,
             encoding="utf-8",

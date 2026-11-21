@@ -1,4 +1,4 @@
-$dataset_path = "./datasets"
+﻿$dataset_path = "./datasets"
 $pair_dir = ""
 $gemini_api_key = ""
 $gemini_model_path = "gemini-3.8-flash"
@@ -741,6 +741,9 @@ if ($vlm_image_model) {
   }
   elseif ($vlm_image_model -eq "step_vl_local") {
     Add-UvExtra "step-vl-local"
+  }
+  elseif ($vlm_image_model -eq "penguin_vl_local") {
+    Add-UvExtra "penguin-vl-local"
   }
   elseif ($vlm_image_model -eq "reka_edge_local") {
     Add-UvExtra "reka-edge-local"

@@ -471,10 +471,10 @@ def calculate_dimensions(
     Returns:
         一个包含新 (宽度, 高度) 的元组。
     """
-    if max_pixels is None and max_long_edge is None:
+    if max_pixels is None and max_long_edge is None and max_short_edge is None:
         # 如果没有提供限制，则仅将尺寸调整为 img_scale_num 的倍数
-        new_width = round(width / img_scale_num) * img_scale_num
-        new_height = round(height / img_scale_num) * img_scale_num
+        new_width = max(img_scale_num, round(width / img_scale_num) * img_scale_num)
+        new_height = max(img_scale_num, round(height / img_scale_num) * img_scale_num)
         return int(new_width), int(new_height)
 
     # 1. 根据 max_long_edge 计算缩放因子
@@ -506,8 +506,8 @@ def calculate_dimensions(
     new_height = height * final_scale_factor
 
     # 5. 调整尺寸使其为 img_scale_num 的倍数
-    final_width = round(new_width / img_scale_num) * img_scale_num
-    final_height = round(new_height / img_scale_num) * img_scale_num
+    final_width = max(img_scale_num, round(new_width / img_scale_num) * img_scale_num)
+    final_height = max(img_scale_num, round(new_height / img_scale_num) * img_scale_num)
 
     return int(final_width), int(final_height)
 

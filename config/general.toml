@@ -22,8 +22,8 @@ fields = [
 
 # Console colors configuration
 [colors]
-animation = "bold_green"
-application = "bright red"
+animation = "bold green"
+application = "bright_red"
 audio = "orange1"
 caption = "yellow"
 image = "green"

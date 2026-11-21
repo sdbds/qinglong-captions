@@ -6,6 +6,7 @@ import base64
 import io
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -201,6 +202,54 @@ def build_grok_build_command(
     return command
 
 
+_NPM_CMD_SHIM_RE = re.compile(r'"%dp0%\\([^"]+\.(?:m?c?js))"', re.IGNORECASE)
+
+
+def _unwrap_npm_cmd_shim(command: list[str]) -> list[str]:
+    """Resolve Windows npm .cmd shims to [node, script.js, ...] to bypass cmd.exe parsing."""
+    if os.name != "nt" or not command:
+        return command
+    exe = Path(command[0])
+    if exe.suffix.lower() not in {".cmd", ".bat"} or not exe.is_file():
+        return command
+    try:
+        content = exe.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return command
+    match = _NPM_CMD_SHIM_RE.search(content)
+    if not match:
+        return command
+    script_path = (exe.parent / match.group(1).replace("\\", os.sep)).resolve()
+    if not script_path.is_file():
+        return command
+    sibling_node = exe.parent / "node.exe"
+    node_exe = str(sibling_node) if sibling_node.is_file() else shutil.which("node")
+    if not node_exe:
+        return command
+    return [node_exe, str(script_path), *command[1:]]
+
+
+def _extract_grok_build_envelope_text(text: str) -> str:
+    """Unwrap --output-format json CLI envelope into plain model text."""
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    try:
+        envelope = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+    if not isinstance(envelope, dict):
+        return raw
+    for key in ("text", "output", "content", "response", "message"):
+        value = envelope.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    structured_output = envelope.get("structuredOutput")
+    if isinstance(structured_output, dict):
+        return json.dumps(structured_output, ensure_ascii=False)
+    return raw
+
+
 def parse_grok_build_output(text: str) -> dict:
     raw = str(text or "").strip()
     if not raw:
@@ -314,9 +363,9 @@ def run_grok_build_headless_caption(
 
     raw = stdout.strip()
     if not structured:
-        # Freeform template path: return raw output verbatim, no rating schema parse.
+        # Freeform template path: unwrap CLI JSON envelope, skip rating schema parse.
         return GrokBuildHeadlessResult(
-            raw=raw,
+            raw=_extract_grok_build_envelope_text(raw),
             parsed={},
             stdout=stdout,
             stderr=stderr,
@@ -357,7 +406,8 @@ def _run_grok_build_process(command: list[str], *, timeout: float, env: Mapping[
     else:
         popen_kwargs["start_new_session"] = True
 
-    process = subprocess.Popen(command, **popen_kwargs)
+    exec_command = _unwrap_npm_cmd_shim(command)
+    process = subprocess.Popen(exec_command, **popen_kwargs)
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as exc:

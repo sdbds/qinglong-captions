@@ -68,7 +68,7 @@ class _LoRADeltaSwitch:
         bin_path = Path(adapter_dir) / "adapter_model.bin"
         if safetensors_path.exists():
             return safe_load_file(str(safetensors_path))
-        return torch.load(str(bin_path), map_location="cpu")
+        return torch.load(str(bin_path), map_location="cpu", weights_only=True)
 
     @staticmethod
     def _load_adapter_config(adapter_dir: str | Path) -> dict[str, Any]:
@@ -299,7 +299,7 @@ class _AudioQualityRouter:
             config = checkpoint_config.get("model", {})
             state_dict = safe_load_file(str(checkpoint_path), device=self.device)
         else:
-            checkpoint = torch.load(self.checkpoint_path, map_location=self.device, weights_only=False)
+            checkpoint = torch.load(self.checkpoint_path, map_location=self.device, weights_only=True)
             config = checkpoint.get("config", {}).get("model", {})
             state_dict = checkpoint["model_state_dict"]
 

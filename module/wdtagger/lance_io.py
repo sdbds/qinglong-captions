@@ -16,6 +16,7 @@ from utils.lance_rebuild import (
     rebuild_lance_from_sidecars as _shared_rebuild_lance_from_sidecars,
     resolve_lance_rebuild_source,
 )
+from utils.lance_updates import LanceRowUpdate, merge_rows_preserving_schema
 from utils.lance_utils import update_or_create_tag
 
 
@@ -136,16 +137,11 @@ def rebuild_lance_from_sidecars(
 
 
 def merge_caption_updates(dataset: Any, results: Sequence[Tuple[str, List[str]]]) -> None:
-    table = pa.table(
-        {
-            "uris": pa.array([str(path) for path, _ in results], type=pa.string()),
-            "captions": pa.array(
-                [caption for _, caption in results],
-                type=pa.list_(pa.string()),
-            ),
-        }
-    )
-    dataset.merge_insert(on="uris").when_matched_update_all().execute(table)
+    if not results:
+        return
+    deduped = {str(path): list(caption) for path, caption in results}
+    updates = [LanceRowUpdate(uri=uri, values={"captions": caption}) for uri, caption in deduped.items()]
+    merge_rows_preserving_schema(dataset, updates, key="uris")
 
 
 def update_wdtagger_tag(dataset: Any) -> None:

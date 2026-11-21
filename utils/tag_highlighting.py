@@ -43,7 +43,6 @@ def _ensure_classified_tags_csv() -> Path:
             filename="selected_tags_classified.csv",
             local_dir=str(WDTAGGER_MODEL_DIR),
             force_download=True,
-            force_filename="selected_tags_classified.csv",
             repo_type="dataset",
         )
     except Exception:

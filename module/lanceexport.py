@@ -355,7 +355,7 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str], *, rebas
                 return True
             else:
                 # 如果没有任何分割点，保存为单个文件
-                output_dir = caption_path.with_suffix(".md")
+                output_dir = caption_path.with_suffix("")
                 output_dir.mkdir(parents=True, exist_ok=True)
                 single_file_path = output_dir / f"{caption_path.stem}.md"
 
@@ -422,44 +422,19 @@ def save_caption_by_pages(caption_path: Path, caption_lines: List[str], *, rebas
             # 处理图片路径，将路径从子文件夹改为同级
             img_pattern = r"!\[(.*?)\]\(([^/]+)/([^/)]+)\)"
 
-            # 检查是否有重复引用的图片
-            processed_page_content = page_content
-            matches = list(re.finditer(img_pattern, page_content))
+            # 先处理图片路径，将路径从子文件夹改为同级，再移除重复引用（保留首次出现）
+            processed_page_content = re.sub(img_pattern, r"![\1](\3)", page_content)
+            seen_images = set()
+            normalized_img_pattern = r"!\[([^\]]*)\]\(([^)]+)\)"
 
-            if matches:
-                # 使用字典记录每个图片第一次出现的位置
-                first_occurrence = {}
+            def _dedupe_image(match):
+                img_ref = match.group(2)
+                if img_ref in seen_images:
+                    return ""
+                seen_images.add(img_ref)
+                return match.group(0)
 
-                # 找出每个图片第一次出现的位置
-                for match in matches:
-                    alt_text = match.group(1)
-                    img_name = match.group(3)
-                    if img_name not in first_occurrence:
-                        first_occurrence[img_name] = match
-
-                # 先处理图片路径，统一格式
-                processed_page_content = re.sub(img_pattern, r"![\1](\3)", processed_page_content)
-
-                # 移除所有重复的图片，但保留第一次出现的位置
-                for img_name, match in first_occurrence.items():
-                    # 计算该图片在文本中所有出现的位置
-                    all_matches = [m for m in matches if m.group(3) == img_name]
-
-                    # 如果有多次出现，移除除了第一次之外的所有引用
-                    if len(all_matches) > 1:
-                        # 排序匹配，按位置从前向后处理
-                        sorted_matches = sorted(all_matches, key=lambda m: m.start())
-
-                        # 跳过第一次出现的匹配
-                        for m in sorted_matches[1:]:
-                            # 构建要移除的模式
-                            alt_text = m.group(1)
-                            pattern_to_remove = f"!\\[{re.escape(alt_text)}\\]\\({re.escape(img_name)}\\)"
-                            # 从处理后的内容中移除该模式
-                            processed_page_content = re.sub(pattern_to_remove, "", processed_page_content, count=1)
-            else:
-                # 如果没有匹配到图片，只进行路径格式转换
-                processed_page_content = re.sub(img_pattern, r"![\1](\3)", page_content)
+            processed_page_content = re.sub(normalized_img_pattern, _dedupe_image, processed_page_content)
 
             if rebase_ocr_images:
                 processed_page_content = rebase_ocr_page_images(processed_page_content)

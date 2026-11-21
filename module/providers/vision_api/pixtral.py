@@ -93,6 +93,7 @@ def attempt_pixtral(
         )
         pages = ocr_response.pages
         console.print(f"[bold cyan]PDF共有 {len(pages)} 页[/bold cyan]")
+        page_markdowns: List[str] = []
 
         for page in pages:
             # Try preview first image on the page
@@ -107,19 +108,22 @@ def attempt_pixtral(
                             image_data = base64.b64decode(base64_content)
                         else:
                             image_data = base64.b64decode(base64_str)
-                        ocr_image = Image.open(io.BytesIO(image_data))
-                        ocr_pixels = Pixels.from_image(
-                            ocr_image,
-                            resize=(ocr_image.width // 18, ocr_image.height // 18),
-                        )
+                        with Image.open(io.BytesIO(image_data)) as ocr_image:
+                            ocr_pixels = Pixels.from_image(
+                                ocr_image,
+                                resize=(max(1, ocr_image.width // 18), max(1, ocr_image.height // 18)),
+                            )
                     except Exception as e:
                         print_exception(console, e, prefix="Error loading image", summary_style="yellow")
                         ocr_pixels = None
                 else:
                     console.print("[yellow]Image found but no base64 data available[/yellow]")
+            page_md = str(getattr(page, "markdown", "") or "")
+            if page_md.strip():
+                page_markdowns.append(page_md)
             display_markdown(
                 title=f"{Path(uri).name} - Page {page.index + 1}",
-                markdown_content=page.markdown,
+                markdown_content=page_md,
                 pixels=ocr_pixels,
                 panel_height=32,
                 console=console,
@@ -131,8 +135,7 @@ def attempt_pixtral(
         if elapsed_time < 0:
             elapsed_time = 0
         console.print(f"[blue]Caption generation took:[/blue] {elapsed_time:.2f} seconds")
-        # Preserve original behavior: side-effect display, return empty string
-        return ""
+        return "\n\n".join(page_markdowns)
 
     if ocr:
         # Image OCR
@@ -220,12 +223,13 @@ def attempt_pixtral(
             threshold = tags_highlightrate * 100 / 2
         else:
             threshold = tags_highlightrate * 100
-        if int(re.search(r"\d+", str(long_highlight_rate)).group()) < threshold and len(captions) > 0:
+        rate_match = re.search(r"\d+", str(long_highlight_rate))
+        if rate_match and int(rate_match.group()) < threshold and len(captions) > 0:
             console.print(f"[red]long_description highlight rate is too low: {long_highlight_rate}%, retrying...[/red]")
             raise Exception("RETRY_PIXTRAL_RATE")
 
-        if isinstance(content, str) and "502" in content:
-            console.print("[yellow]Received 502 error[/yellow]")
+        if isinstance(content, str) and "502 bad gateway" in content.lower():
+            console.print("[yellow]Received 502 Bad Gateway error[/yellow]")
             raise Exception("RETRY_PIXTRAL_502")
 
     elapsed_time = time.time() - start_time
@@ -279,7 +283,9 @@ class MistralOCRProvider(VisionAPIProvider):
             client = _create_mistral_client(self.ctx.args)
 
             # 上传 PDF
-            for upload_attempt in range(getattr(args, "max_retries", 10)):
+            max_retries = max(1, int(getattr(args, "max_retries", 10)))
+            wait_time = float(getattr(args, "wait_time", 1))
+            for upload_attempt in range(max_retries):
                 try:
                     from utils.stream_util import sanitize_filename
 
@@ -296,13 +302,11 @@ class MistralOCRProvider(VisionAPIProvider):
                     break
                 except Exception as e:
                     print_exception(self.ctx.console, e, prefix="Error uploading PDF")
-                    if upload_attempt < args.max_retries - 1:
-                        self.log(f"Retrying in {args.wait_time}s...", "yellow")
-                        import time
-
-                        time.sleep(args.wait_time)
+                    if upload_attempt < max_retries - 1:
+                        self.log(f"Retrying in {wait_time}s...", "yellow")
+                        time.sleep(wait_time)
                     else:
-                        self.log(f"Failed to upload PDF after {args.max_retries} attempts", "red")
+                        self.log(f"Failed to upload PDF after {max_retries} attempts", "red")
 
         return media
 
@@ -325,7 +329,7 @@ class MistralOCRProvider(VisionAPIProvider):
             # PDF 模式
             signed_url = media.extras.get("signed_url")
             if not signed_url:
-                return CaptionResult(raw="", metadata={"error": "PDF upload failed"})
+                return CaptionResult.failed("PDF upload failed", metadata={"error": "PDF upload failed"})
 
             result = attempt_pixtral(
                 client=client,

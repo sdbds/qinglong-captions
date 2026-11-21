@@ -142,6 +142,7 @@ def attempt_moondream(
 
     # Execute requested tasks and combine results
     results = []
+    errors = []
 
     # Caption task
     if "caption" in task_list:
@@ -162,8 +163,9 @@ def attempt_moondream(
                 long_highlight_rate = 0
 
             caption_result = f"### Short Description\n{short_description}\n\n### Long Description\n{long_description}"
-            # Store highlight rates as metadata in the result
+            # Store highlight rates and tag_description as metadata in the result
             caption_metadata = {
+                "tag_description": tag_description,
                 "short_highlight_rate": short_highlight_rate,
                 "long_highlight_rate": long_highlight_rate,
             }
@@ -171,7 +173,7 @@ def attempt_moondream(
 
         except Exception as e:
             print_exception(console, e, prefix="Moondream caption failed", summary_style="yellow")
-            results.append(("Caption", f"Error: {e}", {}))
+            errors.append(f"Caption: {e}")
 
     # Query task
     if "query" in task_list:
@@ -182,7 +184,7 @@ def attempt_moondream(
                 results.append(("Query", query_result, {}))
             except Exception as e:
                 print_exception(console, e, prefix="Moondream query failed", summary_style="yellow")
-                results.append(("Query", f"Error: {e}", {}))
+                errors.append(f"Query: {e}")
         else:
             results.append(("Query", "No prompt provided for query task", {}))
 
@@ -198,7 +200,7 @@ def attempt_moondream(
                 results.append(("Point", point_result, {}))
             except Exception as e:
                 print_exception(console, e, prefix="Moondream point failed", summary_style="yellow")
-                results.append(("Point", f"Error: {e}", {}))
+                errors.append(f"Point: {e}")
         else:
             results.append(("Point", "No prompt provided for point task", {}))
 
@@ -218,9 +220,12 @@ def attempt_moondream(
                 results.append(("Detect", detect_result, {}))
             except Exception as e:
                 print_exception(console, e, prefix="Moondream detect failed", summary_style="yellow")
-                results.append(("Detect", f"Error: {e}", {}))
+                errors.append(f"Detect: {e}")
         else:
             results.append(("Detect", "No prompt provided for detect task", {}))
+
+    if not results and errors:
+        raise RuntimeError("Moondream task(s) failed: " + "; ".join(errors))
 
     # Combine all results and display appropriately
     if results:
@@ -253,11 +258,13 @@ def attempt_moondream(
 
             display_caption_layout(
                 title=Path(uri).name,
+                tag_description=caption_metadata.get("tag_description", ""),
                 short_description=short_desc.strip(),
                 long_description=long_desc.strip(),
                 short_highlight_rate=caption_metadata.get("short_highlight_rate", 0),
                 long_highlight_rate=caption_metadata.get("long_highlight_rate", 0),
                 pixels=pixels,
+                panel_height=32,
                 console=console,
             )
 
@@ -292,11 +299,13 @@ def attempt_moondream(
 
             display_caption_layout(
                 title=Path(uri).name,
+                tag_description=caption_metadata.get("tag_description", ""),
                 short_description=short_desc.strip(),
                 long_description=long_desc.strip(),
                 short_highlight_rate=caption_metadata.get("short_highlight_rate", 0),
                 long_highlight_rate=caption_metadata.get("long_highlight_rate", 0),
                 pixels=pixels,
+                panel_height=32,
                 console=console,
             )
 

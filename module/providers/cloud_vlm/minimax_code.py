@@ -349,7 +349,10 @@ class MiniMaxCodeProvider(CloudVLMProvider):
             raw_result = str(result).strip()
             # 清理可能的 markdown 代码块
             if raw_result.startswith("```"):
-                raw_result = json.loads(raw_result.replace("```json", "").replace("```", "").strip())
+                cleaned = raw_result.removeprefix("```json").removeprefix("```").strip()
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3].strip()
+                parsed = json.loads(cleaned)
             else:
                 parsed = json.loads(raw_result)
 

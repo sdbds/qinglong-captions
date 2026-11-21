@@ -1093,17 +1093,24 @@ class CodexAppServerCaptionClient:
             )
 
 
+_EMPTY_POOL_SLOT = object()
+
+
 class CodexAppServerClientPool:
     """Bounded pool of app-server clients for concurrent Codex caption jobs."""
 
     def __init__(self, config: CodexAppServerConfig, size: int):
         self.config = config
         self.size = _positive_int(size, 1)
-        self._queue: queue.Queue[CodexAppServerCaptionClient] = queue.Queue(maxsize=self.size)
+        self._queue: queue.Queue[Any] = queue.Queue(maxsize=self.size)
         self._close_lock = threading.Lock()
         self._closed = False
-        for _ in range(self.size):
-            self._queue.put(CodexAppServerCaptionClient(config))
+        try:
+            for _ in range(self.size):
+                self._queue.put(CodexAppServerCaptionClient(config))
+        except Exception:
+            self.close()
+            raise
 
     def _ensure_open(self) -> None:
         if self._closed:
@@ -1113,10 +1120,10 @@ class CodexAppServerClientPool:
                 retryable=_is_retryable_client_failure("closed"),
             )
 
-    def _return_client(self, client: CodexAppServerCaptionClient) -> None:
+    def _return_client(self, client: Any) -> None:
         with self._close_lock:
             if self._closed:
-                should_close = True
+                should_close = client is not _EMPTY_POOL_SLOT
             else:
                 self._queue.put(client)
                 should_close = False
@@ -1125,9 +1132,9 @@ class CodexAppServerClientPool:
 
     def _replace_closed_client(self) -> None:
         try:
-            replacement = CodexAppServerCaptionClient(self.config)
+            replacement: Any = CodexAppServerCaptionClient(self.config)
         except Exception:
-            return
+            replacement = _EMPTY_POOL_SLOT
         self._return_client(replacement)
 
     def _acquire_client(self, deadline: float | None) -> CodexAppServerCaptionClient:
@@ -1144,9 +1151,16 @@ class CodexAppServerClientPool:
                     )
                 wait_seconds = min(wait_seconds, remaining)
             try:
-                return self._queue.get(timeout=wait_seconds)
+                slot = self._queue.get(timeout=wait_seconds)
             except queue.Empty:
                 continue
+            if slot is _EMPTY_POOL_SLOT:
+                try:
+                    return CodexAppServerCaptionClient(self.config)
+                except Exception:
+                    self._return_client(_EMPTY_POOL_SLOT)
+                    raise
+            return slot
 
     def close(self) -> None:
         with self._close_lock:
@@ -1158,7 +1172,8 @@ class CodexAppServerClientPool:
                 client = self._queue.get_nowait()
             except queue.Empty:
                 break
-            client.close()
+            if client is not _EMPTY_POOL_SLOT:
+                client.close()
 
     def caption_image(
         self,
@@ -1291,6 +1306,7 @@ def caption_image_with_app_server(
     deadline = _timeout_deadline(config.timeout)
     pool_size = _positive_int(max_concurrency, 1)
     client: CodexAppServerCaptionClient | None = None
+    used_pool = False
     try:
         if client_factory is None and pool_size > 1:
             _emit_progress(progress_callback, f"Codex app-server: acquiring pooled client (workers={pool_size})")
@@ -1300,6 +1316,7 @@ def caption_image_with_app_server(
                 stage="client_pool_startup",
                 progress_callback=progress_callback,
             )
+            used_pool = True
             return pool.caption_image(
                 image_path=image_path,
                 prompt=prompt,
@@ -1325,7 +1342,7 @@ def caption_image_with_app_server(
             progress_callback=progress_callback,
         )
     except CodexAppServerError as exc:
-        if _should_reset_client_after_failure(exc.kind):
+        if _should_reset_client_after_failure(exc.kind) and not used_pool:
             if client_factory is None:
                 reset_codex_app_server_client_cache()
             elif client is not None:
@@ -1333,7 +1350,7 @@ def caption_image_with_app_server(
         raise
     except Exception as exc:
         coerced = _coerce_sdk_exception(exc, config, stage="client_startup")
-        if _should_reset_client_after_failure(coerced.kind):
+        if _should_reset_client_after_failure(coerced.kind) and not used_pool:
             if client_factory is None:
                 reset_codex_app_server_client_cache()
             elif client is not None:

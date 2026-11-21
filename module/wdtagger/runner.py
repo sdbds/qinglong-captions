@@ -111,13 +111,14 @@ def main(args, *, load_model_and_tags_fn=load_model_and_tags) -> None:
         for batch in scan_wdtagger_candidate_batches(dataset, args):
             uris = batch["uris"].to_pylist()
 
+            is_cl_tagger_v1 = False
             if is_pixai_repo(args.repo_id):
                 valid_uris, batch_images = load_pil_batch(uris, preserve_alpha=True)
             elif is_cl_tagger_v2_repo(args.repo_id):
                 valid_uris, batch_images = load_siglip2_rgb_batch(uris)
             else:
-                is_cl_tagger = args.repo_id.startswith("cella110n/cl_tagger")
-                valid_uris, batch_images = load_and_preprocess_batch(uris, is_cl_tagger)
+                is_cl_tagger_v1 = args.repo_id.startswith("cella110n/cl_tagger")
+                valid_uris, batch_images = load_and_preprocess_batch(uris, is_cl_tagger_v1)
 
             if len(valid_uris) != len(batch_images):
                 raise ValueError(
@@ -129,7 +130,11 @@ def main(args, *, load_model_and_tags_fn=load_model_and_tags) -> None:
                 progress.update(task, advance=len(uris))
                 continue
 
-            probs = process_batch(batch_images, ort_sess, input_name)
+            probs = (
+                process_batch(batch_images, ort_sess, input_name, True)
+                if is_cl_tagger_v1
+                else process_batch(batch_images, ort_sess, input_name)
+            )
             general_confidence = args.general_threshold if args.general_threshold is not None else args.thresh
             character_confidence = args.character_threshold if args.character_threshold is not None else args.thresh
             tag_options = {}

@@ -22,8 +22,10 @@ $Env:CUDA_HOME = "${env:CUDA_PATH}"
 
 function InstallFail {
     Write-Output "Install failed|安装失败。"
-    Read-Host | Out-Null ;
-    Exit
+    if ([Environment]::UserInteractive) {
+        Read-Host | Out-Null ;
+    }
+    Exit 1
 }
 
 function Check {
@@ -71,11 +73,21 @@ function Get-ProjectPython {
     return $null
 }
 
-try {
-    ~/.local/bin/uv --version
+function Resolve-UvCommand {
+    $Cmd = Get-Command uv -ErrorAction SilentlyContinue
+    if ($Cmd) { return $Cmd.Source }
+    foreach ($Candidate in @("$HOME/.local/bin/uv.exe", "$HOME/.local/bin/uv", "$HOME/.cargo/bin/uv.exe", "$HOME/.cargo/bin/uv")) {
+        if (Test-Path $Candidate) { return (Resolve-Path $Candidate).Path }
+    }
+    return $null
+}
+
+$UvExe = Resolve-UvCommand
+if ($UvExe) {
+    & $UvExe --version
     Write-Output "uv installed|UV模块已安装."
 }
-catch {
+else {
     Write-Output "Installing uv|安装uv模块中..."
     if ($Env:OS -ilike "*windows*") {
         powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
@@ -85,6 +97,8 @@ catch {
         curl -LsSf https://astral.sh/uv/install.sh | sh
         Check "uv install failed|安装uv模块失败。"
     }
+    $UvExe = Resolve-UvCommand
+    if (-not $UvExe) { InstallFail }
 }
 
 if ($env:OS -ilike "*windows*") {
@@ -96,9 +110,9 @@ if ($env:OS -ilike "*windows*") {
     else {
         # Check C drive free space with error handling
         try {
-            $CDrive = Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction Stop
-            if ($CDrive) {
-                $FreeSpaceGB = [math]::Round($CDrive.FreeSpace / 1GB, 2)
+            $CDrive = [System.IO.DriveInfo]::new("C")
+            if ($CDrive -and $CDrive.IsReady) {
+                $FreeSpaceGB = [math]::Round($CDrive.AvailableFreeSpace / 1GB, 2)
                 Write-Host "C: drive free space: ${FreeSpaceGB}GB"
                 
                 # $Env:UV cache directory based on available space
@@ -127,22 +141,22 @@ if ($env:OS -ilike "*windows*") {
     }
     else {
         Write-Output "Create .venv"
-        ~/.local/bin/uv venv -p 3.11 --seed
+        & $UvExe venv -p 3.11 --seed
         . ./.venv/Scripts/activate
     }
 }
 elseif (Test-Path "./venv/bin/activate") {
     Write-Output "Linux venv"
-    . ./venv/bin/Activate.ps1
+    if (Test-Path "./venv/bin/Activate.ps1") { . ./venv/bin/Activate.ps1 } elseif (Test-Path "./venv/bin/activate.ps1") { . ./venv/bin/activate.ps1 }
 }
 elseif (Test-Path "./.venv/bin/activate") {
     Write-Output "Linux .venv"
-    . ./.venv/bin/activate.ps1
+    if (Test-Path "./.venv/bin/Activate.ps1") { . ./.venv/bin/Activate.ps1 } elseif (Test-Path "./.venv/bin/activate.ps1") { . ./.venv/bin/activate.ps1 }
 }
 else {
     Write-Output "Create .venv"
-    ~/.local/bin/uv venv -p 3.11 --seed
-    . ./.venv/bin/activate.ps1
+    & $UvExe venv -p 3.11 --seed
+    if (Test-Path "./.venv/bin/Activate.ps1") { . ./.venv/bin/Activate.ps1 } elseif (Test-Path "./.venv/bin/activate.ps1") { . ./.venv/bin/activate.ps1 }
 }
 
 Write-Output "Exporting base project dependencies from pyproject.toml"
@@ -154,10 +168,10 @@ $PythonExe = Get-ProjectPython
 Write-Output "基础安装直接使用 uv pip install -r pyproject.toml，不启用任何 extra"
 
 if ($PythonExe) {
-    ~/.local/bin/uv pip install --no-build-isolation --python $PythonExe -r pyproject.toml
+    & $UvExe pip install --no-build-isolation --python $PythonExe -r pyproject.toml
 }
 else {
-    ~/.local/bin/uv pip install --no-build-isolation -r pyproject.toml
+    & $UvExe pip install --no-build-isolation -r pyproject.toml
 }
 Check "Install base requirements failed"
 
