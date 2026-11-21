@@ -194,19 +194,19 @@ class SettingsDialog:
         # bool must come before int (bool is subclass of int in Python)
         if isinstance(value, bool):
             with ui.row().classes("w-full items-center").style(self._ROW_STYLE):
-                self._editable_key_label(key, parent)
+                _, cur_key = self._editable_key_label(key, parent)
                 sw = ui.switch(value=value).props("dense color=amber")
                 sw.on_value_change(
-                    lambda e, k=key, p=parent: p.__setitem__(k, e.value)
+                    lambda e, ck=cur_key, p=parent: p.__setitem__(ck[0], e.value)
                 )
                 ui.element("div").style("flex: 1;")
                 if show_delete:
-                    self._delete_btn(key, parent)
+                    self._delete_btn(cur_key, parent)
 
         elif isinstance(value, int):
             min_v, max_v, step_v = _guess_slider_range(key, value, False)
             with ui.row().classes("w-full items-center").style(self._ROW_STYLE):
-                self._editable_key_label(key, parent)
+                _, cur_key = self._editable_key_label(key, parent)
                 slider = (
                     ui.slider(min=min_v, max=max_v, step=step_v, value=value)
                     .props("dense label-always")
@@ -218,27 +218,27 @@ class SettingsDialog:
                     .style("width: 90px; margin-left: 8px;")
                 )
 
-                def _sync_int_slider(e, k=key, p=parent, sl=slider, nm=num):
+                def _sync_int_slider(e, ck=cur_key, p=parent, sl=slider, nm=num):
                     v = int(e.value) if e.value is not None else 0
-                    p[k] = v
+                    p[ck[0]] = v
                     if nm.value != v:
                         nm.value = v
 
-                def _sync_int_num(e, k=key, p=parent, sl=slider, nm=num):
+                def _sync_int_num(e, ck=cur_key, p=parent, sl=slider, nm=num):
                     v = int(e.value) if e.value is not None else 0
-                    p[k] = v
+                    p[ck[0]] = v
                     if sl.value != v:
                         sl.value = v
 
                 slider.on_value_change(_sync_int_slider)
                 num.on_value_change(_sync_int_num)
                 if show_delete:
-                    self._delete_btn(key, parent)
+                    self._delete_btn(cur_key, parent)
 
         elif isinstance(value, float):
             min_v, max_v, step_v = _guess_slider_range(key, value, True)
             with ui.row().classes("w-full items-center").style(self._ROW_STYLE):
-                self._editable_key_label(key, parent)
+                _, cur_key = self._editable_key_label(key, parent)
                 slider = (
                     ui.slider(min=min_v, max=max_v, step=step_v, value=value)
                     .props("dense label-always")
@@ -250,22 +250,22 @@ class SettingsDialog:
                     .style("width: 100px; margin-left: 8px;")
                 )
 
-                def _sync_float_slider(e, k=key, p=parent, sl=slider, nm=num):
+                def _sync_float_slider(e, ck=cur_key, p=parent, sl=slider, nm=num):
                     v = float(e.value) if e.value is not None else 0.0
-                    p[k] = v
+                    p[ck[0]] = v
                     if nm.value != v:
                         nm.value = v
 
-                def _sync_float_num(e, k=key, p=parent, sl=slider, nm=num):
+                def _sync_float_num(e, ck=cur_key, p=parent, sl=slider, nm=num):
                     v = float(e.value) if e.value is not None else 0.0
-                    p[k] = v
+                    p[ck[0]] = v
                     if sl.value != v:
                         sl.value = v
 
                 slider.on_value_change(_sync_float_slider)
                 num.on_value_change(_sync_float_num)
                 if show_delete:
-                    self._delete_btn(key, parent)
+                    self._delete_btn(cur_key, parent)
 
         elif isinstance(value, str):
             is_multiline = "\n" in value or len(value) > 120
@@ -299,29 +299,30 @@ class SettingsDialog:
                             self._delete_btn(key, parent)
             else:
                 with ui.row().classes("w-full items-center").style(self._ROW_STYLE):
-                    self._editable_key_label(key, parent)
+                    _, cur_key = self._editable_key_label(key, parent)
                     inp = (
                         ui.input(value=value)
                         .props("dense outlined")
                         .classes("flex-1")
                     )
                     inp.on_value_change(
-                        lambda e, k=key, p=parent: p.__setitem__(
-                            k, e.value or ""
+                        lambda e, ck=cur_key, p=parent: p.__setitem__(
+                            ck[0], e.value or ""
                         )
                     )
                     if show_delete:
-                        self._delete_btn(key, parent)
+                        self._delete_btn(cur_key, parent)
 
         elif isinstance(value, list):
             self._render_list_field(key, value, parent, show_delete=show_delete)
 
-    def _delete_btn(self, key: str, parent: dict):
+    def _delete_btn(self, key: str | list[str], parent: dict):
         """Render a small delete button for a field."""
 
         def _do_delete(_e, k=key, p=parent):
-            if k in p:
-                del p[k]
+            actual_key = k[0] if isinstance(k, list) else k
+            if actual_key in p:
+                del p[actual_key]
             self._render_tab(self._active_key)
 
         btn = ui.button(
@@ -330,7 +331,8 @@ class SettingsDialog:
         btn.style(
             "color: var(--color-text-secondary); opacity: 0.5; margin-left: 4px;"
         )
-        btn.tooltip(t("delete_item").format(name=key))
+        display_key = key[0] if isinstance(key, list) else key
+        btn.tooltip(t("delete_item").format(name=display_key))
 
     def _render_list_field(
         self,
@@ -1035,6 +1037,8 @@ class SettingsDialog:
                     self._active_key = tm.get(e.value, "prompts")
                     self._ensure_tab_loaded(self._active_key)
 
+                self._tabs = tabs
+                self._prompts_tab = prompts_tab
                 tabs.on_value_change(_on_tab)
 
                 with ui.tab_panels(tabs, value=prompts_tab).classes(
@@ -1062,6 +1066,8 @@ class SettingsDialog:
         if self.dialog is None:
             self.build()
         self._active_key = "prompts"
+        if getattr(self, "_tabs", None) is not None and getattr(self, "_prompts_tab", None) is not None:
+            self._tabs.value = self._prompts_tab
         # Only load + render the first visible tab; others load lazily
         self.data["prompts"] = self._load("prompts")
         self._render_tab("prompts")

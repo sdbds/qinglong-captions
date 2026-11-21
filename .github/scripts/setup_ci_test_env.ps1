@@ -2,8 +2,10 @@ $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
 
 Set-Location $env:GITHUB_WORKSPACE
-python -m pip install --upgrade pip uv wheel_stub setuptools wheel tomli
-if ($LASTEXITCODE -ne 0) { throw "install uv failed" }
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    python -m pip install --upgrade pip uv wheel_stub setuptools wheel tomli
+    if ($LASTEXITCODE -ne 0) { throw "install uv failed" }
+}
 
 $RunnerPython = (Get-Command python).Source
 uv venv --python $RunnerPython

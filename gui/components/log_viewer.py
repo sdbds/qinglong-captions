@@ -1,5 +1,6 @@
 """日志查看器组件 - 支持 ANSI 彩色渲染"""
 
+import json
 from nicegui import ui, context
 from typing import Optional
 from datetime import datetime
@@ -179,7 +180,7 @@ class LogViewer:
                 min-width: 100% !important;
             }}
         </style>
-        """)
+        """, shared=True)
         cls._styles_injected = True
 
     @staticmethod
@@ -374,8 +375,7 @@ class LogViewer:
         """复制所有日志到剪贴板（纯文本，无 ANSI）"""
         clean_lines = [strip_ansi(line) for line in self.lines]
         text = "\n".join(clean_lines)
-        escaped_text = text.replace("`", "\\`").replace("\\", "\\\\")
-        ui.run_javascript(f"navigator.clipboard.writeText(`{escaped_text}`)")
+        ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(text)})")
         ui.notify(t("log_copied"), type="positive")
 
     def get_text(self) -> str:

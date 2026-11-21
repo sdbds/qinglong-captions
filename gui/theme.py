@@ -2133,14 +2133,20 @@ body.dark-mode {
 #  Public API
 # ============================================================
 
+_theme_applied = False
+
+
 def apply_theme(theme_name: str = "modern", use_green_gold: bool = False):
     """
-    Apply theme CSS to NiceGUI app.
+    Apply theme CSS to NiceGUI app (idempotent across page loads).
 
     Args:
         theme_name: Ignored (single unified theme). Kept for backward compat.
         use_green_gold: Ignored. Kept for backward compat.
     """
+    global _theme_applied
+    if _theme_applied:
+        return
     # Pre-load styles to prevent flash
     ui.add_head_html(_PRELOAD_THEME_INIT, shared=True)
     ui.add_head_html(_PRELOAD_CSS, shared=True)
@@ -2162,6 +2168,7 @@ def apply_theme(theme_name: str = "modern", use_green_gold: bool = False):
         _quasar_overrides(),
     ])
     ui.add_css(css, shared=True)
+    _theme_applied = True
 
 
 def get_classes(name: str) -> str:

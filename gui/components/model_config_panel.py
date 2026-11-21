@@ -6,6 +6,7 @@ dropdown. Uses tomlkit for format-preserving read/write.
 
 from __future__ import annotations
 
+import html
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -433,8 +434,9 @@ class ModelConfigPanel:
                 .style("font-size: 13px; font-family: monospace;")
             )
             if suggestions:
-                opts_html = "".join(f'<option value="{s}"/>' for s in suggestions)
-                ui.html(f'<datalist id="{dl_id}">{opts_html}</datalist>')
+                escaped_dl_id = html.escape(dl_id, quote=True)
+                opts_html = "".join(f'<option value="{html.escape(str(s), quote=True)}"/>' for s in suggestions)
+                ui.html(f'<datalist id="{escaped_dl_id}">{opts_html}</datalist>')
         inp.on_value_change(lambda e, k=key, p=parent_dict: p.__setitem__(k, e.value or ""))
 
     def _render_model_list_and_model_id(self, parent_dict: dict, entries: tuple) -> None:
@@ -480,8 +482,9 @@ class ModelConfigPanel:
                 .style("font-size: 13px; font-family: monospace;")
             )
             if suggestions:
-                opts_html = "".join(f'<option value="{s}"/>' for s in suggestions)
-                ui.html(f'<datalist id="{dl_id}">{opts_html}</datalist>')
+                escaped_dl_id = html.escape(dl_id, quote=True)
+                opts_html = "".join(f'<option value="{html.escape(str(s), quote=True)}"/>' for s in suggestions)
+                ui.html(f'<datalist id="{escaped_dl_id}">{opts_html}</datalist>')
 
         # Linkage: list → id
         def _on_list_change(e):

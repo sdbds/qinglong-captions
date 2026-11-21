@@ -3,11 +3,16 @@
 全屏控制台，使用主题 CSS 变量，实时 ANSI → HTML 渲染。
 """
 
+from collections import deque
+
 from nicegui import ui, context
 from gui.theme import apply_theme
 from gui.utils.ansi_to_html import AnsiToHtmlConverter
 from gui.utils.log_buffer import log_buffer
 from gui.utils.i18n import t
+
+_MAX_CONSOLE_LINES = 2000
+_MAX_CONSOLE_CHUNKS = 200
 
 
 def render_console_page():
@@ -18,6 +23,9 @@ def render_console_page():
     auto_scroll = {"value": True}
     sub_id = {"value": None}
     buffer = {"lines": []}
+    displayed_lines: deque[str] = deque(maxlen=_MAX_CONSOLE_LINES)
+    chunk_count = {"value": 0}
+    last_seq = {"value": 0}
     flush_timer = {"ref": None}
 
     # 页面样式 — 使用主题 CSS 变量，不再硬编码 GitHub-dark 色板
@@ -98,9 +106,16 @@ def render_console_page():
 
             def on_scroll_change(e):
                 auto_scroll["value"] = e.value
+
             scroll_switch.on_value_change(on_scroll_change)
 
-            clear_btn = ui.button(icon="delete_sweep", on_click=lambda: log_container.clear())
+            def clear_display():
+                displayed_lines.clear()
+                buffer["lines"].clear()
+                chunk_count["value"] = 0
+                log_container.clear()
+
+            clear_btn = ui.button(icon="delete_sweep", on_click=clear_display)
             clear_btn.props("flat dense").style("color: var(--color-text-secondary);")
             clear_btn.tooltip(t("clear_screen"))
 
@@ -111,30 +126,60 @@ def render_console_page():
     with scroll_area:
         log_container = ui.element("div").classes("console-body")
 
-    # -- 回放已有日志 --
+    def _rebuild_dom():
+        log_container.clear()
+        chunk_count["value"] = 0
+        if displayed_lines:
+            html_parts = [converter.convert_line(line) for line in displayed_lines]
+            with log_container:
+                ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
+            chunk_count["value"] = 1
+
+    # 先订阅再回放历史，避免回放与订阅间隙丢行
+    def on_new_line(seq: int, line: str):
+        buffer["lines"].append((seq, line))
+
+    sub_id["value"] = log_buffer.subscribe(on_new_line)
+
+    # -- 回放已有日志（仅保留最近 _MAX_CONSOLE_LINES 行） --
     history = log_buffer.get_all_lines()
     if history:
-        html_parts = []
-        for _seq, line in history:
-            html_parts.append(converter.convert_line(line))
-        with log_container:
-            ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
+        trimmed = history[-_MAX_CONSOLE_LINES:]
+        for seq, line in trimmed:
+            displayed_lines.append(line)
+            if seq > last_seq["value"]:
+                last_seq["value"] = seq
+        _rebuild_dom()
         scroll_area.scroll_to(percent=1.0)
 
-    # -- 定时批量刷新（0.1s，全屏控制台可更激进）--
+    # -- 定时批量刷新（0.1s，全屏控制台可更激进，受行数与块数上限约束）--
     def flush():
-        lines = buffer["lines"]
-        if not lines:
+        pending = buffer["lines"]
+        if not pending:
             return
         buffer["lines"] = []
 
-        html_parts = []
-        for line in lines:
-            html_parts.append(converter.convert_line(line))
+        fresh_lines = []
+        for seq, line in pending:
+            if seq <= last_seq["value"]:
+                continue
+            last_seq["value"] = seq
+            fresh_lines.append(line)
+
+        if not fresh_lines:
+            return
+
+        will_overflow = len(displayed_lines) + len(fresh_lines) > _MAX_CONSOLE_LINES
+        displayed_lines.extend(fresh_lines)
 
         try:
-            with log_container:
-                ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
+            if will_overflow or chunk_count["value"] >= _MAX_CONSOLE_CHUNKS:
+                _rebuild_dom()
+            else:
+                html_parts = [converter.convert_line(line) for line in fresh_lines]
+                with log_container:
+                    ui.html("<br>".join(html_parts) + "<br>", sanitize=False)
+                chunk_count["value"] += 1
 
             if auto_scroll["value"]:
                 scroll_area.scroll_to(percent=1.0)
@@ -142,12 +187,6 @@ def render_console_page():
             pass
 
     flush_timer["ref"] = ui.timer(0.1, flush)
-
-    # -- 订阅实时日志 --
-    def on_new_line(seq: int, line: str):
-        buffer["lines"].append(line)
-
-    sub_id["value"] = log_buffer.subscribe(on_new_line)
 
     # -- 断开时清理订阅 --
     def cleanup():

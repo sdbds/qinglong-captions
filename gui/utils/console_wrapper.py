@@ -80,7 +80,7 @@ def _setup_windows_console() -> int:
             scale = dpi / 96.0
             cols = max(120, int(120 * scale))
 
-            _sp.run(f"mode con cols={cols}", shell=True,
+            _sp.run(["mode.com", "con", f"cols={cols}"],
                     stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
 
     except Exception:

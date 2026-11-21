@@ -89,8 +89,7 @@ class FakeWrapperProcess:
 
 
 def _native_files(wrapper_cmd: list[str]) -> tuple[Path, Path]:
-    parts = re.findall(r"'([^']*)'", wrapper_cmd[-1])
-    return Path(parts[2]), Path(parts[3])
+    return Path(wrapper_cmd[2]), Path(wrapper_cmd[3])
 
 
 def _log_lines(buffer: LogBuffer) -> list[str]:

@@ -280,9 +280,16 @@ def get_isolated_uv_script(script_key: str) -> str | None:
     return None
 
 
+_PS_SINGLE_QUOTE_CHARS = ("'", "\u2018", "\u2019", "\u201a", "\u201b")
+_SCRIPT_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
+
+
 def _ps_escape(s: str) -> str:
-    """对字符串做 PowerShell 单引号转义（' → ''）"""
-    return str(s).replace("'", "''")
+    """对字符串做 PowerShell 单引号转义（涵盖 ASCII 与 Unicode 弯单引号）"""
+    escaped = str(s)
+    for quote in _PS_SINGLE_QUOTE_CHARS:
+        escaped = escaped.replace(quote, quote + quote)
+    return escaped
 
 
 def _powershell_call(parts: List[str]) -> str:
@@ -1354,6 +1361,12 @@ class ProcessRunner:
             if registry_entry:
                 script_path, default_extra = registry_entry
             else:
+                if not _SCRIPT_KEY_RE.fullmatch(script_key):
+                    raise ValueError(f"Invalid unregistered script key: {script_key!r}")
+                candidate_path = (work_dir / (script_key.replace(".", "/") + ".py")).resolve()
+                resolved_root = work_dir.resolve()
+                if resolved_root not in candidate_path.parents:
+                    raise ValueError(f"Script key resolves outside working directory: {script_key!r}")
                 script_path = "./" + script_key.replace(".", "/") + ".py"
                 default_extra = None
 
@@ -1488,18 +1501,15 @@ class ProcessRunner:
             tail_task = None
 
             try:
-                # 包装命令: 通过 PowerShell 启动 console_wrapper.py
-                # 优先使用 pwsh.exe (PowerShell 7)，回退到 powershell.exe (5.1)
-                parts = [
+                # 直接通过 CREATE_NEW_CONSOLE 启动 console_wrapper.py，避免经过
+                # PowerShell -Command 字符串解析（杜绝 Unicode 引号逃逸与命令注入）
+                wrapper_cmd = [
                     sys.executable,
                     _WRAPPER_PATH,
                     str(files.exit_file),
                     str(files.log_file),
                     *cmd,
                 ]
-                ps_exe = shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
-                ps_cmd = _powershell_call(parts)
-                wrapper_cmd = [ps_exe, "-NoProfile", "-NoLogo", "-Command", ps_cmd]
                 wrapper_env = self._build_native_wrapper_env(env, console_color_system)
 
                 self.process = subprocess.Popen(
@@ -1508,7 +1518,7 @@ class ProcessRunner:
                     env=wrapper_env,
                     creationflags=subprocess.CREATE_NEW_CONSOLE,
                 )
-                self._notify_log("已在 PowerShell 控制台窗口中启动，输出同步显示在下方")
+                self._notify_log("已在原生控制台窗口中启动，输出同步显示在下方")
 
                 tail_task = asyncio.create_task(self._tail_log_file(str(files.log_file)))
                 self._tail_task = tail_task

@@ -9,6 +9,7 @@ on:
       - "utils/**"
       - "config/**"
       - "tests/**"
+      - "tools/**"
       - "third_party/**"
       - "*.ps1"
       - "*.sh"
@@ -23,6 +24,7 @@ on:
       - "utils/**"
       - "config/**"
       - "tests/**"
+      - "tools/**"
       - "third_party/**"
       - "*.ps1"
       - "*.sh"
@@ -33,9 +35,8 @@ on:
 
 env:
   HF_HOME: huggingface
-  HF_ENDPOINT: https://hf-mirror.com
   XFORMERS_FORCE_DISABLE_TRITON: "1"
-  UV_EXTRA_INDEX_URL: https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/ https://download.pytorch.org/whl/cu130
+  UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
   UV_NO_BUILD_ISOLATION: "1"
   UV_NO_CACHE: "0"
   UV_LINK_MODE: symlink
@@ -47,6 +48,7 @@ env:
 jobs:
   full-unit:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -63,37 +65,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      - name: Set up uv with cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install declared test environment
         shell: pwsh
-        run: |
-          Set-Location $env:GITHUB_WORKSPACE
-          $ErrorActionPreference = "Stop"
-          $PSNativeCommandUseErrorActionPreference = $true
-          python -m pip install --upgrade pip uv wheel_stub setuptools wheel tomli
-          if ($LASTEXITCODE -ne 0) { throw "install uv failed" }
-          $RunnerPython = (Get-Command python).Source
-          uv venv --python $RunnerPython
-          if ($LASTEXITCODE -ne 0) { throw "uv venv failed" }
-          $PythonExe = if ($IsWindows) {
-            (Resolve-Path "./.venv/Scripts/python.exe").Path
-          } else {
-            (Resolve-Path "./.venv/bin/python").Path
-          }
-          uv pip install --python $PythonExe setuptools wheel wheel_stub
-          if ($LASTEXITCODE -ne 0) { throw "uv pip bootstrap failed" }
-          $IndexStrategy = if ([string]::IsNullOrWhiteSpace($env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $env:UV_INDEX_STRATEGY }
-          $UvExportProjectDir = Join-Path $env:RUNNER_TEMP "qinglong-ci-test-project"
-          Remove-Item $UvExportProjectDir -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Path $UvExportProjectDir | Out-Null
-          $CiPyproject = Join-Path $UvExportProjectDir "pyproject.toml"
-          python .github/scripts/render_ci_test_project.py --source pyproject.toml --output $CiPyproject
-          if ($LASTEXITCODE -ne 0) { throw "render ci test project failed" }
-          $RequirementsFile = Join-Path $env:RUNNER_TEMP "qinglong-ci-test-requirements.txt"
-          uv export --project $UvExportProjectDir --python $RunnerPython --index-strategy $IndexStrategy --group test --no-emit-project --format requirements-txt --output-file $RequirementsFile
-          if ($LASTEXITCODE -ne 0) { throw "uv export failed" }
-          uv pip install --python $PythonExe --index-strategy $IndexStrategy -r $RequirementsFile
-          if ($LASTEXITCODE -ne 0) { throw "uv pip install failed" }
-          "VENV_PYTHON=$PythonExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        run: .github/scripts/setup_ci_test_env.ps1
 
       - name: Run authoritative offline unit suite
         shell: pwsh
@@ -119,37 +98,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      - name: Set up uv with cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install declared test environment
         shell: pwsh
-        run: |
-          Set-Location $env:GITHUB_WORKSPACE
-          $ErrorActionPreference = "Stop"
-          $PSNativeCommandUseErrorActionPreference = $true
-          python -m pip install --upgrade pip uv wheel_stub setuptools wheel tomli
-          if ($LASTEXITCODE -ne 0) { throw "install uv failed" }
-          $RunnerPython = (Get-Command python).Source
-          uv venv --python $RunnerPython
-          if ($LASTEXITCODE -ne 0) { throw "uv venv failed" }
-          $PythonExe = if ($IsWindows) {
-            (Resolve-Path "./.venv/Scripts/python.exe").Path
-          } else {
-            (Resolve-Path "./.venv/bin/python").Path
-          }
-          uv pip install --python $PythonExe setuptools wheel wheel_stub
-          if ($LASTEXITCODE -ne 0) { throw "uv pip bootstrap failed" }
-          $IndexStrategy = if ([string]::IsNullOrWhiteSpace($env:UV_INDEX_STRATEGY)) { "unsafe-best-match" } else { $env:UV_INDEX_STRATEGY }
-          $UvExportProjectDir = Join-Path $env:RUNNER_TEMP "qinglong-ci-test-project"
-          Remove-Item $UvExportProjectDir -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Path $UvExportProjectDir | Out-Null
-          $CiPyproject = Join-Path $UvExportProjectDir "pyproject.toml"
-          python .github/scripts/render_ci_test_project.py --source pyproject.toml --output $CiPyproject
-          if ($LASTEXITCODE -ne 0) { throw "render ci test project failed" }
-          $RequirementsFile = Join-Path $env:RUNNER_TEMP "qinglong-ci-test-requirements.txt"
-          uv export --project $UvExportProjectDir --python $RunnerPython --index-strategy $IndexStrategy --group test --no-emit-project --format requirements-txt --output-file $RequirementsFile
-          if ($LASTEXITCODE -ne 0) { throw "uv export failed" }
-          uv pip install --python $PythonExe --index-strategy $IndexStrategy -r $RequirementsFile
-          if ($LASTEXITCODE -ne 0) { throw "uv pip install failed" }
-          "VENV_PYTHON=$PythonExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        run: .github/scripts/setup_ci_test_env.ps1
 
       - name: Run strict provider discovery gate
         shell: pwsh
@@ -163,6 +119,7 @@ jobs:
 
   compatibility:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -179,6 +136,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set up uv with cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
       - name: Install declared test environment
         shell: pwsh
         run: .github/scripts/setup_ci_test_env.ps1
@@ -190,6 +152,7 @@ jobs:
 
   static-correctness:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -201,21 +164,38 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install declared test environment
+      - name: Set up uv with cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install lightweight lint environment
         shell: pwsh
-        run: .github/scripts/setup_ci_test_env.ps1
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $RunnerPython = (Get-Command python).Source
+          uv venv --python $RunnerPython
+          if ($LASTEXITCODE -ne 0) { throw "uv venv failed" }
+          $PythonExe = (Resolve-Path "./.venv/bin/python").Path
+          $LintReqs = Join-Path $env:RUNNER_TEMP "qinglong-ci-lint-requirements.txt"
+          python -c "import pathlib, sys, tomllib; deps = tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['dependency-groups']['lint']; pathlib.Path(sys.argv[1]).write_text('\n'.join(deps) + '\n', encoding='utf-8')" "$LintReqs"
+          if ($LASTEXITCODE -ne 0) { throw "extract lint requirements failed" }
+          uv pip install --python $PythonExe -r $LintReqs
+          if ($LASTEXITCODE -ne 0) { throw "uv pip install lint group failed" }
+          "VENV_PYTHON=$PythonExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Compile Python sources
         shell: pwsh
         run: |
-          & $env:VENV_PYTHON -m compileall -q module gui utils config tests
+          & $env:VENV_PYTHON -m compileall -q module gui utils config tests tools .github/scripts
 
       - name: Reject definite undefined names
         shell: pwsh
         run: |
-          & $env:VENV_PYTHON -m ruff check module gui utils config tests --select F821,F823
+          & $env:VENV_PYTHON -m ruff check module gui utils config tests tools .github/scripts --select F821,F823
 
-      - name: Verify CI and isolation contracts
+      - name: Verify CI and static isolation contracts
         shell: pwsh
         run: |
-          & $env:VENV_PYTHON -m pytest tests/test_test_workflow.py tests/test_test_isolation_contract.py -q --strict-markers
+          & $env:VENV_PYTHON -m pytest tests/test_test_workflow.py tests/test_test_isolation_contract.py::test_ordinary_tests_do_not_mutate_import_state_at_module_scope -q --strict-markers

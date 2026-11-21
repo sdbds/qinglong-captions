@@ -3251,9 +3251,16 @@ class ToolsStep:
             args.append(f"--transform-type={self.transform_type.value}")
 
         if self.bg_color.value:
+            raw_components = str(self.bg_color.value).split()
+            try:
+                rgb_values = [int(component) for component in raw_components]
+            except ValueError:
+                rgb_values = []
+            if len(rgb_values) != 3 or not all(0 <= value <= 255 for value in rgb_values):
+                ui.notify("bg_color must be 3 integers between 0 and 255 (e.g. '255 255 255')", type="warning")
+                return
             args.append("--bg-color")
-            for component in self.bg_color.value.split():
-                args.append(component)
+            args.extend(str(value) for value in rgb_values)
 
         if self.config["preprocess_recursive"]:
             args.append("--recursive")

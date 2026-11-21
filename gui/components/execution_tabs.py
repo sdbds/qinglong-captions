@@ -328,7 +328,7 @@ class ExecutionTabs:
                 color: var(--ql-text);
             }
         </style>
-        """)
+        """, shared=True)
         cls._styles_injected = True
 
     @property

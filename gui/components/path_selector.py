@@ -1,5 +1,6 @@
 """路径选择组件 - 现代化样式"""
 
+import json
 from nicegui import ui
 from pathlib import Path
 from typing import Optional, Callable
@@ -107,7 +108,7 @@ class PathSelector:
 
     def _copy_path(self):
         """复制路径到剪贴板"""
-        ui.run_javascript(f"navigator.clipboard.writeText(`{self.input.value}`)")
+        ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(self.input.value or '')})")
         ui.notify(t("path_copied"), type="positive")
 
     def _open_folder(self):
