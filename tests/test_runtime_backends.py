@@ -545,7 +545,11 @@ def test_local_vlm_runtime_uses_model_config_for_shared_openai_model():
     assert runtime.max_tokens == 456
 
 
-def test_hy_mt_openai_backend_uses_chat_runtime():
+@pytest.mark.parametrize(("model_id", "alias"), [
+    ("tencent/Hy-MT3-7B", ""),
+    ("tencent/Hy-MT3-1.8B", "served-hy-mt"),
+])
+def test_hy_mt_openai_backend_uses_chat_runtime(model_id, alias):
     from module.providers.local_llm.hy_mt import HYMTProvider
 
     mock_client = MagicMock()
@@ -555,23 +559,27 @@ def test_hy_mt_openai_backend_uses_chat_runtime():
 
     with patch("openai.OpenAI", return_value=mock_client):
         provider = HYMTProvider(
-            model_id="served-hy-mt",
+            model_id=model_id,
             console=Console(file=io.StringIO(), force_terminal=False),
             max_new_tokens=777,
             temperature=0.3,
             backend="openai",
             openai_base_url="http://127.0.0.1:9000/v1",
             openai_api_key="",
-            openai_model_name="served-hy-mt",
+            openai_model_name=alias,
         )
-        result = provider.translate("Hello", "en", "zh_cn")
+        result = provider.translate("Hello __QLP_0__", "auto", "zh_cn", context="Earlier paragraph", glossary="Hello = Greeting")
 
     assert result == "translated output"
     request = mock_client.chat.completions.create.call_args.kwargs
-    assert request["model"] == "served-hy-mt"
+    assert request["model"] == (alias or model_id)
     assert request["max_tokens"] == 777
     assert request["temperature"] == 0.3
-    assert request["messages"][0]["role"] == "user"
+    message, = request["messages"]
+    assert message["role"] == "user"
+    assert "from auto" not in message["content"]
+    for part in ("Chinese (Simplified)", "Hello __QLP_0__", "Earlier paragraph", "Hello = Greeting"):
+        assert part in message["content"]
 
 
 def test_openai_chat_runtime_passes_extra_body_without_mutating_it():
@@ -648,8 +656,16 @@ def test_local_llm_direct_loader_uses_transformers_v5_dtype_kwarg():
     assert "torch_dtype" not in captured["model_kwargs"]
 
 
-def test_hy_mt_direct_backend_uses_hy_mt2_chat_template():
+@pytest.mark.parametrize(("model_id", "temperature", "tokenizer_eos", "checkpoint_eos", "expected_eos"), [
+    pytest.param("", 0.0, 127960, [127960, 127967], [127960, 127967], id="7b-multiple-stops"),
+    pytest.param("tencent/Hy-MT3-1.8B", 0.7, 120020, 120020, 120020, id="1.8b"),
+    pytest.param("local/custom", 0.0, 2, None, 2, id="tokenizer-only-stop"),
+])
+def test_hy_mt_direct_backend_uses_checkpoint_template_and_stop_tokens(
+    model_id, temperature, tokenizer_eos, checkpoint_eos, expected_eos
+):
     import torch
+    from transformers import BatchEncoding
 
     from module.providers.local_llm.hy_mt import HYMTProvider
 
@@ -657,12 +673,12 @@ def test_hy_mt_direct_backend_uses_hy_mt2_chat_template():
 
     class FakeTokenizer:
         pad_token_id = 0
-        eos_token_id = 2
+        eos_token_id = tokenizer_eos
 
         def apply_chat_template(self, messages, **kwargs):
             captured["messages"] = messages
             captured["chat_kwargs"] = kwargs
-            return {"input_ids": torch.tensor([[11, 12]])}
+            return BatchEncoding({"input_ids": torch.tensor([[11, 12]]), "attention_mask": torch.tensor([[1, 1]])})
 
         def decode(self, ids, skip_special_tokens=True):
             captured["decoded_ids"] = ids.tolist()
@@ -670,26 +686,38 @@ def test_hy_mt_direct_backend_uses_hy_mt2_chat_template():
             return "translated output"
 
     class FakeModel:
+        generation_config = SimpleNamespace(eos_token_id=checkpoint_eos)
+
         def parameters(self):
             return iter([torch.nn.Parameter(torch.empty(0))])
 
-        def generate(self, **kwargs):
+        def generate(self, input_ids, attention_mask, **kwargs):
+            assert input_ids.tolist() == [[11, 12]]
+            assert attention_mask.tolist() == [[1, 1]]
+            assert kwargs.get("eos_token_id", self.generation_config.eos_token_id) == expected_eos
             captured["generate_kwargs"] = kwargs
             return torch.tensor([[11, 12, 21, 22]])
 
-    provider = HYMTProvider(console=Console(file=io.StringIO(), force_terminal=False))
+    provider = HYMTProvider(model_id=model_id, temperature=temperature)
 
     with patch.object(provider, "_get_or_load_components", return_value=(FakeTokenizer(), FakeModel())):
         result = provider.translate("Hello", "en", "zh_cn")
 
-    assert provider.model_id == "tencent/Hy-MT2-7B"
+    assert provider.model_id == (model_id or "tencent/Hy-MT3-7B")
     assert result == "translated output"
-    assert captured["messages"][0]["role"] == "user"
+    message, = captured["messages"]
+    assert message["role"] == "user"
+    assert "from English to Chinese (Simplified)" in message["content"]
     assert captured["chat_kwargs"]["tokenize"] is True
     assert captured["chat_kwargs"]["add_generation_prompt"] is True
     assert captured["chat_kwargs"]["return_tensors"] == "pt"
     assert captured["generate_kwargs"]["max_new_tokens"] == 4096
-    assert captured["generate_kwargs"]["do_sample"] is False
+    assert captured["generate_kwargs"]["do_sample"] == (temperature > 0)
+    assert captured["generate_kwargs"]["repetition_penalty"] == 1.05
+    if temperature:
+        assert captured["generate_kwargs"]["temperature"] == temperature
+        assert captured["generate_kwargs"]["top_k"] == 20
+        assert captured["generate_kwargs"]["top_p"] == 0.6
     assert captured["decoded_ids"] == [21, 22]
     assert captured["skip_special_tokens"] is True
 

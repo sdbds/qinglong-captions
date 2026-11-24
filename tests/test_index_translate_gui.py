@@ -4,7 +4,7 @@ import textwrap
 from pathlib import Path
 
 
-def test_translate_gui_offers_index_models_and_launches_selected_model(tmp_path):
+def test_translate_gui_launches_selected_hy_mt_and_index_models(tmp_path):
     code = textwrap.dedent("""\
         import asyncio
         import sys
@@ -25,9 +25,15 @@ def test_translate_gui_offers_index_models_and_launches_selected_model(tmp_path)
         with ui.column() as container:
             step._render_translate_tool()
         try:
-            assert step.translate_model.value == "tencent/Hy-MT2-7B"
+            assert step.translate_model.value == "tencent/Hy-MT3-7B"
             step.translate_input.value = sys.argv[1]
-            for model_id in ("IndexTeam/Index-Translate-2B", "IndexTeam/Index-Translate-9B"):
+            for model_id in (
+                "tencent/Hy-MT3-7B", "tencent/Hy-MT3-1.8B",
+                "tencent/Hy-MT3-7B-FP8", "tencent/Hy-MT3-1.8B-FP8",
+                "tencent/Hy-MT2-7B", "tencent/Hy-MT2-1.8B-FP8",
+                "IndexTeam/Index-Translate-2B", "IndexTeam/Index-Translate-9B",
+            ):
+                assert model_id in step.translate_model.options
                 step.translate_model.set_value(model_id)
                 asyncio.run(step._start_translate())
                 script, args, kwargs = calls[-1]

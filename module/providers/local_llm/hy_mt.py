@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
+
+from module.translation_models import DEFAULT_HY_MT_MODEL
 
 from ..local_llm_base import LocalLLMProvider
 
@@ -35,10 +38,12 @@ def build_translation_prompt(
     context: str = "",
     glossary: str = "",
 ) -> str:
+    source_lang = source_lang.strip()
     source_name = _LANGUAGE_NAMES.get(source_lang.lower(), source_lang)
+    source_clause = f" from {source_name}" if source_name.lower() not in {"", "auto"} else ""
     target_name = _LANGUAGE_NAMES.get(target_lang.lower(), target_lang)
     sections = [
-        f"Translate the CURRENT markdown fragment from {source_name} to {target_name}.",
+        f"Translate the CURRENT markdown fragment{source_clause} to {target_name}.",
         "Requirements:",
         "- Output only the translated markdown fragment.",
         "- Preserve markdown structure, headings, lists, tables, and blockquotes.",
@@ -49,14 +54,16 @@ def build_translation_prompt(
     if glossary.strip():
         sections.append("Terminology glossary (follow strictly):\n<glossary>\n" + glossary.strip() + "\n</glossary>")
     if context.strip():
-        sections.append("Context for disambiguation. Do not translate this context directly:\n<context>\n" + context.strip() + "\n</context>")
+        sections.append(
+            f"Context for disambiguation. Do not translate this context directly:\n<context>\n{context.strip()}\n</context>"
+        )
     sections.append("<source>\n" + text + "\n</source>")
     sections.append("Return only the translated fragment.")
     return "\n\n".join(sections)
 
 
 class HYMTProvider(LocalLLMProvider):
-    default_model_id = "tencent/Hy-MT2-7B"
+    default_model_id = DEFAULT_HY_MT_MODEL
 
     def __init__(self, *args, max_new_tokens: int = 4096, **kwargs) -> None:
         super().__init__(*args, max_new_tokens=max_new_tokens, **kwargs)
@@ -70,30 +77,29 @@ class HYMTProvider(LocalLLMProvider):
             tokenize=True,
             add_generation_prompt=True,
             return_tensors="pt",
+            return_dict=True,
         )
 
         generation_kwargs = {
             "max_new_tokens": self.max_new_tokens,
             "pad_token_id": tokenizer.pad_token_id,
-            "eos_token_id": tokenizer.eos_token_id,
             "repetition_penalty": 1.05,
             "do_sample": self.temperature > 0,
         }
+        # Hy-MT3-7B has two checkpoint stop tokens; some custom models only set EOS on the tokenizer.
+        generation_config = getattr(model, "generation_config", None)
+        if getattr(generation_config, "eos_token_id", None) is None and tokenizer.eos_token_id is not None:
+            generation_kwargs["eos_token_id"] = tokenizer.eos_token_id
         if self.temperature > 0:
             generation_kwargs["temperature"] = self.temperature
             generation_kwargs["top_k"] = 20
             generation_kwargs["top_p"] = 0.6
 
-        if isinstance(tokenized, dict):
-            inputs = {key: value.to(model_device) for key, value in tokenized.items()}
-            output_ids = model.generate(**inputs, **generation_kwargs)
-            prompt_length = inputs["input_ids"].shape[1]
-        else:
-            input_ids = tokenized.to(model_device)
-            output_ids = model.generate(input_ids, **generation_kwargs)
-            prompt_length = input_ids.shape[-1]
-
-        generated_ids = output_ids[0][prompt_length:]
+        if not isinstance(tokenized, Mapping):
+            tokenized = {"input_ids": tokenized}
+        inputs = {key: value.to(model_device) for key, value in tokenized.items()}
+        output_ids = model.generate(**inputs, **generation_kwargs)
+        generated_ids = output_ids[0][inputs["input_ids"].shape[-1]:]
         return tokenizer.decode(generated_ids, skip_special_tokens=True)
 
     def translate(

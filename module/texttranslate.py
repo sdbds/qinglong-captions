@@ -18,10 +18,17 @@ from module.lanceImport import transform2lance
 from module.music_export import atomic_output_path
 from module.providers.local_llm.hy_mt import HYMTProvider
 from module.providers.local_llm.index_translate import IndexTranslateProvider
+from module.translation_models import DEFAULT_HY_MT_MODEL
 from utils.doc_normalize import NormalizationError, normalize_asset
 from utils.lance_blob import build_lance_value_array, take_blob_files
 from utils.lance_updates import LanceRowUpdate, merge_rows_preserving_schema
-from utils.lance_utils import build_version_tag, find_existing_lance_dataset, get_latest_version_number, sanitize_tag_component, update_or_create_tag
+from utils.lance_utils import (
+    build_version_tag,
+    find_existing_lance_dataset,
+    get_latest_version_number,
+    sanitize_tag_component,
+    update_or_create_tag,
+)
 from utils.text_chunker import compute_chunk_offsets, slice_by_offsets
 
 console = Console(color_system="truecolor", force_terminal=True)
@@ -548,7 +555,9 @@ def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Normalize and translate text/document assets stored in Lance.")
     parser.add_argument("input_path", help="Dataset directory or .lance path")
     parser.add_argument("--output_name", default="dataset", help="Lance dataset name when importing a directory")
-    parser.add_argument("--model_id", default="tencent/Hy-MT2-7B", help="Translation model id")
+    parser.add_argument(
+        "--model_id", default=DEFAULT_HY_MT_MODEL, help="Translation model ID or local path (default: %(default)s)"
+    )
     parser.add_argument(
         "--runtime_backend",
         choices=["direct", "openai"],
@@ -562,8 +571,8 @@ def setup_parser() -> argparse.ArgumentParser:
         default="",
         help="Optional OpenAI-compatible model name override for translation backend",
     )
-    parser.add_argument("--source_lang", default="auto", help="Source language code")
-    parser.add_argument("--target_lang", default="zh_cn", help="Target language code used for tags and file suffixes")
+    parser.add_argument("--source_lang", default="auto", help="Source language code or name, or 'auto' to infer it")
+    parser.add_argument("--target_lang", default="zh_cn", help="Target language code or name, also used for tags and file suffixes")
     parser.add_argument("--max_chars", type=int, default=2200, help="Maximum characters per translation chunk")
     parser.add_argument("--context_chars", type=int, default=300, help="Characters of previous chunk passed as translation context")
     parser.add_argument("--max_new_tokens", type=int, default=4096, help="Maximum new tokens generated per chunk")

@@ -45,6 +45,7 @@ from module.reward_policy import (
     load_reward_policy,
     save_threshold_profile,
 )
+from module.translation_models import HY_MT_MODELS
 
 if TYPE_CHECKING:
     from gui.components.execution_panel import ExecutionPanel
@@ -348,8 +349,7 @@ class ToolsStep:
 
     # 翻译模型
     TRANSLATE_MODELS = [
-        "tencent/Hy-MT2-7B",
-        "tencent/Hy-MT2-1.8B-FP8",
+        *HY_MT_MODELS,
         "IndexTeam/Index-Translate-9B",
         "IndexTeam/Index-Translate-2B",
     ]

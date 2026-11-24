@@ -253,10 +253,10 @@ def test_resolve_translated_markdown_path_preserves_relative_directories(tmp_pat
     assert second == export_root / 'b' / 'readme.txt_zh_cn.md'
 
 
-def test_texttranslate_parser_defaults_to_hy_mt2():
+def test_texttranslate_parser_defaults_to_hy_mt3_7b():
     args = setup_parser().parse_args(['./datasets'])
 
-    assert args.model_id == 'tencent/Hy-MT2-7B'
+    assert args.model_id == 'tencent/Hy-MT3-7B'
     assert args.max_new_tokens == 4096
 
 
