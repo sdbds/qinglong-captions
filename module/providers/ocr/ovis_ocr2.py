@@ -1,4 +1,4 @@
-"""OvisOCR2 provider with Direct Transformers and OpenAI-compatible runtimes."""
+"""OvisOCR document parsing with Direct Transformers and OpenAI-compatible runtimes."""
 
 from __future__ import annotations
 
@@ -15,8 +15,9 @@ from PIL import Image
 
 from module.providers.backends import OpenAIChatRuntime, RuntimeBackendConfig
 from module.providers.base import CaptionResult, MediaContext, MediaModality, PromptContext
+from module.providers.catalog import route_provider_name
 from module.providers.ocr.document import rebase_generated_images
-from module.providers.ocr.ovis_ocr2_contract import OVIS_OCR2_DEFAULT_PROMPT
+from module.providers.ocr.ovis_ocr2_contract import OVIS_OCR3_DEFAULT_PROMPT, OVIS_OCR3_MODEL_ID, ovis_document_prompt
 from module.providers.ocr_base import OCRProvider
 from module.providers.registry import register_provider
 from utils.ocr_artifacts import reserve_ocr_artifact_dir
@@ -167,7 +168,7 @@ class _RepeatedTailStoppingCriteria:
         import torch
 
         if int(input_ids.shape[0]) != 1:
-            raise ValueError("OvisOCR2 repeated-tail stopping requires batch size 1")
+            raise ValueError("OvisOCR repeated-tail stopping requires batch size 1")
 
         generated_tokens = max(0, int(input_ids.shape[1]) - self.prompt_length)
         if generated_tokens < self._next_check:
@@ -303,7 +304,7 @@ class _DirectPageInferencer:
             from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
         except ImportError as exc:
             raise ImportError(
-                "OvisOCR2 Direct inference requires the Qwen3.5 runtime. Install the ovis-ocr2 extra."
+                "OvisOCR Direct inference requires the Qwen3.5 runtime. Install the ovis-ocr2 extra."
             ) from exc
 
         device, dtype, attn_impl = resolve_device_dtype()
@@ -376,7 +377,7 @@ class _DirectPageInferencer:
         text = decoded[0] if decoded else ""
         if stopping_criterion.stop_reason == "thinking_marker":
             self.console.print(
-                "[yellow]OvisOCR2 stopped at generated thinking marker:[/yellow] "
+                "[yellow]OvisOCR stopped at generated thinking marker:[/yellow] "
                 f"generated_tokens={stopping_criterion.triggered_at_tokens}"
             )
         trigger = stopping_criterion.triggered_match
@@ -384,12 +385,12 @@ class _DirectPageInferencer:
             normalized = _normalize_triggered_repeat(text, trigger)
             if normalized is None:
                 self.console.print(
-                    "[yellow]OvisOCR2 warning:[/yellow] could not revalidate repeated tail; preserving decoded output"
+                    "[yellow]OvisOCR warning:[/yellow] could not revalidate repeated tail; preserving decoded output"
                 )
             else:
                 text = normalized
                 self.console.print(
-                    "[yellow]OvisOCR2 stopped repeated output:[/yellow] "
+                    "[yellow]OvisOCR stopped repeated output:[/yellow] "
                     f"generated_tokens={stopping_criterion.triggered_at_tokens}, "
                     f"period_chars={trigger.period_len}, repeat_times={trigger.repeat_times}"
                 )
@@ -438,12 +439,12 @@ class _OpenAIPageInferencer:
 
 @register_provider("ovis_ocr2")
 class OvisOCR2Provider(OCRProvider):
-    default_model_id = "ATH-MaaS/OvisOCR2"
-    default_prompt = OVIS_OCR2_DEFAULT_PROMPT
+    default_model_id = OVIS_OCR3_MODEL_ID
+    default_prompt = OVIS_OCR3_DEFAULT_PROMPT
 
     @classmethod
     def can_handle(cls, args: Any, mime: str) -> bool:
-        if getattr(args, "ocr_model", "") != cls.name:
+        if route_provider_name("ocr_model", getattr(args, "ocr_model", "")) != cls.name:
             return False
         if mime == "application/pdf":
             return True
@@ -463,13 +464,14 @@ class OvisOCR2Provider(OCRProvider):
         return section if isinstance(section, Mapping) else {}
 
     def get_prompts(self, mime: str):
-        provider_prompt = str(self._provider_config().get("prompt", "") or "").strip()
+        section = self._provider_config()
+        provider_prompt = str(section.get("prompt", "") or "").strip()
         if provider_prompt:
             return "", provider_prompt
 
         prompts = self.ctx.config.get("prompts", {})
         legacy_prompt = str(prompts.get("ovis_ocr2_prompt", "") or "").strip() if isinstance(prompts, Mapping) else ""
-        return "", legacy_prompt or self.default_prompt
+        return "", legacy_prompt or ovis_document_prompt(self.get_runtime_backend().model_id, section.get("model_id", ""))
 
     def _get_visual_region_mode(self) -> str:
         mode = str(self._provider_config().get("visual_region_mode", "crop") or "crop").strip().lower()
@@ -508,7 +510,7 @@ class OvisOCR2Provider(OCRProvider):
         )
 
     def _warn(self, message: str) -> None:
-        self.ctx.console.print(f"[yellow]OvisOCR2 warning:[/yellow] {message}")
+        self.ctx.console.print(f"[yellow]OvisOCR warning:[/yellow] {message}")
 
     def _process_page(
         self,
@@ -524,12 +526,14 @@ class OvisOCR2Provider(OCRProvider):
         _save_page_snapshot(image, output_dir / snapshot_name, self._warn)
         raw_text = inferencer.infer_page(image, prompt)
         if raw_text is None or not str(raw_text).strip():
-            raise ValueError("OvisOCR2 returned empty output for page")
+            raise ValueError("OvisOCR returned empty output for page")
 
         cleaned = _truncate_at_thinking_marker(str(raw_text).strip())
         if not cleaned:
-            raise ValueError("OvisOCR2 returned empty output for page")
-        cleaned = _clean_truncated_repeats(cleaned)
+            raise ValueError("OvisOCR returned empty output for page")
+        # Crop only retained references; in drop mode, removing a final tag can expose a repeated text tail.
+        if visual_region_mode == "crop":
+            cleaned = _clean_truncated_repeats(cleaned)
         rendered = _process_visual_regions(
             cleaned,
             image,
@@ -537,6 +541,8 @@ class OvisOCR2Provider(OCRProvider):
             mode=visual_region_mode,
             warn=self._warn,
         )
+        if visual_region_mode == "drop":
+            rendered = _clean_truncated_repeats(rendered.rstrip())
         write_markdown_output(output_dir, rendered)
         return rendered
 
@@ -584,7 +590,7 @@ class OvisOCR2Provider(OCRProvider):
                     pass
 
         if not page_contents:
-            raise RuntimeError(f"OvisOCR2 failed to process all {attempted_pages} PDF pages") from last_error
+            raise RuntimeError(f"OvisOCR failed to process all {attempted_pages} PDF pages") from last_error
 
         content = "\n<--- Page Split --->\n".join(page_contents)
         write_markdown_output(output_dir, content)

@@ -1,28 +1,29 @@
 import base64
 import io
+import json
 import sys
 import types
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import httpx
+import openai
 import pytest
 import torch
 from PIL import Image
 from rich.console import Console
 
-from module.providers.backends import RuntimeBackendConfig
 from module.providers.base import MediaContext, MediaModality, PromptContext, ProviderContext
 from module.providers.ocr import ovis_ocr2 as ovis_module
 from module.providers.ocr.ovis_ocr2 import (
     OvisOCR2Provider,
     _clean_truncated_repeats,
     _DirectPageInferencer,
-    _OpenAIPageInferencer,
     _prefix_visual_region_paths,
     _process_visual_regions,
 )
-from module.providers.ocr.ovis_ocr2_contract import OVIS_OCR2_DEFAULT_PROMPT
 
 
 def _console() -> Console:
@@ -75,10 +76,47 @@ class _CharacterTokenProcessor:
         return ["".join(chr(value) for value in values)]
 
 
-def test_provider_uses_shared_official_prompt_contract():
-    assert OvisOCR2Provider.default_prompt == OVIS_OCR2_DEFAULT_PROMPT
-    assert OVIS_OCR2_DEFAULT_PROMPT.startswith("\nExtract all readable content")
-    assert '<img src="images/bbox_{left}_{top}_{right}_{bottom}.jpg" />' in OVIS_OCR2_DEFAULT_PROMPT
+@pytest.mark.parametrize("backend", ["direct", "openai"])
+@pytest.mark.parametrize("model_id", [None, "ATH-MaaS/OvisOCR2"])
+def test_model_selection_uses_the_matching_document_markdown_prompt(tmp_path, backend, model_id):
+    section = {"runtime_backend": backend}
+    if model_id:
+        section["model_id"] = model_id
+    provider = _provider(tmp_path, section)
+
+    runtime = provider.get_runtime_backend()
+    assert runtime.model_id == (model_id or "ATH-MaaS/OvisOCR3")
+    assert runtime.mode == backend
+    _, prompt = provider.get_prompts("application/pdf")
+    # The v2 prompt starts with a newline after the image; v3's document_markdown.txt does not.
+    assert prompt.startswith("\nExtract all readable content" if model_id else "Extract all readable content")
+    assert '<img src="images/bbox_{left}_{top}_{right}_{bottom}.jpg" />' in prompt
+    assert prompt.endswith("without translation or paraphrasing.")
+
+
+@pytest.mark.parametrize(
+    ("served_name", "expected_prefix"),
+    [("my-ocr-service", "\nExtract"), ("ATH-MaaS/OvisOCR3", "Extract")],
+)
+def test_prompt_uses_configured_checkpoint_for_an_opaque_server_name(tmp_path, served_name, expected_prefix):
+    provider = _provider(
+        tmp_path,
+        {"model_id": "ATH-MaaS/OvisOCR2"},
+        args=SimpleNamespace(openai_base_url="http://vllm.test/v1", openai_model_name=served_name),
+    )
+
+    assert provider.get_runtime_backend().model_id == served_name
+    assert provider.get_prompts("image/png")[1].startswith(expected_prefix)
+
+
+@pytest.mark.parametrize(
+    "checkpoint",
+    ["ath-maas/ovisocr2", "./models/OvisOCR2", r"E:\models\OvisOCR2", "/hub/models--ATH-MaaS--OvisOCR2/snapshots/revision"],
+)
+def test_case_variants_and_local_v2_checkpoints_keep_the_v2_prompt(tmp_path, checkpoint):
+    provider = _provider(tmp_path, {"model_id": checkpoint})
+    assert provider.get_runtime_backend().model_id == checkpoint
+    assert provider.get_prompts("image/png")[1].startswith("\nExtract")
 
 
 def test_clean_truncated_repeats_keeps_text_shorter_than_official_threshold():
@@ -440,7 +478,7 @@ def _run_direct_character_generation(monkeypatch, *, final_text=None):
     monkeypatch.setattr(ovis_module, "resolve_device_dtype", lambda: ("cpu", torch.float32, "eager"))
 
     result = _DirectPageInferencer(
-        model_id="ATH-MaaS/OvisOCR2",
+        model_id="ATH-MaaS/OvisOCR3",
         max_new_tokens=16384,
         min_pixels=448 * 448,
         max_pixels=2880 * 2880,
@@ -519,7 +557,7 @@ def test_direct_inferencer_uses_native_qwen35_contract(monkeypatch):
 
     image = Image.new("RGB", (1600, 1200), "white")
     result = _DirectPageInferencer(
-        model_id="ATH-MaaS/OvisOCR2",
+        model_id="ATH-MaaS/OvisOCR3",
         max_new_tokens=16384,
         min_pixels=448 * 448,
         max_pixels=2880 * 2880,
@@ -546,6 +584,8 @@ def test_direct_inferencer_uses_native_qwen35_contract(monkeypatch):
             "images_kwargs": {"min_pixels": 448 * 448, "max_pixels": 2880 * 2880},
         },
     }
+    assert captured["processor_load"][0][0] == "ATH-MaaS/OvisOCR3"
+    assert captured["model_load"][0][0] == "ATH-MaaS/OvisOCR3"
     assert captured["processor_load"][1]["trust_remote_code"] is False
     assert captured["model_load"][0][1] is fake_transformers.Qwen3_5ForConditionalGeneration
     assert captured["model_load"][1]["trust_remote_code"] is False
@@ -559,30 +599,40 @@ def test_direct_inferencer_uses_native_qwen35_contract(monkeypatch):
     assert captured["decoded_ids"] == [[20, 21]]
 
 
-def test_openai_inferencer_uses_full_resolution_png_and_vllm_extra_body():
-    runtime = RuntimeBackendConfig(
-        mode="openai",
-        base_url="http://127.0.0.1:8000/v1",
-        api_key="",
-        model_id="ATH-MaaS/OvisOCR2",
-        temperature=0.0,
-        top_p=1.0,
-        max_tokens=16384,
+@pytest.mark.parametrize("served_name", ["", "my-ocr-service"])
+def test_openai_inferencer_uses_full_resolution_png_and_vllm_extra_body(tmp_path, monkeypatch, served_name):
+    provider = _provider(
+        tmp_path,
+        {"max_new_tokens": 16384},
+        args=SimpleNamespace(openai_base_url="http://vllm.test/v1", openai_model_name=served_name),
     )
+    inferencer = provider._create_inferencer(provider.get_runtime_backend())
     image = Image.new("RGB", (1601, 1203), "white")
+    body = {}
 
-    with patch(
-        "module.providers.ocr.ovis_ocr2.OpenAIChatRuntime.complete",
-        return_value="raw markdown",
-    ) as complete:
-        result = _OpenAIPageInferencer(
-            runtime=runtime,
-            min_pixels=448 * 448,
-            max_pixels=2880 * 2880,
-        ).infer_page(image, "prompt")
+    def respond(request):
+        assert request.url.path == "/v1/chat/completions"
+        body.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "created": 0,
+                "model": body["model"],
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "raw markdown"}, "finish_reason": "stop"}],
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(respond), trust_env=False) as client:
+        monkeypatch.setattr(openai, "OpenAI", partial(openai.OpenAI, http_client=client))
+        _, prompt = provider.get_prompts("image/png")
+        result = inferencer.infer_page(image, prompt)
 
     assert result == "raw markdown"
-    messages = complete.call_args.args[0]
+    assert body["model"] == (served_name or "ATH-MaaS/OvisOCR3")
+    assert body["temperature"] == 0.0 and body["max_tokens"] == 16384
+    messages = body["messages"]
     assert [message["role"] for message in messages] == ["user"]
     assert [part["type"] for part in messages[0]["content"]] == ["image_url", "text"]
     data_url = messages[0]["content"][0]["image_url"]["url"]
@@ -590,11 +640,9 @@ def test_openai_inferencer_uses_full_resolution_png_and_vllm_extra_body():
     with Image.open(io.BytesIO(base64.b64decode(data_url.split(",", 1)[1]))) as encoded:
         assert encoded.size == (1601, 1203)
         assert encoded.format == "PNG"
-    assert messages[0]["content"][1]["text"] == "prompt"
-    assert complete.call_args.kwargs["extra_body"] == {
-        "mm_processor_kwargs": {"images_kwargs": {"min_pixels": 448 * 448, "max_pixels": 2880 * 2880}},
-        "chat_template_kwargs": {"enable_thinking": False},
-    }
+    assert messages[0]["content"][1]["text"] == prompt
+    assert body["mm_processor_kwargs"] == {"images_kwargs": {"min_pixels": 448 * 448, "max_pixels": 2880 * 2880}}
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 def test_provider_prompt_precedence_ignores_blank_values(tmp_path):
@@ -634,8 +682,9 @@ def test_provider_runtime_uses_top_p_config_and_preserves_cli_override(tmp_path)
     assert provider.get_runtime_backend().top_p == 0.75
 
 
-def test_provider_handles_only_pdf_and_opted_in_images():
-    args = SimpleNamespace(ocr_model="ovis_ocr2", document_image=True)
+@pytest.mark.parametrize("route", ["ovis_ocr2", "ovis_ocr3"])
+def test_provider_handles_only_pdf_and_opted_in_images(route):
+    args = SimpleNamespace(ocr_model=route, document_image=True)
     assert OvisOCR2Provider.can_handle(args, "application/pdf") is True
     assert OvisOCR2Provider.can_handle(args, "application/zip") is False
     assert OvisOCR2Provider.can_handle(args, "image/png") is True
@@ -708,6 +757,23 @@ def test_backend_variants_produce_identical_markdown_and_assets(tmp_path):
         )
 
     assert outputs[0] == outputs[1]
+
+
+def test_drop_checks_the_markdown_tail_after_removing_a_final_visual_region(tmp_path):
+    prefix = "x" * 7900 + ":"
+    unit = "0123456789ABCDEFGHIJ"
+    tag = '<img src="images/bbox_0_0_500_500.jpg" />'
+    provider = _provider(tmp_path)
+    markdown = provider._process_page(
+        image=Image.new("RGB", (20, 20)),
+        output_dir=tmp_path,
+        snapshot_name="page.png",
+        inferencer=_SequenceInferencer([prefix + unit * 5 + "\n\n" + tag]),
+        prompt="test",
+        visual_region_mode="drop",
+    )
+    assert markdown == prefix + unit
+    assert (tmp_path / "result.md").read_text(encoding="utf-8") == markdown
 
 
 def test_pdf_pipeline_writes_page_results_and_rewrites_only_root_paths(tmp_path):

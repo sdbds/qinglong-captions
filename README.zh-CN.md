@@ -39,7 +39,7 @@
 | --- | --- | --- |
 | 视频与图像 | 镜头检测、抽帧、标签生成、VLM 描述、OCR、水印检测与图层分解 | Lance 数据集、媒体文件、标签、字幕和 PSD |
 | 音频与音乐 | 音频分轨、语音转写、音频描述、MIDI 转换与乐谱 OMR | 分轨、转写文本、MIDI、MusicXML 和试听文件 |
-| 文档 | PDF 与图片 OCR、Markdown 规范化及多语言翻译 | Markdown 和翻译文档 |
+| 文档 | 通过 [OvisOCR3](docs/configuration.md#ovisocr3) 等模型识别 PDF 与图片，支持 Markdown 规范化及多语言翻译 | Markdown 和翻译文档 |
 | 数据工作流 | 导入、Lance 版本更新、批量任务与 sidecar 导出 | 可复用数据集和媒体对齐标注 |
 
 ## 4.7.0 版本重点

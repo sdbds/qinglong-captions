@@ -33,7 +33,7 @@ def _load_caption_step():
 
 
 def test_ovis_ocr2_declaration_exposes_ordered_local_ocr_route():
-    from module.providers.catalog import get_provider_declaration, route_choices
+    from module.providers.catalog import get_provider_declaration, normalize_runtime_args, route_choices
 
     declaration = get_provider_declaration("ovis_ocr2")
     assert declaration is not None
@@ -43,6 +43,8 @@ def test_ovis_ocr2_declaration_exposes_ordered_local_ocr_route():
     assert declaration.routes[0].order == 15
     assert declaration.routes[0].requires_remote_config is False
     assert "ovis_ocr2" in route_choices("ocr_model")
+    assert "ovis_ocr3" in route_choices("ocr_model", include_aliases=True)
+    assert normalize_runtime_args(SimpleNamespace(ocr_model="ovis_ocr3")).ocr_model == "ovis_ocr2"
 
 
 def test_ovis_ocr2_model_and_legacy_configs_share_runtime_defaults():
@@ -50,7 +52,7 @@ def test_ovis_ocr2_model_and_legacy_configs_share_runtime_defaults():
     legacy_config = tomllib.loads((ROOT / "config" / "config.toml").read_text(encoding="utf-8"))["ovis_ocr2"]
 
     expected = {
-        "model_id": "ATH-MaaS/OvisOCR2",
+        "model_id": "ATH-MaaS/OvisOCR3",
         "runtime_backend": "direct",
         "prompt": "",
         "max_new_tokens": 16384,
@@ -62,6 +64,7 @@ def test_ovis_ocr2_model_and_legacy_configs_share_runtime_defaults():
     }
     assert {key: model_config[key] for key in expected} == expected
     assert {key: legacy_config[key] for key in expected} == expected
+    assert model_config["model_list"]["OvisOCR3 0.8B"]["model_id"] == "ATH-MaaS/OvisOCR3"
     assert model_config["model_list"]["OvisOCR2 0.8B"]["model_id"] == "ATH-MaaS/OvisOCR2"
 
 
@@ -108,6 +111,7 @@ def test_gui_exposes_ovis_route_and_installs_ovis_extra_without_fake_rank():
     step.alm_model = SimpleNamespace(value="")
 
     assert "ovis_ocr2" in CaptionStep.OCR_MODELS
+    assert "OvisOCR3" in step._build_ocr_labels()["ovis_ocr2"]
     assert "ovis_ocr2" not in CaptionStep._OCR_RANK_SCORES
     assert step._build_local_extra_args() == ["--extra", "ovis-ocr2"]
 
@@ -115,8 +119,8 @@ def test_gui_exposes_ovis_route_and_installs_ovis_extra_without_fake_rank():
 def test_captioner_powershell_declares_ovis_route_and_extra():
     script = (ROOT / "4.captioner.ps1").read_text(encoding="utf-8-sig")
 
-    assert '"ovis_ocr2"' in script.split("# VLM model configuration", 1)[0]
+    assert '"ovis_ocr3"' in script.split("# VLM model configuration", 1)[0]
     assert re.search(
-        r'elseif \(\$ocr_model -eq "ovis_ocr2"\) \{\s*Add-UvExtra "ovis-ocr2"\s*\}',
+        r'elseif \(\$ocr_model -in @\("ovis_ocr2", "ovis_ocr3"\)\) \{\s*Add-UvExtra "ovis-ocr2"\s*\}',
         script,
     )

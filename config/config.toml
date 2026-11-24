@@ -697,10 +697,9 @@ min_pixels = 2048
 max_pixels = 16777216
 image_patch_size = 16
 
-# OvisOCR2 configuration
-# Model: https://huggingface.co/ATH-MaaS/OvisOCR2
+# OvisOCR document parsing: https://huggingface.co/ATH-MaaS/OvisOCR3
 [ovis_ocr2]
-model_id = "ATH-MaaS/OvisOCR2"
+model_id = "ATH-MaaS/OvisOCR3"
 runtime_backend = "direct"
 prompt = ""
 max_new_tokens = 16384

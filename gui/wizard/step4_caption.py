@@ -392,7 +392,9 @@ class CaptionStep:
             if not m:
                 labels[m] = m
                 continue
-            if m in cls._OCR_RANK_SCORES:
+            if m == "ovis_ocr2":
+                labels[m] = "OvisOCR3 / OvisOCR2"
+            elif m in cls._OCR_RANK_SCORES:
                 rank, score = cls._OCR_RANK_SCORES[m]
                 labels[m] = f"{rank} {m} ({score})"
             else:

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from gui.utils.toml_helpers import ModelListEntry
-from module.providers.ocr.ovis_ocr2_contract import OVIS_OCR2_DEFAULT_PROMPT
+from module.providers.ocr.ovis_ocr2_contract import OVIS_OCR2_DEFAULT_PROMPT, OVIS_OCR3_DEFAULT_PROMPT
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -206,8 +206,14 @@ def test_model_config_panel_renders_ovis_ocr2_enums_as_fixed_selects(
     assert fake_select.on_value_change_handler is not None
 
 
-def test_model_config_panel_displays_ovis_default_prompt_without_importing_inference(monkeypatch):
-    sys.modules.pop("module.providers.ocr.ovis_ocr2", None)
+@pytest.mark.parametrize(
+    ("model_id", "expected_prompt"),
+    [("ATH-MaaS/OvisOCR3", OVIS_OCR3_DEFAULT_PROMPT), ("ATH-MaaS/OvisOCR2", OVIS_OCR2_DEFAULT_PROMPT)],
+    ids=["v3", "v2"],
+)
+def test_model_config_panel_displays_ovis_default_prompt_without_importing_inference(monkeypatch, model_id, expected_prompt):
+    monkeypatch.delitem(sys.modules, "module.providers.ocr.ovis_ocr2", raising=False)
+    monkeypatch.delattr(sys.modules["module.providers.ocr"], "ovis_ocr2", raising=False)
     panel_module = _load_model_config_panel_module("test_ovis_ocr2_default_prompt")
     assert "module.providers.ocr.ovis_ocr2" not in sys.modules
 
@@ -217,18 +223,42 @@ def test_model_config_panel_displays_ovis_default_prompt_without_importing_infer
     panel = panel_module.ModelConfigPanel(parent=SimpleNamespace(clear=lambda: None))
     panel._section_name = "ovis_ocr2"
     panel._current_route = "ovis_ocr2"
-    parent_dict = {"prompt": ""}
+    parent_dict = panel._data = {"prompt": "", "model_id": model_id}
 
     panel._render_field("prompt", "", parent_dict)
 
     assert fake_ui.created_textareas == [fake_textarea]
-    assert fake_textarea.value == OVIS_OCR2_DEFAULT_PROMPT
+    assert fake_textarea.value == expected_prompt
     assert parent_dict["prompt"] == ""
 
     fake_textarea.on_value_change_handler(SimpleNamespace(value="custom prompt"))
     assert parent_dict["prompt"] == "custom prompt"
-    fake_textarea.on_value_change_handler(SimpleNamespace(value=OVIS_OCR2_DEFAULT_PROMPT))
+    fake_textarea.on_value_change_handler(SimpleNamespace(value=expected_prompt))
     assert parent_dict["prompt"] == ""
+
+
+def test_ovis_model_switch_refreshes_only_an_inherited_prompt(monkeypatch):
+    panel_module = _load_model_config_panel_module("test_ovis_prompt_switch")
+    selector, model_input, prompt, runtime_input = (_FakeSelect() for _ in range(4))
+    monkeypatch.setattr(panel_module, "ui", _FakeUI([selector, model_input, prompt, runtime_input]))
+    panel = panel_module.ModelConfigPanel(parent=SimpleNamespace(clear=lambda: None))
+    panel._section_name = panel._current_route = "ovis_ocr2"
+    data = panel._data = {"model_id": "ATH-MaaS/OvisOCR3", "prompt": "", "runtime_model_id": ""}
+    for key, value in data.items():
+        panel._render_field(key, value, data)
+
+    selector.on_value_change_handler(SimpleNamespace(value="OvisOCR2 0.8B"))
+    assert prompt.value == OVIS_OCR2_DEFAULT_PROMPT
+    assert data["prompt"] == ""
+    model_input.on_value_change_handler(SimpleNamespace(value="ATH-MaaS/OvisOCR3"))
+    assert prompt.value == OVIS_OCR3_DEFAULT_PROMPT
+    runtime_input.on_value_change_handler(SimpleNamespace(value="ATH-MaaS/OvisOCR2"))
+    assert prompt.value == OVIS_OCR2_DEFAULT_PROMPT
+
+    prompt.value = "My custom prompt"
+    prompt.on_value_change_handler(SimpleNamespace(value=prompt.value))
+    runtime_input.on_value_change_handler(SimpleNamespace(value=""))
+    assert prompt.value == data["prompt"] == "My custom prompt"
 
 
 @pytest.mark.parametrize(

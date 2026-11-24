@@ -2,6 +2,10 @@
 
 版本历史从 README 拆出，避免发行说明和操作手册互相遮挡。当前操作入口请看 [README.md](README.md)。
 
+## 未发布
+
+- 图片与 PDF 的 OvisOCR 默认模型升级为 OvisOCR3。CLI 新增 `ovis_ocr3` 别名，保留原有配置、安装命令和可选的 OvisOCR2 权重。见[配置说明](docs/configuration.md#ovisocr3)。
+
 ## 4.7.0 - OvisOCR2、MuSViT 乐谱 OMR 与模型更新
 
 1. 新增 `ovis_ocr2` 图片/PDF OCR Provider：支持 Direct Transformers 与外部 OpenAI-compatible vLLM 双后端，共享逐页容错、重复尾清理、边界框裁剪/移除和 Markdown 写盘逻辑。

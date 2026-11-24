@@ -18,7 +18,7 @@ from gui.utils.toml_helpers import guess_slider_range, load_model_id_options, lo
 
 # Resolved at import time; gui/ is added to sys.path before GUI runs
 from module.providers.catalog import provider_config_sections
-from module.providers.ocr.ovis_ocr2_contract import OVIS_OCR2_DEFAULT_PROMPT
+from module.providers.ocr.ovis_ocr2_contract import ovis_document_prompt
 
 _CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "model.toml"
 
@@ -33,11 +33,6 @@ _ENUM_FIELD_OPTIONS = {
     ("paddle_ocr", "model_tier"): ("tiny", "small", "medium"),
     ("ovis_ocr2", "runtime_backend"): ("direct", "openai"),
     ("ovis_ocr2", "visual_region_mode"): ("crop", "drop"),
-}
-
-# Empty persisted values that should render as their inherited provider defaults.
-_FIELD_DISPLAY_DEFAULTS = {
-    ("ovis_ocr2", "prompt"): OVIS_OCR2_DEFAULT_PROMPT,
 }
 
 # Row layout shared between all field rows
@@ -73,6 +68,7 @@ class ModelConfigPanel:
         self._current_route: Optional[str] = None
         self._section_name: Optional[str] = None
         self._data: Dict[str, Any] = {}   # plain Python copy for widget binding
+        self._prompt_control = None
         self._on_save = on_save
 
     # ── Public API ────────────────────────────────────────────────────
@@ -84,6 +80,7 @@ class ModelConfigPanel:
         self._current_route = route_name
         self._section_name = None
         self._data = {}
+        self._prompt_control = None
         self._parent.clear()
         with self._parent:
             self._render(route_name)
@@ -93,6 +90,7 @@ class ModelConfigPanel:
         self._current_route = None
         self._section_name = None
         self._data = {}
+        self._prompt_control = None
         self._parent.clear()
 
     # ── Section lookup ─────────────────────────────────────────────────
@@ -142,7 +140,9 @@ class ModelConfigPanel:
 
     def _display_default_for_field(self, key: str) -> Optional[str]:
         section = self._section_name or self._current_route or ""
-        return _FIELD_DISPLAY_DEFAULTS.get((section, key))
+        if (section, key) == ("ovis_ocr2", "prompt"):
+            return ovis_document_prompt(self._data.get("runtime_model_id", ""), self._data.get("model_id", ""))
+        return None
 
     @staticmethod
     def _normalize_default_text(value: str) -> str:
@@ -163,6 +163,12 @@ class ModelConfigPanel:
         if self._normalize_default_text(value) == self._normalize_default_text(default):
             return ""
         return value
+
+    def _set_string_field(self, data: dict, key: str, value: str) -> None:
+        data[key] = self._stored_value_for_field(key, value)
+        if data is self._data and key in {"model_id", "runtime_model_id"} and self._prompt_control is not None:
+            if not str(data.get("prompt", "")).strip():
+                self._set_control_value(self._prompt_control, self._display_value_for_field("prompt", ""))
 
     # ── Rendering ──────────────────────────────────────────────────────
 
@@ -344,16 +350,17 @@ class ModelConfigPanel:
 
         elif isinstance(value, str):
             display_value = self._display_value_for_field(key, value)
-            is_multiline = "\n" in display_value or len(display_value) > 100
+            inherited_prompt = key == "prompt" and self._display_default_for_field(key) is not None
+            is_multiline = inherited_prompt or "\n" in display_value or len(display_value) > 100
 
             def _sync_string(e, k=key, p=parent_dict):
                 raw_value = e.value if e.value is not None else ""
-                p[k] = self._stored_value_for_field(k, raw_value)
+                self._set_string_field(p, k, raw_value)
 
             if is_multiline:
                 with ui.column().classes("w-full gap-0").style(_ROW_STYLE):
                     with ui.expansion(text=key, icon="article", value=False).classes("w-full").props("dense"):
-                        ta = (
+                        editor = (
                             ui.textarea(value=display_value)
                             .classes("w-full")
                             .props(
@@ -361,19 +368,20 @@ class ModelConfigPanel:
                                 'input-style="font-family: Consolas, Monaco, monospace; font-size: 12px;"'
                             )
                         )
-                        ta.on_value_change(_sync_string)
             else:
                 with ui.row().classes("w-full items-center").style(_ROW_STYLE):
                     ui.label(key).classes("text-caption text-weight-medium").style(
                         "color: var(--color-text-secondary); min-width: 160px; flex-shrink: 0;"
                     )
-                    inp = (
+                    editor = (
                         ui.input(value=display_value)
                         .classes("flex-1")
                         .props("dense outlined")
                         .style("font-size: 13px;")
                     )
-                    inp.on_value_change(_sync_string)
+            editor.on_value_change(_sync_string)
+            if inherited_prompt:
+                self._prompt_control = editor
 
         elif isinstance(value, list):
             # Render as newline-separated textarea for string lists
@@ -437,7 +445,7 @@ class ModelConfigPanel:
                 escaped_dl_id = html.escape(dl_id, quote=True)
                 opts_html = "".join(f'<option value="{html.escape(str(s), quote=True)}"/>' for s in suggestions)
                 ui.html(f'<datalist id="{escaped_dl_id}">{opts_html}</datalist>')
-        inp.on_value_change(lambda e, k=key, p=parent_dict: p.__setitem__(k, e.value or ""))
+        inp.on_value_change(lambda e, k=key, p=parent_dict: self._set_string_field(p, k, e.value or ""))
 
     def _render_model_list_and_model_id(self, parent_dict: dict, entries: tuple) -> None:
         """Render model_list select + model_id input with linkage."""
@@ -491,13 +499,13 @@ class ModelConfigPanel:
             name = str(e.value or "").strip()
             if name and name in name_to_id:
                 new_id = name_to_id[name]
-                parent_dict["model_id"] = new_id
+                self._set_string_field(parent_dict, "model_id", new_id)
                 model_id_inp.value = new_id
 
         # Linkage: id → list
         def _on_id_change(e):
             new_id = str(e.value or "").strip()
-            parent_dict["model_id"] = new_id
+            self._set_string_field(parent_dict, "model_id", new_id)
             matched = id_to_name.get(new_id) or None
             if list_select.value != matched:
                 list_select.value = matched

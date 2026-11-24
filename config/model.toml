@@ -119,13 +119,14 @@ min_pixels = 2048
 max_pixels = 16777216
 image_patch_size = 16
 
-# OvisOCR2 configuration
-# Model: https://huggingface.co/ATH-MaaS/OvisOCR2
+# OvisOCR document parsing: https://huggingface.co/ATH-MaaS/OvisOCR3
+# Both checkpoints use the existing route, config section and direct extra.
 # Direct runtime: uv sync --extra ovis-ocr2
 # OpenAI-compatible runtime: deploy vLLM 0.22.1 on Linux/WSL and configure the shared runtime URL.
 [ovis_ocr2]
+model_list."OvisOCR3 0.8B" = { model_id = "ATH-MaaS/OvisOCR3", meta = { min_vram_gb = 8 } }
 model_list."OvisOCR2 0.8B" = { model_id = "ATH-MaaS/OvisOCR2", meta = { min_vram_gb = 8 } }
-model_id = "ATH-MaaS/OvisOCR2"
+model_id = "ATH-MaaS/OvisOCR3"
 runtime_backend = "direct"
 prompt = ""
 max_new_tokens = 16384

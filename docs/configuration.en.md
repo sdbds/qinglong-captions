@@ -53,28 +53,30 @@ For local OCR, VLM, and ALM routes, the GUI reads `config/model.toml` and instal
 
 The `ovis-ocr2`, `infinity-parser2-ocr`, `chandra-ocr`, `qwen-vl-local`, and `marlin-2b-local` extras automatically include the internal `qwen35-fast-path` profile. Transformers enables the Qwen3.5 Gated DeltaNet fast path only when both `flash-linear-attention` and `causal-conv1d` import successfully; otherwise it falls back to the Torch implementation. The internal profile is not a GUI route and requires no Provider setting.
 
-Linux installs both kernels. Windows installs the matching wheels only for the Python 3.11, Torch 2.13, and CUDA 13 combination, with `PYTHONUTF8=1` supplied by the launch wrappers. Windows Python 3.10 and 3.12 remain installable but use the Torch fallback. Infinity Parser2, Chandra, and Qwen retain FlashAttention 2 for their vision and full-attention layers; the OvisOCR2 and Marlin extras do not add FA2, so their full-attention layers retain each loader's existing automatic backend. The kernels are inert when `qwen-vl-local` loads a Qwen3-VL model instead of Qwen3.5.
+Linux installs both kernels. Windows installs the matching wheels only for the Python 3.11, Torch 2.13, and CUDA 13 combination, with `PYTHONUTF8=1` supplied by the launch wrappers. Windows Python 3.10 and 3.12 remain installable but use the Torch fallback. Infinity Parser2, Chandra, and Qwen retain FlashAttention 2 for their vision and full-attention layers; the OvisOCR and Marlin extras do not add FA2, so their full-attention layers retain each loader's existing automatic backend. The kernels are inert when `qwen-vl-local` loads a Qwen3-VL model instead of Qwen3.5.
 
 The fast and fallback kernels may produce small numerical output differences. This profile preserves the Provider output contract but does not promise token-identical generation or improved OCR accuracy.
 
-### OvisOCR2
+### OvisOCR3
 
-The `ovis_ocr2` route accepts images and PDFs. Its default Direct Transformers runtime loads `ATH-MaaS/OvisOCR2`:
+`--ocr_model ovis_ocr3` and the original `ovis_ocr2` select the same route. By default it uses [ATH-MaaS/OvisOCR3](https://huggingface.co/ATH-MaaS/OvisOCR3) with Direct Transformers to produce Markdown one page at a time. For standalone images, also pass `--document_image`; PDFs do not need this flag. The install command is unchanged:
 
 ```powershell
 uv sync --extra ovis-ocr2
 ```
 
-Defaults live in `[ovis_ocr2]` in `config/model.toml`. With `visual_region_mode = "crop"`, matching `images/bbox_L_T_R_B.jpg` regions are cropped into the output directory and their renderable tags are retained. Set it to `"drop"` to remove only those tags. A blank `prompt` uses the official model prompt.
+The checkpoint comes from `[ovis_ocr2].model_id` in `config/model.toml`, not the route spelling. Both generations are available in the GUI; set `model_id = "ATH-MaaS/OvisOCR2"` to use the previous weights. A blank `prompt` defaults to document Markdown parsing. This workflow does not run structured JSON extraction or cross-page table reconstruction.
+
+With `visual_region_mode = "crop"`, matching `images/bbox_L_T_R_B.jpg` regions are cropped into the output directory and their renderable tags are retained. Set it to `"drop"` to remove only those tags.
 
 The same route can call an external OpenAI-compatible vLLM server. vLLM does not natively support Windows, so run it on Linux or WSL:
 
 ```bash
 pip install "vllm==0.22.1" pillow
-vllm serve ATH-MaaS/OvisOCR2 --gdn-prefill-backend triton --gpu-memory-utilization 0.8
+vllm serve ATH-MaaS/OvisOCR3 --gdn-prefill-backend triton --gpu-memory-utilization 0.8
 ```
 
-Configure the shared `openai_base_url`, `openai_model_name = ATH-MaaS/OvisOCR2`, and API key afterward. Both runtimes use the same page failure handling, repeated-tail cleanup, bbox processing, and Markdown persistence; generated text is not expected to be byte-identical across inference engines.
+Configure the shared `openai_base_url` and API key afterward (a placeholder is fine for a local server without authentication). An explicit `openai_model_name` overrides `model_id` and must match the name served. Both runtimes use the same page failure handling, repeated-tail cleanup, bbox processing, and Markdown persistence; generated text is not expected to be byte-identical across inference engines.
 
 ## Lance and translation tags
 
