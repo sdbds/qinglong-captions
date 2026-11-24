@@ -8,10 +8,11 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from module.onnx_runtime.artifacts import build_component_filename, download_onnx_artifact_set
+from module.onnx_runtime.artifacts import build_component_filename, build_local_model_dir, download_onnx_artifact_set
 from module.onnx_runtime.config import resolve_tool_runtime_config
 from module.onnx_runtime.session import load_session_bundle
 from module.providers.base import CaptionResult, MediaContext, PromptContext
+from module.providers.local_vlm import lfm3_vl_onnx
 from module.providers.local_vlm_base import LocalVLMProvider
 from module.providers.registry import register_provider
 
@@ -37,7 +38,7 @@ def _replace_present_name(name: str) -> str:
 class LFMVLLocalProvider(LocalVLMProvider):
     """LiquidAI LFM ONNX-backed local VLM provider."""
 
-    default_model_id = "LiquidAI/LFM2.5-VL-1.6B-ONNX"
+    default_model_id = "LiquidAI/LFM3-VL-2B-ONNX"
 
     @classmethod
     def can_handle(cls, args: Any, mime: str) -> bool:
@@ -46,7 +47,7 @@ class LFMVLLocalProvider(LocalVLMProvider):
     def _component_variant(self, component: str) -> str:
         explicit = str(self.model_config.get(f"{component}_variant", "") or "").strip()
         if explicit:
-            return explicit
+            return "fp16" if explicit.lower() == "auto" else explicit
 
         if component in {"embed_tokens", "embed_images"}:
             shared = str(self.model_config.get("encoder_variant", "") or "").strip()
@@ -56,7 +57,7 @@ class LFMVLLocalProvider(LocalVLMProvider):
 
         return str(self.model_config.get("decoder_variant", "") or "").strip()
 
-    def _component_files(self) -> dict[str, str]:
+    def _legacy_component_files(self) -> dict[str, str]:
         return {
             "embed_tokens": build_component_filename("embed_tokens", self._component_variant("embed_tokens")),
             "embed_images": build_component_filename("embed_images", self._component_variant("embed_images")),
@@ -64,8 +65,7 @@ class LFMVLLocalProvider(LocalVLMProvider):
         }
 
     def _load_model(self):
-        from transformers import AutoProcessor
-        from utils.transformer_loader import load_pretrained_component
+        from huggingface_hub import list_repo_files
 
         model_id = self.model_id
         runtime_config = resolve_tool_runtime_config(
@@ -74,7 +74,27 @@ class LFMVLLocalProvider(LocalVLMProvider):
             legacy=self.model_config,
         )
         local_dir = runtime_config.resolve_model_cache_dir(model_id)
-        component_files = self._component_files()
+        repo_files = list_repo_files(model_id)
+        if any(path.startswith("onnx/vision_encoder") and path.endswith(".onnx") for path in repo_files):
+            runtime_config, component_files = lfm3_vl_onnx.resolve_bundle(
+                runtime_config, str(self.model_config.get("decoder_variant") or "auto"),
+            )
+            if runtime_config.model_cache_dir:
+                # A legacy cache in this directory may contain a different decoder with the same filename.
+                local_dir = build_local_model_dir(runtime_config.model_cache_dir, model_id)
+            preprocessing = lfm3_vl_onnx.load_preprocessing(
+                model_id, local_dir, force_download=runtime_config.force_download, logger=self.ctx.console.print,
+            )
+        else:
+            from transformers import AutoProcessor
+
+            from utils.transformer_loader import load_pretrained_component
+
+            component_files = self._legacy_component_files()
+            processor = load_pretrained_component(
+                AutoProcessor, model_id, console=self.ctx.console, component_name="processor", trust_remote_code=True,
+            )
+            preprocessing = {"processor": processor}
 
         self.log(
             "Selected LFM ONNX artifacts: "
@@ -82,16 +102,10 @@ class LFMVLLocalProvider(LocalVLMProvider):
             "blue",
         )
 
-        processor = load_pretrained_component(
-            AutoProcessor,
-            model_id,
-            console=self.ctx.console,
-            component_name="processor",
-            trust_remote_code=True,
-        )
         session_paths = download_onnx_artifact_set(
             model_id,
             component_files,
+            repo_files=repo_files,
             local_dir=local_dir,
             force_download=runtime_config.force_download,
             logger=self.ctx.console.print,
@@ -103,7 +117,7 @@ class LFMVLLocalProvider(LocalVLMProvider):
         )
 
         return {
-            "processor": processor,
+            **preprocessing,
             "sessions": bundle.sessions,
             "session_bundle": bundle,
             "runtime_config": runtime_config,
@@ -119,16 +133,26 @@ class LFMVLLocalProvider(LocalVLMProvider):
         sessions = cached["sessions"]
 
         images = self._load_images(media)
-        prompt = processor.apply_chat_template(
-            self._build_messages(prompts, image_count=len(images)),
-            add_generation_prompt=True,
-            tokenize=False,
-        )
+        messages = self._build_messages(prompts, image_count=len(images))
+        if "vision_encoder" in sessions:
+            tokenizer = cached["tokenizer"]
+            prefix = lfm3_vl_onnx.prepare_prefill(
+                processor, tokenizer, sessions["vision_encoder"], messages, images, self.model_config,
+            )
+        else:
+            tokenizer = processor.tokenizer
+            prefix = {"inputs_embeds": self._legacy_prefix_embeddings(processor, sessions, messages, images)}
+
+        tokens = self._decode_tokens(sessions=sessions, prefix=prefix, eos_token_id=getattr(tokenizer, "eos_token_id", None))
+        response_text = tokenizer.decode(tokens, skip_special_tokens=True).strip()
+        return CaptionResult(raw=response_text, metadata={"provider": self.name, "model_id": self.model_id})
+
+    def _legacy_prefix_embeddings(self, processor, sessions, messages, images) -> np.ndarray:
+        prompt = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
         inputs = self._prepare_processor_inputs(processor, images, prompt)
 
         embed_images = sessions["embed_images"]
         embed_tokens = sessions["embed_tokens"]
-        decoder = sessions["decoder"]
 
         image_embeds = np.asarray(
             embed_images.run(
@@ -150,21 +174,12 @@ class LFMVLLocalProvider(LocalVLMProvider):
             )[0]
         )
 
-        merged_embeds = self._merge_image_embeddings(
+        return self._merge_image_embeddings(
             token_embeds=token_embeds,
             input_ids=inputs["input_ids"],
             image_embeds=image_embeds,
             image_token_id=processor.tokenizer.convert_tokens_to_ids("<image>"),
         )
-        generated_tokens = self._decode_tokens(
-            decoder=decoder,
-            embed_tokens=embed_tokens,
-            prefix_embeds=merged_embeds,
-            eos_token_id=getattr(processor.tokenizer, "eos_token_id", None),
-        )
-
-        response_text = processor.tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
-        return CaptionResult(raw=response_text, metadata={"provider": self.name, "model_id": self.model_id})
 
     def _build_messages(self, prompts: PromptContext, *, image_count: int) -> list[dict[str, Any]]:
         user_content = [self.build_image_part() for _ in range(image_count)]
@@ -255,7 +270,7 @@ class LFMVLLocalProvider(LocalVLMProvider):
     def _initialize_decoder_cache(self, decoder: Any) -> dict[str, np.ndarray]:
         cache: dict[str, np.ndarray] = {}
         for meta in decoder.get_inputs():
-            if meta.name in {"inputs_embeds", "attention_mask", "position_ids"}:
+            if not meta.name.startswith("past"):
                 continue
 
             shape = []
@@ -273,39 +288,35 @@ class LFMVLLocalProvider(LocalVLMProvider):
     def _decode_tokens(
         self,
         *,
-        decoder: Any,
-        embed_tokens: Any,
-        prefix_embeds: np.ndarray,
+        sessions: dict[str, Any],
+        prefix: dict[str, np.ndarray],
         eos_token_id: int | None,
     ) -> list[int]:
+        decoder = sessions["decoder"]
         cache = self._initialize_decoder_cache(decoder)
-        prefix_embeds = np.ascontiguousarray(np.asarray(prefix_embeds, dtype=np.float32))
-        prefix_length = int(prefix_embeds.shape[1])
+        prefix_length = prefix["input_ids" if "input_ids" in prefix else "inputs_embeds"].shape[1]
         max_new_tokens = int(self.model_config.get("max_new_tokens", self.model_config.get("out_seq_length", 256)))
         generated_tokens: list[int] = []
 
         for step in range(max_new_tokens):
             if step == 0:
-                current_embeds = prefix_embeds
+                current = prefix
             else:
                 last_token = np.asarray([[generated_tokens[-1]]], dtype=np.int64)
-                current_embeds = np.asarray(
-                    embed_tokens.run(
-                        None,
-                        self._filter_session_inputs(embed_tokens, {"input_ids": last_token}),
-                    )[0],
-                    dtype=np.float32,
-                )
+                if "input_ids" in prefix:
+                    current = {**prefix, "input_ids": last_token, "image_features": prefix["image_features"][:0]}
+                else:
+                    embed_tokens = sessions["embed_tokens"]
+                    feed = self._filter_session_inputs(embed_tokens, {"input_ids": last_token})
+                    current = {"inputs_embeds": embed_tokens.run(None, feed)[0]}
 
-            total_length = prefix_length + len(generated_tokens)
+            total_length = prefix_length + step
             feed_values: dict[str, Any] = {
-                "inputs_embeds": current_embeds,
+                **current,
                 "attention_mask": np.ones((1, total_length), dtype=np.int64),
+                "position_ids": np.arange(0 if step == 0 else total_length - 1, total_length, dtype=np.int64)[None, :],
                 **cache,
             }
-            if any(meta.name == "position_ids" for meta in decoder.get_inputs()):
-                start = total_length - current_embeds.shape[1]
-                feed_values["position_ids"] = np.arange(start, total_length, dtype=np.int64)[None, :]
 
             outputs = decoder.run(None, self._filter_session_inputs(decoder, feed_values))
             logits = np.asarray(outputs[0])

@@ -17,14 +17,18 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_lfm_model_config_defaults_match_vl_recommendations():
+def test_lfm_defaults_to_v3_and_still_offers_v25():
+    from module.providers.local_vlm.lfm_vl_local import LFMVLLocalProvider
+
     model_config = tomllib.loads((ROOT / "config" / "model.toml").read_text(encoding="utf-8"))
     lfm = model_config["lfm_vl_local"]
 
+    assert LFMVLLocalProvider.default_model_id == lfm["model_id"] == "LiquidAI/LFM3-VL-2B-ONNX"
+    assert {entry["model_id"] for entry in lfm["model_list"].values()} >= {
+        "LiquidAI/LFM3-VL-2B-ONNX", "LiquidAI/LFM2.5-VL-1.6B-ONNX",
+    }
     assert lfm["max_new_tokens"] == 256
-    assert lfm["temperature"] == 0.1
-    assert lfm["min_p"] == 0.15
-    assert lfm["repetition_penalty"] == 1.05
+    assert lfm["decoder_variant"] == "auto"
     assert lfm["min_image_tokens"] == 64
     assert lfm["max_image_tokens"] == 256
     assert lfm["do_image_splitting"] is True
@@ -56,6 +60,7 @@ def test_lfm_provider_loads_expected_artifact_bundle(monkeypatch):
 
     captured = {}
     console_buffer = io.StringIO()
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(list_repo_files=lambda _: ["onnx/embed_tokens_fp16.onnx"]))
 
     class FakeProcessor:
         @staticmethod
@@ -123,6 +128,7 @@ def test_lfm_runtime_config_prefers_onnx_section_over_model_section(monkeypatch)
     from module.providers.base import ProviderContext
 
     captured = {}
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(list_repo_files=lambda _: ["onnx/embed_tokens_fp16.onnx"]))
 
     class FakeProcessor:
         @staticmethod

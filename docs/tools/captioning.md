@@ -41,4 +41,6 @@ Python 入口：`python -m module.captioner --help`。云端 Provider 使用基�
 - 标准 DeepSeek OCR 2 使用 Transformers 5.x 原生实现；旧模型、非标准裁块参数和显式旧版入口见 [DeepSeek OCR 2 切换与验收](deepseek_ocr2.md)。
 - 显式选择本地 `ocr_model` 或 `vlm_image_model` 时，图像请求优先走本地路由。
 
+选择 `vlm_image_model = "lfm_vl_local"` 可用 [LFM3-VL-2B-ONNX](https://huggingface.co/LiquidAI/LFM3-VL-2B-ONNX) 生成单图或配对图片描述。首次运行下载分词器、预处理配置，以及所选精度的两个 ONNX 图和权重，不会下载其他精度。默认在 CPU 上用 `q4`，在 CUDA 上用 `q4f16`；可在 `config/model.toml` 中用 `decoder_variant` 指定其他精度。原生 ONNX 路径关闭思考输出并使用贪心解码，不处理视频。需要复现旧批次时，在模型列表中选回 **LFM 2.5 VL 1.6B ONNX**，并沿用原来的精度和提示词。
+
 API Key 当前仍可能进入子进程命令行与任务日志。不要分享完整命令、进程列表或未脱敏日志；`--cloud` 也没有内置鉴权。

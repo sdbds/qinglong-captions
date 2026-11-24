@@ -431,6 +431,8 @@ quantized-runtime = [
 ]
 lfm-vl-local = [
     "qinglong-captions[onnx-base]",
+    # Older Linux runtimes reject the LFM3 decoder's GatherBlockQuantized bits attribute.
+    "onnxruntime-gpu>=1.24.4; sys_platform == 'linux'",
     "transformers[serving]>=4.56.0",
     "pillow",
 ]
