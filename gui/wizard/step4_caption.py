@@ -394,6 +394,8 @@ class CaptionStep:
                 continue
             if m == "ovis_ocr2":
                 labels[m] = "OvisOCR3 / OvisOCR2"
+            elif m == "ocria_nano":
+                labels[m] = "OCRia-nano-1 (CPU)"
             elif m in cls._OCR_RANK_SCORES:
                 rank, score = cls._OCR_RANK_SCORES[m]
                 labels[m] = f"{rank} {m} ({score})"
@@ -430,6 +432,7 @@ class CaptionStep:
     OCR_EXTRA_MAP = {
         "infinity_parser2_ocr": "infinity-parser2-ocr",
         "ovis_ocr2": "ovis-ocr2",
+        "ocria_nano": "ocria-nano",
         "unlimited_ocr": "unlimited-ocr",
         "paddle_ocr": "paddleocr-onnx",
         "deepseek_ocr": "deepseek-ocr",

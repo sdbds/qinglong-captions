@@ -88,6 +88,20 @@ Linux 安装两个快速内核；Windows 目前只在 Python 3.11、Torch 2.13 �
 
 快速内核与 Torch 回退可能产生数值级输出差异，因此这里只承诺相同的 Provider 输出契约，不承诺逐 token 一致或 OCR 精度提升。
 
+#### OCRia-nano-1
+
+在 Caption 页选择 **OCRia-nano-1 (CPU)**，或使用 `--ocr_model ocria_nano`。LiteParse 在本机读取 PDF 原有的文字层，并对扫描内容做 OCR，不需要 GPU、API Key 或提示词。单帧图片（如 PNG、JPEG、TIFF、WebP）还需启用 `--document_image`。多帧图片（如多页 TIFF、多画面 JPEG/MPO 或动画 GIF）会被拒绝；请先转为多页 PDF，以免丢帧。
+
+首次使用前，请先阅读[权重许可](https://huggingface.co/llamaindex/OCRia-nano-1#license)，再用项目虚拟环境安装依赖并拉取模型：
+
+```powershell
+uv pip install -r pyproject.toml --extra ocria-nano
+uv run --no-sync lit models pull ocria-nano
+uv run --no-sync python -m module.captioner ./datasets --ocr_model ocria_nano --document_image
+```
+
+下载一次后可离线使用。可用 `LITEPARSE_MODEL_DIR` 指定模型缓存；缓存不完整时任务会提示安装，不会改用 Tesseract。PDF 和图片均导出为 `.md`，Lance 和配套 `.json` 的 `markdown` 字段保留原文。`config/model.toml` 的 `[ocria_nano]` 可调整 `dpi`（默认 250）、`keep_headers_footers`（默认关闭）和 `max_pages`（默认 1000）；超出页数上限时不会把截断结果写回数据集。
+
 #### OvisOCR3
 
 `--ocr_model ovis_ocr3` 与原来的 `ovis_ocr2` 是同一入口。默认通过 Direct Transformers 运行 [ATH-MaaS/OvisOCR3](https://huggingface.co/ATH-MaaS/OvisOCR3)，逐页输出 Markdown。CLI 处理独立图片时还需加 `--document_image`；PDF 不需要。安装命令不变：

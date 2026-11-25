@@ -39,7 +39,7 @@ Qinglong Captions combines media understanding, batch inference, and versioned L
 | --- | --- | --- |
 | Video and images | Scene detection, frame extraction, tagging, VLM captions, OCR, watermark detection, and layer decomposition | Lance datasets, media, tags, captions, and PSD files |
 | Audio and music | Source separation, transcription, audio captions, MIDI conversion, and sheet-music OMR | Stems, transcripts, MIDI, MusicXML, and previews |
-| Documents | PDF and image OCR with [OvisOCR3](docs/configuration.en.md#ovisocr3) and other models, Markdown normalization, and multilingual translation | Markdown and translated documents |
+| Documents | PDF and image OCR with [OCRia-nano-1 on CPU](docs/configuration.en.md#ocria-nano-1), [OvisOCR3](docs/configuration.en.md#ovisocr3) and other models, Markdown normalization, and multilingual translation | Markdown and translated documents |
 | Dataset workflow | Import, versioned Lance updates, batch execution, and sidecar export | Reusable datasets and media-aligned annotations |
 
 ## 4.7.0 Highlights

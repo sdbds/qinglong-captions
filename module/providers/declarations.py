@@ -179,6 +179,14 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
         capabilities=capabilities(supports_images=True, supports_documents=True),
     ),
     ProviderDeclaration(
+        name="ocria_nano",
+        module_path="module.providers.ocr.ocria_nano",
+        priority=124,
+        routes=(route("ocr_model", aliases=("ocria_nano_1",), order=16),),
+        aliases=("ocria_nano_1",),
+        capabilities=capabilities(supports_images=True, supports_documents=True),
+    ),
+    ProviderDeclaration(
         name="unlimited_ocr",
         module_path="module.providers.ocr.unlimited",
         priority=125,

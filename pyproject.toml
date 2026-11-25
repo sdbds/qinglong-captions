@@ -371,6 +371,9 @@ ovis-ocr2 = [
     "qinglong-captions[qwen35-fast-path]",
     "PyMuPDF",
 ]
+ocria-nano = [
+    "liteparse==2.21.2",
+]
 chandra-ocr = [
     "qinglong-captions[torch-base]",
     "qinglong-captions[qwen35-fast-path]",

@@ -57,6 +57,20 @@ Linux installs both kernels. Windows installs the matching wheels only for the P
 
 The fast and fallback kernels may produce small numerical output differences. This profile preserves the Provider output contract but does not promise token-identical generation or improved OCR accuracy.
 
+### OCRia-nano-1
+
+Select **OCRia-nano-1 (CPU)** in Caption, or pass `--ocr_model ocria_nano`. LiteParse reads the original PDF text layer and runs OCR on scanned content locally, without a GPU, API key or prompt. For single-frame images such as PNG, JPEG, TIFF and WebP, also enable `--document_image`. Multi-frame images such as multi-page TIFFs, multi-picture JPEGs (MPO) and animated GIFs are rejected; convert them to a multi-page PDF first so that no frames are lost.
+
+Review the separate [model license](https://huggingface.co/llamaindex/OCRia-nano-1#license), then install the dependency and provision the weights once in the project environment:
+
+```powershell
+uv pip install -r pyproject.toml --extra ocria-nano
+uv run --no-sync lit models pull ocria-nano
+uv run --no-sync python -m module.captioner ./datasets --ocr_model ocria_nano --document_image
+```
+
+Parsing works offline after the pull. Set `LITEPARSE_MODEL_DIR` to choose a cache location; an incomplete install fails with a setup hint rather than falling back to Tesseract. Both PDFs and images export as `.md`; the `markdown` field in Lance and the companion `.json` preserves the document text. The `[ocria_nano]` section of `config/model.toml` controls `dpi` (default 250), `keep_headers_footers` (off) and `max_pages` (1000). Documents exceeding that limit are not published as complete captions.
+
 ### OvisOCR3
 
 `--ocr_model ovis_ocr3` and the original `ovis_ocr2` select the same route. By default it uses [ATH-MaaS/OvisOCR3](https://huggingface.co/ATH-MaaS/OvisOCR3) with Direct Transformers to produce Markdown one page at a time. For standalone images, also pass `--document_image`; PDFs do not need this flag. The install command is unchanged:

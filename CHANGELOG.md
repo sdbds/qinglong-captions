@@ -4,6 +4,7 @@
 
 ## 未发布
 
+- 新增 [OCRia-nano-1](docs/configuration.md#ocria-nano-1)：命令行和 GUI 均可在 CPU 上将 PDF、扫描图识别为 Markdown，权重按需单独安装。
 - 图片与 PDF 的 OvisOCR 默认模型升级为 OvisOCR3。CLI 新增 `ovis_ocr3` 别名，保留原有配置、安装命令和可选的 OvisOCR2 权重。见[配置说明](docs/configuration.md#ovisocr3)。
 
 ## 4.7.0 - OvisOCR2、MuSViT 乐谱 OMR 与模型更新

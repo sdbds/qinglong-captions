@@ -92,7 +92,7 @@ $wait_time = 1
 $max_retries = 100
 $segment_time = $null  # null = use backend default; music_flamingo_local defaults to 1200 seconds, cohere_transcribe_local disables splitting, other routes use 600 seconds
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "infinity_parser2_ocr", "ovis_ocr3", "ovis_ocr2", "unlimited_ocr", "deepseek_ocr", "deepseek_ocr_native", "deepseek_ocr_legacy", "logics_ocr", "lighton_ocr", "dots_ocr", "qianfan_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "infinity_parser2_ocr", "ovis_ocr3", "ovis_ocr2", "ocria_nano", "unlimited_ocr", "deepseek_ocr", "deepseek_ocr_native", "deepseek_ocr_legacy", "logics_ocr", "lighton_ocr", "dots_ocr", "qianfan_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", "firered_ocr", "chandra_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image/video tasks
@@ -697,6 +697,9 @@ if ($ocr_model) {
   }
   elseif ($ocr_model -in @("ovis_ocr2", "ovis_ocr3")) {
     Add-UvExtra "ovis-ocr2"
+  }
+  elseif ($ocr_model -in @("ocria_nano", "ocria_nano_1")) {
+    Add-UvExtra "ocria-nano"
   }
   elseif ($ocr_model -eq "unlimited_ocr") {
     Add-UvExtra (Get-UnlimitedOcrExtra)

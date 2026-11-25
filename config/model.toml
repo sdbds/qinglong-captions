@@ -119,6 +119,12 @@ min_pixels = 2048
 max_pixels = 16777216
 image_patch_size = 16
 
+# LiteParse CPU OCR: https://huggingface.co/llamaindex/OCRia-nano-1
+[ocria_nano]
+dpi = 250
+max_pages = 1000
+keep_headers_footers = false
+
 # OvisOCR document parsing: https://huggingface.co/ATH-MaaS/OvisOCR3
 # Both checkpoints use the existing route, config section and direct extra.
 # Direct runtime: uv sync --extra ovis-ocr2
