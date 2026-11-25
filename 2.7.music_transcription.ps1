@@ -1,6 +1,6 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
-    [ValidateSet("muscriptor", "sheetsage2")]
+    [ValidateSet("muscriptor", "sheetsage2", "dettato")]
     [string]$Backend = "muscriptor",
 
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -50,6 +50,7 @@ if (-not $PythonExe) {
     exit 1
 }
 
+$RuntimeExtra = if ($Backend -eq "dettato") { "dettato-local" } else { "muscriptor-local" }
 $InstallArguments = @(
     "pip",
     "install",
@@ -59,12 +60,19 @@ $InstallArguments = @(
     "-r",
     "pyproject.toml",
     "--extra",
-    "muscriptor-local"
+    $RuntimeExtra
 )
+if ($Backend -eq "dettato" -and -not $env:UV_TORCH_BACKEND) {
+    $InstallArguments += @("--torch-backend", "auto")
+}
 & $UvCommand.Source @InstallArguments
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& $PythonExe -m module.muscriptor_tool.cli batch @Arguments
+if ($Backend -eq "dettato") {
+    & $PythonExe -m module.dettato_tool @Arguments
+} else {
+    & $PythonExe -m module.muscriptor_tool.cli batch @Arguments
+}
 exit $LASTEXITCODE

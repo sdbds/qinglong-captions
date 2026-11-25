@@ -508,6 +508,10 @@ muscriptor-local = [
     "filelock>=3.16",
     "socksio>=1.0.0",
 ]
+dettato-local = [
+    "dettato @ git+https://github.com/kobimusic/dettato.git@51ade0f09f2272f4674166026582185d26baaeaf",
+    "socksio>=1.0.0",
+]
 codex-subscription = [
     "openai-codex",
 ]

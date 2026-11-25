@@ -84,6 +84,7 @@ uv run gui/launch.py --native --port 7899
 - [图像质量评分](../docs/tools/image_scoring.md)
 - [ONNX 音频分轨与可选 harmony、GAME 人声 MIDI、MuScriptor 全分轨 MIDI / 试听](../docs/tools/audio_separation.md)
 - [MuScriptor 官方模型音频转 MIDI](../docs/tools/muscriptor.md)
+- [Dettato 原始混音转多乐器 MIDI](../docs/tools/dettato.md)
 - [MuSViT ONNX 乐谱 OMR 转录](../docs/tools/sheet_music.md)
 - [文本 / 文档规范化与翻译](../docs/tools/text_translation.md)
 - [Image2PSD / See-through 分层](../docs/tools/image2psd.md)
@@ -104,6 +105,7 @@ uv run gui/launch.py --native --port 7899
 | Reward model | `2.3.image_reward_model.ps1` | `python -m module.rewardmodel` | `reward-model` |
 | Audio separation | `2.5.audio_separator.ps1` | `python -m module.audio_separator` | `vocal-midi`；MuScriptor 分轨 MIDI 追加 `muscriptor-local` |
 | Music transcription | `2.7.music_transcription.ps1` | `python -m module.muscriptor_tool.cli batch` | `muscriptor-local` |
+| Music transcription: Dettato | `2.7.music_transcription.ps1 -Backend dettato` | `python -m module.dettato_tool` | `dettato-local` |
 | Sheet music | GUI Tools（无独立 PowerShell wrapper） | `python -m module.sheet_music_musvit --help` | `musvit-onnx` |
 | Image2PSD | `2.6.image2psd.ps1` | `python -m module.see_through.cli` | `see-through` |
 | Translation | `5.translate.ps1` | `python -m module.texttranslate` | `translate` |

@@ -22,7 +22,7 @@ The root README keeps installation, the core workflow, and navigation. Each page
 | Audio separation | [Audio separation](audio_separation.en.md) | `2.5.audio_separator.ps1` |
 | Image2PSD | [Image2PSD / See-through](image2psd.en.md) | `2.6.image2psd.ps1` |
 | PSD auto-rig | [Spine 4.2 / Live2D export](auto_rig.en.md) | `qinglong-auto-rig <item-or-final.psd>` |
-| Music transcription | [MuScriptor audio to MIDI](muscriptor.en.md) / [SheetSage2 lead sheets](sheetsage2.en.md) | `2.7.music_transcription.ps1` |
+| Music transcription | [MuScriptor audio to MIDI](muscriptor.en.md) / [SheetSage2 lead sheets](sheetsage2.en.md) / [Dettato multi-track MIDI](dettato.en.md) | `2.7.music_transcription.ps1` |
 | Sheet-music OMR | [MuSViT transcription](sheet_music.en.md) | GUI Tools / `module.sheet_music_musvit` |
 | Document translation | [Text and document translation](text_translation.en.md) | `5.translate.ps1` |
 

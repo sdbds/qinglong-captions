@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import importlib
+import subprocess
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -12,14 +13,15 @@ from module.muscriptor_tool.options import ModelVariant, TranscriptionOptions
 
 
 def test_importing_runtime_does_not_import_torch_or_muscriptor():
-    sys.modules.pop("module.muscriptor_tool.runtime", None)
-    before = set(sys.modules)
-
-    importlib.import_module("module.muscriptor_tool.runtime")
-
-    added = set(sys.modules) - before
-    assert "torch" not in added
-    assert "muscriptor" not in added
+    # A cold import must not replace the runtime object used by other transcription tests.
+    code = (
+        "import sys; before = set(sys.modules); import module.muscriptor_tool.runtime; "
+        "unexpected = (set(sys.modules) - before) & {'torch', 'muscriptor'}; assert not unexpected, unexpected"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @dataclass

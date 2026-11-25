@@ -186,6 +186,31 @@ def test_sheetsage2_submission_uses_only_its_own_arguments(monkeypatch, tmp_path
     )]
 
 
+def test_dettato_is_a_mix_backend_and_submits_no_separation_or_muscriptor_options(tmp_path):
+    from gui.utils.process_runner import SCRIPT_REGISTRY
+
+    step = _configured_step(tmp_path)
+    step._render_music_transcription_tool()
+    step.music_transcription_backend.value = "dettato"
+    assert step._music_transcription_dettato_settings.visible
+    assert not step._music_transcription_muscriptor_settings.visible
+    assert not step._music_transcription_sheetsage2_settings.visible
+    step._render_audio_separator_tool()
+    assert "dettato" not in step.audio_separator_stem_midi_backend.options
+    step.music_transcription_input = SimpleNamespace(value=str(tmp_path / "audio"))
+    step.config.update(dettato_device="cuda:1", sheetsage2_pre_separate=True)
+    jobs = []
+
+    async def run_job(script_key, args, **kwargs):
+        jobs.append((SCRIPT_REGISTRY[script_key], args))
+
+    step.panel = SimpleNamespace(run_job=run_job)
+    asyncio.run(step._start_music_transcription())
+
+    assert jobs == [(("-m:module.dettato_tool", "dettato-local"),
+                     [str(tmp_path / "audio"), "--device=cuda:1", "--no-skip-completed"])]
+
+
 def test_sheetsage2_pre_separation_uses_shared_audio_separator_job(monkeypatch, tmp_path):
     step = _configured_step(tmp_path)
     step.config.update(

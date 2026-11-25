@@ -63,6 +63,23 @@ def test_patch_shared_environment_reads_pyproject_without_lockfile(tmp_path, mon
     assert install_cmd[install_cmd.index("--extra") + 1] == "qwen-vl-local"
 
 
+def test_dettato_can_use_installed_cpu_torch_without_reinstalling_it(tmp_path, monkeypatch):
+    runner = ProcessRunner()
+    commands = []
+
+    async def capture(cmd, work_dir, env):
+        commands.append(cmd)
+        return 0
+
+    monkeypatch.setattr(runner, "_inspect_installed_torch_backend", lambda python, env: "cpu")
+    monkeypatch.setattr(runner, "_run_logged_subprocess", capture)
+    result = asyncio.run(runner._patch_shared_environment("uv", tmp_path, {}, "test-env", ["dettato-local"], []))
+    assert result is None
+    [cmd] = commands
+    assert "--reinstall-package" not in cmd
+    assert cmd[cmd.index("--torch-backend") + 1] == "auto"
+
+
 def test_sheetsage2_launches_uv_script_without_patching_shared_python(monkeypatch, tmp_path):
     runner = ProcessRunner()
     commands = []

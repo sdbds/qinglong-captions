@@ -269,6 +269,7 @@ SCRIPT_REGISTRY = {
     "module.see_through.cli": ("-m:module.see_through.cli", "see-through"),
     "module.sheet_music_musvit": ("./module/sheet_music_musvit.py", "musvit-onnx"),
     "module.muscriptor_tool.cli": ("-m:module.muscriptor_tool.cli", "muscriptor-local"),
+    "module.dettato_tool": ("-m:module.dettato_tool", "dettato-local"),
     "module.sheetsage2_tool": (f"{_UV_SCRIPT_PREFIX}./module/sheetsage2_tool.py", None),
     "utils.preprocess_datasets": ("./utils/preprocess_datasets.py", "image-align"),
     "module.rewardmodel": ("./module/rewardmodel.py", "reward-model"),
@@ -1184,6 +1185,9 @@ class ProcessRunner:
                     )
                 else:
                     self._notify_log(f"检测到 torch 依赖，使用 uv torch backend={torch_backend}")
+            elif "dettato-local" in extras and not env.get("UV_TORCH_BACKEND"):
+                # Select a wheel for fresh installs without replacing a compatible CPU or CUDA build.
+                cmd.extend(["--torch-backend", "auto"])
             cmd.extend(["-r", "pyproject.toml"])
             for extra in extras:
                 cmd.extend(["--extra", extra])

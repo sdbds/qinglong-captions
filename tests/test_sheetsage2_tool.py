@@ -374,6 +374,7 @@ $bind = [scriptblock]::Create($parameters + [Environment]::NewLine + '[pscustomo
 @(
     & $bind './my album' '--format' 'midi'
     & $bind -Backend sheetsage2 './my song.wav' '--melody-only'
+    & $bind -Backend dettato './my mix.wav' '--device=cpu'
 ) | ConvertTo-Json -Compress
 """,
         ],
@@ -383,4 +384,5 @@ $bind = [scriptblock]::Create($parameters + [Environment]::NewLine + '[pscustomo
     assert json.loads(result.stdout) == [
         {"Backend": "muscriptor", "Arguments": ["./my album", "--format", "midi"]},
         {"Backend": "sheetsage2", "Arguments": ["./my song.wav", "--melody-only"]},
+        {"Backend": "dettato", "Arguments": ["./my mix.wav", "--device=cpu"]},
     ]

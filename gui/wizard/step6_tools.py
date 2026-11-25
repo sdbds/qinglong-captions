@@ -331,7 +331,8 @@ class ToolsStep:
         "both": "sheet_music_output_both",
     }
     MUSCRIPTOR_MODEL_OPTIONS = {item.value: item.repo_id for item in ModelVariant}
-    MUSIC_TRANSCRIPTION_BACKENDS = {"muscriptor": "MuScriptor", "sheetsage2": "SheetSage2"}
+    STEM_MIDI_BACKENDS = {"muscriptor": "MuScriptor", "sheetsage2": "SheetSage2"}
+    MUSIC_TRANSCRIPTION_BACKENDS = {**STEM_MIDI_BACKENDS, "dettato": "Dettato"}
     MUSCRIPTOR_BASE_DEVICE_OPTIONS = {
         "auto": "Auto",
         "cpu": "CPU",
@@ -415,6 +416,7 @@ class ToolsStep:
             "audio_separator_muscriptor_preview_mode": "none",
             "audio_separator_muscriptor_preview_format": DEFAULT_PREVIEW_FORMAT.value,
             "music_transcription_backend": "muscriptor",
+            "dettato_device": DEFAULT_DEVICE,
             "sheetsage2_device": DEFAULT_DEVICE,
             "sheetsage2_melody_only": False,
             "sheetsage2_pre_separate": False,
@@ -745,10 +747,10 @@ class ToolsStep:
                 self._music_transcription_device_options(),
                 value=self.config["music_transcription_device"],
             )
-        for key in ("sheetsage2_device", "audio_separator_sheetsage2_device"):
-            sheetsage2_selector = getattr(self, key, None)
-            if sheetsage2_selector is not None:
-                sheetsage2_selector.set_options(self._muscriptor_device_options(key), value=self.config[key])
+        for key in ("sheetsage2_device", "audio_separator_sheetsage2_device", "dettato_device"):
+            selector = getattr(self, key, None)
+            if selector is not None:
+                selector.set_options(self._muscriptor_device_options(key), value=self.config[key])
         stem_selector = getattr(self, "audio_separator_muscriptor_device", None)
         if stem_selector is not None:
             stem_selector.set_options(
@@ -896,6 +898,7 @@ class ToolsStep:
         self.config["music_transcription_backend"] = backend
         self._music_transcription_muscriptor_settings.set_visibility(backend == "muscriptor")
         self._music_transcription_sheetsage2_settings.set_visibility(backend == "sheetsage2")
+        self._music_transcription_dettato_settings.set_visibility(backend == "dettato")
 
     def _on_music_transcription_device_change(self, value: str) -> None:
         self.config["music_transcription_device"] = value
@@ -1923,7 +1926,7 @@ class ToolsStep:
         self._audio_separator_stem_midi_container = ui.column().classes("w-full q-mt-sm gap-3")
         with self._audio_separator_stem_midi_container:
             self.audio_separator_stem_midi_backend = ui.toggle(
-                self.MUSIC_TRANSCRIPTION_BACKENDS,
+                self.STEM_MIDI_BACKENDS,
                 value=self.config["audio_separator_stem_midi_backend"],
                 on_change=lambda event: self._on_audio_separator_stem_midi_backend_change(event.value),
             ).props("dense no-caps")
@@ -2114,6 +2117,9 @@ class ToolsStep:
                 self.sheetsage2_pre_separate_toggle = toggle_switch(
                     "sheetsage2_pre_separate", self.config, "sheetsage2_pre_separate",
                 )
+            self._music_transcription_dettato_settings = ui.column().classes("w-full q-mt-md gap-3")
+            with self._music_transcription_dettato_settings:
+                self.dettato_device = self._render_transcription_device("dettato_device")
             self._on_music_transcription_backend_change(self.config["music_transcription_backend"])
 
             with ui.row().classes("w-full gap-4 q-mt-md"):
@@ -2123,9 +2129,8 @@ class ToolsStep:
                     "music_transcription_skip_completed",
                 )
 
-    def _render_sheetsage2_fields(self, prefix: str):
-        device_key = f"{prefix}_device"
-        selector = styled_select(
+    def _render_transcription_device(self, device_key: str):
+        return styled_select(
             options=self._muscriptor_device_options(device_key),
             value=self.config[device_key],
             label=t("device"),
@@ -2134,6 +2139,9 @@ class ToolsStep:
             searchable=False,
             on_change=lambda value: self._set_config_value(self.config, device_key, value),
         )
+
+    def _render_sheetsage2_fields(self, prefix: str):
+        selector = self._render_transcription_device(f"{prefix}_device")
         toggle_switch("sheetsage2_melody_only", self.config, f"{prefix}_melody_only")
         return selector
 
@@ -2817,6 +2825,8 @@ class ToolsStep:
             raise ValueError(t("select_valid_input"))
 
         skip_arg = "--skip-completed" if self.config["music_transcription_skip_completed"] else "--no-skip-completed"
+        if self.config["music_transcription_backend"] == "dettato":
+            return [str(source), f"--device={self.config['dettato_device']}", skip_arg]
         if self.config["music_transcription_backend"] == "sheetsage2":
             if self.config["sheetsage2_pre_separate"]:
                 args = self._build_audio_separator_args(str(source), "wav")
@@ -2913,7 +2923,8 @@ class ToolsStep:
         return args
 
     async def _start_music_transcription(self):
-        use_sheetsage2 = self.config["music_transcription_backend"] == "sheetsage2"
+        backend = self.config["music_transcription_backend"]
+        backend_name = self.MUSIC_TRANSCRIPTION_BACKENDS[backend]
         try:
             args = self._build_music_transcription_args()
         except (TypeError, ValueError) as exc:
@@ -2921,26 +2932,29 @@ class ToolsStep:
             return
 
         if (
-            not use_sheetsage2
+            backend == "muscriptor"
             and self.config["music_transcription_model"] == ModelVariant.LARGE.value
             and "--device=cpu" in args
         ):
             ui.notify(t("music_transcription_large_cpu_warning"), type="warning")
 
         def pre_log(lv):
-            lv.info(t("log_start_music_transcription"))
-            lv.info(f"{t('log_input_path')}: {args[0 if use_sheetsage2 else 1]}")
+            lv.info(t("log_start_music_transcription").format(backend=backend_name))
+            lv.info(f"{t('log_input_path')}: {args[1 if backend == 'muscriptor' else 0]}")
             lv.info(f"{t('log_params')}: {args}")
 
-        script = "module.sheetsage2_tool" if use_sheetsage2 else "module.muscriptor_tool.cli"
-        if use_sheetsage2 and self.config["sheetsage2_pre_separate"]:
-            script = "module.audio_separator"
+        if backend == "sheetsage2":
+            script = "module.audio_separator" if self.config["sheetsage2_pre_separate"] else "module.sheetsage2_tool"
+        elif backend == "dettato":
+            script = "module.dettato_tool"
+        else:
+            script = "module.muscriptor_tool.cli"
         panel = self._ensure_execution_panel()
         await panel.run_job(
             script,
             args,
-            name=f"{t('job_name_music_transcription')} (SheetSage2)" if use_sheetsage2 else t("job_name_music_transcription"),
-            runner_kwargs={"native_console": False} if use_sheetsage2 else None,
+            name=t("job_name_music_transcription") + (f" ({backend_name})" if backend != "muscriptor" else ""),
+            runner_kwargs={"native_console": False} if backend != "muscriptor" else None,
             pre_log=pre_log,
             on_success=lambda result: ui.notify(t("music_transcription_success"), type="positive"),
             on_failure=lambda result: ui.notify(t("music_transcription_failed"), type="negative"),
