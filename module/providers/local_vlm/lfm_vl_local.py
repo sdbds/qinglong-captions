@@ -74,14 +74,22 @@ class LFMVLLocalProvider(LocalVLMProvider):
             legacy=self.model_config,
         )
         local_dir = runtime_config.resolve_model_cache_dir(model_id)
-        repo_files = list_repo_files(model_id)
-        if any(path.startswith("onnx/vision_encoder") and path.endswith(".onnx") for path in repo_files):
+        # Keep new two-graph exports separate from legacy files with the same decoder names.
+        lfm3_dir = build_local_model_dir(local_dir, model_id) if runtime_config.model_cache_dir else local_dir
+        repo_files = None
+        is_lfm3 = not runtime_config.force_download and any(
+            path.is_file() for path in (lfm3_dir / "onnx").glob("vision_encoder*.onnx")
+        )
+        if not is_lfm3:
+            repo_files = list_repo_files(model_id)
+            is_lfm3 = any(path.startswith("onnx/vision_encoder") and path.endswith(".onnx") for path in repo_files)
+        if is_lfm3:
             runtime_config, component_files = lfm3_vl_onnx.resolve_bundle(
                 runtime_config, str(self.model_config.get("decoder_variant") or "auto"),
             )
-            if runtime_config.model_cache_dir:
-                # A legacy cache in this directory may contain a different decoder with the same filename.
-                local_dir = build_local_model_dir(runtime_config.model_cache_dir, model_id)
+            local_dir = lfm3_dir
+            if repo_files is None:
+                repo_files = lfm3_vl_onnx.cached_artifact_files(local_dir, component_files)
             preprocessing = lfm3_vl_onnx.load_preprocessing(
                 model_id, local_dir, force_download=runtime_config.force_download, logger=self.ctx.console.print,
             )

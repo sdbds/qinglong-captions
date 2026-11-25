@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -44,12 +45,46 @@ def resolve_bundle(runtime: OnnxRuntimeConfig, variant: str) -> tuple[OnnxRuntim
     precision = variant.strip().lower()
     if precision in {"", "auto"}:
         precision = "q4f16" if accelerated else "q4"
+    elif precision in {"float32", "base", "default"}:
+        precision = "fp32"  # Existing ONNX config aliases for the unsuffixed graphs.
     if precision not in _VISION_PRECISION:
         raise ValueError(f"Unknown LFM3 decoder_variant {variant!r}; use auto or {', '.join(_VISION_PRECISION)}")
     return runtime, {
         "vision_encoder": build_component_filename("vision_encoder", _VISION_PRECISION[precision]),
         "decoder": build_component_filename("decoder", precision),
     }
+
+
+def cached_artifact_files(local_dir: Path, components: dict[str, str]) -> list[str] | None:
+    """Read the selected graphs' shard names without opening the weights or contacting the Hub."""
+    if not all((local_dir / filename).is_file() for filename in components.values()):
+        return None
+
+    import onnx
+    from google.protobuf.message import Message
+
+    files = set(components.values())
+    for filename in components.values():
+        path = Path(filename)
+        shard_name = re.compile(re.escape(path.name) + r"_data(?:_[0-9]+)?")
+        model = onnx.load(local_dir / path, load_external_data=False)
+        if not model.HasField("graph"):
+            raise ValueError(f"Invalid cached LFM3 graph: {filename}; use force_download to refresh it")
+        # External tensors can also appear in node attributes and nested graphs.
+        pending = [model]
+        while pending:
+            message = pending.pop()
+            if isinstance(message, onnx.TensorProto):
+                if message.data_location == onnx.TensorProto.EXTERNAL:
+                    location = onnx.external_data_helper.ExternalDataInfo(message).location
+                    if not shard_name.fullmatch(location):
+                        raise ValueError(f"Unexpected external data location {location!r} in {filename}")
+                    files.add((path.parent / location).as_posix())
+                continue
+            for field, value in message.ListFields():
+                if field.message_type is not None:
+                    pending.extend((value,) if isinstance(value, Message) else value)
+    return sorted(files)
 
 
 def load_preprocessing(model_id: str, local_dir: Path, *, force_download: bool, logger) -> dict[str, Any]:

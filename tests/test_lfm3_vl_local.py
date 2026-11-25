@@ -36,17 +36,20 @@ def provider(**config):
         ("q8f16", True, "decoder_q8f16", "vision_encoder_fp16"),
         ("fp16", True, "decoder_fp16", "vision_encoder_fp16"),
         ("fp32", False, "decoder", "vision_encoder"),
+        ("float32", False, "decoder", "vision_encoder"),
+        ("base", False, "decoder", "vision_encoder"),
+        ("default", True, "decoder", "vision_encoder"),
     ],
 )
 def test_load_published_graph_pair_and_sidecars(monkeypatch, tmp_path, variant, cuda, decoder, vision):
     metadata = {"tokenizer.json", "tokenizer_config.json", "chat_template.jinja", "processor_config.json"}
     graphs = {"vision_encoder": f"onnx/{vision}.onnx", "decoder": f"onnx/{decoder}.onnx"}
     files = metadata | set(graphs.values()) | {path + "_data" for path in graphs.values()}
-    downloaded = set()
+    downloaded = {}
 
     def download(repo_id, filename, local_dir, force_download):
         assert filename in files
-        downloaded.add(filename)
+        downloaded[filename] = force_download
         target = Path(local_dir) / filename
         target.parent.mkdir(parents=True, exist_ok=True)
         if filename == "processor_config.json":
@@ -98,8 +101,9 @@ def test_load_published_graph_pair_and_sidecars(monkeypatch, tmp_path, variant, 
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: cuda)))
     monkeypatch.setattr(lfm, "load_session_bundle", lambda **kw: SimpleNamespace(sessions=kw["session_paths"]))
 
-    cached = provider(decoder_variant=variant, model_cache_dir=str(tmp_path))._load_model()
-    assert downloaded == files
+    settings = {"decoder_variant": variant, "model_cache_dir": str(tmp_path)}
+    cached = provider(**settings)._load_model()
+    assert downloaded == dict.fromkeys(files, False)
     assert {key: path.name for key, path in cached["sessions"].items()} == {
         "vision_encoder": f"{vision}.onnx",
         "decoder": f"{decoder}.onnx",
@@ -107,6 +111,11 @@ def test_load_published_graph_pair_and_sidecars(monkeypatch, tmp_path, variant, 
     assert cached["processor"]["patch_size"] == 16
     assert cached["processor"]["size"] == {"shortest_edge": 65536, "longest_edge": 16777216}
     assert cached["runtime_config"].execution_provider == ("cuda" if cuda else "cpu")
+
+    # A forced refresh must use the published listing, not the (possibly stale) local headers.
+    downloaded.clear()
+    provider(**settings, force_download=True)._load_model()
+    assert downloaded == dict.fromkeys(files, True)
 
 
 def test_auto_uses_cpu_bundle_when_cuda_wheel_has_no_visible_gpu(monkeypatch):
@@ -123,6 +132,51 @@ def test_auto_uses_cpu_bundle_when_cuda_wheel_has_no_visible_gpu(monkeypatch):
     runtime, files = lfm.lfm3_vl_onnx.resolve_bundle(OnnxRuntimeConfig(), "auto")
     assert runtime.execution_provider == "cpu"
     assert files == {"vision_encoder": "onnx/vision_encoder_q8.onnx", "decoder": "onnx/decoder_q4.onnx"}
+
+
+def test_cached_lfm3_graphs_repair_only_the_referenced_missing_shard(tmp_path, monkeypatch):
+    onnx = pytest.importorskip("onnx")
+    repo = "local-mirror/LFM3-VL-2B-ONNX"
+    cache = tmp_path / "local-mirror_LFM3-VL-2B-ONNX" / "onnx"
+    cache.mkdir(parents=True)
+    for name, suffixes in (("vision_encoder_fp16", ("_data",)), ("decoder_fp16", ("_data", "_data_1"))):
+        graph = onnx.ModelProto()
+        for i, suffix in enumerate(suffixes):
+            location = name + ".onnx" + suffix
+            if suffix == "_data":
+                weight = graph.graph.initializer.add()
+            else:
+                node = graph.graph.node.add(op_type="Constant")
+                weight = node.attribute.add(name="value", type=onnx.AttributeProto.TENSOR).t
+            weight.name = f"weight{i}"
+            weight.data_type = onnx.TensorProto.FLOAT
+            weight.dims.append(1)
+            weight.data_location = onnx.TensorProto.EXTERNAL
+            weight.external_data.add(key="location", value=location)
+            if suffix == "_data":
+                (cache / location).write_bytes(b"\0" * 4)
+        (cache / (name + ".onnx")).write_bytes(graph.SerializeToString())
+
+    downloads = []
+
+    def download(repo_id, filename, local_dir, force_download):
+        assert repo_id == repo and not force_download
+        downloads.append(filename)
+        path = Path(local_dir) / filename
+        path.write_bytes(b"\0" * 4)
+        return str(path)
+
+    hub = SimpleNamespace(list_repo_files=lambda *_: pytest.fail("Unexpected Hub listing"), hf_hub_download=download)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+    monkeypatch.setitem(sys.modules, "onnxruntime", SimpleNamespace(get_available_providers=lambda: ["CPUExecutionProvider"]))
+    monkeypatch.setattr(lfm.lfm3_vl_onnx, "load_preprocessing", lambda *args, **kw: {})
+    monkeypatch.setattr(lfm, "load_session_bundle", lambda **kw: SimpleNamespace(sessions=kw["session_paths"]))
+    settings = dict(model_id=repo, execution_provider="cpu", decoder_variant="fp16", model_cache_dir=str(tmp_path))
+    provider(**settings)._load_model()
+    assert downloads == ["onnx/decoder_fp16.onnx_data_1"]
+    downloads.clear()
+    provider(**settings)._load_model()
+    assert not downloads
 
 
 class Tokenizer:
@@ -261,8 +315,9 @@ def test_caption_rejects_an_extra_image_placeholder(caption):
         caption(prompt="describe <|image|>")
 
 
-def test_linux_extra_rules_out_runtimes_missing_quantized_gather_bits():
+def test_lfm_extra_includes_graph_reader_and_compatible_linux_runtime():
     extras = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))["project"]["optional-dependencies"]
+    assert "onnx" in {Requirement(dep).name for dep in extras["lfm-vl-local"]}
     deps = (Requirement(dep) for group in ("lfm-vl-local", "onnx-base") for dep in extras[group])
     constraints = [
         dep.specifier
@@ -296,7 +351,7 @@ def test_offline_q4_captions_real_images_in_prompt_order(tmp_path, monkeypatch, 
     hub = pytest.importorskip("huggingface_hub")
     pytest.importorskip("transformers")
     pytest.importorskip("onnxruntime")
-    monkeypatch.setattr(hub, "list_repo_files", lambda _: files)
+    monkeypatch.setattr(hub, "list_repo_files", lambda *args, **kw: pytest.fail("Unexpected Hub listing during offline startup"))
     monkeypatch.setattr(hub, "hf_hub_download", lambda **kw: pytest.fail(f"Unexpected download: {kw['filename']}"))
     instance = provider(
         model_id=repo,

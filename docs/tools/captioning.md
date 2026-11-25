@@ -43,4 +43,6 @@ Python 入口：`python -m module.captioner --help`。云端 Provider 使用基�
 
 选择 `vlm_image_model = "lfm_vl_local"` 可用 [LFM3-VL-2B-ONNX](https://huggingface.co/LiquidAI/LFM3-VL-2B-ONNX) 生成单图或配对图片描述。首次运行下载分词器、预处理配置，以及所选精度的两个 ONNX 图和权重，不会下载其他精度。默认在 CPU 上用 `q4`，在 CUDA 上用 `q4f16`；可在 `config/model.toml` 中用 `decoder_variant` 指定其他精度。原生 ONNX 路径关闭思考输出并使用贪心解码，不处理视频。需要复现旧批次时，在模型列表中选回 **LFM 2.5 VL 1.6B ONNX**，并沿用原来的精度和提示词。
 
+LFM3 的所选精度缓存完整后，新进程也能离线启动。先安装或更新 `lfm-vl-local` 依赖，保留分词器、聊天模板、预处理配置、两个图及它们引用的全部权重分片；设置 `HF_HUB_OFFLINE=1` 可禁止联网。切换到未缓存的精度或启用 `force_download` 前需要联网。旧配置中的 `float32`、`base`、`default` 仍指 FP32，不等同于 `auto`。
+
 API Key 当前仍可能进入子进程命令行与任务日志。不要分享完整命令、进程列表或未脱敏日志；`--cloud` 也没有内置鉴权。

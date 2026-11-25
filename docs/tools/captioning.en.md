@@ -19,6 +19,8 @@ Important controls include `dataset_path`, `pair_dir`, `mode`, retry/wait settin
 
 Set `vlm_image_model = "lfm_vl_local"` to caption a single image or an image pair with [LFM3-VL-2B-ONNX](https://huggingface.co/LiquidAI/LFM3-VL-2B-ONNX). The first run downloads only the selected graph pair and its weights, plus the tokenizer and processor settings. The default is `q4` on CPU and `q4f16` on CUDA; set `decoder_variant` in `config/model.toml` to choose another precision. Native ONNX inference uses greedy decoding with thinking disabled; this route does not accept video. To reproduce an older batch, select **LFM 2.5 VL 1.6B ONNX** and retain the original precision and prompt.
 
+With the selected LFM3 precision cached, a new process can start offline. Install or update the `lfm-vl-local` extra first. Keep the tokenizer, chat template, processor settings, both graphs, and all weight shards they reference. Set `HF_HUB_OFFLINE=1` to disallow network access. An uncached precision or a forced download requires a connection. Existing `float32`, `base`, and `default` settings still select FP32, not `auto`.
+
 The standard local `deepseek_ocr` route uses built-in DeepSeek OCR 2 on Transformers **5.23.0**, tested on the same GPU against native 5.17.0 and legacy 4.46.3. Existing prompts and configured remote services are unchanged. `deepseek_ocr_legacy` with the isolated `deepseek-ocr-legacy` extra explicitly runs the former backend. See the [migration and reproducible GPU comparison](deepseek_ocr2.md).
 
 API keys may still appear in child-process arguments and task logs. Do not share raw commands, process lists, or unredacted logs.

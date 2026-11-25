@@ -431,6 +431,7 @@ quantized-runtime = [
 ]
 lfm-vl-local = [
     "qinglong-captions[onnx-base]",
+    "onnx>=1.17",  # Read external weight references from cached LFM3 graph headers.
     # Older Linux runtimes reject the LFM3 decoder's GatherBlockQuantized bits attribute.
     "onnxruntime-gpu>=1.24.4; sys_platform == 'linux'",
     "transformers[serving]>=4.56.0",
