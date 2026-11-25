@@ -10,3 +10,10 @@ HY_MT_MODELS = (
     "tencent/Hy-MT2-7B",
     "tencent/Hy-MT2-1.8B-FP8",
 )
+
+INDEX_NAILONG_MODEL = "IndexTeam/Index-Nailong-9B"
+INDEX_TRANSLATE_MODELS = (
+    "IndexTeam/Index-Translate-9B",
+    "IndexTeam/Index-Translate-2B",
+    INDEX_NAILONG_MODEL,
+)

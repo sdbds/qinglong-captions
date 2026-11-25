@@ -3,6 +3,7 @@ $output_name = "dataset"                   # 目录导入时生成的 Lance 名�
 $model_id = "tencent/Hy-MT3-7B"            # 轻量版: tencent/Hy-MT3-1.8B
                                            # 量化版: tencent/Hy-MT3-7B-FP8, tencent/Hy-MT3-1.8B-FP8
                                            # 也可沿用 Hy-MT2 或 IndexTeam/Index-Translate-9B、IndexTeam/Index-Translate-2B
+                                           # 长文翻译: IndexTeam/Index-Nailong-9B（仍按下方分块和生成预算执行）
 $source_lang = "auto"                      # 源语言
 $target_lang = "zh_cn"                     # 目标语言，同时用于导出文件后缀
 $max_chars = 2200                          # 每个翻译分块的最大字符数

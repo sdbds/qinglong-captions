@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from module.translation_models import INDEX_NAILONG_MODEL, INDEX_TRANSLATE_MODELS
+
 from ..backends import OpenAIChatRuntime
 from ..local_llm_base import LocalLLMProvider
 from .hy_mt import clean_translation_output as clean_markdown_output
+
+# Nailong's config declares only endoftext; its official client also stops at im_end.
+_NAILONG_STOP_IDS = (248044, 248046)
 
 _LANGUAGE_NAMES = {
     "zh": "中文",
@@ -80,13 +85,17 @@ def clean_translation_output(text: str) -> str:
 
 
 class IndexTranslateProvider(LocalLLMProvider):
-    model_ids = ("IndexTeam/Index-Translate-2B", "IndexTeam/Index-Translate-9B")
+    model_ids = INDEX_TRANSLATE_MODELS
     default_model_id = "IndexTeam/Index-Translate-9B"
 
     def __init__(self, *args, max_new_tokens: int = 4096, **kwargs) -> None:
         super().__init__(*args, max_new_tokens=max_new_tokens, **kwargs)
 
     def _load_components(self) -> tuple[Any, Any]:
+        if self.model_id == INDEX_NAILONG_MODEL:
+            # The text-only checkpoint maps to Qwen3_5ForCausalLM, not the multimodal wrapper.
+            return super()._load_components()
+
         from transformers import AutoTokenizer, Qwen3_5ForConditionalGeneration
 
         from utils.transformer_loader import load_pretrained_component
@@ -122,10 +131,15 @@ class IndexTranslateProvider(LocalLLMProvider):
 
     def generate_text(self, prompt: str) -> str:
         messages = [{"role": "user", "content": prompt}]
+        is_nailong = self.model_id == INDEX_NAILONG_MODEL
         if self.runtime_backend.is_openai:
+            extra_body: dict[str, Any] = {"chat_template_kwargs": {"enable_thinking": False}}
+            if is_nailong:
+                extra_body["stop_token_ids"] = list(_NAILONG_STOP_IDS)
             return OpenAIChatRuntime(self.runtime_backend).complete(
                 messages,
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                extra_body=extra_body,
+                require_complete=is_nailong,
             )
 
         tokenizer, model = self._get_or_load_components()
@@ -140,16 +154,19 @@ class IndexTranslateProvider(LocalLLMProvider):
         )
         inputs = {key: value.to(model_device) for key, value in tokenized.items()}
         inputs = self._filter_generation_inputs(model, inputs)
-        # Preserve the checkpoint's EOS list (endoftext and im_end), not just the tokenizer's EOS.
         generation_kwargs: dict[str, Any] = {
             "max_new_tokens": self.max_new_tokens,
             "pad_token_id": tokenizer.pad_token_id,
             "do_sample": self.temperature > 0,
         }
+        if is_nailong:
+            generation_kwargs["eos_token_id"] = list(_NAILONG_STOP_IDS)
         if self.temperature > 0:
             generation_kwargs["temperature"] = self.temperature
         output_ids = model.generate(**inputs, **generation_kwargs)
         generated_ids = output_ids[0][inputs["input_ids"].shape[1] :]
+        if is_nailong and len(generated_ids) >= self.max_new_tokens and int(generated_ids[-1]) not in _NAILONG_STOP_IDS:
+            raise RuntimeError("Nailong translation reached max_new_tokens without a stop token; increase it or reduce max_chars.")
         return tokenizer.decode(generated_ids, skip_special_tokens=True)
 
     def translate(

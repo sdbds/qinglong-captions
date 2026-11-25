@@ -45,7 +45,7 @@ from module.reward_policy import (
     load_reward_policy,
     save_threshold_profile,
 )
-from module.translation_models import HY_MT_MODELS
+from module.translation_models import HY_MT_MODELS, INDEX_TRANSLATE_MODELS
 
 if TYPE_CHECKING:
     from gui.components.execution_panel import ExecutionPanel
@@ -348,11 +348,7 @@ class ToolsStep:
     TRANSFORM_TYPES = ["auto", "none"]
 
     # 翻译模型
-    TRANSLATE_MODELS = [
-        *HY_MT_MODELS,
-        "IndexTeam/Index-Translate-9B",
-        "IndexTeam/Index-Translate-2B",
-    ]
+    TRANSLATE_MODELS = [*HY_MT_MODELS, *INDEX_TRANSLATE_MODELS]
 
     # 翻译支持的语言
     TRANSLATE_LANGUAGES = {

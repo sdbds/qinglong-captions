@@ -274,7 +274,7 @@ class OpenAIChatRuntime:
         choice = completion.choices[0]
         if require_complete and choice.finish_reason != "stop":
             raise RuntimeError(
-                f"OCR generation is incomplete (finish_reason={choice.finish_reason}); "
+                f"Generation is incomplete (finish_reason={choice.finish_reason}); "
                 "increase the token budget or reduce the document window size."
             )
         return extract_message_text(choice.message.content)

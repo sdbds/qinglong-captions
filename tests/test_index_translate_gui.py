@@ -32,6 +32,7 @@ def test_translate_gui_launches_selected_hy_mt_and_index_models(tmp_path):
                 "tencent/Hy-MT3-7B-FP8", "tencent/Hy-MT3-1.8B-FP8",
                 "tencent/Hy-MT2-7B", "tencent/Hy-MT2-1.8B-FP8",
                 "IndexTeam/Index-Translate-2B", "IndexTeam/Index-Translate-9B",
+                "IndexTeam/Index-Nailong-9B",
             ):
                 assert model_id in step.translate_model.options
                 step.translate_model.set_value(model_id)

@@ -10,7 +10,8 @@ import pytest
 
 from utils import transformer_loader
 
-MODEL_IDS = ("IndexTeam/Index-Translate-2B", "IndexTeam/Index-Translate-9B")
+NAILONG = "IndexTeam/Index-Nailong-9B"
+MODEL_IDS = ("IndexTeam/Index-Translate-2B", "IndexTeam/Index-Translate-9B", NAILONG)
 
 
 @pytest.mark.parametrize("model_id", MODEL_IDS)
@@ -19,7 +20,9 @@ def test_index_openai_uses_non_thinking_translation_request_and_served_alias(mod
 
     client = MagicMock()
     client.chat.completions.create.return_value = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content="<think>internal</think>\n# Translation __QLP_0__"))]
+        choices=[SimpleNamespace(
+            finish_reason="stop", message=SimpleNamespace(content="<think>internal</think>\n# Translation __QLP_0__")
+        )]
     )
     provider = IndexTranslateProvider(
         model_id=model_id,
@@ -41,7 +44,10 @@ def test_index_openai_uses_non_thinking_translation_request_and_served_alias(mod
     assert request["model"] == "translation-server"
     assert request["max_tokens"] == 777
     assert request["temperature"] == 0.0
-    assert request["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+    expected_body = {"chat_template_kwargs": {"enable_thinking": False}}
+    if model_id == NAILONG:
+        expected_body["stop_token_ids"] = [248044, 248046]
+    assert request["extra_body"] == expected_body
     assert len(request["messages"]) == 1
     assert request["messages"][0]["role"] == "user"
     prompt = request["messages"][0]["content"]
@@ -145,7 +151,10 @@ def test_index_direct_uses_chat_template_and_preserves_attention_mask(model_id, 
     assert generation["attention_mask"].tolist() == [[1, 1]]
     assert generation["max_new_tokens"] == 555
     assert generation["do_sample"] is (temperature > 0)
-    assert "eos_token_id" not in generation, "Keep both stop tokens from the model's generation_config.json"
+    if model_id == NAILONG:
+        assert generation["eos_token_id"] == [248044, 248046]
+    else:
+        assert "eos_token_id" not in generation, "Keep both stop tokens from the model's generation_config.json"
     assert "repetition_penalty" not in generation
     assert "top_k" not in generation
     assert "top_p" not in generation
@@ -162,6 +171,7 @@ def test_index_loader_uses_qwen35_architecture_and_shared_download_helper(model_
 
     fake_transformers = types.ModuleType("transformers")
     fake_transformers.AutoTokenizer = type("AutoTokenizer", (), {})
+    fake_transformers.AutoModelForCausalLM = type("AutoModelForCausalLM", (), {})
     fake_transformers.Qwen3_5ForConditionalGeneration = type("Qwen3_5ForConditionalGeneration", (), {})
     tokenizer = SimpleNamespace(pad_token_id=None, eos_token_id=2)
     model = MagicMock()
@@ -182,7 +192,10 @@ def test_index_loader_uses_qwen35_architecture_and_shared_download_helper(model_
     assert loaded == (tokenizer, model)
     assert tokenizer.pad_token_id == 2
     assert calls[0][0] is fake_transformers.AutoTokenizer
-    assert calls[1][0] is fake_transformers.Qwen3_5ForConditionalGeneration
+    expected_cls = (
+        fake_transformers.AutoModelForCausalLM if model_id == NAILONG else fake_transformers.Qwen3_5ForConditionalGeneration
+    )
+    assert calls[1][0] is expected_cls
     assert all(call[1] == model_id for call in calls)
     kwargs = calls[1][2]
     assert kwargs["dtype"] == "bfloat16"
@@ -192,3 +205,25 @@ def test_index_loader_uses_qwen35_architecture_and_shared_download_helper(model_
         assert "attn_implementation" not in kwargs
     else:
         assert kwargs["attn_implementation"] == "sdpa"
+
+
+@pytest.mark.parametrize("last_token", [42, 248044, 248046])
+def test_nailong_direct_requires_a_stop_token_when_output_budget_is_exhausted(last_token):
+    import torch
+
+    from module.providers.local_llm.index_translate import IndexTranslateProvider
+
+    tokenizer = MagicMock(pad_token_id=248044)
+    tokenizer.apply_chat_template.return_value = {"input_ids": torch.tensor([[11]])}
+    tokenizer.decode.return_value = "Translated"
+    model = MagicMock()
+    model.parameters.return_value = iter([torch.empty(0)])
+    model.prepare_inputs_for_generation = lambda input_ids: {"input_ids": input_ids}
+    model.generate.return_value = torch.tensor([[11, 21, last_token]])
+    provider = IndexTranslateProvider(model_id=NAILONG, max_new_tokens=2)
+    with patch.object(provider, "_get_or_load_components", return_value=(tokenizer, model)):
+        if last_token == 42:
+            with pytest.raises(RuntimeError, match="max_new_tokens"):
+                provider.generate_text("translate")
+        else:
+            assert provider.generate_text("translate") == "Translated"

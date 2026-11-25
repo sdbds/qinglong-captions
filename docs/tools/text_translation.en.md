@@ -27,13 +27,14 @@ The GUI model selector and `$model_id` in `5.translate.ps1` support:
 
 - `IndexTeam/Index-Translate-9B`
 - `IndexTeam/Index-Translate-2B`
+- [`IndexTeam/Index-Nailong-9B` (NativeLong v1.1, long-document translation)](https://huggingface.co/IndexTeam/Index-Nailong-9B)
 
-Both Index models share an adapter with the official Chinese constrained-translation prompt, disabled thinking, Markdown and placeholder preservation, glossary input, and previous-chunk context. Automatic source detection omits the source language from the prompt; `zh_cn` and `zh_tw` select Simplified and Traditional Chinese.
+All three use the Index constrained-translation prompt with thinking disabled. They retain Markdown, placeholders, glossary input, and previous-chunk context. Automatic source detection omits the source language from the prompt; `zh_cn` and `zh_tw` select Simplified and Traditional Chinese.
 
-Direct inference uses the Qwen3.5 model class and Transformers 5.6+ from the existing `translate` profile. It does not require vLLM. The first run downloads the selected model weights:
+Direct inference uses the existing `translate` profile without vLLM. Nailong uses the text-only Qwen3.5 model class. The first run downloads only the selected model's weights:
 
 ```powershell
-python -m module.texttranslate ./datasets --model_id IndexTeam/Index-Translate-2B --target_lang zh_cn
+python -m module.texttranslate ./datasets --model_id IndexTeam/Index-Nailong-9B --source_lang en --target_lang zh_cn
 ```
 
 To use an already running OpenAI-compatible server:
@@ -42,8 +43,10 @@ To use an already running OpenAI-compatible server:
 python -m module.texttranslate ./datasets --model_id IndexTeam/Index-Translate-9B --runtime_backend openai --openai_base_url http://127.0.0.1:8000/v1 --openai_model_name served-index --target_lang zh_cn
 ```
 
-Keep the official ID in `--model_id` to select the Index adapter. Set a custom server alias with `--openai_model_name`; when omitted, it defaults to `--model_id`. The server must support `chat_template_kwargs.enable_thinking=false`.
+Keep the official ID in `--model_id` to select the Index adapter. Set a custom server alias with `--openai_model_name`; when omitted, it defaults to `--model_id`. The server must support `chat_template_kwargs.enable_thinking=false`. Nailong also needs `stop_token_ids`, as supported by vLLM.
 
 Decoding is greedy by default and retains the project's `max_new_tokens=4096` per chunk. Unfinished thinking blocks and empty translations raise an error instead of being saved. For longer input, reduce `--max_chars` or increase `--max_new_tokens` within the server's context and memory limits.
+
+Selecting Nailong does not switch to whole-document translation. The default chunk size is 2,200 **characters**. For more cross-paragraph context, increase `--max_chars` before normalization and budget `--max_new_tokens` for the longer translation. Reusing a normalized version keeps its stored chunk boundaries. The 262,144-**token** window is shared by the prompt, source, and output. BF16 weights alone use about 17.9 GB; runtime memory is additional. A length-truncated generation is not saved as a completed translation. See the [official inference guide](https://huggingface.co/IndexTeam/Index-Nailong-9B/blob/main/INFERENCE.md).
 
 Official model and serving guides: [9B](https://huggingface.co/IndexTeam/Index-Translate-9B), [2B](https://huggingface.co/IndexTeam/Index-Translate-2B).
