@@ -161,8 +161,11 @@ def test_patch_shared_environment_does_not_uninstall_torch_stack_for_paddleocr_o
     assert commands[0][commands[0].index("--extra") + 1] == "paddleocr-onnx"
 
 
-@pytest.mark.parametrize("extra", ["penguin-vl-local", "deepseek-ocr", "deepseek-ocr-native", "deepseek-ocr-legacy"])
-def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_path, monkeypatch, extra):
+@pytest.mark.parametrize("extra,backend", [
+    ("penguin-vl-local", "cu130"), ("deepseek-ocr", "cu130"), ("deepseek-ocr-native", "cu130"),
+    ("deepseek-ocr-legacy", "cu130"), ("moondream", "cu128" if sys.platform == "win32" else "cu130"),
+])
+def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_path, monkeypatch, extra, backend):
     _write_project(tmp_path, with_lock=True, optional_deps={extra: ["torch==2.11.0", "torchvision"]})
     runner = ProcessRunner()
     commands: list[list[str]] = []
@@ -198,7 +201,7 @@ def test_patch_shared_environment_reinstalls_cpu_torch_with_cuda_backend(tmp_pat
     assert "--index-strategy" in install_cmd
     assert install_cmd[install_cmd.index("--index-strategy") + 1] == "unsafe-best-match"
     assert "--torch-backend" in install_cmd
-    assert install_cmd[install_cmd.index("--torch-backend") + 1] == "cu130"
+    assert install_cmd[install_cmd.index("--torch-backend") + 1] == backend
     assert install_cmd.count("--reinstall-package") == 2
     assert install_cmd[install_cmd.index("--reinstall-package") + 1] == "torch"
     second = install_cmd.index("--reinstall-package", install_cmd.index("--reinstall-package") + 1)

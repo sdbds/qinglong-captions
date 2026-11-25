@@ -826,7 +826,7 @@ concatenate_pages = ""
 fps = 2
 
 [moondream]
-model_id = "moondream/moondream3-preview"
+model_id = "moondream/moondream3.1-9B-A2B"
 prompt = ""
 reasoning = false
 # Available task combinations (comma-separated list):

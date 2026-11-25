@@ -158,25 +158,12 @@ def test_moondream_caption_calls_display_caption_layout_with_required_args_and_r
     pil_img.save(img_path)
 
     class GoodModel:
-        def compile(self):
-            pass
-
         def caption(self, _img, length="short"):
             return {"caption": f"{length} desc"}
 
     class BrokenModel:
-        def compile(self):
-            pass
-
         def caption(self, _img, length="short"):
             raise RuntimeError("cuda oom")
-
-    class FakeLoader:
-        def __init__(self, model):
-            self._model = model
-
-        def get_or_load_model(self, *_args, **_kwargs):
-            return self._model
 
     display_calls = []
 
@@ -185,15 +172,11 @@ def test_moondream_caption_calls_display_caption_layout_with_required_args_and_r
         assert "panel_height" in kwargs
         display_calls.append(kwargs)
 
-    with (
-        patch.object(md_mod, "resolve_device_dtype", return_value=("cpu", None, None)),
-        patch.object(md_mod, "_ensure_loader", return_value=FakeLoader(GoodModel())),
-        patch.object(md_mod, "display_caption_layout", side_effect=fake_display),
-    ):
+    with patch.object(md_mod, "display_caption_layout", side_effect=fake_display):
         res = md_mod.attempt_moondream(
             uri=str(img_path),
             mime="image/png",
-            model_id="vikhyatk/moondream2",
+            get_model=GoodModel,
             console=Console(file=io.StringIO()),
             progress=None,
             task_id=None,
@@ -207,15 +190,11 @@ def test_moondream_caption_calls_display_caption_layout_with_required_args_and_r
     assert display_calls[0]["tag_description"] == "1girl"
     assert display_calls[0]["panel_height"] == 32
 
-    with (
-        patch.object(md_mod, "resolve_device_dtype", return_value=("cpu", None, None)),
-        patch.object(md_mod, "_ensure_loader", return_value=FakeLoader(BrokenModel())),
-        pytest.raises(RuntimeError, match="Moondream task\\(s\\) failed"),
-    ):
+    with pytest.raises(RuntimeError, match="Moondream task\\(s\\) failed"):
         md_mod.attempt_moondream(
             uri=str(img_path),
             mime="image/png",
-            model_id="vikhyatk/moondream2",
+            get_model=BrokenModel,
             console=Console(file=io.StringIO()),
             progress=None,
             task_id=None,

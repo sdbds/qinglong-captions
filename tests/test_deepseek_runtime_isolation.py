@@ -85,7 +85,7 @@ def test_existing_unowned_runtime_is_never_passed_to_uv(tmp_path, monkeypatch):
         ("deepseek-ocr-native", ".venv", ".runtime_venvs/deepseek-ocr-native"),
         ("deepseek-ocr-legacy", ".venv", ".runtime_venvs/deepseek-ocr-legacy"),
         ("deepseek-ocr", "custom-tab", "custom-tab"),
-        ("moondream", ".venv", ".venv"),
+        ("moondream", ".venv", ".runtime_venvs/moondream-photon" if sys.platform == "win32" else ".venv"),
     ],
 )
 def test_gui_install_and_caption_use_same_selected_environment(tmp_path, monkeypatch, extra, supplied, expected):
@@ -130,12 +130,13 @@ def test_gui_install_and_caption_use_same_selected_environment(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize(
-    "caption_exit, fail_install, caller_has_venv",
-    [(0, False, True), (3, False, False), (0, True, True)],
-    ids=["success", "partial", "install-error"],
+    "extra, caption_exit, fail_install, caller_has_venv",
+    [("deepseek-ocr-legacy", 0, False, True), ("deepseek-ocr-legacy", 3, False, False),
+     ("deepseek-ocr-legacy", 0, True, True), ("moondream", 0, False, True)],
+    ids=["success", "partial", "install-error", "windows-photon"],
 )
 def test_powershell_isolates_install_and_caption_from_the_callers_environment(
-    tmp_path, caption_exit, fail_install, caller_has_venv,
+    tmp_path, extra, caption_exit, fail_install, caller_has_venv,
 ):
     pwsh = shutil.which("pwsh")
     if not pwsh:
@@ -152,8 +153,9 @@ def test_powershell_isolates_install_and_caption_from_the_callers_environment(
     runner = tmp_path / "invoke.ps1"
     runner.write_text(
         """
-param($Source, $Python, $Root, [int]$CaptionExit, [int]$FailInstall, [int]$CallerHasVenv)
+param($Source, $Python, $Root, [int]$CaptionExit, [int]$FailInstall, [int]$CallerHasVenv, $ProfileExtra)
 $ErrorActionPreference = 'Stop'
+if ($ProfileExtra -eq 'moondream') { $env:OS = 'Windows_NT' }
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($Source, [ref]$null, [ref]$null)
 foreach ($name in @('Invoke-CaptionWithRuntime','Install-UvDependencyPatch')) {
     $fn = $ast.Find({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -161,13 +163,21 @@ foreach ($name in @('Invoke-CaptionWithRuntime','Install-UvDependencyPatch')) {
     if (-not $fn) { throw "Caption launcher function missing: $name" }
     Invoke-Expression $fn.Extent.Text
 }
-function Get-DeepSeekRuntimePython { return $Python }
+function Get-IsolatedCaptionRuntimePython($Extra) {
+    $Expected = if ($ProfileExtra -eq 'moondream') { 'moondream-photon' } else { $ProfileExtra }
+    if ($Extra -ne $Expected) { throw "Wrong runtime: $Extra" }
+    return $Python
+}
 function Get-UvEnvName { return 'project' }
 function Get-UvProfile { return 'test' }
 function Get-ProjectPython { throw 'install redirected to the shared interpreter' }
 function uv {
     $i = [array]::IndexOf($args, '--python')
-    if ($i -lt 0 -or $args -notcontains 'deepseek-ocr-legacy') { throw 'Wrong uv install command' }
+    if ($i -lt 0 -or $args -notcontains $ProfileExtra) { throw 'Wrong uv install command' }
+    if ($ProfileExtra -eq 'moondream') {
+        $b = [array]::IndexOf($args, '--torch-backend')
+        if ($b -lt 0 -or $args[$b+1] -ne 'cu128') { throw 'Photon must override the system torch backend' }
+    }
     $scriptsDir = Split-Path -Parent $Python
     if ($env:VIRTUAL_ENV -ne (Split-Path -Parent $scriptsDir) -or
         ($env:PATH -split [IO.Path]::PathSeparator)[0] -ne $scriptsDir) { throw 'Wrong install environment' }
@@ -179,14 +189,14 @@ $originalPath = $env:PATH
 if ($CallerHasVenv) { $env:VIRTUAL_ENV = Join-Path $Root 'caller' } else { $env:VIRTUAL_ENV = $null }
 $originalVenv = $env:VIRTUAL_ENV
 try {
-    Invoke-CaptionWithRuntime -ArgsList @('--extra=deepseek-ocr-legacy') -DatasetPath "$CaptionExit" -CaptionArgs @()
+    Invoke-CaptionWithRuntime -ArgsList @("--extra=$ProfileExtra") -DatasetPath "$CaptionExit" -CaptionArgs @()
     $code = $LASTEXITCODE
     if ($FailInstall) { throw 'Lost install error' }
 } catch {
     if (-not $FailInstall -or $_.Exception.Message -ne 'Test install failure') { throw }
     $code = 17
 }
-if ($env:VIRTUAL_ENV -cne $originalVenv -or $env:PATH -cne $originalPath) { throw 'DeepSeek environment leaked' }
+if ($env:VIRTUAL_ENV -cne $originalVenv -or $env:PATH -cne $originalPath) { throw 'Caption runtime environment leaked' }
 exit $code
 """,
         encoding="utf-8",
@@ -194,7 +204,7 @@ exit $code
     run = subprocess.run(
         [
             pwsh, "-NoProfile", "-File", str(runner), str(ROOT / "4.captioner.ps1"), str(python), str(tmp_path),
-            str(caption_exit), str(int(fail_install)), str(int(caller_has_venv)),
+            str(caption_exit), str(int(fail_install)), str(int(caller_has_venv)), extra,
         ],
         capture_output=True,
         text=True,

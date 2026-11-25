@@ -41,6 +41,12 @@ Python 入口：`python -m module.captioner --help`。云端 Provider 使用基�
 - 标准 DeepSeek OCR 2 使用 Transformers 5.x 原生实现；旧模型、非标准裁块参数和显式旧版入口见 [DeepSeek OCR 2 切换与验收](deepseek_ocr2.md)。
 - 显式选择本地 `ocr_model` 或 `vlm_image_model` 时，图像请求优先走本地路由。
 
+选择 `vlm_image_model = "moondream"` 默认使用 [Moondream 3.1 9B A2B](https://huggingface.co/moondream/moondream3.1-9B-A2B)。本地 Photon 不需要 API Key；首次运行会缓存约 10.5 GB 的权重和分词器。图片 OCR 使用 `ocr_model = "moondream"` 和 `document_image = true`。要继续使用旧模型，在模型列表选回 **Moondream 3 Preview**，仍由 Transformers 加载。
+
+Windows 版 Photon 的预编译内核使用 CUDA 12。本地运行 3.1 时，默认 GUI 和 PowerShell 启动器会准备独立的 `.runtime_venvs/moondream-photon` 环境（PyTorch 2.11 / CUDA 12.8），不需要降级共享环境或显卡驱动。手动运行 3.1 时也请使用这个环境的解释器。Preview 继续使用原来的依赖环境；通过 OpenAI 兼容服务生成描述、问答或图片 OCR 不会安装 Photon。定位和检测仍需本地推理。
+
+使用本地 Photon 时，图片、提示词和生成结果不会上传。Photon 默认会尝试上报主机名、GPU 信息和汇总用量；`HF_HUB_OFFLINE=1` 只禁止从 Hugging Face 下载，不会关闭这项[运行统计](https://github.com/m87-labs/kestrel#telemetry)。在 GUI 中显式指定其他虚拟环境会把依赖安装到该环境，请使用专用环境。
+
 选择 `vlm_image_model = "lfm_vl_local"` 可用 [LFM3-VL-2B-ONNX](https://huggingface.co/LiquidAI/LFM3-VL-2B-ONNX) 生成单图或配对图片描述。首次运行下载分词器、预处理配置，以及所选精度的两个 ONNX 图和权重，不会下载其他精度。默认在 CPU 上用 `q4`，在 CUDA 上用 `q4f16`；可在 `config/model.toml` 中用 `decoder_variant` 指定其他精度。原生 ONNX 路径关闭思考输出并使用贪心解码，不处理视频。需要复现旧批次时，在模型列表中选回 **LFM 2.5 VL 1.6B ONNX**，并沿用原来的精度和提示词。
 
 LFM3 的所选精度缓存完整后，新进程也能离线启动。先安装或更新 `lfm-vl-local` 依赖，保留分词器、聊天模板、预处理配置、两个图及它们引用的全部权重分片；设置 `HF_HUB_OFFLINE=1` 可禁止联网。切换到未缓存的精度或启用 `force_download` 前需要联网。旧配置中的 `float32`、`base`、`default` 仍指 FP32，不等同于 `auto`。

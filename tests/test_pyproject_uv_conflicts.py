@@ -62,7 +62,7 @@ def test_transformers_v5_profiles_exclude_affected_and_yanked_releases(extra):
 
 
 @pytest.mark.parametrize("extra", [
-    "moondream", "olmocr", "nanonets-ocr", "firered-ocr",
+    "moondream", "moondream-legacy", "olmocr", "nanonets-ocr", "firered-ocr",
     "chandra-ocr", "step-vl-local", "reka-edge-local",
 ])
 def test_flexible_transformers_profiles_exclude_pre_448_but_still_accept_v4(extra):
@@ -74,6 +74,21 @@ def test_flexible_transformers_profiles_exclude_pre_448_but_still_accept_v4(extr
 
 def test_legacy_deepseek_ocr_conflicts_with_lfm_vl_local():
     assert _has_extra_conflict("deepseek-ocr-legacy", "lfm-vl-local")
+
+
+def test_moondream_selects_cuda12_only_on_windows():
+    extras = _load_optional_dependencies()
+    deps = list(map(Requirement, extras["moondream"]))
+    assert any(req.name == "moondream" and "2.6.1" in req.specifier for req in deps)
+    for platform, stack in [("win32", "moondream-cu128"), ("linux", "torch-base"), ("darwin", "torch-base")]:
+        assert [req.extras for req in deps if req.name == "qinglong-captions"
+                and req.marker.evaluate({"sys_platform": platform})] == [{stack}]
+    torch, = (req for req in map(Requirement, extras["moondream-cu128"]) if req.name == "torch")
+    assert "2.11.0+cu128" in torch.specifier and "2.13.0+cu130" not in torch.specifier
+    assert _has_extra_conflict("moondream-cu128", "torch-base")
+    legacy = list(map(Requirement, extras["moondream-legacy"]))
+    assert any(req.name == "qinglong-captions" and req.extras == {"torch-base"} for req in legacy)
+    assert not any(req.name == "moondream" or "moondream-cu128" in req.extras for req in legacy)
 
 
 def test_default_deepseek_extra_installs_only_the_gpu_validated_transformers_release():

@@ -310,8 +310,9 @@ overwrite = false
 force_download = false
 
 [moondream]
-model_list."Moondream 3 Preview" = { model_id = "moondream/moondream3-preview", meta = { min_vram_gb = 6 } }
-model_id = "moondream/moondream3-preview"
+model_list."Moondream 3.1 9B A2B" = { model_id = "moondream/moondream3.1-9B-A2B" }
+model_list."Moondream 3 Preview" = { model_id = "moondream/moondream3-preview", meta = { min_vram_gb = 24 } }
+model_id = "moondream/moondream3.1-9B-A2B"
 prompt = ""
 reasoning = false
 # Available task combinations (comma-separated list):

@@ -20,7 +20,7 @@ from gui.utils.kimi_reasoning_config import (
 from gui.utils.toml_helpers import assess_current_model_fit as assess_current_model_fit_from_toml
 from gui.utils.toml_helpers import load_current_route_model_ids as load_current_route_model_ids_from_toml
 from gui.utils.toml_helpers import find_model_config_section
-from utils.ocr_model_config import DEEPSEEK_LEGACY_MODEL, deepseek_ocr_extra, unlimited_ocr_extra
+from utils.ocr_model_config import DEEPSEEK_LEGACY_MODEL, deepseek_ocr_extra, moondream_extra_from_config, unlimited_ocr_extra
 from module.caption_outcome import PARTIAL_CAPTION_EXIT_CODE
 from module.providers.catalog import route_choices, route_requires_remote_config
 from module.providers.cloud_vlm.kimi_reasoning import (
@@ -1020,8 +1020,18 @@ class CaptionStep:
             ocr_extra = unlimited_ocr_extra(
                 section.get("model_id", "baidu/Unlimited-OCR-2"), section.get("model_version", "auto")
             )
+        vlm_extra = self.VLM_EXTRA_MAP.get(self.vlm_image_model.value or "")
+        if "moondream" in (ocr_extra, vlm_extra):
+            profile = moondream_extra_from_config(
+                image_ocr=ocr_route == "moondream",
+                has_base_url=bool(getattr(getattr(self, "openai_base_url", None), "value", "")),
+            )
+            if ocr_extra == "moondream":
+                ocr_extra = profile
+            if vlm_extra == "moondream":
+                vlm_extra = profile
         self._append_extra(extra_args, seen, ocr_extra)
-        self._append_extra(extra_args, seen, self.VLM_EXTRA_MAP.get(self.vlm_image_model.value or ""))
+        self._append_extra(extra_args, seen, vlm_extra)
         self._append_extra(extra_args, seen, self.ALM_EXTRA_MAP.get(self._current_alm_model()))
         if any(
             self._repo_id_requires_quantized_runtime(model_id) for model_id in self._selected_local_route_model_ids()

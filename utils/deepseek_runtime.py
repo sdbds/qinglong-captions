@@ -1,4 +1,4 @@
-"""Provision independent, project-owned DeepSeek OCR virtual environments."""
+"""Provision isolated caption runtimes without modifying the shared environment."""
 
 from __future__ import annotations
 
@@ -13,13 +13,16 @@ _PROFILES = {
     "deepseek-ocr": "deepseek-ocr-native",
     "deepseek-ocr-native": "deepseek-ocr-native",
     "deepseek-ocr-legacy": "deepseek-ocr-legacy",
+    "moondream-photon": "moondream-photon",
 }
 
 
 def runtime_profile(extras: list[str]) -> str | None:
     profiles = {_PROFILES[name] for name in extras if name in _PROFILES}
+    if sys.platform == "win32" and "moondream" in extras:
+        profiles.add("moondream-photon")
     if len(profiles) > 1:
-        raise ValueError("Native and legacy DeepSeek OCR require separate runs")
+        raise ValueError(f"Incompatible caption runtimes require separate runs: {', '.join(sorted(profiles))}")
     return next(iter(profiles), None)
 
 
@@ -60,7 +63,7 @@ def _validate_python(venv: Path) -> Path:
     python = runtime_python(venv)
     cfg = venv / "pyvenv.cfg"
     if not (_physical_file(cfg) and _physical_dir(python.parent) and python.is_file()):
-        raise OSError(f"Invalid DeepSeek virtual environment: {venv}")
+        raise OSError(f"Invalid caption virtual environment: {venv}")
     settings = dict(
         (k.strip(), v.strip())
         for line in cfg.read_text(encoding="utf-8").splitlines()
@@ -69,7 +72,7 @@ def _validate_python(venv: Path) -> Path:
     )
     version = settings.get("version_info") or settings.get("version") or ""
     if version.split(".")[:2] != ["3", "11"] or settings.get("include-system-site-packages", "").lower() != "false":
-        raise OSError(f"Expected an isolated Python 3.11 DeepSeek environment at {venv}")
+        raise OSError(f"Expected an isolated Python 3.11 caption environment at {venv}")
     return python
 
 
@@ -80,7 +83,7 @@ def ensure_runtime(project: Path, extra: str, *, uv: str = "uv") -> Path:
     parent = project.resolve() / ".runtime_venvs"
     parent.mkdir(mode=0o700, exist_ok=True)
     if not _physical_dir(parent):
-        raise OSError(f"DeepSeek runtime root is not a physical directory: {parent}")
+        raise OSError(f"Caption runtime root is not a physical directory: {parent}")
     target = parent / name
     lock = parent / f".{name}.create.lock"
     try:
@@ -90,20 +93,20 @@ def ensure_runtime(project: Path, extra: str, *, uv: str = "uv") -> Path:
         # A zero-length regular file needs no content read. Windows denies
         # reading the locked byte while another launcher is creating the venv.
         if not _physical_file(lock) or lock.lstat().st_size != 0:
-            raise OSError(f"Unowned DeepSeek runtime lock: {lock}") from None
+            raise OSError(f"Unowned caption runtime lock: {lock}") from None
     with FileLock(str(lock), timeout=180, preserve_lock_file=True):
-        owner = target / ".qinglong-deepseek-v1"
+        owner = target / (".qinglong-photon-v1" if name == "moondream-photon" else ".qinglong-deepseek-v1")
         ready = target / ".ready-v1"
         identity = f"qinglong-captions:{name}\n".encode("ascii")
         try:
             target.mkdir(mode=0o700)
         except FileExistsError:
             if not _physical_dir(target) or not _matches(owner, identity):
-                raise OSError(f"DeepSeek runtime path is unowned; choose a different location for its contents: {target}") from None
+                raise OSError(f"Caption runtime path is unowned; choose a different location for its contents: {target}") from None
             if _matches(ready, identity):
                 return _validate_python(target)
             if any(entry != owner for entry in target.iterdir()):
-                raise OSError(f"Incomplete DeepSeek environment. Move {target} aside before trying again.")
+                raise OSError(f"Incomplete caption environment. Move {target} aside before trying again.")
         else:
             with owner.open("xb") as stream:
                 stream.write(identity)

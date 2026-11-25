@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import sys
 import time
+from collections.abc import Callable
 from contextlib import closing
+from functools import partial
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from types import SimpleNamespace
+from typing import Any, List, Optional
 
 from PIL import Image
 from rich.console import Console
@@ -16,30 +20,54 @@ from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.providers.local_vlm_base import LocalVLMProvider
 from module.providers.registry import register_provider
 from utils.console_util import print_exception
+from utils.ocr_model_config import MOONDREAM_PHOTON_MODEL, MOONDREAM_PHOTON_REPO, is_moondream_photon, moondream_needs_spatial_tasks
 from utils.parse_display import (
     display_caption_layout,
     display_markdown,
 )
 from utils.stream_util import format_description
-from utils.transformer_loader import resolve_device_dtype, transformerLoader
 
-# ---------------------------------------------------------------------------
-# Module-level state & helpers (migrated from moondream_provider.py)
-# ---------------------------------------------------------------------------
+_OCR_PROMPT = (
+    "Transcribe only the text visible in this image, in reading order, without translating it. "
+    "Use Markdown to preserve headings, lists, and tables where present. "
+    "Return only the transcription. Do not describe the image or add commentary."
+)
 
-_TRANS_LOADER: Optional[transformerLoader] = None
 
+def _load_photon_model():
+    try:
+        from moondream import photon
+    except ImportError as exc:
+        raise ImportError(
+            "Moondream 3.1 requires the Photon SDK. Use the caption launcher or install "
+            "`--extra moondream` in the caption runtime."
+        ) from exc
+    if sys.platform != "win32":
+        return photon(MOONDREAM_PHOTON_MODEL)
 
-def _ensure_loader(device_map: Dict[str, str]) -> transformerLoader:
-    global _TRANS_LOADER
-    if _TRANS_LOADER is None:
-        _TRANS_LOADER = transformerLoader(attn_kw=None, device_map=device_map)
-    return _TRANS_LOADER
+    import torch
+
+    if not (torch.version.cuda or "").startswith("12."):
+        raise RuntimeError(
+            "Moondream Photon on Windows requires a CUDA 12 build of PyTorch. "
+            "Use 4.captioner.ps1 or the GUI to launch the isolated cu128 runtime."
+        )
+
+    from kestrel.models.moondream import weights
+
+    # Mapping the 10.5 GB checkpoint can crash inside PyTorch on Windows. Kestrel
+    # 0.9.1 has no reader option; scope pread to its own synchronous startup.
+    reader = weights.safetensors
+    weights.safetensors = SimpleNamespace(safe_open=partial(reader.safe_open, backend="pread"))
+    try:
+        return photon(MOONDREAM_PHOTON_MODEL)
+    finally:
+        weights.safetensors = reader
 
 
 def attempt_moondream(
     *,
-    model_id: str,
+    get_model: Callable[[], Any],
     mime: str,
     console: Console,
     progress: Optional[Progress],
@@ -85,29 +113,7 @@ def attempt_moondream(
         console.print(Text("Moondream requires an image object from api_handler", style="red"))
         return ""
 
-    from transformers import AutoModelForCausalLM
-
-    device, dtype, _ = resolve_device_dtype()
-    device_map = {"": device}
-    loader = _ensure_loader(device_map)
-
-    if console:
-        console.print(f"[blue]Loading Moondream model:[/blue] {model_id}")
-    model = loader.get_or_load_model(
-        model_id,
-        AutoModelForCausalLM,
-        dtype=dtype,
-        trust_remote_code=True,
-        device_map=device_map,
-        console=console,
-    )
-    try:
-        model.compile()
-        if console:
-            console.print("[blue]Moondream compile() finished[/blue]")
-    except Exception as e:
-        if console:
-            print_exception(console, e, prefix="Moondream compile() failed", summary_style="yellow")
+    model = get_model()
 
     # Parse task combinations
     task_list = []
@@ -118,12 +124,8 @@ def attempt_moondream(
 
     # OCR has highest priority and overrides other tasks
     if ocr:
-        question = (
-            "Convert all visible text in the image to clean Markdown. "
-            "Preserve headings, lists, tables, and structure where possible."
-        )
         try:
-            result = model.query(image=image, question=question, reasoning=False)
+            result = model.query(image=image, question=_OCR_PROMPT, reasoning=False)
             content = result.get("answer", "")
         except Exception as e:
             print_exception(console, e, prefix="Moondream OCR failed", summary_style="yellow")
@@ -359,8 +361,27 @@ def attempt_moondream(
 class MoondreamProvider(LocalVLMProvider):
     """Moondream Local VLM Provider"""
 
-    default_model_id = "moondream/moondream3-preview"
+    default_model_id = MOONDREAM_PHOTON_REPO
     _attn_implementation = "eager"
+
+    def _load_model(self):
+        model_id = self.model_id
+        if is_moondream_photon(model_id):
+            self.log(f"Loading Moondream with local Photon: {model_id}", "blue")
+            return _load_photon_model()
+
+        from transformers import AutoModelForCausalLM
+
+        from utils.transformer_loader import resolve_device_dtype, transformerLoader
+
+        device, dtype, _ = resolve_device_dtype()
+        loader = transformerLoader(attn_kw=None, device_map={"": device})
+        model = loader.load_model(model_id, AutoModelForCausalLM, dtype=dtype, console=self.ctx.console)
+        try:
+            model.compile()
+        except Exception as exc:
+            print_exception(self.ctx.console, exc, prefix="Moondream compile() failed", summary_style="yellow")
+        return model
 
     @classmethod
     def can_handle(cls, args: Any, mime: str) -> bool:
@@ -378,16 +399,10 @@ class MoondreamProvider(LocalVLMProvider):
 
         runtime = self.get_runtime_backend()
         if runtime.is_openai:
-            task_names = {item.strip() for item in str(tasks).split(",") if item.strip()}
-            if "all" in task_names or "point" in task_names or "detect" in task_names:
+            if moondream_needs_spatial_tasks(str(tasks), image_ocr=ocr_mode):
                 self.log("Moondream point/detect tasks require direct backend; falling back to direct runtime.", "yellow")
             else:
-                user_prompt = prompts.user
-                if ocr_mode:
-                    user_prompt = (
-                        "Convert all visible text in the image to clean Markdown. "
-                        "Preserve headings, lists, tables, and structure where possible."
-                    )
+                user_prompt = _OCR_PROMPT if ocr_mode else prompts.user
                 return self.attempt_via_openai_backend(media, prompts, user_prompt=user_prompt)
 
         # 读取 captions
@@ -399,7 +414,7 @@ class MoondreamProvider(LocalVLMProvider):
 
         with Image.open(media.uri) as source_image, closing(source_image.convert("RGB")) as image:
             result = attempt_moondream(
-                model_id=self.model_id,
+                get_model=self._get_or_load_model,
                 mime=media.mime,
                 console=self.ctx.console,
                 progress=self.ctx.progress,

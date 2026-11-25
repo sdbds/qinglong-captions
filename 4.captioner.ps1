@@ -293,15 +293,31 @@ print(deepseek_ocr_extra_from_config(sys.argv[1]))
   return $Extra
 }
 
-function Get-DeepSeekRuntimePython {
+function Get-MoondreamExtra {
+  $PythonExe = Get-ProjectPython
+  if (-not $PythonExe) { throw "Python is required to select the Moondream runtime." }
+  $Selector = @'
+import sys
+from utils.ocr_model_config import moondream_extra_from_config
+profile = moondream_extra_from_config(sys.argv[1], backend=sys.argv[2].removeprefix('mode:'),
+                                     has_base_url=sys.argv[3] == '1', image_ocr=sys.argv[4] == '1')
+print(profile or 'remote')
+'@
+  $ConfigDir = Join-Path $PSScriptRoot "config"
+  $Extra = & $PythonExe -c $Selector $ConfigDir "mode:$local_runtime_backend" ([int][bool]$openai_base_url) ([int]($ocr_model -eq "moondream"))
+  if ($LASTEXITCODE -ne 0 -or $Extra -notin @("moondream", "moondream-legacy", "remote")) { throw "Could not select Moondream runtime." }
+  if ($Extra -ne "remote") { return $Extra }
+}
+
+function Get-IsolatedCaptionRuntimePython {
   param ([string]$Extra)
   $Bootstrap = Get-ProjectPython
   if (-not $Bootstrap) {
-    throw "Python is required to prepare the isolated DeepSeek OCR runtime."
+    throw "Python is required to prepare the isolated caption runtime."
   }
   $Runtime = & $Bootstrap -m utils.deepseek_runtime --root $PSScriptRoot --extra $Extra
   if ($LASTEXITCODE -ne 0 -or -not $Runtime -or -not (Test-Path -LiteralPath $Runtime -PathType Leaf)) {
-    throw "DeepSeek runtime preparation failed; the shared project environment was not used."
+    throw "Caption runtime preparation failed for ${Extra}; the shared project environment was not used."
   }
   return $Runtime
 }
@@ -387,6 +403,10 @@ function Install-UvDependencyPatch {
   [void]$InstallArgs.Add("pip")
   [void]$InstallArgs.Add("install")
   [void]$InstallArgs.Add("--no-build-isolation")
+  if ($env:OS -eq "Windows_NT" -and $UniqueExtras -contains "moondream") {
+    [void]$InstallArgs.Add("--torch-backend")
+    [void]$InstallArgs.Add("cu128")
+  }
   if ($PythonExe) {
     [void]$InstallArgs.Add("--python")
     [void]$InstallArgs.Add($PythonExe)
@@ -712,7 +732,7 @@ if ($ocr_model) {
     Add-UvExtra "hunyuan-ocr"
   }
   elseif ($ocr_model -eq "moondream") {
-    Add-UvExtra "moondream"
+    Add-UvExtra (Get-MoondreamExtra)
   }
   elseif ($ocr_model -eq "glm_ocr") {
     Add-UvExtra "glm-ocr"
@@ -734,7 +754,7 @@ if ($vlm_image_model) {
   
   # Model-specific extras
   if ($vlm_image_model -eq "moondream") {
-    Add-UvExtra "moondream"
+    Add-UvExtra (Get-MoondreamExtra)
   }
   elseif ($vlm_image_model -eq "qwen_vl_local") {
     Add-UvExtra "qwen-vl-local"
@@ -815,11 +835,14 @@ function Invoke-CaptionWithRuntime {
   $RuntimePython = $null
   $DeepSeek = @($ArgsList | Where-Object { $_ -in @("--extra=deepseek-ocr", "--extra=deepseek-ocr-native", "--extra=deepseek-ocr-legacy") })
   if ($DeepSeek.Count -gt 1) { throw "Select one DeepSeek OCR runtime per run." }
+  $Photon = $env:OS -eq "Windows_NT" -and $ArgsList -contains "--extra=moondream"
+  if ($Photon -and $DeepSeek.Count) { throw "Moondream and DeepSeek OCR require separate runtimes on Windows." }
   $PreviousVenv = $env:VIRTUAL_ENV
   $PreviousPath = $env:PATH
   try {
-    if ($DeepSeek.Count) {
-      $RuntimePython = Get-DeepSeekRuntimePython -Extra $DeepSeek[0].Substring(8)
+    if ($DeepSeek.Count -or $Photon) {
+      $RuntimeExtra = if ($Photon) { "moondream-photon" } else { $DeepSeek[0].Substring(8) }
+      $RuntimePython = Get-IsolatedCaptionRuntimePython -Extra $RuntimeExtra
       $ScriptsDir = Split-Path -Parent $RuntimePython
       $env:VIRTUAL_ENV = Split-Path -Parent $ScriptsDir
       $env:PATH = "$ScriptsDir$([IO.Path]::PathSeparator)$PreviousPath"
@@ -833,7 +856,7 @@ function Invoke-CaptionWithRuntime {
       python "./module/captioner.py" $DatasetPath $CaptionArgs
     }
   } finally {
-    if ($DeepSeek.Count) {
+    if ($DeepSeek.Count -or $Photon) {
       $env:VIRTUAL_ENV = $PreviousVenv
       $env:PATH = $PreviousPath
     }

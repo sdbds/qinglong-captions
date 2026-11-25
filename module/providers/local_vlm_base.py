@@ -27,6 +27,12 @@ _global_model_cache: Dict[str, Any] = {}
 _global_cache_lock = threading.Lock()
 
 
+def _evict_cached_model(key: str) -> None:
+    close = getattr(_global_model_cache.pop(key), "close", None)
+    if callable(close):
+        close()
+
+
 class LocalVLMProvider(Provider):
     """
     本地 VLM Provider 基类
@@ -275,12 +281,12 @@ class LocalVLMProvider(Provider):
             if model_id:
                 key = f"{cls.name}:{model_id}"
                 if key in _global_model_cache:
-                    del _global_model_cache[key]
+                    _evict_cached_model(key)
             else:
                 # 卸载该 provider 类型的所有模型
                 keys_to_remove = [k for k in _global_model_cache if k.startswith(f"{cls.name}:")]
                 for k in keys_to_remove:
-                    del _global_model_cache[k]
+                    _evict_cached_model(k)
 
         gc.collect()
         try:
@@ -295,7 +301,8 @@ class LocalVLMProvider(Provider):
     def clear_all_cache(cls):
         """清空所有模型缓存"""
         with _global_cache_lock:
-            _global_model_cache.clear()
+            for key in list(_global_model_cache):
+                _evict_cached_model(key)
 
         gc.collect()
         try:

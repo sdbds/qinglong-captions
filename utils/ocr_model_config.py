@@ -8,6 +8,32 @@ from pathlib import Path
 
 DEEPSEEK_LEGACY_MODEL = "deepseek-ai/DeepSeek-OCR-2"
 DEEPSEEK_NATIVE_MODEL = "deepseek-community/DeepSeek-OCR-2"
+MOONDREAM_PHOTON_MODEL = "moondream3.1-9B-A2B"
+MOONDREAM_PHOTON_REPO = f"moondream/{MOONDREAM_PHOTON_MODEL}"
+
+
+def is_moondream_photon(model_id: str) -> bool:
+    return model_id in (MOONDREAM_PHOTON_MODEL, MOONDREAM_PHOTON_REPO)
+
+
+def moondream_needs_spatial_tasks(tasks: str, *, image_ocr: bool) -> bool:
+    return not image_ocr and any(task.strip() in {"all", "point", "detect"} for task in tasks.split(","))
+
+
+def moondream_extra_from_config(
+    config_dir: str | Path = Path(__file__).resolve().parents[1] / "config",
+    *, backend: str = "", has_base_url: bool = False, image_ocr: bool = False,
+) -> str | None:
+    """Return the local install profile, or None for tasks handled by the configured server."""
+    from config.loader import load_config
+
+    section = load_config(str(config_dir)).get("moondream", {})
+    remote = has_base_url or section.get("runtime_base_url")
+    mode = backend or ("openai" if remote else section.get("runtime_backend", "direct"))
+    spatial = moondream_needs_spatial_tasks(str(section.get("tasks", "caption")), image_ocr=image_ocr)
+    if str(mode).strip().lower() == "openai" and not spatial:
+        return None
+    return "moondream" if is_moondream_photon(section.get("model_id", MOONDREAM_PHOTON_REPO)) else "moondream-legacy"
 
 
 def ocr_model_version(family: str, model_id: str, model_version: str | int = "auto") -> int:

@@ -38,7 +38,7 @@ from utils.wdtagger_opencv import (
     OPENCV_DISTRIBUTION_PACKAGES,
     build_wdtagger_opencv_install_plan,
 )
-from utils.deepseek_runtime import runtime_profile, runtime_python as deepseek_python, uses_project_env
+from utils.deepseek_runtime import runtime_profile, runtime_python as isolated_python, uses_project_env
 
 _TRANSIENT_SPINNER_FRAMES = frozenset("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 _PROGRESS_PERCENT_RE = re.compile(r"\d{1,3}%")
@@ -72,6 +72,7 @@ _UV_TORCH_EXTRAS = frozenset(
         "pixai-onnx-export",
         "reward-model",
         "moondream",
+        "moondream-legacy",
         "olmocr",
         "deepseek-ocr",
         "deepseek-ocr-native",
@@ -112,6 +113,8 @@ _UV_TORCHVISION_EXTRAS = frozenset(
         "onnx-base",
         "pixai-onnx-export",
         "reward-model",
+        "moondream",
+        "moondream-legacy",
         "olmocr",
         "deepseek-ocr",
         "deepseek-ocr-native",
@@ -1167,6 +1170,8 @@ class ProcessRunner:
             has_torch = self._profile_uses_torch(extras, groups)
             has_torchvision = self._profile_uses_torchvision(extras, groups)
             torch_backend = self._infer_uv_torch_backend(env) if has_torch else None
+            if sys.platform == "win32" and "moondream" in extras:
+                torch_backend = "cu128"
             if torch_backend:
                 cmd.extend(["--torch-backend", torch_backend])
                 installed_torch_backend = self._inspect_installed_torch_backend(target_python, env)
@@ -1385,23 +1390,23 @@ class ProcessRunner:
                 extra_name = self._resolve_wdtagger_extra(script_key, args, default_extra, uv_extra)
                 extras, groups = self._collect_uv_profiles(extra_name, uv_extra_args)
                 profile_parts = self._profile_parts(extras, groups)
-                deepseek = runtime_profile(extras) if script_key == "module.captioner" else None
-                if deepseek and uses_project_env(work_dir, python_path, venv_path):
+                isolated = runtime_profile(extras) if script_key == "module.captioner" else None
+                if isolated and uses_project_env(work_dir, python_path, venv_path):
                     if not uv:
-                        raise RuntimeError("uv is required to provision the isolated DeepSeek OCR runtime")
+                        raise RuntimeError(f"uv is required to provision the isolated {isolated} runtime")
                     project = work_dir.resolve()
-                    self._notify_log(f"Preparing DeepSeek OCR runtime: {deepseek}")
+                    self._notify_log(f"Preparing isolated caption runtime: {isolated}")
                     code = await self._run_logged_subprocess(
-                        [sys.executable, "-m", "utils.deepseek_runtime", "--root", str(project), "--extra", deepseek, "--uv", uv],
+                        [sys.executable, "-m", "utils.deepseek_runtime", "--root", str(project), "--extra", isolated, "--uv", uv],
                         project, env,
                     )
                     self.process = None
                     if code:
-                        raise RuntimeError(f"DeepSeek runtime preparation failed (exit {code}); the project venv was not used")
-                    venv_path = str(project / ".runtime_venvs" / deepseek)
-                    python_path = str(deepseek_python(Path(venv_path)))
-                elif deepseek and venv_path and not python_path:
-                    python_path = str(deepseek_python(Path(venv_path)))
+                        raise RuntimeError(f"{isolated} runtime preparation failed (exit {code}); the project venv was not used")
+                    venv_path = str(project / ".runtime_venvs" / isolated)
+                    python_path = str(isolated_python(Path(venv_path)))
+                elif isolated and venv_path and not python_path:
+                    python_path = str(isolated_python(Path(venv_path)))
                 env = self._apply_venv_env(env, venv_path)
                 runtime_python, python_error = self._runtime_python_from_explicit(python_path, work_dir, env)
                 if python_error:
@@ -1409,7 +1414,7 @@ class ProcessRunner:
                     self._notify_status(ProcessStatus.ERROR)
                     self._notify_log(python_error.message)
                     return python_error
-                if deepseek and python_path:
+                if isolated and python_path:
                     runtime_python = str(Path(python_path).expanduser().absolute())
                 env_name = self._detect_runtime_env_name(work_dir, env, runtime_python, venv_path)
                 environment_key = self._environment_key_from_runtime(runtime_python, venv_path)

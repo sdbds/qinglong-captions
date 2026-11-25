@@ -164,10 +164,23 @@ pixai-onnx-export = [
     "PyYAML",
 ]
 moondream = [
-    "qinglong-captions[torch-base]",
+    "qinglong-captions[torch-base]; sys_platform != 'win32'",
+    "qinglong-captions[moondream-cu128]; sys_platform == 'win32'",
+    "moondream==2.6.1",
+    "socksio>=1.0.0",
     "transformers[serving]>=4.48.0",
     "accelerate>=0.34.0",
     "Pillow>=9.5.0",
+]
+# Photon ships CUDA 12 kernels on Windows, including its precompiled MoE kernels.
+moondream-cu128 = [
+    "safetensors>=0.8.0; sys_platform == 'win32'",
+    "torch==2.11.0+cu128; sys_platform == 'win32'",
+    "torchvision==0.26.0+cu128; sys_platform == 'win32'",
+]
+moondream-legacy = [
+    "qinglong-captions[torch-base]",
+    "transformers[serving]>=4.48.0",
 ]
 olmocr = [
     "qinglong-captions[torch-base]",
@@ -525,6 +538,12 @@ allow-direct-references = true
 [tool.uv]
 package = false
 conflicts = [
+    [{ extra = "moondream-cu128" }, { extra = "torch-base" }],
+    [{ extra = "moondream-cu128" }, { extra = "paddleocr-native" }],
+    [{ extra = "moondream-cu128" }, { group = "test" }],
+    [{ extra = "moondream-legacy" }, { extra = "paddleocr-native" }],
+    [{ extra = "moondream-legacy" }, { extra = "deepseek-ocr-legacy" }],
+    [{ extra = "moondream-legacy" }, { extra = "music-flamingo-local" }],
     # Keep the public default and explicit native alias compatible with one another.
     # uv conflict groups are mutually exclusive, so each incompatibility is a pair.
     [{ extra = "deepseek-ocr" }, { extra = "deepseek-ocr-legacy" }],
@@ -1209,6 +1228,11 @@ url = "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxrunti
 explicit = true
 
 [[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
@@ -1223,11 +1247,17 @@ flash-attn = [
 ]
 onnxruntime-gpu = { index = "onnxruntime-cuda13" }
 torch = [
-    { index = "pytorch-cu130", marker = "sys_platform == 'win32' or (sys_platform == 'linux' and platform_machine == 'x86_64')" },
+    { index = "pytorch-cu130", extra = "torch-base", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cu128", extra = "moondream-cu128", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cu130", group = "test", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cu130", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
     { index = "pytorch-cu130", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
 ]
 torchvision = [
-    { index = "pytorch-cu130", marker = "sys_platform == 'win32' or (sys_platform == 'linux' and platform_machine == 'x86_64')" },
+    { index = "pytorch-cu130", extra = "torch-base", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cu128", extra = "moondream-cu128", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cu130", group = "test", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cu130", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
     { index = "pytorch-cu130", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
 ]
 torchaudio = [
