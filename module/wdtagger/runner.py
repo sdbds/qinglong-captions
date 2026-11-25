@@ -25,6 +25,7 @@ from module.wdtagger.lance_io import (
     scan_wdtagger_candidate_batches,
     update_wdtagger_tag,
 )
+from module.wdtagger.model_defaults import HARUKA_THRESHOLDS, is_haruka_repo
 from module.wdtagger.model_loader import load_model_and_tags
 from module.wdtagger.outputs import write_sidecar_caption, write_tags_json
 from module.wdtagger.pixai import is_pixai_repo, resolve_pixai_thresholds
@@ -63,6 +64,13 @@ def main(args, *, load_model_and_tags_fn=load_model_and_tags) -> None:
 
     ort_sess, input_name, label_data, parent_to_child_map = load_model_and_tags_fn(args)
     processed_names = process_tags(label_data, args)
+    pixai, haruka = is_pixai_repo(args.repo_id), is_haruka_repo(args.repo_id)
+    tag_options = {}
+    if pixai:
+        tag_options["category_thresholds"] = resolve_pixai_thresholds(args, input_name)
+    elif haruka:
+        tag_options["category_thresholds"] = {cat: getattr(args, f"{cat}_threshold") for cat in HARUKA_THRESHOLDS}
+        tag_options["inclusive_thresholds"] = True
 
     tag_freq: Dict[str, int] = {}
     total_images = count_wdtagger_candidate_rows(dataset, args)
@@ -111,7 +119,7 @@ def main(args, *, load_model_and_tags_fn=load_model_and_tags) -> None:
         for batch in scan_wdtagger_candidate_batches(dataset, args):
             uris = batch["uris"].to_pylist()
 
-            if is_pixai_repo(args.repo_id):
+            if pixai or haruka:
                 valid_uris, batch_images = load_pil_batch(uris, preserve_alpha=True)
             elif is_cl_tagger_v2_repo(args.repo_id):
                 valid_uris, batch_images = load_siglip2_rgb_batch(uris)
@@ -132,9 +140,6 @@ def main(args, *, load_model_and_tags_fn=load_model_and_tags) -> None:
             probs = process_batch(batch_images, ort_sess, input_name)
             general_confidence = args.general_threshold if args.general_threshold is not None else args.thresh
             character_confidence = args.character_threshold if args.character_threshold is not None else args.thresh
-            tag_options = {}
-            if is_pixai_repo(args.repo_id):
-                tag_options["category_thresholds"] = resolve_pixai_thresholds(args, input_name)
             if probs is not None:
                 if len(valid_uris) != len(probs):
                     raise ValueError(

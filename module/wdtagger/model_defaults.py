@@ -21,6 +21,9 @@ PIXAI_REPO_ID = "bdsqlsz/pixai-tagger-v1.0-ONNX"
 PIXAI_SOURCE_REPO_ID = "pixai-labs/pixai-tagger-v1.0"
 PIXAI_THRESHOLDS = {"general": 0.17, "character": 0.27, "style": 0.15, "copyright": 0.24, "meta": 0.17, "rating": 0.41}
 
+HARUKA_REPO_ID = "KaraKaraWitch/haruka-tagger-large"
+HARUKA_THRESHOLDS = {"general": 0.35, "character": 0.35, "copyright": 0.35, "artist": 0.25, "year": 0.25, "rating": 0.50}
+
 _VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)([a-z]+)?$")
 
 
@@ -30,6 +33,18 @@ class LogitsInputName(str):
 
 def is_pixai_repo(repo_id: str) -> bool:
     return str(repo_id).strip() in {PIXAI_REPO_ID, PIXAI_SOURCE_REPO_ID}
+
+
+def is_haruka_repo(repo_id: str) -> bool:
+    return str(repo_id).strip() == HARUKA_REPO_ID
+
+
+def model_category_defaults(repo_id: str) -> dict[str, float]:
+    if is_haruka_repo(repo_id):
+        return HARUKA_THRESHOLDS
+    if is_pixai_repo(repo_id):
+        return PIXAI_THRESHOLDS
+    return {}
 
 
 def is_cl_tagger_v2_repo(repo_id: str) -> bool:

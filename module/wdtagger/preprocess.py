@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 
 from module.wdtagger import constants
+from module.wdtagger.haruka import HarukaInferenceContext, process_haruka_batch
 from module.wdtagger.model_defaults import LogitsInputName
 from module.wdtagger.pixai import PixaiInferenceContext, process_pixai_batch
 from utils.console_util import print_exception
@@ -113,6 +114,8 @@ def load_pil_batch(uris, *, preserve_alpha=False):
 
 
 def process_batch(images, session, input_name, apply_sigmoid: bool | None = None):
+    if isinstance(input_name, HarukaInferenceContext):
+        return process_haruka_batch(images, session, input_name)
     if isinstance(input_name, PixaiInferenceContext):
         return process_pixai_batch(images, session, input_name)
     try:

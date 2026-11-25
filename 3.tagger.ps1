@@ -6,14 +6,16 @@
 # Model settings
 $Config = @{
     train_data_dir     = "./datasets"                                # Input images path | 图片输入路径
-    repo_id            = "cella110n/cl_tagger_v2"                    # Model repo ID from Hugging Face
+    repo_id            = "cella110n/cl_tagger_v2"                    # Or KaraKaraWitch/haruka-tagger-large
     cl_tagger_v2_version = "v2_01a"                                   # cl_tagger v2 model version
     model_dir          = "wd14_tagger_model"                         # Local model folder path | 本地模型文件夹路径
-    batch_size         = $null                                      # Auto: PixAI=1, other models=12
-    thresh             = $null                                      # Auto: PixAI category defaults; legacy 0.55
+    batch_size         = $null                                      # Auto: PixAI/Haruka=1, other models=12
+    thresh             = $null                                      # Auto: PixAI/Haruka category defaults; legacy 0.55
     general_threshold  = $null                                      # Optional general threshold override
     character_threshold = $null                                     # Optional character threshold override
     style_threshold    = $null                                      # PixAI category overrides
+    artist_threshold   = $null                                      # Haruka artist and year/era overrides
+    year_threshold     = $null
     copyright_threshold = $null
     meta_threshold     = $null
     rating_threshold   = $null
@@ -237,8 +239,9 @@ function Test-WdtaggerOpenCvImport {
 
 $ClTaggerV2Repos = @("cella110n/cl_tagger_v2", "celstk/cl-SigLIP2-lora-onnx")
 $IsPixai = $Config.repo_id -in @("bdsqlsz/pixai-tagger-v1.0-ONNX", "pixai-labs/pixai-tagger-v1.0")
-if ($null -eq $Config.batch_size) { $Config.batch_size = if ($IsPixai) { 1 } else { 12 } }
-if (-not $IsPixai -and $null -eq $Config.thresh) { $Config.thresh = 0.55 }
+$IsHaruka = $Config.repo_id -eq "KaraKaraWitch/haruka-tagger-large"
+if ($null -eq $Config.batch_size) { $Config.batch_size = if ($IsPixai -or $IsHaruka) { 1 } else { 12 } }
+if (-not ($IsPixai -or $IsHaruka) -and $null -eq $Config.thresh) { $Config.thresh = 0.55 }
 
 # Add configuration arguments
 if ($Config.repo_id) { [void]$ExtArgs.Add("--repo_id=$($Config.repo_id)") }
@@ -247,7 +250,7 @@ if ($Config.cl_tagger_v2_version -and $Config.repo_id -in $ClTaggerV2Repos) {
 }
 if ($Config.model_dir) { [void]$ExtArgs.Add("--model_dir=$($Config.model_dir)") }
 if ($Config.batch_size) { [void]$ExtArgs.Add("--batch_size=$($Config.batch_size)") }
-foreach ($Key in @("thresh", "general_threshold", "character_threshold", "style_threshold", "copyright_threshold", "meta_threshold", "rating_threshold")) {
+foreach ($Key in @("thresh", "general_threshold", "character_threshold", "style_threshold", "copyright_threshold", "meta_threshold", "rating_threshold", "artist_threshold", "year_threshold")) {
     if ($null -ne $Config[$Key]) { [void]$ExtArgs.Add("--${Key}=$($Config[$Key])") }
 }
 
@@ -273,7 +276,7 @@ if ($TagConfig.tag_replacement) { [void]$ExtArgs.Add("--tag_replacement=$($TagCo
 #endregion
 
 #region Execute Tagger
-$WdtaggerExtra = if ($IsPixai) { "wdtagger-pixai" } elseif ($Config.repo_id -in $ClTaggerV2Repos) { "wdtagger-cl-tagger-v2" } else { "wdtagger" }
+$WdtaggerExtra = if ($IsHaruka) { "onnx-base" } elseif ($IsPixai) { "wdtagger-pixai" } elseif ($Config.repo_id -in $ClTaggerV2Repos) { "wdtagger-cl-tagger-v2" } else { "wdtagger" }
 Write-Output "Starting tagger..."
 Install-UvExtraPatch @($WdtaggerExtra)
 if ($env:OS -eq "Windows_NT" -and $WdtaggerExtra -eq "wdtagger") {

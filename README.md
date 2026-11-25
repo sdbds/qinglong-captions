@@ -55,7 +55,7 @@ Qinglong Captions combines media understanding, batch inference, and versioned L
 | --- | --- | --- |
 | Batch video / image captions | GUI: `Import -> Split -> Tagger -> Caption -> Export` | Lance dataset plus caption files |
 | Video scene splitting | GUI `Split` or `2.0.video_spliter.ps1` | Scene ranges, representative frames, and reports |
-| Image content tagging | GUI `Tagger` or `3.tagger.ps1` | WDTagger / CL Tagger labels |
+| Image content tagging | GUI `Tagger` or `3.tagger.ps1` | Image tags and categorized JSON |
 | OCR, VLM, and ALM captions | GUI `Caption` or `4.captioner.ps1` | Descriptions, OCR, transcripts, or captions |
 | Other standalone tools | [Tool documentation index](docs/tools/README.en.md) | Preprocessing, scoring, audio, PSD, translation, and more |
 
@@ -138,7 +138,7 @@ Open `Split` and select the imported dataset. Start with the default detector. R
 
 ### 4. Generate tags and captions
 
-Use `Tagger` with WDTagger or CL Tagger, then open `Caption`:
+Select a model in `Tagger`, then open `Caption`:
 
 1. Choose a cloud API, OpenAI-compatible server, or local model.
 2. Enter the model, API key, and Base URL; follow the GUI prompt for local dependencies.
@@ -161,7 +161,7 @@ Split detects scene boundaries in long videos and optionally extracts representa
 
 ### Image tagging
 
-Tagger runs WDTagger or CL Tagger against image directories and Lance datasets. General, character, and concept thresholds are configurable; gated models require accepted Hugging Face terms and `HF_TOKEN`. See the [image tagging guide](docs/tools/tagging.en.md).
+Tagger supports WDTagger, CL Tagger, PixAI Tagger, and Haruka Tagger Large for image directories and Lance datasets. See the [image tagging guide](docs/tools/tagging.en.md) for model selection, downloads, and category thresholds.
 
 ### Captioning and multimodal descriptions
 
@@ -212,7 +212,7 @@ PowerShell wrappers keep editable settings in a `Configuration` block near the t
 | --- | --- |
 | `lanceImport.ps1` | Import a media/data directory into Lance |
 | `2.0.video_spliter.ps1` | Scene detection and video splitting |
-| `3.tagger.ps1` | WDTagger / CL Tagger |
+| `3.tagger.ps1` | Image tagging |
 | `4.captioner.ps1` | Batch caption generation |
 | `lanceExport.ps1` | Export media and captions from Lance |
 

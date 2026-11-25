@@ -74,6 +74,9 @@ GUI 运行时：
 | `thresh` | 概念标签阈值 |
 | `general_threshold` | general 分类阈值 |
 | `character_threshold` | character 分类阈值 |
+| `use_model_thresholds` | PixAI 和 Haruka 默认使用模型推荐阈值，关闭后可手动调整 |
+| `copyright_threshold` / `rating_threshold` | PixAI 和 Haruka 的作品、分级阈值 |
+| `artist_threshold` / `year_threshold` | Haruka 的画师、年份／年代阈值 |
 | `overwrite` | 是否覆盖已有 sidecar |
 
 ## Caption 页面 / `4.captioner.ps1`

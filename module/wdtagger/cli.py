@@ -3,11 +3,12 @@ from __future__ import annotations
 import argparse
 
 from module.wdtagger import constants
-from module.wdtagger.pixai import PIXAI_THRESHOLDS, is_pixai_repo
-from utils.wdtagger_siglip2 import (
+from module.wdtagger.model_defaults import (
     CL_TAGGER_V2_DEFAULT_VERSION,
     default_cl_tagger_v2_threshold,
     is_cl_tagger_v2_repo,
+    is_pixai_repo,
+    model_category_defaults,
     normalize_cl_tagger_v2_version,
 )
 
@@ -19,29 +20,29 @@ def setup_parser() -> argparse.ArgumentParser:
         "--repo_id",
         type=str,
         default=constants.DEFAULT_WD14_TAGGER_REPO,
-        help="Repository ID for WD14 tagger model on Hugging Face",
+        help="Hugging Face tagger repository ID (WD14, CL Tagger, PixAI, or Haruka)",
     )
-    parser.add_argument("--model_dir", type=str, default="wd14_tagger_model", help="Directory to store WD14 tagger model")
-    parser.add_argument("--force_download", action="store_true", help="Force downloading WD14 tagger model")
+    parser.add_argument("--model_dir", type=str, default="wd14_tagger_model", help="Local tagger model cache directory")
+    parser.add_argument("--force_download", action="store_true", help="Download the model and its tag metadata again")
     parser.add_argument(
         "--cl_tagger_v2_version",
         type=str,
         default=CL_TAGGER_V2_DEFAULT_VERSION,
         help="cl_tagger v2 model version to download, e.g. v2_01a or 2.01a",
     )
-    parser.add_argument("--batch_size", type=int, default=None, help="Batch size for inference (PixAI: 1; other models: 4)")
+    parser.add_argument("--batch_size", type=int, default=None, help="Batch size for inference (PixAI/Haruka: 1; other models: 4)")
     parser.add_argument("--caption_extension", type=str, default=".txt", help="Extension for caption files")
     parser.add_argument(
         "--thresh",
         type=float,
         default=None,
-        help="Default threshold for tag confidence; cl_tagger v2 defaults to the selected version recommendation",
+        help="Override the model's default tag confidence thresholds; explicit category thresholds take precedence",
     )
     parser.add_argument("--general_threshold", type=float, default=None, help="Threshold for general category tags (defaults to --thresh)")
     parser.add_argument("--character_threshold", type=float, default=None, help="Threshold for character category tags (defaults to --thresh)")
-    for category in ("style", "copyright", "meta", "rating"):
+    for category in ("style", "copyright", "meta", "rating", "artist", "year"):
         parser.add_argument(f"--{category}_threshold", type=float, default=None,
-                            help=f"Threshold for {category} tags; PixAI uses its category recommendation by default")
+                            help=f"Threshold for {category} tags in models with category-specific defaults")
     parser.add_argument("--overwrite", action="store_true", help="Skip processing images in subfolders")
     parser.add_argument("--remove_underscore", action="store_true", help="Replace underscores with spaces in output tags")
     parser.add_argument("--undesired_tags", type=str, default="", help="Comma-separated list of tags to exclude from output")
@@ -93,23 +94,26 @@ def setup_parser() -> argparse.ArgumentParser:
 
 def finalize_args(args: argparse.Namespace) -> argparse.Namespace:
     args.cl_tagger_v2_version = normalize_cl_tagger_v2_version(args.cl_tagger_v2_version)
+    if args.use_rating_tags_as_last_tag:
+        args.use_rating_tags = True
+    defaults = model_category_defaults(args.repo_id)
     if args.batch_size is None:
-        args.batch_size = 1 if is_pixai_repo(args.repo_id) else 4
+        args.batch_size = 1 if defaults else 4
 
-    if is_pixai_repo(args.repo_id):
-        if not hasattr(args, "pixai_threshold_overrides"):
-            args.pixai_threshold_overrides = {category: args.thresh for category in PIXAI_THRESHOLDS} if args.thresh is not None else {}
+    if defaults:
+        if is_pixai_repo(args.repo_id) and not hasattr(args, "pixai_threshold_overrides"):
+            args.pixai_threshold_overrides = dict.fromkeys(defaults, args.thresh) if args.thresh is not None else {}
             args.pixai_threshold_overrides.update({
                 category: getattr(args, f"{category}_threshold")
-                for category in PIXAI_THRESHOLDS
+                for category in defaults
                 if getattr(args, f"{category}_threshold", None) is not None
             })
-        for category, default in PIXAI_THRESHOLDS.items():
+        for category, default in defaults.items():
             key = f"{category}_threshold"
             if getattr(args, key, None) is None:
                 setattr(args, key, args.thresh if args.thresh is not None else default)
         if args.thresh is None:
-            args.thresh = PIXAI_THRESHOLDS["general"]
+            args.thresh = defaults["general"]
         return args
 
     if args.thresh is None:

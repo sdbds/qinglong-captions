@@ -55,7 +55,7 @@
 | --- | --- | --- |
 | 视频 / 图像批量字幕 | GUI：`Import -> Split -> Tagger -> Caption -> Export` | Lance 数据集与字幕文件 |
 | 视频镜头切分 | GUI `Split` 或 `2.0.video_spliter.ps1` | 场景区间、代表帧和报告 |
-| 图片内容打标 | GUI `Tagger` 或 `3.tagger.ps1` | WDTagger / CL Tagger 标签 |
+| 图片内容打标 | GUI `Tagger` 或 `3.tagger.ps1` | 图片标签与分类 JSON |
 | OCR、VLM、ALM 字幕 | GUI `Caption` 或 `4.captioner.ps1` | 描述、OCR、音频转写或字幕 |
 | 其他独立工具 | [工具文档索引](docs/tools/README.md) | 预处理、评分、音频、PSD、翻译等 |
 
@@ -64,7 +64,7 @@
 ## 能做什么
 
 - 将长视频按镜头切分并提取代表帧
-- 使用 WDTagger / CL Tagger 批量生成图片标签
+- 批量生成图片标签，支持按类别设置阈值
 - 使用云端或本地模型生成画面描述、OCR、音频转写和字幕
 - 用 Lance 保存处理中间结果，再导出媒体、标签和字幕文件
 - 通过独立工具完成水印检测、图片预处理、质量评分、音频分轨、翻译和 PSD 导出
@@ -155,7 +155,7 @@ GUI 本身没有登录鉴权。不要把 `--cloud` 直接暴露到公网，也�
 
 ### 4. 生成标签和字幕
 
-在 `Tagger` 中选择 WDTagger 或 CL Tagger 生成标签。随后进入 `Caption`：
+在 `Tagger` 中选择模型生成标签。随后进入 `Caption`：
 
 1. 选择云端 API、OpenAI-compatible 服务或本地模型。
 2. 填写模型、API Key 和 Base URL；本地模型按界面提示安装依赖。
@@ -178,7 +178,7 @@ Split 使用场景检测把长视频拆成镜头区间，并按需提取代表�
 
 ### 图像打标
 
-Tagger 使用 WDTagger 或 CL Tagger 为图片与 Lance 数据集生成内容标签。可分别设置通用、角色和概念阈值；gated 模型需要先接受 Hugging Face 条款并配置 `HF_TOKEN`。完整说明见 [图像打标文档](docs/tools/tagging.md)。
+Tagger 支持使用 WDTagger、CL Tagger、PixAI Tagger 和 Haruka Tagger Large 为图片目录与 Lance 数据集打标。模型选择、下载和各类别阈值见 [图像打标文档](docs/tools/tagging.md)。
 
 ### 字幕与多模态描述
 
@@ -230,7 +230,7 @@ PowerShell 入口把配置集中放在文件顶部。先编辑脚本顶部的 `C
 | --- | --- | --- |
 | `lanceImport.ps1` | 导入 Lance | 图片、视频或数据目录 -> `.lance` |
 | `2.0.video_spliter.ps1` | 场景检测和视频切分 | 视频目录 -> 场景图像 / 报告 |
-| `3.tagger.ps1` | WDTagger / CL Tagger | 图片目录 -> tags sidecar / Lance 更新 |
+| `3.tagger.ps1` | 图像打标 | 图片目录 -> tags sidecar / Lance 更新 |
 | `4.captioner.ps1` | 批量字幕生成 | Lance 或媒体目录 -> caption / SRT |
 | `lanceExport.ps1` | 导出 Lance | `.lance` -> 媒体与字幕文件 |
 

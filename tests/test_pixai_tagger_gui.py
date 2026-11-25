@@ -33,12 +33,17 @@ def test_tagger_page_renders_and_switches_models_without_inference_dependencies(
                 assert step.config["batch_size"] == 1
                 assert step.config["general_threshold"] == 0.17
                 assert not step.general_threshold_row.visible
+            step.repo_id.set_value("KaraKaraWitch/haruka-tagger-large")
+            assert step.config["batch_size"] == 1
+            assert step.config["artist_threshold"] == 0.25
+            assert not step.general_threshold_row.visible
             step.repo_id.set_value("cella110n/cl_tagger_v2")
             assert step.config["general_threshold"] == 0.55
             assert step.general_threshold_row.visible
             step.repo_id.set_value("SmilingWolf/wd-vit-tagger-v3")
             assert step.config["general_threshold"] == 0.35
             assert "module.wdtagger.pixai" not in sys.modules
+            assert "module.wdtagger.haruka" not in sys.modules
             assert "utils.wdtagger_siglip2" not in sys.modules
         finally:
             container.delete()
@@ -73,15 +78,20 @@ def test_selecting_pixai_applies_category_defaults_and_small_batch(monkeypatch):
 
 
 @pytest.mark.parametrize("use_model_defaults", [True, False])
-def test_pixai_gui_launch_preserves_explicit_category_thresholds(monkeypatch, tmp_path, use_model_defaults):
+@pytest.mark.parametrize("repo,category", [
+    ("bdsqlsz/pixai-tagger-v1.0-ONNX", "style"),
+    ("KaraKaraWitch/haruka-tagger-large", "year"),
+])
+def test_gui_launch_preserves_model_specific_thresholds(monkeypatch, tmp_path, use_model_defaults, repo, category):
     step = load_step(monkeypatch)()
     assert hasattr(step, "_on_model_change"), "Model selection must update tagger defaults"
-    step._on_model_change("bdsqlsz/pixai-tagger-v1.0-ONNX")
-    step.config["style_threshold"] = 0.0
+    assert repo in step.DEFAULT_MODELS
+    step._on_model_change(repo)
+    step.config[f"{category}_threshold"] = 0.0
     step.config["use_model_thresholds"] = use_model_defaults
     for key, value in {
         "train_data_dir": str(tmp_path),
-        "repo_id": "bdsqlsz/pixai-tagger-v1.0-ONNX",
+        "repo_id": repo,
         "cl_tagger_v2_version": "v2_01a",
         "model_dir": "wd14_tagger_model",
         "undesired_tags": "",
@@ -100,8 +110,12 @@ def test_pixai_gui_launch_preserves_explicit_category_thresholds(monkeypatch, tm
     if use_model_defaults:
         assert not any("_threshold=" in arg for arg in calls[0][1])
     else:
-        assert "--style_threshold=0.0" in calls[0][1]
-        assert "--character_threshold=0.27" in calls[0][1]
+        assert f"--{category}_threshold=0.0" in calls[0][1]
+        if category == "year":
+            assert "--artist_threshold=0.25" in calls[0][1]
+            assert not any(arg.startswith("--style_threshold=") for arg in calls[0][1])
+        else:
+            assert "--character_threshold=0.27" in calls[0][1]
     assert not any(arg.startswith("--thresh=") for arg in calls[0][1])
 
 
@@ -110,12 +124,12 @@ def test_model_defaults_hide_manual_threshold_controls(monkeypatch):
     visibility = {}
     step.repo_id = SimpleNamespace(value="bdsqlsz/pixai-tagger-v1.0-ONNX")
     step.general_threshold_row = SimpleNamespace(set_visibility=lambda value: visibility.update(general=value))
-    step.pixai_threshold_row = SimpleNamespace(set_visibility=lambda value: visibility.update(pixai=value))
+    step.category_threshold_row = SimpleNamespace(set_visibility=lambda value: visibility.update(categories=value))
     step._update_threshold_visibility()
-    assert visibility == {"general": False, "pixai": False}
+    assert visibility == {"general": False, "categories": False}
     step.config["use_model_thresholds"] = False
     step._update_threshold_visibility()
-    assert visibility == {"general": True, "pixai": True}
+    assert visibility == {"general": True, "categories": True}
 
 
 def test_rendered_model_select_dispatches_repository_value(monkeypatch):
@@ -128,18 +142,27 @@ def test_rendered_model_select_dispatches_repository_value(monkeypatch):
         step.repo_id.set_value("bdsqlsz/pixai-tagger-v1.0-ONNX")
         assert step.config["batch_size"] == 1
         assert step.general_threshold_row.visible is False
-        assert step.pixai_threshold_row.visible is False
+        assert step.category_threshold_row.visible is False
+        step.config["use_model_thresholds"] = False
+        step.repo_id.set_value("KaraKaraWitch/haruka-tagger-large")
+        assert step.category_threshold_row.visible
+        assert step.category_controls["artist"].visible and step.category_controls["year"].visible
+        assert not step.category_controls["style"].visible and not step.category_controls["meta"].visible
     finally:
         container.delete()
 
 
-def test_pixai_runtime_selects_onnx_profile_without_legacy_opencv():
+@pytest.mark.parametrize("repo,profile", [
+    ("bdsqlsz/pixai-tagger-v1.0-ONNX", "wdtagger-pixai"),
+    ("KaraKaraWitch/haruka-tagger-large", "onnx-base"),
+])
+def test_runtime_selects_onnx_profile_without_legacy_opencv(repo, profile):
     from gui.utils.process_runner import ProcessRunner
 
     extra = ProcessRunner._resolve_wdtagger_extra(
-        "utils.wdtagger", ["images", "--repo_id=bdsqlsz/pixai-tagger-v1.0-ONNX"], "wdtagger", None
+        "utils.wdtagger", ["images", f"--repo_id={repo}"], "wdtagger", None
     )
-    assert extra == "wdtagger-pixai"
+    assert extra == profile
     assert ProcessRunner._profile_uses_torch([extra], [])
     assert ProcessRunner._profile_uses_torchvision([extra], [])
     assert ProcessRunner._windows_opencv_override_profile([extra]) is None

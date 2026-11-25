@@ -31,6 +31,7 @@ import toml
 from gui.utils.ansi_to_html import strip_ansi
 from gui.utils.log_buffer import LogBuffer
 from gui.utils.log_buffer import log_buffer as _global_log_buffer
+from module.wdtagger.model_defaults import is_haruka_repo
 from utils.console_util import print_exception
 from utils.runtime_env import build_runtime_env, resolve_runtime_python
 from utils.wdtagger_opencv import (
@@ -67,6 +68,7 @@ _UV_TORCH_EXTRAS = frozenset(
         "wdtagger",
         "wdtagger-cl-tagger-v2",
         "wdtagger-pixai",
+        "onnx-base",
         "pixai-onnx-export",
         "reward-model",
         "moondream",
@@ -107,6 +109,7 @@ _UV_TORCHVISION_EXTRAS = frozenset(
         "wdtagger",
         "wdtagger-cl-tagger-v2",
         "wdtagger-pixai",
+        "onnx-base",
         "pixai-onnx-export",
         "reward-model",
         "olmocr",
@@ -555,6 +558,8 @@ class ProcessRunner:
         if script_key != "utils.wdtagger":
             return default_extra
         repo_id = cls._parse_repo_id_arg(args)
+        if is_haruka_repo(repo_id):
+            return "onnx-base"
         if repo_id in {"bdsqlsz/pixai-tagger-v1.0-ONNX", "pixai-labs/pixai-tagger-v1.0"}:
             return "wdtagger-pixai"
         if repo_id in {"cella110n/cl_tagger_v2", "celstk/cl-SigLIP2-lora-onnx"}:

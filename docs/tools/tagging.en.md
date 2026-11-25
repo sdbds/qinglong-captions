@@ -1,6 +1,6 @@
 # Image Tagging
 
-Tagger generates content labels for image directories or Lance datasets with WDTagger, CL Tagger, or PixAI Tagger. Tags can be used for filtering and as caption prompt context.
+Tagger generates content labels for image directories or Lance datasets with WDTagger, CL Tagger, PixAI Tagger, or Haruka Tagger Large. Tags can be used for filtering and as caption prompt context.
 
 ```powershell
 .\3.tagger.ps1
@@ -8,6 +8,18 @@ python utils/wdtagger.py --help
 ```
 
 WDTagger uses the `wdtagger` profile; CL Tagger v2 uses `wdtagger-cl-tagger-v2`. Gated repositories require accepted Hugging Face terms and `HF_TOKEN`. Tune `batch_size`, `thresh`, `general_threshold`, and `character_threshold` on a representative sample before processing the full dataset.
+
+## Haruka Tagger Large
+
+Select [KaraKaraWitch/haruka-tagger-large](https://huggingface.co/KaraKaraWitch/haruka-tagger-large) in the Tagger GUI, set `repo_id` in `3.tagger.ps1`, or run:
+
+```powershell
+python -m utils.wdtagger ./datasets --repo_id=KaraKaraWitch/haruka-tagger-large --use_rating_tags
+```
+
+The first run downloads the official `haruka-tagger.onnx` and `haruka-tagger_metadata.json` (about 1.72 GB combined). No PyTorch checkpoint or conversion is needed. With both files in `wd14_tagger_model/KaraKaraWitch_haruka-tagger-large/`, model loading works offline. Use `--force_download` to refresh them. Both launchers use the existing `onnx-base` profile and default to one image per batch. When working offline, also cache `wd14_tagger_model/tag_implications.csv` or turn off parent-tag removal.
+
+The recommended thresholds are **0.35** for general, character, and copyright; **0.25** for artist and year/era; and **0.50** for rating. With `--use_rating_tags`, text captions include the highest scoring rating that meets its threshold. Turn off “Model Default Thresholds” in the GUI to adjust the six categories. On the CLI, `--thresh` overrides all six defaults; a category option such as `--artist_threshold=0.4` takes precedence.
 
 ## PixAI Tagger v1.0 ONNX
 

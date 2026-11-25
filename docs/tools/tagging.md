@@ -1,6 +1,6 @@
 # 图像打标
 
-Tagger 页面为图片或 Lance 数据集生成内容标签，支持 WDTagger、CL Tagger 与 PixAI Tagger。标签可作为筛选条件，也可进入后续 caption prompt。
+Tagger 页面为图片或 Lance 数据集生成内容标签，支持 WDTagger、CL Tagger、PixAI Tagger 和 Haruka Tagger Large。标签可作为筛选条件，也可进入后续 caption prompt。
 
 ## 入口
 
@@ -25,6 +25,18 @@ Tagger 页面为图片或 Lance 数据集生成内容标签，支持 WDTagger、
 - `overwrite`：是否覆盖已有 sidecar 或 Lance caption。
 
 阈值越低，召回越高，但噪声标签也会增加。建议先在几十张代表图片上比较结果，再决定全量阈值。
+
+## Haruka Tagger Large
+
+在 GUI 的「模型仓库」中选择 [KaraKaraWitch/haruka-tagger-large](https://huggingface.co/KaraKaraWitch/haruka-tagger-large)，或在 `3.tagger.ps1` 中把 `repo_id` 设为同一值。命令行示例：
+
+```powershell
+python -m utils.wdtagger ./datasets --repo_id=KaraKaraWitch/haruka-tagger-large --use_rating_tags
+```
+
+首次运行下载官方 `haruka-tagger.onnx` 和 `haruka-tagger_metadata.json`（合计约 1.72 GB），不需要下载 PyTorch 权重或转换模型。两个文件放在 `wd14_tagger_model/KaraKaraWitch_haruka-tagger-large/` 后即可离线加载模型；`--force_download` 可刷新缓存。GUI 和启动脚本复用 `onnx-base` 依赖组，默认每批 1 张。完全离线时，若启用了「移除父标签」，还需缓存 `wd14_tagger_model/tag_implications.csv` 或关闭该选项。
+
+按作者推荐，通用、角色、作品的阈值为 **0.35**，画师和年份／年代为 **0.25**，分级为 **0.50**。开启 `--use_rating_tags` 时，文本标签保留达标分级中置信度最高的一项。GUI 关闭「使用模型默认阈值」后可分别调整六类阈值；CLI 的 `--thresh` 会覆盖全部六类，单类选项（如 `--artist_threshold=0.4`）优先。
 
 ## PixAI Tagger v1.0 ONNX
 

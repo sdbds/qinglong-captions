@@ -23,7 +23,10 @@ def get_tags_official(
     processed_names=None,
     *,
     category_thresholds=None,
+    inclusive_thresholds: bool | None = None,
 ):
+    if inclusive_thresholds is None:
+        inclusive_thresholds = category_thresholds is None
     tag_names = processed_names if processed_names is not None else labels.names
     result = {
         "rating": [],
@@ -58,6 +61,7 @@ def get_tags_official(
 
     category_map = {}
     for category_name, category_indices in labels.category_indices.items():
+        result.setdefault(category_name, [])
         if category_name in pick_highest_categories:
             continue
         threshold = char_threshold if category_name in ["character", "copyright", "artist"] else gen_threshold
@@ -71,13 +75,13 @@ def get_tags_official(
             if len(valid_indices) == 0:
                 continue
 
-            mask = probs[valid_indices] > threshold if category_thresholds is not None else probs[valid_indices] >= threshold
+            mask = probs[valid_indices] >= threshold if inclusive_thresholds else probs[valid_indices] > threshold
             passed_indices = valid_indices[mask]
             for idx in passed_indices:
                 if idx < len(tag_names) and tag_names[idx] is not None:
                     tag_name = tag_names[idx]
                     confidence = probs[idx]
-                    result.setdefault(category_name, []).append((tag_name, float(confidence)))
+                    result[category_name].append((tag_name, float(confidence)))
 
     for key in result:
         result[key] = sorted(result[key], key=lambda x: x[1], reverse=True)
@@ -173,14 +177,14 @@ def assemble_final_tags(
         for category in character_related_tags:
             found_tags.extend(all_tags_by_category.get(category, []))
 
-    if args.use_rating_tags and args.use_rating_tags_as_last_tag:
-        for category in rating_related_tags:
-            found_tags.extend(all_tags_by_category.get(category, []))
-
     processed_categories = set(rating_related_tags) | set(character_related_tags) | {"general"}
     remaining_categories = set(all_tags_by_category.keys()) - processed_categories
     for category in sorted(list(remaining_categories)):
         found_tags.extend(all_tags_by_category[category])
+
+    if args.use_rating_tags and args.use_rating_tags_as_last_tag:
+        for category in rating_related_tags:
+            found_tags.extend(all_tags_by_category.get(category, []))
 
     if args.frequency_tags:
         confidence_map = {tag: conf for category in tags_result.values() for tag, conf in category}

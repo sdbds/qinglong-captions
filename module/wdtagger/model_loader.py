@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from huggingface_hub import hf_hub_download
 
-from module.onnx_runtime import OnnxModelSpec, load_single_model_bundle, resolve_tool_runtime_config
+from module.onnx_runtime import (
+    OnnxModelSpec,
+    build_local_model_dir,
+    download_repo_file,
+    load_single_model_bundle,
+    resolve_tool_runtime_config,
+)
 from module.wdtagger import constants
-from module.wdtagger.model_defaults import LogitsInputName
+from module.wdtagger.haruka import load_haruka_metadata
+from module.wdtagger.model_defaults import HARUKA_REPO_ID, LogitsInputName, is_haruka_repo
 from module.wdtagger.pixai import is_pixai_repo, load_pixai_bundle
 from module.wdtagger.taxonomy import (
     LabelData,
@@ -101,13 +109,32 @@ def load_model_and_tags(
         cli_override={"force_download": args.force_download},
     )
 
-    if is_pixai_repo(args.repo_id):
+    if is_haruka_repo(args.repo_id):
+        # Use the native FP32 graph, not an implicit FP16 TensorRT conversion.
+        if runtime_config.execution_provider.lower() == "auto":
+            runtime_config = replace(runtime_config, execution_provider="cuda")
+        bundle = load_single_model_bundle_fn(
+            spec=OnnxModelSpec(
+                repo_id=HARUKA_REPO_ID,
+                onnx_filename="haruka-tagger.onnx",
+                support_files={"metadata": "haruka-tagger_metadata.json"},
+                local_dir=build_local_model_dir(args.model_dir, HARUKA_REPO_ID),
+                bundle_key=f"wdtagger:{HARUKA_REPO_ID}",
+            ),
+            # The published graph is self-contained; a warm cache needs no Hub listing.
+            artifact_loader=download_repo_file,
+            runtime_config=runtime_config,
+            logger=constants.console.print,
+        )
+        ort_sess = bundle.session
+        label_data, input_name = load_haruka_metadata(bundle.support_paths["metadata"], ort_sess)
+        total_tags = len(label_data.names)
+    elif is_pixai_repo(args.repo_id):
         bundle = load_pixai_bundle(repo_id=args.repo_id, model_dir=args.model_dir, runtime_config=runtime_config, logger=constants.console.print)
         label_data = bundle.label_data
         total_tags = len(label_data.names)
         ort_sess = bundle.session
         input_name = bundle.inference_context
-        constants.console.print(f"[blue]Providers: {bundle.providers}[/blue]")
     elif is_cl_tagger_v2_repo(args.repo_id):
         bundle = load_cl_tagger_v2_bundle_fn(
             repo_id=args.repo_id,
@@ -125,7 +152,6 @@ def load_model_and_tags(
         total_tags = sum(1 for tag in label_data.names if tag)
         ort_sess = bundle.session
         input_name = bundle.inference_context
-        constants.console.print(f"[blue]Providers: {bundle.providers}[/blue]")
     else:
         _download_model_files(args, hf_hub_download_fn=hf_hub_download_fn)
         label_data, total_tags = _load_legacy_label_data(args)
@@ -140,8 +166,8 @@ def load_model_and_tags(
         input_name = bundle.input_metas[0].name if bundle.input_metas else ort_sess.get_inputs()[0].name
         if args.repo_id.startswith("cella110n/cl_tagger"):
             input_name = LogitsInputName(input_name)
-        constants.console.print(f"[blue]Providers: {bundle.providers}[/blue]")
 
+    constants.console.print(f"[blue]Providers: {bundle.providers}[/blue]")
     constants.console.print(f"[blue]Tags loaded: {total_tags} total[/blue]")
     for category, indices in sorted(label_data.category_indices.items()):
         if len(indices) > 0:

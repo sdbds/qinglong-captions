@@ -285,15 +285,13 @@ $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:TAGGER_SCRIPT, [ref]$tokens, [ref]$errors)
 if ($errors) { throw $errors[0] }
-$assignments = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true)
-$results = foreach ($repo in @('bdsqlsz/pixai-tagger-v1.0-ONNX', 'pixai-labs/pixai-tagger-v1.0', 'cella110n/cl_tagger_v2', 'SmilingWolf/wd-vit-tagger-v3')) {
-    $Config = @{ repo_id = $repo }
-    foreach ($name in @('$ClTaggerV2Repos', '$IsPixai', '$WdtaggerExtra')) {
-        $statement = $assignments | Where-Object { $_.Left.Extent.Text -eq $name } | Select-Object -First 1
-        if (-not $statement) { throw "Missing selection assignment: $name" }
-        . ([scriptblock]::Create($statement.Extent.Text))
-    }
-    $WdtaggerExtra
+$build = [regex]::Match($ast.Extent.Text, '(?ms)^#region Build Arguments\s*(.*?)^#endregion').Groups[1].Value
+$profile = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$WdtaggerExtra' }, $true)
+$results = foreach ($repo in @('bdsqlsz/pixai-tagger-v1.0-ONNX', 'pixai-labs/pixai-tagger-v1.0', 'cella110n/cl_tagger_v2', 'SmilingWolf/wd-vit-tagger-v3', 'KaraKaraWitch/haruka-tagger-large')) {
+    $Config = @{ repo_id = $repo; year_threshold = 0 }
+    . ([scriptblock]::Create($build))
+    . ([scriptblock]::Create($profile.Extent.Text))
+    @{ extra = $WdtaggerExtra; args = @($ExtArgs) }
 }
 ConvertTo-Json -InputObject @($results) -Compress
 '''
@@ -302,7 +300,11 @@ ConvertTo-Json -InputObject @($results) -Compress
         env={**os.environ, "TAGGER_SCRIPT": str(ROOT / "3.tagger.ps1")},
         capture_output=True, text=True, check=True,
     )
-    assert json.loads(result.stdout) == ["wdtagger-pixai", "wdtagger-pixai", "wdtagger-cl-tagger-v2", "wdtagger"]
+    rows = json.loads(result.stdout)
+    assert [row["extra"] for row in rows] == ["wdtagger-pixai", "wdtagger-pixai", "wdtagger-cl-tagger-v2", "wdtagger", "onnx-base"]
+    assert "--batch_size=1" in rows[-1]["args"]
+    assert "--year_threshold=0" in rows[-1]["args"]
+    assert not any(arg.startswith("--thresh=") for arg in rows[-1]["args"])
 
 
 def test_audio_separator_powershell_wrapper_uses_vocal_midi_without_wdtagger_flow():
