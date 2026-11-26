@@ -11,7 +11,7 @@ from module.providers.registry import register_provider
 class StepVLLocalProvider(LocalVLMProvider):
     """Step VL Local Provider"""
 
-    default_model_id = "stepfun-ai/Step1.5V-mini"
+    default_model_id = "stepfun-ai/Step3-VL-10B"
     _attn_implementation = "eager"
 
     @classmethod

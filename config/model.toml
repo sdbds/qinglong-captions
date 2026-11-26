@@ -11,6 +11,12 @@ max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
 
+[generation_config.gemini-4-hydrogen]
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+thinking_level = "medium"
+
 [generation_config.gemini-3_8-flash]
 max_output_tokens = 65536
 response_modalities = ["text"]
@@ -163,7 +169,7 @@ max_new_tokens = 8192
 [dots_ocr]
 model_list."dots OCR 1.5" = { model_id = "davanstrien/dots.ocr-1.5", meta = { min_vram_gb = 10 } }
 model_id = "davanstrien/dots.ocr-1.5"
-svg_model_id = "davanstrien/dots.ocr-1.5-svg"
+svg_model_id = "dots-studio/dots.mocr-svg"
 prompt_mode = "prompt_ocr"
 prompt = ""
 max_new_tokens = 24000
@@ -334,7 +340,7 @@ reasoning = false
 tasks = "caption"
 
 [qwen_vl_local]
-model_list."Qwen3 VL 3B Instruct" = { model_id = "Qwen/Qwen3-VL-3B-Instruct", meta = { min_vram_gb = 4 } }
+model_list."Qwen3 VL 2B Instruct" = { model_id = "Qwen/Qwen3-VL-2B-Instruct", meta = { min_vram_gb = 6 } }
 model_list."Qwen3 VL 8B Instruct" = { model_id = "Qwen/Qwen3-VL-8B-Instruct", meta = { min_vram_gb = 8 } }
 model_list."Qwen3.5 9B" = { model_id = "Qwen/Qwen3.5-9B", meta = { min_vram_gb = 12 } }
 model_id = "Qwen/Qwen3.5-9B"
@@ -348,8 +354,8 @@ presence_penalty = 1.5
 out_seq_length = 16384
 
 [step_vl_local]
-model_list."Step 1.5V Mini" = { model_id = "stepfun-ai/Step1.5V-mini", meta = { min_vram_gb = 8 } }
-model_id = "stepfun-ai/Step1.5V-mini"
+model_list."Step3 VL 10B" = { model_id = "stepfun-ai/Step3-VL-10B", meta = { min_vram_gb = 24 } }
+model_id = "stepfun-ai/Step3-VL-10B"
 
 [penguin]
 model_list."Penguin VL 8B" = { model_id = "tencent/Penguin-VL-8B", meta = { min_vram_gb = 10 } }
@@ -392,7 +398,7 @@ do_image_splitting = true # LFM2.5 only
 model_list."Gemma 4 E2B it" = { model_id = "google/gemma-4-E2B-it", meta = { min_vram_gb = 10 } }
 model_list."Gemma 4 E4B it" = { model_id = "google/gemma-4-E4B-it", meta = { min_vram_gb = 16 } }
 model_list."Gemma 4 E2B it FP8 Dynamic" = { model_id = "leon-se/gemma-4-E2B-it-FP8-Dynamic", meta = { min_vram_gb = 8 } }
-model_list."Gemma 4 E4B it FP8" = { model_id = "protoLabsAI/gemma-4-E4B-it-FP8", meta = { min_vram_gb = 12 } }
+model_list."Gemma 4 E4B it FP8" = { model_id = "prithivMLmods/gemma-4-E4B-it-FP8", meta = { min_vram_gb = 16 } }
 model_list."Gemma 4 12B Unified it" = { model_id = "google/gemma-4-12B-it", meta = { min_vram_gb = 32, supports_audio = true } }
 model_list."Gemma 4 12B Unified base" = { model_id = "google/gemma-4-12B", meta = { min_vram_gb = 32, supports_audio = true, advanced = true } }
 model_list."Gemma 4 26B A4B it" = { model_id = "google/gemma-4-26B-A4B-it", meta = { min_vram_gb = 48 } }

@@ -33,7 +33,7 @@ def test_mimo_provider_uses_openai_compatible_client_and_completion_token_param(
         args=make_provider_args(
             mimo_api_key="test-key",
             mimo_base_url="https://token-plan-sgp.xiaomimimo.com/v1",
-            mimo_model_path="mimo-v2.5",
+            mimo_model_path="mimo-v2.6-flash",
             mode="long",
             max_retries=1,
             wait_time=0.01,
@@ -62,7 +62,7 @@ def test_mimo_provider_uses_openai_compatible_client_and_completion_token_param(
     assert result.parsed == {"long_description": "ok"}
     assert mock_openai_cls.call_args.kwargs["api_key"] == "test-key"
     assert mock_openai_cls.call_args.kwargs["base_url"] == "https://token-plan-sgp.xiaomimimo.com/v1"
-    assert mock_attempt.call_args.kwargs["model_path"] == "mimo-v2.5"
+    assert mock_attempt.call_args.kwargs["model_path"] == "mimo-v2.6-flash"
     assert mock_attempt.call_args.kwargs["thinking"] == "disabled"
     assert mock_attempt.call_args.kwargs["max_tokens"] == 4096
     assert mock_attempt.call_args.kwargs["max_tokens_param"] == "max_completion_tokens"

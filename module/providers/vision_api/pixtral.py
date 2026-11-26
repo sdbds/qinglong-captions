@@ -15,6 +15,7 @@ from rich.progress import Progress
 from rich.text import Text
 from rich_pixels import Pixels
 
+from module.providers.backends import extract_message_text
 from module.providers.catalog import get_first_attr, route_matches_provider
 from module.providers.base import CaptionResult, MediaContext, MediaModality, PagedOCRResult, PromptContext
 from module.providers.registry import register_provider
@@ -173,7 +174,7 @@ def attempt_pixtral(
     else:
         # Image chat
         chat_response = client.chat.complete(model=model_path, messages=messages)
-        content = chat_response.choices[0].message.content
+        content = extract_message_text(chat_response.choices[0].message.content)
 
         short_description, long_description = process_llm_response(content)
         captions = captions or []

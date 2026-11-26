@@ -1,10 +1,10 @@
 ﻿$dataset_path = "./datasets"
 $pair_dir = ""
 $gemini_api_key = ""
-$gemini_model_path = "gemini-3.8-flash"
+$gemini_model_path = "gemini-3.8-flash" # 可选: gemini-4-hydrogen
 $gemini_task = ""
 $pixtral_api_key = ""
-$pixtral_model_path = "mistral-medium-3-5"
+$pixtral_model_path = "mistral-medium-3-5" # 可选: mistral-large-4-0
 $step_api_key = ""
 $step_model_path = "step-3.7-flash"
 $kimi_api_key = ""
@@ -30,7 +30,7 @@ $minimax_code_model_path = "MiniMax-M3.1-Flash"  # 可选: MiniMax-M3.1-Flash, M
 $minimax_code_base_url = "https://api.minimax.io/v1"
 
 $qwenVL_api_key = ""
-$qwenVL_model_path = "qwen3.8-flash" # 可选: qwen3.8-max, qwen3.8-omni-flash
+$qwenVL_model_path = "qwen3.8-flash" # 可选: qwen4-max, qwen3.8-max, qwen3.8-omni-flash
 $glm_api_key = ""
 $glm_model_path = "glm-5.3-flash"
 $ark_api_key = ""

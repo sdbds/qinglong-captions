@@ -48,10 +48,10 @@ def test_gemma4_explicit_model_id_overrides_config_model_id():
 
 def test_gemma4_uses_configured_model_id():
     provider = _make_provider(
-        config={"gemma4_local": {"model_id": "protoLabsAI/gemma-4-E4B-it-FP8"}},
+        config={"gemma4_local": {"model_id": "prithivMLmods/gemma-4-E4B-it-FP8"}},
     )
 
-    assert provider.model_id == "protoLabsAI/gemma-4-E4B-it-FP8"
+    assert provider.model_id == "prithivMLmods/gemma-4-E4B-it-FP8"
 
 
 def test_gemma4_accepts_unknown_explicit_model_id():

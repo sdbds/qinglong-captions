@@ -31,7 +31,7 @@ from utils.parse_display import display_markdown, extract_code_block_content
 from utils.transformer_loader import resolve_device_dtype, snapshot_download_with_reporting, transformerLoader
 
 DEFAULT_PROMPT_MODE = "prompt_ocr"
-DEFAULT_SVG_MODEL_ID = "davanstrien/dots.ocr-1.5-svg"
+DEFAULT_SVG_MODEL_ID = "dots-studio/dots.mocr-svg"
 UPSTREAM_MIN_PIXELS = 3136
 UPSTREAM_MAX_PIXELS = 11289600
 UPSTREAM_DIRECT_MAX_NEW_TOKENS = 24000

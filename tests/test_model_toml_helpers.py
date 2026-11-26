@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -54,6 +55,21 @@ model_id = "Qwen/Qwen3.5-9B"
         "Qwen/Qwen3.5-9B",
     ]
     assert options["Qwen/Qwen2.5-VL-3B-Instruct"] == "Qwen/Qwen2.5-VL-3B-Instruct"
+
+
+@pytest.mark.parametrize(("route", "public_id", "unavailable_id", "default_id"), [
+    ("qwen_vl_local", "Qwen/Qwen3-VL-2B-Instruct", "Qwen/Qwen3-VL-3B-Instruct", "Qwen/Qwen3.5-9B"),
+    ("step_vl_local", "stepfun-ai/Step3-VL-10B", "stepfun-ai/Step1.5V-mini", "stepfun-ai/Step3-VL-10B"),
+    ("gemma4_local", "prithivMLmods/gemma-4-E4B-it-FP8", "protoLabsAI/gemma-4-E4B-it-FP8", "google/gemma-4-E4B-it"),
+])
+def test_shipped_local_presets_offer_public_replacements(route, public_id, unavailable_id, default_id):
+    from gui.utils.toml_helpers import load_current_route_model_ids, load_model_id_options
+
+    path = ROOT / "config" / "model.toml"
+    options = load_model_id_options(route, config_path=path)
+    assert public_id in options
+    assert unavailable_id not in options
+    assert load_current_route_model_ids((route,), config_path=path)[route] == default_id
 
 
 def test_load_model_id_options_keeps_current_custom_value_visible(tmp_path):

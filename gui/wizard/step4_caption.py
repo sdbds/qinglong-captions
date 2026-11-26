@@ -125,6 +125,7 @@ class CaptionStep:
         "Gemini": {
             "key_name": "gemini_api_key",
             "models": [
+                "gemini-4-hydrogen",
                 "gemini-3.8-flash",
                 "gemini-3.7-flash",
                 "gemini-3.6-flash",
@@ -141,6 +142,7 @@ class CaptionStep:
         "Mistral": {
             "key_name": "mistral_api_key",
             "models": [
+                "mistral-large-4-0",
                 "mistral-medium-3-5",
                 "mistral-small-2603",
                 "mistral-large-2512",
@@ -172,6 +174,7 @@ class CaptionStep:
         "Qwen": {
             "key_name": "qwenVL_api_key",
             "models": [
+                "qwen4-max",
                 "qwen3.8-omni-flash",
                 "qwen3.8-max",
                 "qwen3.8-max-0902",
@@ -230,7 +233,6 @@ class CaptionStep:
                 "mimo-v2.6-flash",
                 "mimo-v2.6-pro",
                 "mimo-v2.6-pro-ultraspeed",
-                "mimo-v2.5",
             ],
             "default_model": "mimo-v2.6-flash",
             "supports_video": True,

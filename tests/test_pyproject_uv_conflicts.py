@@ -63,13 +63,32 @@ def test_transformers_v5_profiles_exclude_affected_and_yanked_releases(extra):
 
 @pytest.mark.parametrize("extra", [
     "moondream", "moondream-legacy", "olmocr", "nanonets-ocr", "firered-ocr",
-    "chandra-ocr", "step-vl-local", "reka-edge-local",
+    "chandra-ocr", "reka-edge-local",
 ])
 def test_flexible_transformers_profiles_exclude_pre_448_but_still_accept_v4(extra):
     versions = _transformers_requirement(extra).specifier
     assert all(v not in versions for v in ("4.45.2", "4.46.3", "4.47.1"))
     assert "4.57.6" in versions
     assert _has_extra_conflict("deepseek-ocr-legacy", extra)
+
+
+def test_step3_direct_profile_supports_its_generation_and_vision_imports():
+    versions = _transformers_requirement("step-vl-local").specifier
+    assert "4.57.6" in versions
+    assert all(v not in versions for v in ("4.48.0", "4.56.1", "5.0.0", "5.17.0"))
+    assert any(req.name == "einops" for req in map(Requirement, _load_optional_dependencies()["step-vl-local"]))
+
+
+def test_step3_direct_profile_isolates_incompatible_transformers_stacks():
+    for other in (
+        "deepseek-ocr", "deepseek-ocr-native", "deepseek-ocr-legacy", "dots-ocr", "unlimited-ocr2",
+        "penguin-vl-local", "translate", "gemma4-local", "marlin-2b-local", "logics-ocr",
+        "lighton-ocr", "infinity-parser2-ocr", "ovis-ocr2", "glm-ocr", "hunyuan-ocr",
+        "qwen-vl-local", "music-flamingo-local",
+    ):
+        assert _has_extra_conflict("step-vl-local", other), other
+    for other in ("reward-model", "unlimited-ocr", "eureka-audio-local"):
+        assert not _has_extra_conflict("step-vl-local", other), other
 
 
 def test_legacy_deepseek_ocr_conflicts_with_lfm_vl_local():

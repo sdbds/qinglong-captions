@@ -45,6 +45,7 @@ def test_api_catalog_contains_current_multimodal_models_only():
     configs = _load_caption_step().API_CONFIGS
 
     assert configs["Gemini"]["models"] == [
+        "gemini-4-hydrogen",
         "gemini-3.8-flash",
         "gemini-3.7-flash",
         "gemini-3.6-flash",
@@ -55,6 +56,7 @@ def test_api_catalog_contains_current_multimodal_models_only():
         "gemini-3-pro-image",
     ]
     assert configs["Mistral"]["models"] == [
+        "mistral-large-4-0",
         "mistral-medium-3-5",
         "mistral-small-2603",
         "mistral-large-2512",
@@ -85,7 +87,6 @@ def test_api_catalog_contains_current_multimodal_models_only():
         "mimo-v2.6-flash",
         "mimo-v2.6-pro",
         "mimo-v2.6-pro-ultraspeed",
-        "mimo-v2.5",
     ]
     assert configs["MiniMax"]["models"] == ["MiniMax-M3.1-Flash", "MiniMax-M3"]
     assert configs["MiniMax-Code"]["models"] == [
@@ -113,7 +114,8 @@ def test_api_catalog_contains_current_multimodal_models_only():
 def test_qwen_catalog_tracks_current_video_capable_families():
     models = _load_caption_step().API_CONFIGS["Qwen"]["models"]
 
-    assert models[:9] == [
+    assert models[:10] == [
+        "qwen4-max",
         "qwen3.8-omni-flash",
         "qwen3.8-max",
         "qwen3.8-max-0902",
@@ -131,8 +133,11 @@ def test_qwen_catalog_tracks_current_video_capable_families():
 @pytest.mark.parametrize(
     ("api_name", "model_id", "model_arg"),
     [
+        ("Gemini", "gemini-4-hydrogen", "gemini_model_path"),
         ("Gemini", "gemini-3.8-flash", "gemini_model_path"),
+        ("Mistral", "mistral-large-4-0", "mistral_model_path"),
         ("Step", "step-5-preview", "step_model_path"),
+        ("Qwen", "qwen4-max", "qwenVL_model_path"),
         ("Qwen", "qwen3.8-omni-flash", "qwenVL_model_path"),
         ("MiMo", "mimo-v2.6-flash", "mimo_model_path"),
         ("MiniMax", "MiniMax-M3.1-Flash", "minimax_model_path"),
@@ -312,9 +317,9 @@ def test_gemini_3_models_use_supported_generation_parameters(model_path, thinkin
     assert config["thinking_config"] == {"thinking_level": thinking_level}
 
 
-@pytest.mark.parametrize("model_path", ["gemini-3.8-flash", "gemini-3.7-flash"])
+@pytest.mark.parametrize("model_path", ["gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.7-flash"])
 @pytest.mark.parametrize("config_path", ["config/config.toml", "config/model.toml"])
-def test_current_gemini_flash_models_load_supported_text_generation_config(config_path, model_path):
+def test_current_gemini_models_load_supported_text_generation_config(config_path, model_path):
     provider = GeminiProvider(
         ProviderContext(
             console=Console(),
@@ -334,7 +339,7 @@ def test_current_gemini_flash_models_load_supported_text_generation_config(confi
             model_path,
         )
 
-    assert config.get("thinking_config") == {"thinking_level": "medium"}
+    assert config["thinking_config"]["thinking_level"].lower() == "medium"
     assert config["max_output_tokens"] == 65536
     assert config["response_modalities"] == ["text"]
     assert config["response_mime_type"] == "text/plain"

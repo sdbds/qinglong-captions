@@ -319,7 +319,7 @@ def test_model_config_panel_model_list_selection_fills_model_id(monkeypatch):
         "load_model_list_entries",
         lambda route_name: (
             ModelListEntry(name="Gemma 4 E2B it", model_id="google/gemma-4-E2B-it"),
-            ModelListEntry(name="Gemma 4 E4B it FP8", model_id="protoLabsAI/gemma-4-E4B-it-FP8"),
+            ModelListEntry(name="Gemma 4 E4B it FP8", model_id="prithivMLmods/gemma-4-E4B-it-FP8"),
         ),
     )
     monkeypatch.setattr(
@@ -328,7 +328,7 @@ def test_model_config_panel_model_list_selection_fills_model_id(monkeypatch):
         staticmethod(
             lambda route_name, current_model_id, probe=None: {
                 "google/gemma-4-E2B-it": "google/gemma-4-E2B-it",
-                "protoLabsAI/gemma-4-E4B-it-FP8": "protoLabsAI/gemma-4-E4B-it-FP8",
+                "prithivMLmods/gemma-4-E4B-it-FP8": "prithivMLmods/gemma-4-E4B-it-FP8",
             }
         ),
     )
@@ -344,8 +344,8 @@ def test_model_config_panel_model_list_selection_fills_model_id(monkeypatch):
 
     fake_model_list_select.on_value_change_handler(SimpleNamespace(value="Gemma 4 E4B it FP8"))
 
-    assert parent_dict["model_id"] == "protoLabsAI/gemma-4-E4B-it-FP8"
-    assert fake_model_id_select.value == "protoLabsAI/gemma-4-E4B-it-FP8"
+    assert parent_dict["model_id"] == "prithivMLmods/gemma-4-E4B-it-FP8"
+    assert fake_model_id_select.value == "prithivMLmods/gemma-4-E4B-it-FP8"
 
 
 def test_model_config_panel_custom_model_id_clears_model_list_selection(monkeypatch):

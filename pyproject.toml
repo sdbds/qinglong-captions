@@ -402,7 +402,9 @@ qwen-vl-local = [
 ]
 step-vl-local = [
     "qinglong-captions[torch-base]",
-    "transformers[serving]>=4.48.0",
+    # The Step3 decoder indexes the cache_position supplied by Transformers 4.57.
+    "transformers[serving]>=4.57.1,<4.58",
+    "einops",
     "flash-attn==2.8.4; sys_platform == 'linux'",
     "flash-attn==2.8.4; sys_platform == 'win32'",
 ]
@@ -425,6 +427,7 @@ reka-edge-local = [
 ]
 gemma4-local = [
     "qinglong-captions[torch-base]",
+    "compressed-tensors>=0.14.0",
     "torchaudio",
     "transformers[serving]>=5.10.1",
     "sentencepiece",
@@ -1227,6 +1230,22 @@ conflicts = [
         { extra = "hunyuan-ocr" },
         { extra = "glm-ocr" },
     ],
+    # Keep the Step3 direct loader separate from other Transformers pins and forks.
+    [{ extra = "step-vl-local" }, { extra = "deepseek-ocr" }],
+    [{ extra = "step-vl-local" }, { extra = "deepseek-ocr-native" }],
+    [{ extra = "step-vl-local" }, { extra = "dots-ocr" }],
+    [{ extra = "step-vl-local" }, { extra = "unlimited-ocr2" }],
+    [{ extra = "step-vl-local" }, { extra = "penguin-vl-local" }],
+    [{ extra = "step-vl-local" }, { extra = "translate" }],
+    [{ extra = "step-vl-local" }, { extra = "gemma4-local" }],
+    [{ extra = "step-vl-local" }, { extra = "marlin-2b-local" }],
+    [{ extra = "step-vl-local" }, { extra = "logics-ocr" }],
+    [{ extra = "step-vl-local" }, { extra = "lighton-ocr" }],
+    [{ extra = "step-vl-local" }, { extra = "infinity-parser2-ocr" }],
+    [{ extra = "step-vl-local" }, { extra = "ovis-ocr2" }],
+    [{ extra = "step-vl-local" }, { extra = "glm-ocr" }],
+    [{ extra = "step-vl-local" }, { extra = "hunyuan-ocr" }],
+    [{ extra = "step-vl-local" }, { extra = "qwen-vl-local" }],
 ]
 
 [[tool.uv.index]]

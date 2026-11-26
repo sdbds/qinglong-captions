@@ -203,6 +203,27 @@ def test_moondream_caption_calls_display_caption_layout_with_required_args_and_r
         )
 
 
+def test_mistral_large_4_caption_keeps_only_final_text_chunks():
+    from mistralai.client.models import TextChunk, ThinkChunk
+    from module.providers.vision_api import pixtral
+
+    client = MagicMock()
+    client.chat.complete.return_value.choices = [SimpleNamespace(message=SimpleNamespace(content=[
+        ThinkChunk(thinking=[TextChunk(text="Not part of the caption. ###")]),
+        TextChunk(text="Short: red light"),
+        TextChunk(text=" ### Long: A red signal above the crossing."),
+    ]))]
+    with patch.object(pixtral, "display_caption_layout"):
+        result = pixtral.attempt_pixtral(
+            client=client, model_path="mistral-large-4-0", mime="image/png",
+            console=Console(file=io.StringIO()), progress=None, task_id=None, uri="signal.png",
+            messages=[{"role": "user", "content": "Describe the image."}],
+        )
+
+    assert result == "Short: red light ### Long: A red signal above the crossing."
+    assert client.chat.complete.call_args.kwargs["model"] == "mistral-large-4-0"
+
+
 def test_pixtral_pdf_ocr_returns_joined_markdown_and_upload_failure_marks_failed():
     from module.providers.base import CaptionStatus, MediaContext, MediaModality, PromptContext, ProviderContext
     from module.providers.vision_api import pixtral as pixtral_mod

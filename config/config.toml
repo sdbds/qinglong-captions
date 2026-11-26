@@ -513,6 +513,12 @@ max_output_tokens = 65536
 response_modalities = ["text"]
 response_mime_type = "text/plain"
 
+[generation_config.gemini-4-hydrogen]
+max_output_tokens = 65536
+response_modalities = ["text"]
+response_mime_type = "text/plain"
+thinking_level = "medium"
+
 [generation_config.gemini-3_8-flash]
 max_output_tokens = 65536
 response_modalities = ["text"]
@@ -729,7 +735,7 @@ max_new_tokens = 8192
 # Upstream: https://github.com/rednote-hilab/dots.ocr
 [dots_ocr]
 model_id = "davanstrien/dots.ocr-1.5"
-svg_model_id = "davanstrien/dots.ocr-1.5-svg"
+svg_model_id = "dots-studio/dots.mocr-svg"
 prompt_mode = "prompt_ocr"
 prompt = ""
 max_new_tokens = 24000

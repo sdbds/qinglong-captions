@@ -668,23 +668,28 @@ def test_attempt_logs_effective_prompt_mode_and_prompt(monkeypatch, tmp_path):
     assert "dots_ocr prompt: <effective-prompt>" in logs
 
 
-def test_svg_prompt_single_image_writes_result_svg(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    ("settings", "expected_model"),
+    [({}, "dots-studio/dots.mocr-svg"), ({"svg_model_id": "local/svg"}, "local/svg")],
+    ids=["default", "override"],
+)
+def test_svg_prompt_single_image_writes_result_svg(monkeypatch, tmp_path, settings, expected_model):
     image_path = tmp_path / "sample.png"
     _write_png(image_path)
 
-    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_image_to_svg", "svg_model_id": "svg-model"}})
+    ctx = make_ctx({"dots_ocr": {"prompt_mode": "prompt_image_to_svg", **settings}})
     provider = DotsOCRProvider(ctx)
     monkeypatch.setattr(
         "module.providers.ocr.dots._load_upstream_prompt_mapping",
         lambda: {"prompt_image_to_svg": "<svg>"},
         raising=False,
     )
-    monkeypatch.setattr(
-        provider,
-        "_run_direct_generation",
-        lambda **_: "<svg>ok</svg>",
-        raising=False,
-    )
+
+    def generate(*, model_id, **_):
+        assert model_id == expected_model
+        return "<svg>ok</svg>"
+
+    monkeypatch.setattr(provider, "_run_direct_generation", generate)
 
     media = provider.prepare_media(str(image_path), "image/png", ctx.args)
     result = provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
@@ -861,6 +866,22 @@ def test_attempt_uses_upstream_direct_max_new_tokens_default(monkeypatch, tmp_pa
     provider.attempt(media, provider.resolve_prompts(str(image_path), "image/png"))
 
     assert captured["max_new_tokens"] == 24000
+
+
+@pytest.mark.parametrize(
+    ("prompt_mode", "settings", "expected_model"),
+    [
+        ("prompt_ocr", {}, "davanstrien/dots.ocr-1.5"),
+        ("prompt_image_to_svg", {}, "dots-studio/dots.mocr-svg"),
+        ("prompt_image_to_svg", {"runtime_model_id": "my-svg-server"}, "my-svg-server"),
+    ],
+    ids=["ordinary-ocr", "default-svg", "served-alias"],
+)
+def test_server_model_follows_prompt_mode_unless_aliased(prompt_mode, settings, expected_model):
+    ctx = make_ctx({"dots_ocr": settings})
+    ctx.args.local_runtime_backend = "openai"
+
+    assert DotsOCRProvider(ctx)._get_runtime_backend_for_prompt_mode(prompt_mode).model_id == expected_model
 
 
 def test_runtime_backend_uses_upstream_server_max_tokens_default(monkeypatch):

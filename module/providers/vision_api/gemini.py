@@ -23,6 +23,8 @@ from utils.parse_display import (
     extract_code_block_content,
 )
 
+_HYDROGEN_MODEL = "gemini-4-hydrogen"
+
 
 # ---------------------------------------------------------------------------
 # Helper functions (migrated from module.providers.gemini_provider)
@@ -375,7 +377,7 @@ class GeminiProvider(VisionAPIProvider):
             "response_modalities": gen_cfg.get("response_modalities", ["Text"]),
         }
 
-        if not model_path.startswith("gemini-3"):
+        if model_path != _HYDROGEN_MODEL and not model_path.startswith("gemini-3"):
             config_dict.update(
                 candidate_count=self.ctx.config.get("generation_config", {}).get("candidate_count", 1),
                 temperature=gen_cfg.get("temperature", 0.7),
@@ -396,6 +398,16 @@ class GeminiProvider(VisionAPIProvider):
     @staticmethod
     def _build_thinking_config(types_module, model_path: str, gen_cfg: dict):
         """兼容不同版本 google-genai SDK 的 ThinkingConfig 参数。"""
+        if model_path == _HYDROGEN_MODEL:
+            thinking_level = gen_cfg.get("thinking_level")
+            if not thinking_level:
+                return None
+            # Older SDKs pass unknown enum strings through; GenerateContent expects XHIGH.
+            level = str(thinking_level).upper()
+            if level not in {"LOW", "MEDIUM", "HIGH", "XHIGH"}:
+                raise ValueError(f"{model_path} thinking_level must be low, medium, high, or xhigh; got {thinking_level!r}")
+            return types_module.ThinkingConfig(thinking_level=level)
+
         if model_path.startswith("gemini-3"):
             thinking_level = gen_cfg.get("thinking_level")
             if not thinking_level:

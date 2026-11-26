@@ -235,6 +235,7 @@ def test_pyproject_declares_gemma4_local_extra():
     gemma4_deps = optional_deps["gemma4-local"]
     assert "qinglong-captions[torch-base]" in gemma4_deps
     assert any(dep.startswith("torchaudio") for dep in gemma4_deps)
+    assert any(dep.startswith("compressed-tensors") for dep in gemma4_deps)
     assert "sentencepiece" in gemma4_deps
     assert "soundfile" in gemma4_deps
     assert "librosa" in gemma4_deps
@@ -1080,7 +1081,7 @@ def test_caption_step_detects_quantized_runtime_repo_markers():
     assert CaptionStep._repo_id_requires_quantized_runtime("livadies/gemma-4-31B-Ghetto-NF4") is True
     assert CaptionStep._repo_id_requires_quantized_runtime("custom/model-bnb-4bit") is True
     assert CaptionStep._repo_id_requires_quantized_runtime("RedHatAI/gemma-4-31B-it-FP8-block") is True
-    assert CaptionStep._repo_id_requires_quantized_runtime("protoLabsAI/gemma-4-E4B-it-FP8") is False
+    assert CaptionStep._repo_id_requires_quantized_runtime("prithivMLmods/gemma-4-E4B-it-FP8") is False
     assert CaptionStep._repo_id_requires_quantized_runtime("henry1477/music-flamingo-2601-hf-fp8") is False
     assert CaptionStep._repo_id_requires_quantized_runtime("google/gemma-4-31B-it") is False
 
@@ -1262,7 +1263,8 @@ def test_config_declares_dots_ocr_defaults():
 
     assert "[dots_ocr]" in model_toml
     assert 'prompt_mode = "prompt_ocr"' in model_toml
-    assert 'svg_model_id = "davanstrien/dots.ocr-1.5-svg"' in model_toml
+    for config in (model_toml, runtime_toml):
+        assert tomllib.loads(config)["dots_ocr"]["svg_model_id"] == "dots-studio/dots.mocr-svg"
     assert "max_new_tokens = 24000" in model_toml
     assert "runtime_temperature = 0.1" in model_toml
     assert "runtime_top_p = 1.0" in model_toml
