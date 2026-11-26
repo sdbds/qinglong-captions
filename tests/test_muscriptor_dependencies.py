@@ -33,7 +33,7 @@ def test_muscriptor_extra_is_pinned_and_uses_shared_torch_profile():
 
     assert "qinglong-captions[torch-base]" in dependencies
     assert "qinglong-captions[music-export]" in dependencies
-    assert "muscriptor==0.2.1" in dependencies
+    assert "muscriptor==0.4.0" in dependencies
     assert any(item.startswith("filelock") for item in dependencies)
     assert any(item.startswith("socksio") for item in dependencies)
 
@@ -56,14 +56,15 @@ def test_ci_test_group_includes_music_export_runtime():
     assert music_export <= test_dependencies
 
 
-def test_muscriptor_extra_conflicts_with_native_paddle_stack():
+def test_muscriptor_extra_conflicts_with_incompatible_runtime_profiles():
     conflicts = _project()["tool"]["uv"]["conflicts"]
     conflicting_extras = [
         {entry["extra"] for entry in group if "extra" in entry}
         for group in conflicts
     ]
 
-    assert {"paddleocr-native", "muscriptor-local"} in conflicting_extras
+    for incompatible in ("paddleocr-native", "video-split", "see-through", "auto-rig"):
+        assert {incompatible, "muscriptor-local"} in conflicting_extras
 
 
 def test_registry_runs_cli_in_module_mode_with_torch_patch_profile():

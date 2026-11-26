@@ -35,7 +35,10 @@ def test_batch_size_proxy_overrides_official_server_default():
 
     assert list(automatic.transcribe("audio", batch_size=1)) == []
     assert list(explicit.transcribe("audio", batch_size=1)) == []
-    assert calls == [{"batch_size": 1}, {"batch_size": 6}]
+    assert calls == [
+        {"batch_size": 1, "prelude_forcing": True},
+        {"batch_size": 6, "prelude_forcing": False},
+    ]
     assert automatic.marker == "official"
 
 
@@ -293,8 +296,11 @@ def test_adaptive_batch_preserves_upstream_token_stream_order():
 
     from module.muscriptor_tool.adaptive_batch import AdaptiveBatchModelProxy
 
+    forbidden = torch.tensor([123])
+
     class Generator:
-        def generate(self, *, conditions, **_kwargs):
+        def generate(self, *, conditions, forbidden_tokens, **_kwargs):
+            assert forbidden_tokens is forbidden
             end_steps = [2 + int(value) for value in conditions]
             for step in range(max(end_steps)):
                 yield torch.tensor(
@@ -310,27 +316,54 @@ def test_adaptive_batch_preserves_upstream_token_stream_order():
     )
     conditions = [0, 1, 2, 3]
     seek_times = [0.0, 5.0, 10.0, 15.0]
-    generation_args = (2_000, False, 1.0, 1.0, True, 1)
+    generation_args = (2_000, False, 1.0, 1.0, True, False, 2, forbidden)
 
     expected = list(
         TranscriptionModel._generate_token_stream(
             fake,
             conditions,
             seek_times,
-            4,
+            2,
             *generation_args,
         )
     )
-    actual = AdaptiveBatchModelProxy._generate_batch_items(
-        fake,
-        conditions,
-        seek_times,
-        0,
-        4,
-        *generation_args,
-    )
+    from functools import partial
+
+    generate = partial(TranscriptionModel._generate_token_stream, fake)
+    actual = []
+    for offset in (0, 2):
+        actual.extend(AdaptiveBatchModelProxy._generate_batch_items(
+            generate, conditions, seek_times, offset, 2, *generation_args,
+        ))
 
     assert actual == expected
+
+
+@pytest.mark.parametrize("size", [1, 4])
+def test_cuda_proxy_honors_v04_chunk_contract_for_both_server_endpoints(size):
+    from module.muscriptor_tool.adaptive_batch import AdaptiveBatchModelProxy
+
+    class Model:
+        _device = "cuda:0"
+
+        def _generate_token_stream(self, *args):
+            return iter(("native",))
+
+        def transcribe(self, audio, *, batch_size, prelude_forcing=True):
+            yield batch_size, prelude_forcing, list(self._generate_token_stream())
+
+        def transcribe_and_postprocess(self, audio):
+            return list(self.transcribe(audio, batch_size=1))
+
+    model = Model()
+    proxy = AdaptiveBatchModelProxy(model, None, initial_auto_batch_size=size, package_version="0.4.0")
+    proxy._configure_allocator_limit = lambda: None
+    proxy._adaptive_token_stream = lambda *_args: iter(("adaptive",))
+    proxy._release_cuda_cache = lambda: None
+    expected = [(1, size == 1, ["native" if size == 1 else "adaptive"])]
+    assert list(proxy.transcribe("audio", batch_size=1)) == expected
+    assert proxy.transcribe_and_postprocess("audio") == expected
+    assert list(model._generate_token_stream()) == ["native"]
 
 
 def test_webui_parser_defaults_match_project_runtime():
@@ -345,3 +378,61 @@ def test_webui_parser_defaults_match_project_runtime():
         "device": "auto",
         "batch_size": 0,
     }
+
+
+def test_webui_can_still_download_midi_without_cached_beat_weights():
+    import io
+    import wave
+
+    pytest.importorskip("muscriptor")
+    from fastapi.testclient import TestClient
+    from muscriptor.server import create_app
+    from muscriptor.transcription_model import TranscriptionModel
+
+    from module.muscriptor_tool.adaptive_batch import AdaptiveBatchModelProxy
+
+    class OfflineModel(TranscriptionModel):
+        _device = "cpu"
+
+        def detect_beat_grid_for(self, audio, mode):
+            raise ValueError("checkpoint unavailable")
+
+        def transcribe(self, *args, **kwargs):
+            return iter(())
+
+    model = object.__new__(OfflineModel)
+    client = TestClient(create_app(AdaptiveBatchModelProxy(model, None)))
+    wav = io.BytesIO()
+    with wave.open(wav, "wb") as stream:
+        stream.setparams((1, 2, 16000, 0, "NONE", ""))
+        stream.writeframes(bytes(320))
+    files = {"file": ("silence.wav", wav.getvalue(), "audio/wav")}
+    with pytest.warns(RuntimeWarning, match="checkpoint unavailable"):
+        response = client.post("/transcribe", files=files)
+    assert response.status_code == 200 and "transcription_complete" in response.text
+    with pytest.warns(RuntimeWarning, match="checkpoint unavailable"):
+        response = client.post("/transcribe/midi", files=files)
+    assert response.status_code == 200 and response.content.startswith(b"MThd")
+    assert client.post("/transcribe/midi", files=files, data={"detect_tempo": "true"}).status_code == 422
+
+
+def test_cuda_transcriber_detects_beats_without_allocating_on_cuda(monkeypatch):
+    pytest.importorskip("muscriptor")
+    import torch
+    from muscriptor import transcription_model as upstream
+
+    from module.muscriptor_tool.adaptive_batch import AdaptiveBatchModelProxy
+
+    model = object.__new__(upstream.TranscriptionModel)
+    model._device = torch.device("cuda:0")
+    original_to = torch.Tensor.to
+
+    def cpu_only(tensor, device, *args, **kwargs):
+        assert torch.device(device).type == "cpu", "beat detection moved the waveform to CUDA"
+        return original_to(tensor, device, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", cpu_only)
+    monkeypatch.setattr(upstream, "detect_grid", lambda wav, sr: (wav.device.type, wav.shape, sr))
+    proxy = AdaptiveBatchModelProxy(model, 4)
+    assert proxy.detect_beat_grid_for((torch.zeros(2, 16000), 16000), True) == ("cpu", (1, 16000), 16000)
+    assert model._device == torch.device("cuda:0")

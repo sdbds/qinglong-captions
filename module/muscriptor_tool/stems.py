@@ -11,9 +11,10 @@ from module.audio_batch import STEM_MIDI_OUTPUT_DIRNAME
 from utils.file_hash import sha256_file
 from utils.path_safety import safe_child_path, safe_leaf_name
 
+from . import MUSCRIPTOR_VERSION
 from .catalog import OFFICIAL_INSTRUMENT_NAMES
 from .manifest import atomic_write_json, publish_staged_outputs, read_json
-from .options import PreviewRequest, TranscriptionOptions
+from .options import MidiTiming, PreviewRequest, TempoDetection, TranscriptionOptions
 
 STEM_MIDI_SCHEMA_VERSION = 1
 
@@ -184,6 +185,7 @@ def _run_signature(
     stat = candidate.input_path.stat()
     payload = {
         "schema_version": STEM_MIDI_SCHEMA_VERSION,
+        "muscriptor_version": MUSCRIPTOR_VERSION,
         "source_size": stat.st_size,
         "source_mtime_ns": stat.st_mtime_ns,
         "source_sha256": sha256_file(candidate.input_path),
@@ -225,6 +227,7 @@ def _metadata_payload(
         outputs["preview"] = paths.preview.name
     return {
         "schema_version": STEM_MIDI_SCHEMA_VERSION,
+        "muscriptor_version": MUSCRIPTOR_VERSION,
         "status": status,
         "run_signature": signature,
         "source_path": str(candidate.source_path),
@@ -275,7 +278,8 @@ def transcribe_stem_candidates(
             candidate.stem_name,
             other_instruments=other_instruments,
         )
-        options = replace(base_options, instruments=instruments)
+        # Stems must share the source timeline, not independently detected bar offsets.
+        options = replace(base_options, instruments=instruments, timing=MidiTiming(detect_tempo=TempoDetection.OFF))
         paths = build_stem_midi_output_paths(candidate, preview)
         signature = _run_signature(
             candidate,

@@ -25,14 +25,16 @@ from .options import (
     DEFAULT_TEMPERATURE,
     BatchOptions,
     DecodingMode,
+    MidiTiming,
     ModelVariant,
     OutputFormat,
     PreviewContent,
     PreviewFormat,
     PreviewRequest,
+    TempoDetection,
     TranscriptionOptions,
 )
-from .outputs import OutputTargets, transcribe_once
+from .outputs import OutputTargets, preflight_sheets, transcribe_once
 from .runtime import list_instruments, load_model, muscriptor_version, resolve_instruments
 
 
@@ -124,12 +126,10 @@ def _single_output_path(source: Path, output: str | None, output_format: OutputF
         return None
     if output:
         return Path(output).expanduser()
-    suffix = {
-        OutputFormat.MIDI: ".mid",
-        OutputFormat.JSON: ".json",
-        OutputFormat.JSONL: ".jsonl",
-    }[output_format]
-    return source.with_suffix(suffix)
+    if output_format in (OutputFormat.JSON, OutputFormat.JSONL):
+        return source.with_suffix(f".{output_format.value}")
+    targets = OutputTargets.for_directory(source.parent, (output_format,), output_stem=source.stem)
+    return targets.requested_paths()[output_format.value]
 
 
 def _validate_single_paths(source: Path, output: Path | None, preview: Path | None) -> None:
@@ -166,17 +166,15 @@ def _preview_request(
 
 
 def _single_targets(output_format: OutputFormat, output_path: Path | None) -> OutputTargets:
+    field = output_format.value.replace("-", "_")
     if output_path is not None:
-        return OutputTargets(
-            midi=output_path if output_format is OutputFormat.MIDI else None,
-            json=output_path if output_format is OutputFormat.JSON else None,
-            jsonl=output_path if output_format is OutputFormat.JSONL else None,
-        )
-    if output_format is OutputFormat.MIDI:
-        return OutputTargets(midi_stream=click.get_binary_stream("stdout"))
-    if output_format is OutputFormat.JSON:
-        return OutputTargets(json_stream=click.get_text_stream("stdout"))
-    return OutputTargets(jsonl_stream=click.get_text_stream("stdout"))
+        return OutputTargets(**{field: output_path})
+    stream = click.get_text_stream if output_format in (OutputFormat.JSON, OutputFormat.JSONL) else click.get_binary_stream
+    return OutputTargets(**{f"{field}_stream": stream("stdout")})
+
+
+def _selected_format(fmt: OutputFormat, quantize: bool) -> OutputFormat:
+    return OutputFormat.QUANTIZED_MIDI if quantize and fmt is OutputFormat.MIDI else fmt
 
 
 def _parameter_error(exc: BaseException) -> None:
@@ -241,8 +239,17 @@ def _runtime_failure(exc: BaseException, *, console: Console | None = None) -> N
 @app.command()
 def transcribe(
     input_audio: Path = typer.Argument(..., metavar="INPUT_AUDIO"),
-    output: Optional[str] = typer.Option(None, "--output", "-o", metavar="PATH|-"),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", metavar="PATH|-", help="Output file (ZIP for sheets), or '-' for stdout."
+    ),
     output_format: OutputFormat = typer.Option(OutputFormat.MIDI.value, "--format", "-f"),
+    detect_tempo: TempoDetection = typer.Option(
+        TempoDetection.BEST_EFFORT.value, "--detect-tempo", help="Require, skip, or try beat detection."
+    ),
+    tempo_map: Optional[bool] = typer.Option(None, "--tempo-map/--fixed-tempo"),
+    bpm: Optional[float] = typer.Option(None, "--bpm", min=20, max=400),
+    grid: Optional[int] = typer.Option(None, "--grid", min=1, max=32, help="Quantization steps per beat."),
+    quantize: bool = typer.Option(False, "--quantize", help="Select quantized MIDI instead of performance MIDI."),
     notes: bool = typer.Option(False, "--notes"),
     sampling: bool = typer.Option(False, "--sampling"),
     temperature: float = typer.Option(DEFAULT_TEMPERATURE, "--temperature", "-t"),
@@ -262,6 +269,7 @@ def transcribe(
     instruments: str = typer.Option("", "--instruments", metavar="NAME[,NAME...]"),
 ) -> None:
     source = Path(input_audio).expanduser()
+    output_format = _selected_format(output_format, quantize)
     output_path = _single_output_path(source, output, output_format)
     preview_path = Path(preview).expanduser() if preview is not None else None
     try:
@@ -279,6 +287,7 @@ def transcribe(
             beam_size=beam_size,
             instruments=raw_instruments,
             print_notes=notes,
+            timing=MidiTiming(detect_tempo=detect_tempo, bpm=bpm, grid=grid, tempo_map=tempo_map),
         )
     except (TypeError, ValueError) as exc:
         _parameter_error(exc)
@@ -296,6 +305,8 @@ def transcribe(
     try:
         chunk_progress = _ChunkProgressReporter(console)
         with chunk_progress:
+            if output_format is OutputFormat.SHEETS:
+                preflight_sheets()
             preview_runtime = preflight_preview(request) if request is not None else None
             console.print(
                 f"Loading official MuScriptor {options.model.value} model on {options.device}",
@@ -345,7 +356,16 @@ def batch_command(
         "--output-dir",
         help="Defaults to an input-local muscriptor_output directory.",
     ),
-    output_formats: List[OutputFormat] = typer.Option(None, "--format", "-f"),
+    output_formats: List[OutputFormat] = typer.Option(
+        None, "--format", "-f", help="Repeat for multiple outputs. Sheets is a ZIP (MuseScore 4+)."
+    ),
+    detect_tempo: TempoDetection = typer.Option(
+        TempoDetection.BEST_EFFORT.value, "--detect-tempo", help="Require, skip, or try beat detection."
+    ),
+    tempo_map: Optional[bool] = typer.Option(None, "--tempo-map/--fixed-tempo"),
+    bpm: Optional[float] = typer.Option(None, "--bpm", min=20, max=400),
+    grid: Optional[int] = typer.Option(None, "--grid", min=1, max=32, help="Quantization steps per beat."),
+    quantize: bool = typer.Option(False, "--quantize", help="Select quantized MIDI instead of performance MIDI."),
     model: ModelVariant = typer.Option(DEFAULT_MODEL.value, "--model", "-m"),
     device: str = typer.Option(DEFAULT_DEVICE, "--device", "-d"),
     batch_size: int = typer.Option(
@@ -389,10 +409,11 @@ def batch_command(
             beam_size=beam_size,
             instruments=canonical_instruments,
             print_notes=notes,
+            timing=MidiTiming(detect_tempo=detect_tempo, bpm=bpm, grid=grid, tempo_map=tempo_map),
         )
         options = BatchOptions(
             transcription=transcription,
-            output_formats=tuple(output_formats or (OutputFormat.MIDI,)),
+            output_formats=tuple(_selected_format(fmt, quantize) for fmt in (output_formats or (OutputFormat.MIDI,))),
             preview=preview_request,
             recursive=recursive,
             skip_completed=skip_completed,

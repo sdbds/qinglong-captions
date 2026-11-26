@@ -44,7 +44,7 @@ def loader_with_calls(calls: dict[str, object]):
     def load(options):
         calls["loads"] = int(calls.get("loads", 0)) + 1
         return SimpleNamespace(
-            package_version="0.2.1",
+            package_version="0.4.0",
             requested_device=options.device,
             resolved_device="cpu",
         )
@@ -95,6 +95,66 @@ def test_non_recursive_discovery_ignores_nested_files(tmp_path: Path):
     assert [item.relative_path.as_posix() for item in found] == ["root.wav"]
 
 
+def test_requested_sheet_archive_participates_in_preflight_resume_and_publish(tmp_path, monkeypatch):
+    from module.muscriptor_tool import batch
+    from module.muscriptor_tool.options import MidiTiming
+
+    source, output = tmp_path / "song.wav", tmp_path / "out"
+    source.touch()
+    calls = {}
+    opts = BatchOptions(output_formats=("midi", "quantized-midi", "sheets"))
+    kwargs = dict(model_loader=loader_with_calls(calls), transcriber=successful_transcriber(calls), resolved_device="cpu")
+
+    def missing():
+        raise RuntimeError("MuseScore not installed")
+
+    monkeypatch.setattr(batch, "preflight_sheets", missing)
+    with pytest.raises(RuntimeError, match="MuseScore"):
+        batch.run_batch(source, output, opts, **kwargs)
+    assert not calls
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert manifest["counts"]["failed"] == 1 and manifest["items"][0]["status"] == "failed"
+    monkeypatch.setattr(batch, "preflight_sheets", lambda: None)
+    assert batch.run_batch(source, output, opts, **kwargs).processed == 1
+    archive = output / "song.wav" / "song_sheets.zip"
+    assert archive.is_file()
+    assert batch.run_batch(source, output, opts, **kwargs).skipped == 1
+    archive.unlink()
+    assert batch.run_batch(source, output, opts, **kwargs).processed == 1
+    changed = BatchOptions(transcription=TranscriptionOptions(timing=MidiTiming(bpm=90)), output_formats=opts.output_formats)
+    assert batch.run_batch(source, output, changed, **kwargs).processed == 1
+    assert batch.run_batch(source, output, BatchOptions(), **kwargs).processed == 1
+    assert not archive.exists()
+    assert not (archive.parent / "song_quantized.mid").exists()
+
+
+@pytest.mark.parametrize("format_name,suffix", [("quantized-midi", "_quantized.mid"), ("sheets", "_sheets.zip")])
+@pytest.mark.parametrize("legacy_run", [False, True])
+def test_upgrade_preserves_unowned_exports_in_existing_item_directory(tmp_path, monkeypatch, format_name, suffix, legacy_run):
+    from module.muscriptor_tool import batch
+
+    source, output = tmp_path / "song.wav", tmp_path / "out"
+    source.touch()
+    calls = {}
+    kwargs = dict(model_loader=loader_with_calls(calls), transcriber=successful_transcriber(calls), resolved_device="cpu")
+    item = output / "song.wav"
+    item.mkdir(parents=True)
+    if legacy_run:
+        assert batch.run_batch(source, output, package_version="0.2.1", **kwargs).processed == 1
+    manual = item / f"song{suffix}"
+    manual.write_bytes(b"hand-edited score")
+
+    assert batch.run_batch(source, output, package_version="0.4.0", **kwargs).processed == 1
+    assert manual.read_bytes() == b"hand-edited score"
+    previous_metadata = (item / "metadata.json").read_bytes()
+    monkeypatch.setattr(batch, "preflight_sheets", lambda: None)
+    requested = BatchOptions(output_formats=(format_name,))
+    conflict = batch.run_batch(source, output, requested, package_version="0.4.0", **kwargs)
+    assert conflict.failed == 1 and manual.name in conflict.items[0].error
+    assert manual.read_bytes() == b"hand-edited score"
+    assert (item / "metadata.json").read_bytes() == previous_metadata
+
+
 def test_batch_loads_once_and_transcribes_each_pending_file_once(tmp_path: Path):
     from module.muscriptor_tool.batch import run_batch
 
@@ -108,7 +168,7 @@ def test_batch_loads_once_and_transcribes_each_pending_file_once(tmp_path: Path)
         BatchOptions(),
         model_loader=loader_with_calls(calls),
         transcriber=successful_transcriber(calls),
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -118,7 +178,7 @@ def test_batch_loads_once_and_transcribes_each_pending_file_once(tmp_path: Path)
     assert (tmp_path / "out" / "a.wav" / "a.mid").is_file()
     assert (tmp_path / "out" / "sub" / "b.flac" / "b.mid").is_file()
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["muscriptor_version"] == "0.2.1"
+    assert manifest["muscriptor_version"] == "0.4.0"
     assert manifest["model_variant"] == "large"
     assert manifest["requested_device"] == "auto"
     assert manifest["resolved_device"] == "cpu"
@@ -152,7 +212,7 @@ def test_metadata_distinguishes_requested_and_detected_instruments(tmp_path: Pat
         BatchOptions(),
         model_loader=loader_with_calls(calls),
         transcriber=transcribe,
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -186,7 +246,7 @@ def test_batch_routes_chunk_updates_to_structured_progress_callback(tmp_path: Pa
         BatchOptions(),
         model_loader=loader_with_calls(calls),
         transcriber=transcribe,
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
         log_callback=log_messages.append,
         chunk_progress_callback=lambda source, completed, total: progress_events.append(
@@ -211,7 +271,7 @@ def test_run_batch_uses_input_local_output_when_omitted(tmp_path: Path):
         options=BatchOptions(),
         model_loader=loader_with_calls(calls),
         transcriber=successful_transcriber(calls),
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -234,7 +294,7 @@ def test_all_complete_items_skip_without_model_or_preview_preflight(tmp_path: Pa
         BatchOptions(),
         model_loader=loader_with_calls(calls),
         transcriber=successful_transcriber(calls),
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
     assert first.processed == 1
@@ -249,7 +309,7 @@ def test_all_complete_items_skip_without_model_or_preview_preflight(tmp_path: Pa
         model_loader=fail_if_called,
         transcriber=fail_if_called,
         preview_preflight=fail_if_called,
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -267,7 +327,7 @@ def test_schema_one_metadata_is_reprocessed_for_detected_instruments(tmp_path: P
     kwargs = {
         "model_loader": loader_with_calls(calls),
         "transcriber": successful_transcriber(calls),
-        "package_version": "0.2.1",
+        "package_version": "0.4.0",
         "resolved_device": "cpu",
     }
     run_batch(inputs, output, BatchOptions(), **kwargs)
@@ -293,7 +353,7 @@ def test_source_mtime_change_invalidates_completion(tmp_path: Path):
     kwargs = {
         "model_loader": loader_with_calls(calls),
         "transcriber": successful_transcriber(calls),
-        "package_version": "0.2.1",
+        "package_version": "0.4.0",
         "resolved_device": "cpu",
     }
     run_batch(inputs, output, BatchOptions(), **kwargs)
@@ -326,7 +386,7 @@ def test_same_size_same_mtime_source_change_reprocesses_then_skips(tmp_path: Pat
     kwargs = {
         "model_loader": lambda _options: object(),
         "transcriber": transcribe,
-        "package_version": "0.2.1",
+        "package_version": "0.4.0",
         "resolved_device": "cpu",
     }
     first = run_batch(inputs, output, BatchOptions(), **kwargs)
@@ -340,7 +400,7 @@ def test_same_size_same_mtime_source_change_reprocesses_then_skips(tmp_path: Pat
         BatchOptions(),
         model_loader=lambda _options: (_ for _ in ()).throw(AssertionError("model loaded")),
         transcriber=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transcribed")),
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -370,7 +430,7 @@ def test_file_failure_continues_and_writes_failed_metadata(tmp_path: Path):
         BatchOptions(),
         model_loader=loader_with_calls(calls),
         transcriber=transcribe,
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -398,7 +458,7 @@ def test_fail_fast_stops_after_first_file_failure(tmp_path: Path):
         BatchOptions(fail_fast=True),
         model_loader=loader_with_calls(calls),
         transcriber=fail,
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -421,7 +481,7 @@ def test_output_lock_prevents_two_batches_using_same_directory(tmp_path: Path):
                 inputs,
                 output,
                 BatchOptions(),
-                package_version="0.2.1",
+                package_version="0.4.0",
                 resolved_device="cpu",
             )
 
@@ -465,10 +525,10 @@ def test_run_signature_changes_with_output_selection(tmp_path: Path):
     midi = BatchOptions(output_formats=(OutputFormat.MIDI,))
     json_only = BatchOptions(output_formats=(OutputFormat.JSON,))
 
-    assert run_signature(item, midi, package_version="0.2.1", resolved_device="cpu") != run_signature(
+    assert run_signature(item, midi, package_version="0.4.0", resolved_device="cpu") != run_signature(
         item,
         json_only,
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -482,10 +542,10 @@ def test_run_signature_treats_symbolic_outputs_as_a_set(tmp_path: Path):
     first = BatchOptions(output_formats=(OutputFormat.MIDI, OutputFormat.JSONL))
     second = BatchOptions(output_formats=(OutputFormat.JSONL, OutputFormat.MIDI))
 
-    assert run_signature(item, first, package_version="0.2.1", resolved_device="cpu") == run_signature(
+    assert run_signature(item, first, package_version="0.4.0", resolved_device="cpu") == run_signature(
         item,
         second,
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -507,7 +567,7 @@ def test_preview_preflight_runs_once_and_preview_failure_is_partial(tmp_path: Pa
         return SimpleNamespace(
             request=request,
             soundfont_path=soundfont,
-            renderer_id="muscriptor-0.2.1:SF2_URL",
+            renderer_id="muscriptor-0.4.0:SF2_URL",
         )
 
     def transcribe(_loaded, source, _options, targets, *, preview_runtime, preview_target):
@@ -533,7 +593,7 @@ def test_preview_preflight_runs_once_and_preview_failure_is_partial(tmp_path: Pa
         model_loader=loader_with_calls(calls),
         transcriber=transcribe,
         preview_preflight=preflight,
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -545,7 +605,7 @@ def test_preview_preflight_runs_once_and_preview_failure_is_partial(tmp_path: Pa
     assert metadata["status"] == "partial"
     assert metadata["options"]["preview"]["soundfont"] == {
         "source": "default",
-        "signature_id": "muscriptor-0.2.1:SF2_URL",
+        "signature_id": "muscriptor-0.4.0:SF2_URL",
         "resolved_path": str(soundfont.resolve()),
         "size": soundfont.stat().st_size,
         "mtime_ns": soundfont.stat().st_mtime_ns,
@@ -579,7 +639,7 @@ def test_completed_preview_batch_skips_without_rechecking_preview_runtime(tmp_pa
         model_loader=loader_with_calls(calls),
         transcriber=transcribe,
         preview_preflight=preflight,
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -593,7 +653,7 @@ def test_completed_preview_batch_skips_without_rechecking_preview_runtime(tmp_pa
         model_loader=fail_if_called,
         transcriber=fail_if_called,
         preview_preflight=fail_if_called,
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -618,7 +678,7 @@ def test_keyboard_interrupt_is_not_downgraded_to_a_file_failure(tmp_path: Path):
             BatchOptions(),
             model_loader=loader_with_calls(calls),
             transcriber=interrupt,
-            package_version="0.2.1",
+            package_version="0.4.0",
             resolved_device="cpu",
         )
 
@@ -635,6 +695,9 @@ def test_failed_rerun_does_not_report_stale_outputs_as_partial(tmp_path: Path):
     item_dir = output / "song.wav"
     item_dir.mkdir(parents=True)
     (item_dir / "song.mid").write_bytes(b"old")
+    (item_dir / "metadata.json").write_text(json.dumps({
+        "schema_version": 2, "status": "ok", "source_path": "song.wav", "outputs": {"midi": "song.mid"}
+    }))
     calls: dict[str, object] = {"loads": 0, "files": []}
 
     def fail(*_args, **_kwargs):
@@ -646,7 +709,7 @@ def test_failed_rerun_does_not_report_stale_outputs_as_partial(tmp_path: Path):
         BatchOptions(skip_completed=False),
         model_loader=loader_with_calls(calls),
         transcriber=fail,
-        package_version="0.2.1",
+        package_version="0.4.0",
         resolved_device="cpu",
     )
 
@@ -655,6 +718,7 @@ def test_failed_rerun_does_not_report_stale_outputs_as_partial(tmp_path: Path):
     assert (item_dir / "song.mid").read_bytes() == b"old"
     attempt = json.loads(Path(summary.items[0].metadata_path).read_text(encoding="utf-8"))
     assert attempt["outputs"] == {}
+    assert attempt["error"]["message"] == "decode failed"
 
 
 def test_temporary_cleanup_matches_only_tool_nonce_pattern(tmp_path: Path):

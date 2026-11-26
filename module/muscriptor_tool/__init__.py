@@ -11,7 +11,10 @@ from .options import (
     TranscriptionOptions,
 )
 
+MUSCRIPTOR_VERSION = "0.4.0"
+
 __all__ = [
+    "MUSCRIPTOR_VERSION",
     "BatchOptions",
     "DecodingMode",
     "ModelVariant",

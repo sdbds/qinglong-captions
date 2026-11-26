@@ -112,7 +112,7 @@ def _install_single_backend(monkeypatch, calls: list[str]) -> None:
         calls.append("load")
         assert isinstance(console, cli.Console)
         return SimpleNamespace(
-            package_version="0.2.1",
+            package_version="0.4.0",
             requested_device=options.device,
             resolved_device="cpu",
         )
@@ -207,6 +207,46 @@ def test_midi_stdout_is_binary_and_contains_no_logs(monkeypatch, tmp_path: Path)
     assert result.stdout_bytes == b"MThd"
     assert b"Loading" not in result.stdout_bytes
     assert "Loading official MuScriptor" in result.stderr
+
+
+@pytest.mark.parametrize("detect_tempo", ["false", "best-effort"])
+def test_quantize_cli_stdout_contains_only_snapped_midi(monkeypatch, tmp_path, detect_tempo):
+    pytest.importorskip("muscriptor")
+    import mido
+    from muscriptor.events import NoteEndEvent, NoteStartEvent, ProgressEvent
+    from muscriptor.transcription_model import TranscriptionModel
+
+    from module.muscriptor_tool.runtime import LoadedModel
+
+    class Model(TranscriptionModel):
+        def detect_beat_grid_for(self, source, mode):
+            assert mode == "best-effort"
+            # torch.hub announces a cold-cache checkpoint download on stdout.
+            print("Downloading: beat checkpoint")
+            return None
+
+        def transcribe(self, **kwargs):
+            start = NoteStartEvent(60, 0.28, 0, "acoustic_piano")
+            yield start
+            yield NoteEndEvent(0.74, start)
+
+    model = object.__new__(Model)
+    model._inst_to_program = {"acoustic_piano": 0}
+    loaded = LoadedModel(model, "0.4.0", "cpu", "cpu", ProgressEvent)
+    monkeypatch.setattr(cli, "load_model", lambda *_args, **_kw: loaded)
+    source = tmp_path / "song.wav"
+    source.touch()
+    result = runner.invoke(cli.app, [
+        "transcribe", str(source), "--quantize", "--detect-tempo", detect_tempo,
+        "--bpm", "120", "--grid", "2", "-o", "-",
+    ])
+    assert result.exit_code == 0, result.stderr
+    assert result.stdout_bytes.startswith(b"MThd")
+    assert ("Downloading: beat checkpoint" in result.stderr) == (detect_tempo == "best-effort")
+    from io import BytesIO
+
+    midi = mido.MidiFile(file=BytesIO(result.stdout_bytes))
+    assert next(msg.time for tr in midi.tracks for msg in tr if msg.type == "note_on") == midi.ticks_per_beat // 2
 
 
 def test_preview_mode_without_preview_and_preview_format_while_off_are_parameter_errors(tmp_path: Path):
@@ -360,7 +400,7 @@ def test_batch_preview_defaults_to_mp3(monkeypatch, tmp_path: Path):
 
 def test_list_instruments_json_matches_text_order(monkeypatch):
     monkeypatch.setattr(cli, "list_instruments", lambda: ("piano", "drums"))
-    monkeypatch.setattr(cli, "muscriptor_version", lambda: "0.2.1")
+    monkeypatch.setattr(cli, "muscriptor_version", lambda: "0.4.0")
 
     text_result = runner.invoke(cli.app, ["list-instruments"])
     json_result = runner.invoke(cli.app, ["list-instruments", "--format", "json"])
@@ -368,7 +408,7 @@ def test_list_instruments_json_matches_text_order(monkeypatch):
     assert text_result.stdout.splitlines() == ["piano", "drums"]
     assert json.loads(json_result.stdout) == {
         "schema_version": 1,
-        "package_version": "0.2.1",
+        "package_version": "0.4.0",
         "instruments": ["piano", "drums"],
     }
 
@@ -410,7 +450,7 @@ def _real_smoke_python() -> str:
         encoding="utf-8",
         check=False,
     )
-    if probe.returncode != 0 or probe.stdout.strip() != "0.2.1":
+    if probe.returncode != 0 or probe.stdout.strip() != "0.4.0":
         pytest.fail(
             "MUSCRIPTOR_SMOKE requires a muscriptor-local Python. Set "
             "MUSCRIPTOR_SMOKE_PYTHON after installing the profile."

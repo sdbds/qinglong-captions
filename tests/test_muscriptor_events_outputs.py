@@ -52,6 +52,45 @@ class FakeLoadedModel:
         self.midi_calls += 1
         return b"MThd" + bytes([len(list(events))])
 
+    def detect_beat_grid(self, source, mode, onsets):
+        return None
+
+    def export_midi(self, events, beat_grid, timing, *, quantize):
+        return self.midi_bytes(events), False
+
+
+def test_timed_midi_and_sheets_share_beats_and_engrave_only_the_quantized_copy(tmp_path, monkeypatch):
+    from module.muscriptor_tool import outputs
+
+    note = start()
+    class Model(FakeLoadedModel):
+        def detect_beat_grid(self, source, mode, onsets):
+            assert source == Path("song.wav") and mode == "best-effort"
+            assert onsets == [0.25]
+            calls.append("beats")
+            return grid
+
+        def export_midi(self, events, beat_grid, timing, *, quantize):
+            assert beat_grid is grid and len(events) == 2
+            calls.append(("midi", quantize))
+            return (b"snapped", True) if quantize else (b"performance", False)
+
+    def engrave(midi_bytes, *, quantized):
+        assert midi_bytes == b"snapped" and quantized
+        return b"engraved"
+
+    grid, calls = object(), []
+    loaded = Model([note, end(note)])
+    targets = outputs.OutputTargets.for_directory(tmp_path, ("midi", "quantized-midi", "sheets"))
+    monkeypatch.setattr(outputs, "engrave_sheets", engrave)
+    result = outputs.transcribe_once(loaded, Path("song.wav"), TranscriptionOptions(), targets)
+
+    assert loaded.transcribe_calls == 1
+    assert calls == ["beats", ("midi", False), ("midi", True)]
+    assert {key: Path(p).read_bytes() for key, p in result.outputs.items()} == {
+        "midi": b"performance", "quantized-midi": b"snapped", "sheets": b"engraved",
+    }
+
 
 def test_transcribe_once_fans_one_event_stream_to_all_formats(tmp_path: Path):
     from module.muscriptor_tool.outputs import OutputTargets, transcribe_once
@@ -104,6 +143,7 @@ def test_jsonl_only_does_not_build_midi(tmp_path: Path):
 
     note_start = start()
     loaded = FakeLoadedModel([note_start, end(note_start)])
+    loaded.detect_beat_grid = lambda *_args: pytest.fail("JSONL should not run the beat tracker")
     targets = OutputTargets.for_directory(tmp_path, (OutputFormat.JSONL,))
 
     result = transcribe_once(loaded, Path("song.wav"), TranscriptionOptions(), targets)
@@ -111,6 +151,35 @@ def test_jsonl_only_does_not_build_midi(tmp_path: Path):
     assert loaded.midi_calls == 0
     assert result.midi_bytes is None
     assert (tmp_path / "events.jsonl").exists()
+
+
+@pytest.mark.parametrize("mode", ["best-effort", "true", "false"])
+def test_unavailable_beat_checkpoint_does_not_break_offline_midi(tmp_path, mode):
+    from module.muscriptor_tool.adaptive_batch import AdaptiveBatchModelProxy
+    from module.muscriptor_tool.options import MidiTiming
+    from module.muscriptor_tool.outputs import OutputTargets, RequestedOutputError, transcribe_once
+    from module.muscriptor_tool.runtime import LoadedModel
+
+    class Offline:
+        def detect_beat_grid_for(self, *_args):
+            assert mode != "false"
+            raise ValueError("checkpoint unavailable")
+
+    target = OutputTargets(midi=tmp_path / "song.mid")
+    options = TranscriptionOptions(timing=MidiTiming(detect_tempo=mode))
+    model = FakeLoadedModel([])
+    model.detect_beat_grid = LoadedModel(
+        AdaptiveBatchModelProxy(Offline(), None), "0.4.0", "cpu", "cpu", ProgressEvent
+    ).detect_beat_grid
+    if mode == "true":
+        pytest.importorskip("muscriptor")
+        with pytest.raises(RequestedOutputError, match="checkpoint unavailable"):
+            transcribe_once(model, Path("song.wav"), options, target)
+        assert not target.midi.exists()
+    else:
+        result = transcribe_once(model, Path("song.wav"), options, target)
+        assert target.midi.read_bytes().startswith(b"MThd")
+        assert any("checkpoint unavailable" in message for message in result.warnings) == (mode == "best-effort")
 
 
 def test_non_strict_eos_warning_is_returned_for_metadata(tmp_path: Path):
@@ -186,6 +255,26 @@ def test_preview_reuses_same_event_stream_and_midi_bytes(tmp_path: Path):
     assert loaded.midi_calls == 1
     assert render_calls[0][1] == b"MThd\x02"
     assert result.outputs["preview"] == str(preview_target)
+
+
+def test_quantized_only_preview_plays_the_exported_midi(tmp_path):
+    from module.muscriptor_tool.outputs import OutputTargets, transcribe_once
+
+    class Model(FakeLoadedModel):
+        def export_midi(self, events, beat_grid, timing, *, quantize):
+            self.midi_calls += 1
+            return (b"snapped", True) if quantize else (b"performance", False)
+
+    model = Model([])
+    targets = OutputTargets.for_directory(tmp_path, ("quantized-midi",))
+    rendered = []
+    result = transcribe_once(
+        model, Path("song.wav"), TranscriptionOptions(), targets,
+        preview_runtime=object(), preview_target=tmp_path / "preview.wav",
+        preview_renderer=lambda _runtime, **kwargs: rendered.append(kwargs["midi_bytes"]),
+    )
+    assert model.midi_calls == 1
+    assert rendered == [targets.quantized_midi.read_bytes()] == [result.midi_bytes] == [b"snapped"]
 
 
 def test_stdout_stream_targets_do_not_require_temporary_files(tmp_path: Path):

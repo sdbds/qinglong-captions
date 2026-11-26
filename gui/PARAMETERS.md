@@ -172,13 +172,14 @@ Scorer 和 checkpoint 选项由 Qinglong Score 的公开目录提供。GUI 基�
 | MuScriptor 模型 | 下拉显示 `MuScriptor/muscriptor-small`、`MuScriptor/muscriptor-medium`、`MuScriptor/muscriptor-large`，默认 large；没有自定义权重来源 |
 | Device | `auto`、`cpu`、`cuda` 或 `cuda:N`；显式 CUDA 不会静默回退 CPU |
 | 推理批大小 | 每次前向处理的 5 秒音频块数量，不是文件数；`0` 表示运行时自动选择 |
-| 音色模式 | 自动识别，或从绑定 `muscriptor==0.2.1` 的官方 35 项目录快照中手动多选；无需先安装模型 runtime |
+| 音色模式 | 自动识别，或从绑定 `muscriptor==0.4.0` 的官方 35 项目录快照中手动多选；无需先安装模型 runtime |
 | 解码 | `greedy`、`sampling` 或 `beam`；temperature 只作用于 sampling，beam width 必须至少为 2 |
-| 输出格式 | MIDI、JSON、JSONL，可多选但至少保留一种；单输入只执行一次推理 |
+| 输出格式 | MIDI、量化 MIDI、谱面（PDF + MusicXML 压缩包）、JSON、JSONL，可多选；同一输入只转录一次 |
+| MIDI 节拍 | 自动、跟随演奏、固定速度或手动 BPM；手动模式跳过节拍检测。「每拍格数」留空时由上游估算。 |
 | 试听 | 关闭、纯 MIDI，或左原音 / 右合成 MIDI 对照；默认 MP3，WAV 为显式回退 |
 | 批处理与恢复 | GUI 只保留 skip completed；默认递归并遇错继续，关闭 skip completed 即重跑；strict EOS 和 notes 仍是推理选项 |
 
-依赖 profile 固定 `muscriptor==0.2.1`。首次使用需要接受官方 Hugging Face 权重条款并运行 `hf auth login`；权重为 CC BY-NC 4.0。试听要求 FluidSynth，官方 `MuseScore_General.sf2` SoundFont 自动解析和缓存，不能改成系统或自定义 SoundFont。此批处理页不实现上游 WebUI、钢琴卷帘或单文件 Demo。
+依赖 profile 固定 `muscriptor==0.4.0`。三档主权重及其 Hugging Face 条款不变，首次使用需运行 `hf auth login`。节拍检测另用 Beat This! 权重；仅谱面需要 MuseScore 4+，仅试听需要 FluidSynth 和官方 `MuseScore_General.sf2`。详见[输出与恢复](../docs/tools/muscriptor.md#输出与恢复)。
 
 ## 修改建议
 

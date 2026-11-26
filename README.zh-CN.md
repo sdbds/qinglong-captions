@@ -200,11 +200,11 @@ Caption 负责核心推理：它可连接云端 API、OpenAI-compatible 服务�
 | 乐谱 OMR 转录 | [MuSViT](docs/tools/sheet_music.md) | GUI Tools |
 | 文本与文档翻译 | [Translation](docs/tools/text_translation.md) | `5.translate.ps1` |
 
-MuScriptor 通过 `muscriptor-local` profile 安装，支持官方 `small`、`medium`、`large` 模型。只导出 MIDI、JSON 或 JSONL 时不需要音频合成器。启用试听后，运行时会在模型推理前执行预检；FluidSynth 或官方 SoundFont 不可用会终止整批任务，因此需要关闭试听才能在没有试听运行时的情况下只导出符号结果。该 profile 已包含首次下载 SoundFont 所需的 SOCKS 代理支持。
+MuScriptor 0.4.0 通过 `muscriptor-local` 安装，沿用官方 `small`、`medium`、`large` 主权重。支持跟随演奏的速度图、量化 MIDI 和谱面压缩包（PDF、MusicXML；需 MuseScore 4+）。只导出 MIDI、JSON 或 JSONL 时不需要音频合成器。启用试听后，运行时会在模型推理前执行预检；FluidSynth 或官方 SoundFont 不可用会终止整批任务，因此需要关闭试听才能在没有试听运行时的情况下只导出符号结果。该 profile 已包含首次下载 SoundFont 所需的 SOCKS 代理支持。
 
 可选的纯 MIDI 试听或“左声道原音、右声道合成 MIDI”对照试听，无论选择 MP3 还是 WAV，都要求系统 `PATH` 中存在原生 [FluidSynth](https://github.com/FluidSynth/fluidsynth/releases) 可执行文件。改用 WAV 不能绕过该要求；MP3 还要求当前 `soundfile/libsndfile` 支持 MP3 编码。Windows 请使用 x64 版本，把解压后的 `bin` 目录加入 `PATH`，重启终端和 GUI 后用 `fluidsynth --version` 验证。官方 `MuseScore_General.sf2` SoundFont 会自动解析，不需要系统音源或自定义 SoundFont。
 
-运行 `2.7.1.muscriptor_webui.ps1` 可使用项目共享 `.venv` 和优化后的 SDPA runtime 体验 MuScriptor 官方 WebUI。服务就绪后脚本会自动打开浏览器，传入 `-NoBrowser` 可关闭该行为。脚本支持 `-Model small|medium|large`（默认 `large`）、`-Device auto|cpu|cuda|cuda:N` 和 `-BatchSize N`。默认值 `0` 会直接读取已记录的模型显存曲线，按总显存选择偶数 batch，不再重新执行 BS1/BS2 校准。CUDA OOM 会自动缩小 batch；Windows 下若检测到当前进程开始使用共享 GPU 显存，后续 batch 会减 2。每次请求结束后会释放临时张量和空闲 CUDA cache，但保留模型权重。CPU 使用 BS1。不要使用会创建独立工具环境的 `uvx muscriptor serve`。
+运行 `2.7.1.muscriptor_webui.ps1` 可使用项目共享 `.venv` 和上游内置的 SDPA 优化体验 MuScriptor 官方 WebUI。服务就绪后脚本会自动打开浏览器，传入 `-NoBrowser` 可关闭该行为。脚本支持 `-Model small|medium|large`（默认 `large`）、`-Device auto|cpu|cuda|cuda:N` 和 `-BatchSize N`。默认值 `0` 会直接读取已记录的模型显存曲线，按总显存选择偶数 batch，不再重新执行 BS1/BS2 校准。CUDA OOM 会自动缩小 batch；Windows 下若检测到当前进程开始使用共享 GPU 显存，后续 batch 会减 2。每次请求结束后会释放临时张量和空闲 CUDA cache，但保留模型权重。CPU 默认使用 BS1。不要使用会创建独立工具环境的 `uvx muscriptor serve`。
 
 项目内所有 MuScriptor 入口都会读取 `config/muscriptor_batch_profiles.toml` 的模型显存曲线，在加载权重前检查最低显存，并共用相同的自适应 CUDA runtime。runtime 的分配器预算会同时扣除配置的预留显存和 PyTorch 之外已经占用的显存。GUI 还会在页面打开时把用户所选 GPU 的总显存代入曲线来选择 batch；记录中的参考 GPU 只标明测量来源，不参与匹配。扣除分段预留后无法容纳模型时，`auto` 在加载前回退 CPU，显式 CUDA 则直接阻止任务。用户手动修改 batch 前，切换模型或设备会同步刷新推荐值；手动修改后不再自动覆盖。
 

@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import importlib.metadata
 import time
-from tempfile import TemporaryDirectory
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Callable
 
 from filelock import FileLock, Timeout
 
 from module.audio_batch import BatchItem, discover_inputs, item_output_dir
 
+from . import MUSCRIPTOR_VERSION
+from .auralization import RENDERER_ID
 from .manifest import (
     SCHEMA_VERSION,
     atomic_write_json,
@@ -19,11 +21,11 @@ from .manifest import (
     is_item_complete,
     prune_known_outputs,
     publish_staged_outputs,
-    _known_output_names,
+    recorded_output_names,
     run_signature,
 )
 from .options import BatchOptions, OutputFormat
-from .outputs import OutputTargets, TranscriptionResult, transcribe_once
+from .outputs import OutputTargets, TranscriptionResult, preflight_sheets, transcribe_once
 from .runtime import load_model, resolve_device
 
 DEFAULT_OUTPUT_DIRNAME = "muscriptor_output"
@@ -64,12 +66,8 @@ class BatchSummary:
 
 
 def _requested_names(options: BatchOptions, *, output_stem: str) -> set[str]:
-    names = {
-        OutputFormat.MIDI: f"{output_stem}.mid",
-        OutputFormat.JSON: "events.json",
-        OutputFormat.JSONL: "events.jsonl",
-    }
-    requested = {names[item] for item in options.output_formats}
+    targets = OutputTargets.for_directory(Path(), options.output_formats, output_stem=output_stem)
+    requested = {path.name for path in targets.requested_paths().values()}
     if options.preview is not None:
         requested.add(f"{output_stem}_preview.{options.preview.format.value}")
     return requested
@@ -79,7 +77,7 @@ def _default_package_version() -> str:
     try:
         return importlib.metadata.version("muscriptor")
     except importlib.metadata.PackageNotFoundError:
-        return "0.2.1"
+        return MUSCRIPTOR_VERSION
 
 
 def _default_resolved_device(requested: str) -> str:
@@ -136,7 +134,7 @@ def _metadata_payload(
         soundfont = {
             "source": "default",
             "signature_id": str(
-                getattr(preview_runtime, "renderer_id", "muscriptor-0.2.1:SF2_URL")
+                getattr(preview_runtime, "renderer_id", RENDERER_ID)
             ),
         }
         if soundfont_path is not None:
@@ -320,18 +318,19 @@ def run_batch(
             return summary
 
         preview_runtime = None
-        if options.preview is not None:
-            if preview_preflight is None:
-                from .auralization import preflight_preview
-
-                preview_preflight = preflight_preview
-            if log_callback is not None:
-                log_callback(
-                    f"Checking {options.preview.content.value} {options.preview.format.value} preview runtime"
-                )
-            preview_runtime = preview_preflight(options.preview)
-
         try:
+            if OutputFormat.SHEETS in options.output_formats:
+                preflight_sheets()
+            if options.preview is not None:
+                if preview_preflight is None:
+                    from .auralization import preflight_preview
+
+                    preview_preflight = preflight_preview
+                if log_callback is not None:
+                    log_callback(
+                        f"Checking {options.preview.content.value} {options.preview.format.value} preview runtime"
+                    )
+                preview_runtime = preview_preflight(options.preview)
             if log_callback is not None:
                 log_callback(
                     f"Loading official MuScriptor {options.transcription.model.value} model on {resolved_device}"
@@ -340,8 +339,12 @@ def run_batch(
         except Exception as exc:
             run_error = exc
             summary.failed = len(pending)
+            summary.items.extend(
+                BatchItemResult(source=item.relative_path.as_posix(), status="failed", error=str(exc))
+                for item, _ in pending
+            )
             if log_callback is not None:
-                log_callback(f"Model load failed: {type(exc).__name__}: {exc}")
+                log_callback(f"Batch setup failed: {type(exc).__name__}: {exc}")
             raise
         if log_callback is not None:
             log_callback(f"Resolved device: {getattr(loaded, 'resolved_device', resolved_device)}")
@@ -352,11 +355,16 @@ def run_batch(
             item_dir.mkdir(parents=True, exist_ok=True)
             output_stem = item.source_path.stem
             cleanup_temporary_outputs(item_dir, output_stem=output_stem)
-            managed_names = _known_output_names(output_stem)
-            previous_outputs = any((item_dir / name).is_file() for name in managed_names)
+            requested_names = _requested_names(options, output_stem=output_stem)
+            owned_names = recorded_output_names(item_dir / "metadata.json", source=item.relative_path)
+            managed_names = owned_names | requested_names
+            conflicts = sorted(
+                name for name in requested_names - owned_names
+                if (item_dir / name).exists() or (item_dir / name).is_symlink()
+            )
+            previous_outputs = bool(conflicts) or any((item_dir / name).is_file() for name in owned_names)
             staging = TemporaryDirectory(prefix=".attempt-", dir=item_dir)
             work_dir = Path(staging.name)
-            requested_names = _requested_names(options, output_stem=output_stem)
             targets = OutputTargets.for_directory(
                 work_dir,
                 options.output_formats,
@@ -373,6 +381,11 @@ def run_batch(
             if log_callback is not None:
                 log_callback(f"Processing input: {item.relative_path.as_posix()}")
             try:
+                if conflicts:
+                    raise FileExistsError(
+                        f"Not replacing untracked output(s) in {item_dir}: {', '.join(conflicts)}. "
+                        "Move them or choose a different output directory."
+                    )
                 kwargs = (
                     {"preview_runtime": preview_runtime, "preview_target": preview_target}
                     if preview_runtime is not None
@@ -405,6 +418,8 @@ def run_batch(
                 outputs = _relative_outputs(result, work_dir)
                 summary.processed += 1
                 if log_callback is not None:
+                    for message in result.warnings:
+                        log_callback(f"Warning ({item.relative_path.as_posix()}): {message}")
                     log_callback(
                         f"Completed {item.relative_path.as_posix()}: {', '.join(sorted(outputs.values()))}"
                     )

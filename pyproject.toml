@@ -507,7 +507,7 @@ vocal-midi = [
 muscriptor-local = [
     "qinglong-captions[torch-base]",
     "qinglong-captions[music-export]",
-    "muscriptor==0.2.1",
+    "muscriptor==0.4.0",
     "filelock>=3.16",
     "socksio>=1.0.0",
 ]
@@ -551,6 +551,10 @@ conflicts = [
     [{ extra = "moondream-cu128" }, { extra = "torch-base" }],
     [{ extra = "moondream-cu128" }, { extra = "paddleocr-native" }],
     [{ extra = "moondream-cu128" }, { group = "test" }],
+    # MuScriptor 0.4 requires NumPy 2 on the supported CUDA platforms.
+    [{ extra = "muscriptor-local" }, { extra = "video-split" }],
+    [{ extra = "muscriptor-local" }, { extra = "see-through" }],
+    [{ extra = "muscriptor-local" }, { extra = "auto-rig" }],
     [{ extra = "moondream-legacy" }, { extra = "paddleocr-native" }],
     [{ extra = "moondream-legacy" }, { extra = "deepseek-ocr-legacy" }],
     [{ extra = "moondream-legacy" }, { extra = "music-flamingo-local" }],

@@ -67,6 +67,11 @@ def test_music_transcription_tool_renders_complete_controls():
         "large": "MuScriptor/muscriptor-large",
     }
     assert step.music_transcription_output_formats.value == ["midi"]
+    assert {"quantized-midi", "sheets"} <= step.music_transcription_output_formats.options.keys()
+    assert step.music_transcription_tempo_mode.value == "auto"
+    assert not step.music_transcription_bpm.visible
+    step.music_transcription_tempo_mode.value = "manual"
+    assert step.music_transcription_bpm.visible
     assert step.music_transcription_preview_format.value == "mp3"
     assert step._music_transcription_gpu_summary_label is not None
     assert step._music_transcription_gpu_summary_meta_container is not None
@@ -94,7 +99,7 @@ def _configured_step(tmp_path: Path, *, preview_mode: str = "comparison"):
             "music_transcription_cfg_coef": 1.5,
             "music_transcription_strict_eos": True,
             "music_transcription_beam_size": 4,
-            "music_transcription_output_formats": ["midi", "jsonl"],
+            "music_transcription_output_formats": ["midi", "quantized-midi", "sheets", "jsonl"],
             "music_transcription_preview_mode": preview_mode,
             "music_transcription_preview_format": "mp3",
             "music_transcription_skip_completed": False,
@@ -132,6 +137,8 @@ def test_music_transcription_maps_complete_batch_args(monkeypatch, tmp_path: Pat
         "--cfg-coef=1.5",
         "--strict-eos",
         "--format=midi",
+        "--format=quantized-midi",
+        "--format=sheets",
         "--format=jsonl",
         "--preview-mode=comparison",
         "--preview-format=mp3",
@@ -145,6 +152,18 @@ def test_music_transcription_maps_complete_batch_args(monkeypatch, tmp_path: Pat
     assert "--overwrite" not in captured["args"]
     assert "--fail-fast" not in captured["args"]
     assert not any(argument.startswith("--beam-size") for argument in captured["args"])
+
+
+def test_music_transcription_gui_tempo_overrides_do_not_require_the_tracker(tmp_path):
+    step = _configured_step(tmp_path)
+    step.config.update(music_transcription_tempo_mode="manual", music_transcription_bpm=96.5,
+                       music_transcription_grid=3)
+    args = step._build_music_transcription_args()
+    assert {"--bpm=96.5", "--grid=3", "--detect-tempo=false"} <= set(args)
+    for mode, flag in (("map", "--tempo-map"), ("fixed", "--fixed-tempo")):
+        step.config["music_transcription_tempo_mode"] = mode
+        args = step._build_music_transcription_args()
+        assert flag in args and not any(a.startswith("--bpm") or a.startswith("--detect-tempo") for a in args)
 
 
 def test_sheetsage2_switch_shows_its_own_settings_without_changing_muscriptor():
@@ -331,7 +350,7 @@ def test_pinned_instrument_catalog_is_immediately_available_without_runtime_prob
     step._music_transcription_instrument_container = container
     step._on_music_instrument_mode_change("specify")
 
-    assert MUSCRIPTOR_INSTRUMENT_CATALOG_VERSION == "0.2.1"
+    assert MUSCRIPTOR_INSTRUMENT_CATALOG_VERSION == "0.4.0"
     assert len(OFFICIAL_INSTRUMENT_NAMES) == 35
     assert len(set(OFFICIAL_INSTRUMENT_NAMES)) == 35
     assert tuple(step._music_transcription_instrument_options()) == OFFICIAL_INSTRUMENT_NAMES

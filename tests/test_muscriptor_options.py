@@ -106,6 +106,7 @@ def test_sampling_maps_all_upstream_arguments():
         "cfg_coef": 1.5,
         "instruments": ["piano", "drums"],
         "batch_size": 5,
+        "prelude_forcing": False,
         "no_eos_is_ok": False,
         "beam_size": 1,
     }

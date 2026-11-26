@@ -32,11 +32,13 @@ from module.muscriptor_tool.options import (
     DEFAULT_PREVIEW_FORMAT,
     DEFAULT_TEMPERATURE,
     DecodingMode,
+    MidiTiming,
     ModelVariant,
     OutputFormat,
     PreviewContent,
     PreviewFormat,
     PreviewRequest,
+    TempoDetection,
     TranscriptionOptions,
 )
 from module.reward_policy import (
@@ -431,6 +433,9 @@ class ToolsStep:
             "music_transcription_strict_eos": False,
             "music_transcription_beam_size": DEFAULT_BEAM_SIZE,
             "music_transcription_output_formats": [item.value for item in DEFAULT_OUTPUT_FORMATS],
+            "music_transcription_tempo_mode": "auto",
+            "music_transcription_bpm": 120.0,
+            "music_transcription_grid": None,
             "music_transcription_preview_mode": "none",
             "music_transcription_preview_format": DEFAULT_PREVIEW_FORMAT.value,
             "music_transcription_skip_completed": True,
@@ -2315,6 +2320,8 @@ class ToolsStep:
             self.music_transcription_output_formats = styled_select(
                 options={
                     OutputFormat.MIDI.value: "MIDI",
+                    OutputFormat.QUANTIZED_MIDI.value: t("music_transcription_quantized_midi"),
+                    OutputFormat.SHEETS.value: "PDF + MusicXML (ZIP)",
                     OutputFormat.JSON.value: "JSON",
                     OutputFormat.JSONL.value: "JSONL",
                 },
@@ -2330,6 +2337,30 @@ class ToolsStep:
                 ),
                 multiple=True,
             )
+
+            with ui.expansion(t("music_transcription_timing"), icon="tune").classes("w-full"):
+                with ui.row().classes("w-full items-center gap-4"):
+                    self.music_transcription_tempo_mode = styled_select(
+                        options={
+                            "auto": t("music_transcription_instrument_auto"),
+                            "map": t("music_transcription_tempo_map"),
+                            "fixed": t("music_transcription_fixed_tempo"),
+                            "manual": t("music_transcription_manual_bpm"),
+                        },
+                        value=self.config["music_transcription_tempo_mode"],
+                        label=t("music_transcription_timing"), icon="timer", searchable=False, flex=1,
+                        on_change=lambda value: self._set_config_value(self.config, "music_transcription_tempo_mode", value),
+                    )
+                    self.music_transcription_bpm = ui.number(
+                        label="BPM", value=self.config["music_transcription_bpm"], min=20, max=400, step=0.1,
+                        on_change=lambda e: self._set_config_value(self.config, "music_transcription_bpm", e.value),
+                    ).props("dense outlined").classes("modern-input")
+                    self.music_transcription_bpm.bind_visibility_from(self.music_transcription_tempo_mode, "value", value="manual")
+                    ui.number(
+                        label=t("music_transcription_grid"), value=self.config["music_transcription_grid"],
+                        placeholder=t("music_transcription_instrument_auto"), min=1, max=32, step=1, precision=0,
+                        on_change=lambda e: self._set_config_value(self.config, "music_transcription_grid", e.value),
+                    ).props("dense outlined clearable").classes("modern-input")
 
             with ui.row().classes("w-full items-center gap-3 q-mt-md"):
                 ui.label(t("music_transcription_preview")).classes("text-caption text-weight-medium")
@@ -2870,6 +2901,14 @@ class ToolsStep:
         if raw_batch_size < 0:
             raise ValueError(t("music_transcription_invalid_config"))
 
+        tempo_mode = self.config["music_transcription_tempo_mode"]
+        grid = self.config["music_transcription_grid"]
+        timing = MidiTiming(
+            detect_tempo=TempoDetection.OFF if tempo_mode == "manual" else TempoDetection.BEST_EFFORT,
+            bpm=float(self.config["music_transcription_bpm"]) if tempo_mode == "manual" else None,
+            tempo_map={"map": True, "fixed": False}.get(tempo_mode),
+            grid=int(grid) if grid is not None else None,
+        )
         transcription = TranscriptionOptions.from_batch_cli(
             model=ModelVariant(self.config["music_transcription_model"]),
             device=resolved_device,
@@ -2881,6 +2920,7 @@ class ToolsStep:
             beam_size=beam_size,
             instruments=instruments,
             print_notes=bool(self.config["music_transcription_notes"]),
+            timing=timing,
         )
 
         preview_mode = str(self.config["music_transcription_preview_mode"])
@@ -2912,6 +2952,12 @@ class ToolsStep:
         if transcription.print_notes:
             args.append("--notes")
         args.extend(f"--format={output_format.value}" for output_format in formats)
+        if timing.bpm is not None:
+            args.extend(("--detect-tempo=false", f"--bpm={timing.bpm}"))
+        if timing.tempo_map is not None:
+            args.append("--tempo-map" if timing.tempo_map else "--fixed-tempo")
+        if timing.grid is not None:
+            args.append(f"--grid={timing.grid}")
         if preview is not None:
             args.extend(
                 (

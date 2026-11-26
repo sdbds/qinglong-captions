@@ -25,8 +25,38 @@ class DecodingMode(str, Enum):
 
 class OutputFormat(str, Enum):
     MIDI = "midi"
+    QUANTIZED_MIDI = "quantized-midi"
+    SHEETS = "sheets"
     JSON = "json"
     JSONL = "jsonl"
+
+
+class TempoDetection(str, Enum):
+    BEST_EFFORT = "best-effort"
+    REQUIRED = "true"
+    OFF = "false"
+
+    @property
+    def upstream_value(self) -> bool | str:
+        return self.value if self is TempoDetection.BEST_EFFORT else self is TempoDetection.REQUIRED
+
+
+@dataclass(frozen=True)
+class MidiTiming:
+    detect_tempo: TempoDetection = TempoDetection.BEST_EFFORT
+    bpm: float | None = None
+    grid: int | None = None
+    tempo_map: bool | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "detect_tempo", TempoDetection(self.detect_tempo))
+        if self.bpm is not None and not 20 <= self.bpm <= 400:
+            raise ValueError("bpm must be between 20 and 400")
+        if self.grid is not None and not 1 <= self.grid <= 32:
+            raise ValueError("grid must be between 1 and 32 steps per beat")
+
+    def as_dict(self) -> dict[str, object]:
+        return {"detect_tempo": self.detect_tempo.value, "bpm": self.bpm, "grid": self.grid, "tempo_map": self.tempo_map}
 
 
 class PreviewContent(str, Enum):
@@ -103,6 +133,7 @@ class TranscriptionOptions:
     beam_size: int = DEFAULT_BEAM_SIZE
     instruments: tuple[str, ...] = ()
     print_notes: bool = False
+    timing: MidiTiming = field(default_factory=MidiTiming)
 
     def __post_init__(self) -> None:
         model = _enum_value(ModelVariant, self.model, "model")
@@ -149,6 +180,7 @@ class TranscriptionOptions:
         beam_size: int = DEFAULT_BEAM_SIZE,
         instruments: Iterable[str] | None = None,
         print_notes: bool = False,
+        timing: MidiTiming = MidiTiming(),
     ) -> "TranscriptionOptions":
         if sampling and beam_size >= 2:
             raise ValueError("sampling and beam decoding cannot be enabled together")
@@ -169,6 +201,7 @@ class TranscriptionOptions:
             beam_size=beam_size,
             instruments=_normalize_instruments(instruments),
             print_notes=print_notes,
+            timing=timing,
         )
 
     @classmethod
@@ -185,6 +218,7 @@ class TranscriptionOptions:
         beam_size: int | None = None,
         instruments: Iterable[str] | None = None,
         print_notes: bool = False,
+        timing: MidiTiming = MidiTiming(),
     ) -> "TranscriptionOptions":
         mode = _enum_value(DecodingMode, decode_mode, "decode mode")
         resolved_beam_size = beam_size
@@ -201,6 +235,7 @@ class TranscriptionOptions:
             beam_size=resolved_beam_size,
             instruments=_normalize_instruments(instruments),
             print_notes=print_notes,
+            timing=timing,
         )
 
     def upstream_kwargs(self) -> dict[str, object]:
@@ -210,6 +245,7 @@ class TranscriptionOptions:
             "cfg_coef": self.cfg_coef,
             "instruments": list(self.instruments) or None,
             "batch_size": self.batch_size,
+            "prelude_forcing": self.batch_size in (None, 1),
             "no_eos_is_ok": not self.strict_eos,
             "beam_size": self.beam_size,
         }
@@ -226,6 +262,7 @@ class TranscriptionOptions:
             "beam_size": self.beam_size,
             "instruments": list(self.instruments),
             "print_notes": self.print_notes,
+            "timing": self.timing.as_dict(),
         }
 
 

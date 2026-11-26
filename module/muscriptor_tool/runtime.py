@@ -3,14 +3,14 @@ from __future__ import annotations
 import importlib.metadata
 import io
 import sys
-from contextlib import nullcontext, redirect_stderr
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .adaptive_batch import AdaptiveBatchModelProxy
 from .batch_profiles import InsufficientVRAMError, get_batch_profile_catalog
-from .options import ModelVariant, TranscriptionOptions
+from .options import MidiTiming, ModelVariant, TranscriptionOptions
 
 
 class DeviceUnavailableError(RuntimeError):
@@ -65,8 +65,25 @@ class LoadedModel:
                 finally:
                     _relay_upstream_diagnostics(captured.getvalue(), sys.stderr)
 
-    def midi_bytes(self, events: Iterable[Any]) -> bytes:
-        return self.model.events_to_midi_bytes(iter(events))
+    def midi_bytes(self, events: Iterable[Any], **export_kwargs: Any) -> bytes:
+        return self.model.events_to_midi_bytes(iter(events), **export_kwargs)
+
+    def detect_beat_grid(self, source: Path, mode: bool | str, onsets: list[float]):
+        # torch.hub prints the first checkpoint download to stdout; keep MIDI/JSON pipes clean.
+        with redirect_stdout(sys.stderr):
+            grid = self.model.detect_beat_grid_for(source, mode)
+        return grid.with_onset_delay(onsets) if grid is not None else None
+
+    def export_midi(self, events: list[Any], beat_grid: Any, timing: MidiTiming, *, quantize: bool) -> tuple[bytes, bool]:
+        from muscriptor.utils.midi import ExportOptions, resolve_grid
+
+        export = ExportOptions(bpm=timing.bpm, tempo_map=timing.tempo_map, subdivision=timing.grid, quantize=quantize)
+        payload = self.midi_bytes(events, beat_grid=beat_grid, export=export)
+        snapped = False
+        if quantize and (beat_grid is not None or timing.bpm is not None):
+            onsets = [event.start_time for event in events if hasattr(event, "start_time")]
+            snapped = resolve_grid(beat_grid, export, onsets).beat_subdivision is not None
+        return payload, snapped
 
 
 def _relay_upstream_diagnostics(output: str, target: Any) -> None:
@@ -185,15 +202,6 @@ def _hf_download_progress(console: Any | None):
     return hf_download_reporting(console)
 
 
-def _optimize_attention(model: Any, package_version: str) -> int:
-    if package_version != "0.2.1":
-        return 0
-
-    from .attention import optimize_muscriptor_sdpa
-
-    return optimize_muscriptor_sdpa(model)
-
-
 def load_model(
     options: TranscriptionOptions,
     *,
@@ -227,14 +235,8 @@ def load_model(
     if console is not None:
         console.print(f"[green]Hugging Face model ready:[/green] {repo_id}")
 
-    optimized_layers = _optimize_attention(model, bindings.version)
-    if console is not None and optimized_layers:
-        console.print(
-            f"[green]MuScriptor optimized SDPA ready:[/green] {optimized_layers} attention layers"
-        )
-
     actual_device = str(getattr(model, "_device", resolved_device))
-    runtime_model = model
+    initial_auto_batch_size = None
     if actual_device.startswith("cuda:"):
         total_memory = _cuda_total_memory(bindings.torch, actual_device)
         initial_auto_batch_size = (
@@ -242,15 +244,14 @@ def load_model(
             if total_memory is not None
             else None
         )
-        runtime_model = AdaptiveBatchModelProxy(
+    return LoadedModel(
+        model=AdaptiveBatchModelProxy(
             model,
             options.batch_size,
             console=console,
             package_version=bindings.version,
             initial_auto_batch_size=initial_auto_batch_size,
-        )
-    return LoadedModel(
-        model=runtime_model,
+        ),
         package_version=bindings.version,
         requested_device=options.device,
         resolved_device=actual_device,

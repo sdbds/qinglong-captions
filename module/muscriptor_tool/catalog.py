@@ -1,6 +1,8 @@
 """Dependency-free MuScriptor catalogs used by the GUI."""
 
-MUSCRIPTOR_INSTRUMENT_CATALOG_VERSION = "0.2.1"
+from . import MUSCRIPTOR_VERSION
+
+MUSCRIPTOR_INSTRUMENT_CATALOG_VERSION = MUSCRIPTOR_VERSION
 
 # Snapshot of MT3_FULL_PLUS_GROUP_NAMES from the pinned official release.
 OFFICIAL_INSTRUMENT_NAMES = (

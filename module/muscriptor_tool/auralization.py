@@ -10,10 +10,11 @@ from typing import Any, Callable
 
 from module.music_export import atomic_output_path
 
+from . import MUSCRIPTOR_VERSION
 from .options import PreviewContent, PreviewFormat, PreviewRequest
 
 SAMPLE_RATE = 44100
-RENDERER_ID = "muscriptor-0.2.1:SF2_URL"
+RENDERER_ID = f"muscriptor-{MUSCRIPTOR_VERSION}:SF2_URL"
 
 
 class PreviewUnavailable(RuntimeError):

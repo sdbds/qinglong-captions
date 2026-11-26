@@ -10,6 +10,7 @@ from module.music_export import atomic_output_path
 from module.music_export.service import publish_staged_outputs
 from utils.file_hash import sha256_file
 
+from .auralization import RENDERER_ID
 from .options import BatchOptions
 
 SCHEMA_VERSION = 2
@@ -46,7 +47,7 @@ def run_signature(
     *,
     package_version: str,
     resolved_device: str,
-    renderer_id: str = "muscriptor-0.2.1:SF2_URL",
+    renderer_id: str = RENDERER_ID,
 ) -> str:
     stat = Path(item.source_path).stat()
     payload = {
@@ -67,6 +68,7 @@ def run_signature(
         "strict_eos": options.transcription.strict_eos,
         "beam_size": options.transcription.beam_size,
         "output_formats": sorted(item.value for item in options.output_formats),
+        "timing": options.transcription.timing.as_dict(),
         "preview": options.preview.as_dict() if options.preview else None,
         "renderer_id": renderer_id if options.preview else None,
     }
@@ -93,11 +95,28 @@ def is_item_complete(
 def _known_output_names(output_stem: str | None = None) -> set[str]:
     names = set(KNOWN_OUTPUT_NAMES)
     if output_stem:
-        names.add(f"{output_stem}.mid")
+        names.update({f"{output_stem}.mid", f"{output_stem}_quantized.mid", f"{output_stem}_sheets.zip"})
         # Preview files are named after the source item; include both formats
         # so disabling/changing preview mode removes stale artifacts.
         names.update({f"{output_stem}_preview.wav", f"{output_stem}_preview.mp3"})
     return names
+
+
+def recorded_output_names(metadata_path: Path, *, source: Path) -> set[str]:
+    """Only retire known artifact names previously published for this input."""
+    record = read_json(metadata_path)
+    if (
+        not record
+        or record.get("schema_version") not in (1, SCHEMA_VERSION)
+        or record.get("status") not in ("ok", "partial")
+        or record.get("source_path") != source.as_posix()
+    ):
+        return set()
+    outputs = record.get("outputs")
+    if not isinstance(outputs, dict):
+        return set()
+    known_names = _known_output_names(source.stem)
+    return {name for name in outputs.values() if isinstance(name, str) and name in known_names}
 
 
 def prune_known_outputs(

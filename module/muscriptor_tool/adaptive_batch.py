@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import gc
 import warnings
-from types import MethodType
-from typing import Any, Iterator
+from copy import copy
+from typing import Any, Callable, Iterator
 
+from . import MUSCRIPTOR_VERSION
 from .batch_profiles import reserve_bytes_for_total
 from .gpu_memory import SharedMemoryMonitor
 
@@ -22,7 +23,7 @@ class AdaptiveBatchModelProxy:
         batch_size: int | None,
         *,
         console: Any | None = None,
-        package_version: str = "0.2.1",
+        package_version: str = MUSCRIPTOR_VERSION,
         initial_auto_batch_size: int | None = None,
         shared_memory_monitor: SharedMemoryMonitor | None = None,
     ):
@@ -49,6 +50,7 @@ class AdaptiveBatchModelProxy:
     def transcribe(self, *args: Any, **kwargs: Any):
         if not self._uses_cuda():
             kwargs["batch_size"] = self._batch_size or 1
+            kwargs["prelude_forcing"] = kwargs["batch_size"] == 1
             return self._model.transcribe(*args, **kwargs)
 
         if self._resolved_auto_batch_size is None:
@@ -56,14 +58,50 @@ class AdaptiveBatchModelProxy:
                 "CUDA auto batch size must come from the recorded model profile"
             )
 
-        if self._package_version != "0.2.1" or not hasattr(
+        size = self._resolved_auto_batch_size
+        kwargs["prelude_forcing"] = size == 1
+        if size == 1 or self._package_version != MUSCRIPTOR_VERSION or not hasattr(
             self._model, "_generate_token_stream"
         ):
-            kwargs["batch_size"] = self._batch_size
+            kwargs["batch_size"] = size
+            if size == 1:
+                self._configure_allocator_limit()
             events = self._model.transcribe(*args, **kwargs)
         else:
             events = self._transcribe_cuda_auto(*args, **kwargs)
         return self._with_cuda_cleanup(events)
+
+    def transcribe_and_postprocess(self, *args: Any, **kwargs: Any):
+        # The blocking WebUI endpoint must call this proxy's transcribe too.
+        return type(self._model).transcribe_and_postprocess(self, *args, **kwargs)
+
+    def detect_beat_grid_for(self, audio: Any, mode: bool | str = "best-effort"):
+        if mode is False:
+            return None
+        reader = self._model
+        if self._uses_cuda():
+            import torch
+
+            # Upstream's audio loader uses _device, but Beat This! runs on CPU.
+            # A shallow wrapper shares the weights without changing their device.
+            reader = copy(self._model)
+            reader._device = torch.device("cpu")
+            if isinstance(audio, tuple):
+                waveform, sample_rate = audio
+                audio = (waveform.cpu(), sample_rate)
+        try:
+            return reader.detect_beat_grid_for(audio, mode)
+        except (ImportError, OSError, ValueError, RuntimeError) as exc:
+            # Beat This! reports an unavailable checkpoint as ValueError, not
+            # the BeatDetectionError the upstream CLI and HTTP API handle.
+            if mode == "best-effort":
+                warnings.warn(f"Beat detection unavailable: {exc}", RuntimeWarning, stacklevel=2)
+                return None
+            from muscriptor.utils.beats import BeatDetectionError
+
+            if isinstance(exc, BeatDetectionError):
+                raise
+            raise BeatDetectionError(str(exc)) from exc
 
     def _with_cuda_cleanup(self, events: Iterator[Any]) -> Iterator[Any]:
         try:
@@ -101,10 +139,10 @@ class AdaptiveBatchModelProxy:
     def _transcribe_cuda_auto(self, *args: Any, **kwargs: Any) -> Iterator[Any]:
         original = self._model._generate_token_stream
 
-        def adaptive_stream(model: Any, *stream_args: Any, **stream_kwargs: Any):
-            yield from self._adaptive_token_stream(model, *stream_args, **stream_kwargs)
+        def adaptive_stream(*stream_args: Any, **stream_kwargs: Any):
+            yield from self._adaptive_token_stream(original, *stream_args, **stream_kwargs)
 
-        self._model._generate_token_stream = MethodType(adaptive_stream, self._model)
+        self._model._generate_token_stream = adaptive_stream
         kwargs["batch_size"] = 1  # The adaptive stream ignores this placeholder.
         try:
             yield from self._model.transcribe(*args, **kwargs)
@@ -113,30 +151,17 @@ class AdaptiveBatchModelProxy:
 
     def _adaptive_token_stream(
         self,
-        model: Any,
+        generate: Callable[..., Iterator[Any]],
         all_conditions: list[Any],
         seek_times: list[float],
-        _batch_size: int,
-        max_gen_len: int,
-        use_sampling: bool,
-        temperature: float,
-        cfg_coef: float,
-        no_eos_is_ok: bool,
-        beam_size: int = 1,
+        batch_size: int,
+        *generation_args: Any,
     ) -> Iterator[Any]:
         if not seek_times:
             return
 
         self._configure_allocator_limit()
 
-        generation_args = (
-            max_gen_len,
-            use_sampling,
-            temperature,
-            cfg_coef,
-            no_eos_is_ok,
-            beam_size,
-        )
         batch_start = 0
 
         while batch_start < len(seek_times):
@@ -145,7 +170,7 @@ class AdaptiveBatchModelProxy:
                 len(seek_times) - batch_start,
             )
             items, actual_size, had_oom, used_shared_memory = self._run_with_oom_fallback(
-                model,
+                generate,
                 all_conditions,
                 seek_times,
                 batch_start,
@@ -208,7 +233,7 @@ class AdaptiveBatchModelProxy:
 
     def _run_with_oom_fallback(
         self,
-        model: Any,
+        generate: Callable[..., Iterator[Any]],
         all_conditions: list[Any],
         seek_times: list[float],
         batch_start: int,
@@ -223,7 +248,7 @@ class AdaptiveBatchModelProxy:
             shared_before = self._shared_memory_monitor.sample()
             try:
                 items = self._generate_batch_items(
-                    model,
+                    generate,
                     all_conditions,
                     seek_times,
                     batch_start,
@@ -253,85 +278,25 @@ class AdaptiveBatchModelProxy:
 
     @staticmethod
     def _generate_batch_items(
-        model: Any,
+        generate: Callable[..., Iterator[Any]],
         all_conditions: list[Any],
         seek_times: list[float],
         batch_start: int,
         batch_size: int,
-        max_gen_len: int,
-        use_sampling: bool,
-        temperature: float,
-        cfg_coef: float,
-        no_eos_is_ok: bool,
-        beam_size: int,
+        *generation_args: Any,
     ) -> list[Any]:
         from muscriptor.events import ChunkBoundary, ProgressEvent
 
-        eos_id = model._tokenizer.eos_id
-        num_chunks = len(seek_times)
-
-        def boundary(chunk_index: int) -> Any:
-            next_seek_time = (
-                seek_times[chunk_index + 1]
-                if chunk_index + 1 < num_chunks
-                else None
-            )
-            return ChunkBoundary(seek_times[chunk_index], next_seek_time)
-
-        batch_conditions = all_conditions[batch_start : batch_start + batch_size]
-        size = len(batch_conditions)
-        buffers: list[list[int]] = [[] for _ in range(size)]
-        done = [False] * size
-        active = 0
-        items: list[Any] = [boundary(batch_start)]
-
-        for step in model._model.generate(
-            conditions=batch_conditions,
-            max_gen_len=max_gen_len,
-            use_sampling=use_sampling,
-            temp=temperature,
-            top_k=0,
-            top_p=0.0,
-            cfg_coef=cfg_coef,
-            early_stop_on_token=eos_id,
-            beam_size=beam_size,
+        end = batch_start + batch_size
+        items = []
+        for item in generate(
+            all_conditions[batch_start:end], seek_times[batch_start:end], batch_size, *generation_args
         ):
-            row = step.tolist()
-            for index in range(size):
-                if done[index]:
-                    continue
-                token = row[index]
-                if token == eos_id:
-                    done[index] = True
-                elif index == active:
-                    items.append(token)
-                else:
-                    buffers[index].append(token)
-            while active < size and done[active]:
-                active += 1
-                if active < size:
-                    items.append(boundary(batch_start + active))
-                    items.extend(buffers[active])
-                    buffers[active] = []
-
-        for index in range(active, size):
-            if not done[index]:
-                chunk_index = batch_start + index
-                message = (
-                    f"chunk {chunk_index} (seek={seek_times[chunk_index]:.1f}s) "
-                    f"did not emit EOS within {max_gen_len} tokens"
-                )
-                if no_eos_is_ok:
-                    warnings.warn(message, RuntimeWarning, stacklevel=2)
-                else:
-                    raise RuntimeError(
-                        message + " (this is only raised under --strict-eos)"
-                    )
-            if index != active:
-                items.append(boundary(batch_start + index))
-                items.extend(buffers[index])
-
-        items.append(
-            ProgressEvent(completed=batch_start + size, total=num_chunks)
-        )
+            # Upstream sees one slice. Restore whole-song progress and the boundary
+            # that keeps notes from leaking into the next slice.
+            if isinstance(item, ProgressEvent):
+                item = ProgressEvent(batch_start + item.completed, len(seek_times))
+            elif isinstance(item, ChunkBoundary) and item.next_seek_time is None and end < len(seek_times):
+                item = ChunkBoundary(item.seek_time, seek_times[end])
+            items.append(item)
         return items

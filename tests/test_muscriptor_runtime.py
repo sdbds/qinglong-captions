@@ -66,7 +66,7 @@ def fake_bindings(*, cuda: bool = False, count: int = 0, total_memory: int | Non
         progress_event_type=type("ProgressEvent", (), {}),
         instrument_names=("piano", "drums"),
         instrument_resolver=lambda values: [str(value).lower() for value in values],
-        version="0.2.1",
+        version="0.4.0",
     )
 
 
@@ -81,7 +81,7 @@ def test_load_model_passes_only_official_variant():
     assert FakeModelClass.calls == [{"weights_path": "small", "device": "cpu"}]
     assert loaded.requested_device == "cpu"
     assert loaded.resolved_device == "cpu"
-    assert loaded.package_version == "0.2.1"
+    assert loaded.package_version == "0.4.0"
 
 
 def test_load_model_uses_project_rich_hugging_face_reporting(monkeypatch):
@@ -102,7 +102,6 @@ def test_load_model_uses_project_rich_hugging_face_reporting(monkeypatch):
 
     console = FakeConsole()
     monkeypatch.setattr(runtime, "_hf_download_progress", fake_download_progress)
-    monkeypatch.setattr(runtime, "_optimize_attention", lambda *_args: 0)
 
     runtime.load_model(
         TranscriptionOptions(model=ModelVariant.MEDIUM, device="cpu"),
@@ -115,67 +114,6 @@ def test_load_model_uses_project_rich_hugging_face_reporting(monkeypatch):
         "[cyan]Resolving Hugging Face model:[/cyan] MuScriptor/muscriptor-medium",
         "[green]Hugging Face model ready:[/green] MuScriptor/muscriptor-medium",
     ]
-
-
-def test_load_model_reports_optimized_sdpa_layers(monkeypatch):
-    from module.muscriptor_tool import runtime
-
-    messages: list[str] = []
-    console = SimpleNamespace(print=lambda message: messages.append(str(message)))
-    monkeypatch.setattr(runtime, "_optimize_attention", lambda *_args: 48)
-
-    runtime.load_model(
-        TranscriptionOptions(model=ModelVariant.LARGE, device="cpu"),
-        upstream=fake_bindings(),
-        console=console,
-    )
-
-    assert messages[-1] == (
-        "[green]MuScriptor optimized SDPA ready:[/green] 48 attention layers"
-    )
-
-
-def test_attention_mask_strategy_removes_only_mathematically_redundant_masks():
-    from module.muscriptor_tool.attention import attention_mask_strategy
-
-    assert attention_mask_strategy(1, 1) == "unmasked"
-    assert attention_mask_strategy(512, 512) == "causal"
-    assert attention_mask_strategy(1, 2_000) == "unmasked"
-    assert attention_mask_strategy(4, 512) == "bottom_right"
-
-
-def test_optimized_sdpa_matches_upstream_prefill_and_kv_decode():
-    import copy
-
-    torch = pytest.importorskip("torch")
-    pytest.importorskip("muscriptor")
-    from muscriptor.modules.streaming import increment_steps, init_states
-    from muscriptor.modules.transformer import StreamingMultiheadAttention
-
-    from module.muscriptor_tool.attention import optimize_muscriptor_sdpa
-
-    torch.manual_seed(7)
-    original = StreamingMultiheadAttention(32, 4, device="cpu", dtype=torch.float32)
-    optimized = copy.deepcopy(original)
-    wrapped = SimpleNamespace(
-        _model=SimpleNamespace(
-            transformer=SimpleNamespace(
-                layers=[SimpleNamespace(self_attn=optimized)],
-            )
-        )
-    )
-    assert optimize_muscriptor_sdpa(wrapped) == 1
-    assert optimize_muscriptor_sdpa(wrapped) == 0
-
-    original_state = init_states(original, batch_size=2, sequence_length=16)
-    optimized_state = init_states(optimized, batch_size=2, sequence_length=16)
-    for query_length in (4, 1, 2):
-        query = torch.randn(2, query_length, 32)
-        expected = original(query, model_state=original_state)
-        actual = optimized(query, model_state=optimized_state)
-        torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-5)
-        increment_steps(original, original_state, increment=query_length)
-        increment_steps(optimized, optimized_state, increment=query_length)
 
 
 def test_auto_device_resolves_cuda_zero_when_available():
@@ -254,12 +192,9 @@ def test_loaded_model_forwards_normalized_transcription_options():
             calls.append(kwargs)
             return iter(())
 
-        def events_to_midi_bytes(self, events):
-            return b"MThd" + bytes([len(list(events))])
-
     loaded = LoadedModel(
         model=Model(),
-        package_version="0.2.1",
+        package_version="0.4.0",
         requested_device="cpu",
         resolved_device="cpu",
         progress_event_type=type("ProgressEvent", (), {}),
@@ -269,7 +204,6 @@ def test_loaded_model_forwards_normalized_transcription_options():
     assert list(loaded.transcribe(SimpleNamespace(), options)) == []
     assert calls[0]["instruments"] == ["piano"]
     assert calls[0]["cfg_coef"] == 1.25
-    assert loaded.midi_bytes(()) == b"MThd\x00"
 
 
 def test_loaded_model_filters_native_timing_noise_but_preserves_other_stderr(capsys):
@@ -283,7 +217,7 @@ def test_loaded_model_filters_native_timing_noise_but_preserves_other_stderr(cap
 
     loaded = LoadedModel(
         model=Model(),
-        package_version="0.2.1",
+        package_version="0.4.0",
         requested_device="cpu",
         resolved_device="cpu",
         progress_event_type=type("ProgressEvent", (), {}),
@@ -311,7 +245,7 @@ def test_loaded_model_closes_upstream_generator_when_consumer_stops_early(capsys
 
     loaded = LoadedModel(
         model=Model(),
-        package_version="0.2.1",
+        package_version="0.4.0",
         requested_device="cpu",
         resolved_device="cpu",
         progress_event_type=type("ProgressEvent", (), {}),

@@ -62,7 +62,7 @@ def test_mp3_comparison_probe_uses_real_stereo_write_and_official_sf2(tmp_path: 
     assert fake_sf.written_path.suffix == ".mp3"
     assert fake_sf.written_shape == (32, 2)
     assert runtime.soundfont_path == sf2
-    assert runtime.renderer_id == "muscriptor-0.2.1:SF2_URL"
+    assert runtime.renderer_id == "muscriptor-0.4.0:SF2_URL"
 
 
 def test_codec_failure_short_circuits_before_fluidsynth_or_sf2():

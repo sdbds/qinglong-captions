@@ -4,6 +4,7 @@
 
 ## 未发布
 
+- [MuScriptor](docs/tools/muscriptor.md) 升级至 0.4.0，沿用现有三档转录权重。音乐转录可一次输出带速度图的 MIDI、量化 MIDI、MusicXML 和 PDF 谱面；音频分轨仍保留原时间轴。
 - 新增 [OCRia-nano-1](docs/configuration.md#ocria-nano-1)：命令行和 GUI 均可在 CPU 上将 PDF、扫描图识别为 Markdown，权重按需单独安装。
 - 图片与 PDF 的 OvisOCR 默认模型升级为 OvisOCR3。CLI 新增 `ovis_ocr3` 别名，保留原有配置、安装命令和可选的 OvisOCR2 权重。见[配置说明](docs/configuration.md#ovisocr3)。
 
