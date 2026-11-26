@@ -14,6 +14,7 @@ from module.wdtagger.model_defaults import (
     HARUKA_REPO_ID,
     HARUKA_THRESHOLDS,
     PIXAI_REPO_ID,
+    PIXAI_SOURCE_REPO_ID,
     PIXAI_THRESHOLDS,
     default_cl_tagger_v2_threshold,
     is_cl_tagger_v2_repo,
@@ -30,6 +31,7 @@ class TaggerStep:
     DEFAULT_MODELS = [
         HARUKA_REPO_ID,
         PIXAI_REPO_ID,
+        PIXAI_SOURCE_REPO_ID,
         "cella110n/cl_tagger",
         "cella110n/cl_tagger_v2",
         "SmilingWolf/wd-eva02-large-tagger-v3",

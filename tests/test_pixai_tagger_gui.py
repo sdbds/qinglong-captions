@@ -30,6 +30,7 @@ def test_tagger_page_renders_and_switches_models_without_inference_dependencies(
         try:
             for repo_id in ("bdsqlsz/pixai-tagger-v1.0-ONNX", "pixai-labs/pixai-tagger-v1.0"):
                 step.repo_id.set_value(repo_id)
+                assert step.repo_id.value == repo_id, (repo_id, step.repo_id.value)
                 assert step.config["batch_size"] == 1
                 assert step.config["general_threshold"] == 0.17
                 assert not step.general_threshold_row.visible
@@ -80,6 +81,7 @@ def test_selecting_pixai_applies_category_defaults_and_small_batch(monkeypatch):
 @pytest.mark.parametrize("use_model_defaults", [True, False])
 @pytest.mark.parametrize("repo,category", [
     ("bdsqlsz/pixai-tagger-v1.0-ONNX", "style"),
+    ("pixai-labs/pixai-tagger-v1.0", "style"),
     ("KaraKaraWitch/haruka-tagger-large", "year"),
 ])
 def test_gui_launch_preserves_model_specific_thresholds(monkeypatch, tmp_path, use_model_defaults, repo, category):
@@ -107,6 +109,8 @@ def test_gui_launch_preserves_model_specific_thresholds(monkeypatch, tmp_path, u
     step.panel = SimpleNamespace(run_job=run_job)
     asyncio.run(step._start_tagging())
     assert calls[0][0] == "utils.wdtagger"
+    assert f"--repo_id={repo}" in calls[0][1]
+    assert "--batch_size=1" in calls[0][1]
     if use_model_defaults:
         assert not any("_threshold=" in arg for arg in calls[0][1])
     else:
@@ -154,6 +158,7 @@ def test_rendered_model_select_dispatches_repository_value(monkeypatch):
 
 @pytest.mark.parametrize("repo,profile", [
     ("bdsqlsz/pixai-tagger-v1.0-ONNX", "wdtagger-pixai"),
+    ("pixai-labs/pixai-tagger-v1.0", "wdtagger-pixai"),
     ("KaraKaraWitch/haruka-tagger-large", "onnx-base"),
 ])
 def test_runtime_selects_onnx_profile_without_legacy_opencv(repo, profile):
