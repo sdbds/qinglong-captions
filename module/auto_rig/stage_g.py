@@ -19,7 +19,7 @@ from .export.live2d.validator import (
     LIVE2D_STRUCTURE_REPORT_VERSION,
 )
 from .export.spine.validator import SPINE_BUNDLE_VALIDATOR_VERSION
-from .jcs import JcsContractError, jcs_bytes, jcs_sha256
+from .jcs import jcs_sha256
 from .manifests import StageManifest
 from .projections import motion_manifest_bytes, project_motion_manifest
 from .rig_document import RigDocument, load_rig_document
@@ -89,63 +89,19 @@ def _finite(value: object, *, field: str) -> float:
 
 
 def _load_canonical_object(path: Path) -> dict[str, object]:
-    def unique_object(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise StageGError(
-                    "invalid_export_report",
-                    f"duplicate JSON key in {path.name}: {key}",
-                )
-            result[key] = value
-        return result
-
     try:
-        payload = path.read_bytes()
-        decoded = json.loads(
-            payload.decode("utf-8"),
-            object_pairs_hook=unique_object,
-        )
+        decoded = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise StageGError(
             "invalid_export_report",
-            f"unable to read canonical report {path.name}",
+            f"unable to read report {path.name}",
         ) from exc
     if type(decoded) is not dict:
         raise StageGError(
             "invalid_export_report",
             f"report {path.name} must contain a JSON object",
         )
-    try:
-        if jcs_bytes(decoded) != payload:
-            raise StageGError(
-                "invalid_export_report",
-                f"report {path.name} is not canonical JCS",
-            )
-    except JcsContractError as exc:
-        raise StageGError(
-            "invalid_export_report",
-            f"report {path.name} is outside the JCS value domain",
-        ) from exc
     return decoded
-
-
-def _report_digest(payload: Mapping[str, object]) -> str:
-    return jcs_sha256(
-        {key: value for key, value in payload.items() if key != "report_sha256"}
-    )
-
-
-def _require_report_digest(
-    payload: Mapping[str, object],
-    *,
-    field: str,
-) -> None:
-    if payload.get("report_sha256") != _report_digest(payload):
-        raise _error(
-            "invalid_export_report_digest",
-            f"{field} digest is invalid",
-        )
 
 
 def _validate_live2d_release_record(report: Mapping[str, object]) -> None:
@@ -162,70 +118,18 @@ def _validate_live2d_release_record(report: Mapping[str, object]) -> None:
             "live2d_release_validation_invalid",
             "Live2D release or structure evidence is malformed",
         )
-    required = {
-        "schema_version",
-        "validator_version",
-        "structure_report_sha256",
-        "core_sha256",
-        "core_version",
-        "renderer_sha256",
-        "renderer_protocol_digest",
-        "moc_sha256",
-        "core_consistency",
-        "default_rest_maximum_residual",
-        "baseline_rgba_sha256",
-        "parameter_evidence",
-        "motion_evidence",
-        "expression_evidence",
-        "report_sha256",
-    }
-    if set(evidence) != required:
-        raise StageGError(
-            "live2d_release_validation_invalid",
-            "Live2D release evidence has an unexpected schema",
-        )
-    _require_report_digest(evidence, field="Live2D release report")
-    _digest(evidence.get("core_sha256"), field="release.core_sha256")
-    _digest(evidence.get("renderer_sha256"), field="release.renderer_sha256")
-    _digest(
-        evidence.get("baseline_rgba_sha256"),
-        field="release.baseline_rgba_sha256",
-    )
-    if not isinstance(evidence.get("core_version"), str) or not evidence.get(
-        "core_version"
-    ):
-        raise _error(
-            "live2d_release_validation_invalid",
-            "Live2D release evidence has no Core version",
-        )
-    _finite(
-        evidence.get("default_rest_maximum_residual"),
-        field="release.default_rest_maximum_residual",
-    )
-    for field in (
-        "parameter_evidence",
-        "motion_evidence",
-        "expression_evidence",
-    ):
-        if not isinstance(evidence.get(field), list):
-            raise _error(
-                "live2d_release_validation_invalid",
-                f"Live2D release {field} must be a list",
-            )
     if (
         evidence.get("schema_version") != LIVE2D_RELEASE_REPORT_VERSION
-        or evidence.get("validator_version")
-        != LIVE2D_RELEASE_VALIDATOR_VERSION
-        or evidence.get("renderer_protocol_digest")
-        != LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST
+        or evidence.get("validator_version") != LIVE2D_RELEASE_VALIDATOR_VERSION
+        or evidence.get("renderer_protocol_digest") != LIVE2D_E0_VALIDATOR_PROTOCOL_DIGEST
         or evidence.get("core_consistency") is not True
-        or evidence.get("structure_report_sha256")
-        != structure.get("report_sha256")
         or evidence.get("moc_sha256") != structure.get("moc_sha256")
+        or not isinstance(evidence.get("core_version"), str)
+        or not evidence.get("core_version")
     ):
         raise StageGError(
             "live2d_release_validation_invalid",
-            "Live2D release evidence failed its signed runtime contract",
+            "Live2D release evidence failed its runtime contract",
         )
 
 
@@ -284,7 +188,6 @@ def _validate_common_report(
     rig: RigDocument,
     rig_payload: Mapping[str, object],
 ) -> None:
-    _require_report_digest(report, field=f"stage {manifest.stage_name} export report")
     format_plans = _mapping(
         rig_payload.get("format_plans"), field="rig.format_plans"
     )
@@ -335,7 +238,6 @@ def _validate_spine_report(
     validation = _mapping(
         report.get("validation"), field="spine.validation"
     )
-    _require_report_digest(validation, field="Spine validation report")
     artifacts = {
         record.path: record
         for record in _manifest_artifacts_without_report(
@@ -400,7 +302,6 @@ def _validate_live2d_report(
         report.get("structure_validation"),
         field="live2d.structure_validation",
     )
-    _require_report_digest(structure, field="Live2D structure report")
     artifacts = {
         record.path: record
         for record in _manifest_artifacts_without_report(

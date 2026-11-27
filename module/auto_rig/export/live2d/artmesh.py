@@ -33,7 +33,6 @@ class Live2DPartPlan:
     export_name: str
     draw_rank: int
     setup_opacity: float
-    symbol_sha256: str
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -41,7 +40,6 @@ class Live2DPartPlan:
             "export_name": self.export_name,
             "draw_rank": self.draw_rank,
             "setup_opacity": self.setup_opacity,
-            "symbol_sha256": self.symbol_sha256,
         }
 
 
@@ -52,7 +50,6 @@ class Live2DArtMeshPlanRecord:
     component_id: str
     primitive_target_id: str
     export_name: str
-    symbol_sha256: str
     parent_instance_id: str | None
     texture_index: int
     draw_order: int
@@ -68,7 +65,6 @@ class Live2DArtMeshPlanRecord:
             "component_id": self.component_id,
             "primitive_target_id": self.primitive_target_id,
             "export_name": self.export_name,
-            "symbol_sha256": self.symbol_sha256,
             "parent_instance_id": self.parent_instance_id,
             "texture_index": self.texture_index,
             "draw_order": self.draw_order,
@@ -153,7 +149,6 @@ def _assemble(
                 export_name=symbol.export_name,
                 draw_rank=rank,
                 setup_opacity=float(visibility),
-                symbol_sha256=symbol.symbol_sha256,
             )
         )
         part_by_id[part_id] = raw
@@ -265,7 +260,6 @@ def _assemble(
                 component_id=component_id,
                 primitive_target_id=attachment.primitive_target_id,
                 export_name=symbol.export_name,
-                symbol_sha256=symbol.symbol_sha256,
                 parent_instance_id=attachment.parent_instance_id,
                 texture_index=page_index,
                 draw_order=draw_order,
@@ -316,11 +310,13 @@ def validate_live2d_artmesh_plan(
     if not isinstance(plan, Live2DArtMeshPlan):
         raise _error("ArtMesh plan has the wrong type")
     validate_rig_document(rig)
-    validate_live2d_symbol_view(symbols)
-    if plan != _assemble(rig, symbols, bindings, coordinates):
-        raise _error("ArtMesh plan differs from the canonical Rig projection")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("ArtMesh plan digest mismatch")
+    if (
+        plan.rig_document_sha256 != rig.document_sha256
+        or plan.symbol_view_sha256 != symbols.view_sha256
+        or plan.binding_plan_sha256 != bindings.plan_sha256
+        or plan.coordinate_plan_sha256 != coordinates.plan_sha256
+    ):
+        raise _error("ArtMesh plan provenance differs from canonical Rig inputs")
     return plan
 
 

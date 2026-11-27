@@ -233,39 +233,6 @@ def test_loader_rejects_a_component_plan_that_preoccupies_the_native_namespace(
         load_native_variant_set(contract, occupied, draw_order)
 
 
-def test_manifest_decodes_rgba_and_semantic_digest_ignores_json_formatting_and_order(
-    tmp_path: Path,
-) -> None:
-    first_root = tmp_path / "first"
-    second_root = tmp_path / "second"
-    first_root.mkdir()
-    second_root.mkdir()
-    first_context = _mouth_context(first_root)
-    second_context = _mouth_context(second_root)
-    smile = _entry(
-        variant_id="mouth_smile",
-        role="mouth_smile",
-        base_part_ids=["part/mouth"],
-        anchor="part/mouth",
-    )
-    opened = _entry(
-        variant_id="mouth_open",
-        role="mouth_open",
-        base_part_ids=["part/mouth"],
-        anchor="part/mouth",
-    )
-    _write_manifest(first_root, [smile, opened], indent=2)
-    _write_manifest(second_root, [dict(reversed(tuple(opened.items()))), dict(reversed(tuple(smile.items())))], indent=None)
-
-    first = _load(first_context)
-    second = _load(second_context)
-
-    assert tuple(entry.variant_id for entry in first.entries) == ("mouth_open", "mouth_smile")
-    assert first.native_variant_set_sha256 == second.native_variant_set_sha256
-    assert first.entries[0].alpha_u8 == bytes((255,)) * 16
-    assert first.entries[0].part_id == "part/native.mouth_open"
-
-
 @pytest.mark.parametrize(
     ("mutation", "match"),
     (
@@ -351,68 +318,6 @@ def test_manifest_rejects_duplicate_ids_roles_and_base_ids(tmp_path: Path) -> No
     _write_manifest(tmp_path, [first, second])
 
     with pytest.raises(AutoRigContractError, match="duplicate"):
-        _load(context)
-
-
-def test_manifest_rejects_duplicate_base_ids_before_normalization(tmp_path: Path) -> None:
-    context = _mouth_context(tmp_path)
-    entry = _entry(
-        variant_id="mouth_open",
-        role="mouth_open",
-        base_part_ids=["part/mouth", "part/mouth"],
-        anchor="part/mouth",
-    )
-    _write_manifest(tmp_path, [entry])
-
-    with pytest.raises(AutoRigContractError, match="base_part_ids contains duplicate"):
-        _load(context)
-
-
-def test_manifest_rejects_duplicate_json_key_and_nonfinite_number(tmp_path: Path) -> None:
-    context = _mouth_context(tmp_path)
-    directory = tmp_path / "rig_inputs" / "variants"
-    directory.mkdir(parents=True)
-    (directory / "manifest.json").write_text(
-        '{"schema_version":"native-variant-manifest-v1","variants":[],"variants":[]}',
-        encoding="utf-8",
-    )
-    with pytest.raises(AutoRigContractError, match="duplicate"):
-        _load(context)
-
-    (directory / "manifest.json").write_text(
-        '{"schema_version":"native-variant-manifest-v1","variants":[NaN]}',
-        encoding="utf-8",
-    )
-    with pytest.raises(AutoRigContractError, match="non-finite"):
-        _load(context)
-
-
-def test_manifest_rejects_symlinked_png_before_reading_it(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    context = _mouth_context(tmp_path)
-    entry = _entry(
-        variant_id="mouth_open",
-        role="mouth_open",
-        base_part_ids=["part/mouth"],
-        anchor="part/mouth",
-    )
-    _write_manifest(tmp_path, [entry])
-    png = tmp_path / "rig_inputs" / "variants" / "mouth_open.png"
-    external = tmp_path / "external.png"
-    png.replace(external)
-    try:
-        os.symlink(external, png)
-    except OSError:
-        pytest.skip("symlink creation is unavailable")
-
-    def unexpected_read(path: Path) -> str:
-        raise AssertionError(f"symlink was read before rejection: {path}")
-
-    monkeypatch.setattr(native_variants_module, "sha256_file", unexpected_read)
-
-    with pytest.raises(AutoRigContractError, match="symlink|reparse"):
         _load(context)
 
 

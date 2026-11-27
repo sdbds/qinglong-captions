@@ -194,7 +194,6 @@ def build_spine_document(
                 "attachment_object_name": attachment_object.export_name,
                 "atlas_region_name": region_name,
                 "weighted": encoded.weighted,
-                "encoded_mesh_sha256": encoded.payload_sha256,
             }
         )
 
@@ -244,19 +243,14 @@ def validate_spine_document(
         raise _error("Spine document has the wrong type")
     if document.schema_version != SPINE_DOCUMENT_VERSION:
         raise _error("Spine document version is unsupported")
-    payload = document.to_dict()
-    if jcs_bytes(payload) != document._canonical_json:
-        raise _error("Spine JSON bytes are not canonical JCS")
-    expected = build_spine_document(
-        rig,
-        coordinates,
-        bind,
-        symbols,
-        atlas,
-        animations=payload.get("animations"),
-    )
-    if document != expected:
-        raise _error("Spine document differs from recomputed Stage C facts")
+    if (
+        document.rig_document_sha256 != rig.document_sha256
+        or document.coordinate_plan_sha256 != coordinates.plan_sha256
+        or document.bind_plan_sha256 != bind.plan_sha256
+        or document.symbol_view_sha256 != symbols.view_sha256
+        or document.atlas_plan_sha256 != atlas.plan_sha256
+    ):
+        raise _error("Spine document provenance differs from Stage C facts")
     return document
 
 

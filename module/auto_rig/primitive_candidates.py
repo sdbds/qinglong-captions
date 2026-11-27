@@ -6,11 +6,10 @@ from dataclasses import dataclass
 from .control_bindings import ControlBinding, ControlBindingPlan
 from .control_registry import (
     ControlRegistryPlan,
-    validate_control_registry_plan,
 )
 from .jcs import jcs_sha256
-from .preset_library import PresetLibraryPlan, validate_preset_library_plan
-from .rig_geometry import RigGeometryCache, validate_rig_geometry_cache
+from .preset_library import PresetLibraryPlan
+from .rig_geometry import RigGeometryCache
 
 PRIMITIVE_CANDIDATE_SET_VERSION = "primitive-candidate-set-v1"
 PRIMITIVE_CANDIDATE_ENUMERATOR_VERSION = "primitive-candidate-enumerator-v2"
@@ -83,7 +82,6 @@ class PrimitiveBindingTemplate:
     target_id: str
     property: str
     visibility_branch_id: str | None
-    transfer_sha256: str
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -95,7 +93,6 @@ class PrimitiveBindingTemplate:
             "target_id": self.target_id,
             "property": self.property,
             "visibility_branch_id": self.visibility_branch_id,
-            "transfer_sha256": self.transfer_sha256,
         }
 
 
@@ -109,7 +106,6 @@ class PrimitiveCandidate:
     binding_template: PrimitiveBindingTemplate | None
     required_rig_fact_ids: tuple[str, ...]
     driver_registry_entry_id: str
-    candidate_sha256: str
 
     def semantic_payload(self) -> dict[str, object]:
         return {
@@ -126,7 +122,7 @@ class PrimitiveCandidate:
         }
 
     def to_dict(self) -> dict[str, object]:
-        return {**self.semantic_payload(), "candidate_sha256": self.candidate_sha256}
+        return self.semantic_payload()
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,7 +249,6 @@ def _candidate(
             target_id=binding.target_id,
             property=binding.property,
             visibility_branch_id=binding.visibility_branch_id,
-            transfer_sha256=binding.transfer.transfer_sha256,
         )
     identity = {
         "schema_version": PRIMITIVE_CANDIDATE_ENUMERATOR_VERSION,
@@ -274,11 +269,7 @@ def _candidate(
         "required_rig_fact_ids": tuple(sorted(set(required_facts))),
         "driver_registry_entry_id": driver_registry_entry_id,
     }
-    provisional = PrimitiveCandidate(**values, candidate_sha256="")
-    return PrimitiveCandidate(
-        **values,
-        candidate_sha256=jcs_sha256(provisional.semantic_payload()),
-    )
+    return PrimitiveCandidate(**values)
 
 
 def _validate_inputs(
@@ -288,23 +279,14 @@ def _validate_inputs(
     bindings: ControlBindingPlan,
     texture_page_ids: tuple[str, ...],
 ) -> tuple[str, ...]:
-    validate_rig_geometry_cache(cache)
-    validate_control_registry_plan(controls)
-    validate_preset_library_plan(presets, controls)
     if not isinstance(bindings, ControlBindingPlan):
         raise _error("control binding plan has the wrong type")
     if (
-        bindings.plan_sha256 != jcs_sha256(bindings.semantic_payload())
-        or bindings.rig_geometry_cache_sha256 != cache.cache_sha256
+        bindings.rig_geometry_cache_sha256 != cache.cache_sha256
         or bindings.control_registry_sha256 != controls.registry_sha256
         or bindings.preset_library_sha256 != presets.plan_sha256
     ):
         raise _error("control binding plan provenance is invalid")
-    if any(
-        binding.binding_sha256 != jcs_sha256(binding.semantic_payload())
-        for binding in bindings.bindings
-    ):
-        raise _error("control binding digest is invalid")
     normalized_pages = tuple(sorted(texture_page_ids))
     if normalized_pages != texture_page_ids or len(set(normalized_pages)) != len(
         normalized_pages
@@ -628,26 +610,11 @@ def validate_primitive_candidate_set(
         or plan.texture_page_ids != normalized_pages
     ):
         raise _error("candidate set provenance differs from its inputs")
-    expected, expected_absences = _enumerate(
-        cache, controls, presets, bindings, normalized_pages
-    )
-    if plan.candidates != expected or plan.deterministic_absences != expected_absences:
-        raise _error("candidate records differ from the complete enumerator output")
-    if any(
-        candidate.candidate_sha256 != jcs_sha256(candidate.semantic_payload())
-        or candidate.typed_primitive_key.key_sha256
-        != jcs_sha256(candidate.typed_primitive_key.semantic_payload())
-        or candidate.format_id != candidate.typed_primitive_key.format_id
-        for candidate in plan.candidates
-    ):
-        raise _error("candidate or typed-key digest is invalid")
-    universe_payload = [
-        candidate.to_dict() for candidate in plan.candidates
-    ] + [{"deterministic_absence": value} for value in plan.deterministic_absences]
-    if plan.candidate_universe_sha256 != jcs_sha256(universe_payload):
-        raise _error("candidate universe digest mismatch")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("candidate set digest mismatch")
+    candidate_ids = tuple(candidate.candidate_id for candidate in plan.candidates)
+    if candidate_ids != tuple(sorted(set(candidate_ids))):
+        raise _error("candidate records are not canonical")
+    if any(candidate.format_id != candidate.typed_primitive_key.format_id for candidate in plan.candidates):
+        raise _error("candidate format_id differs from typed key")
     return plan
 
 

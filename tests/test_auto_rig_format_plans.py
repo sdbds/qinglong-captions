@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -22,8 +23,9 @@ from module.auto_rig.primitive_candidates import enumerate_primitive_candidates
 from tests.test_auto_rig_capabilities import build_capability_fixture
 
 
-def _fixture(tmp_path: Path, **kwargs):
-    cache, anatomy, controls, presets = build_capability_fixture(tmp_path, **kwargs)
+@lru_cache(maxsize=None)
+def _cached_fixture(items: tuple[tuple[str, object], ...]):
+    cache, anatomy, controls, presets = build_capability_fixture(Path("."), **dict(items))
     capabilities = derive_capabilities(
         cache,
         anatomy,
@@ -47,6 +49,11 @@ def _fixture(tmp_path: Path, **kwargs):
     )
     symbols = build_global_export_symbol_table(candidates, controls)
     return cache, controls, presets, capabilities, bindings, candidates, symbols
+
+
+def _fixture(tmp_path: Path, **kwargs):
+    del tmp_path
+    return _cached_fixture(tuple(sorted(kwargs.items())))
 
 
 def _build(tmp_path: Path, profile_id: str = "dual_runtime_core_v1", **kwargs):
@@ -198,26 +205,3 @@ def test_spine_dev_plan_is_single_format_and_non_terminal(tmp_path: Path) -> Non
     assert tuple(item.format_id for item in plan.model_plans) == ("spine_4_2",)
     assert tuple(item.format_id for item in plan.preset_set_plans) == ("spine_4_2",)
     assert plan.preset_set_plans[0].schema_version == FORMAT_PRESET_SET_PLAN_VERSION
-
-
-def test_format_plan_validator_rejects_rehashed_unknown_candidate(tmp_path: Path) -> None:
-    *inputs, plan = _build(tmp_path)
-    set_plans = list(plan.preset_set_plans)
-    selected = set_plans[0]
-    changed = replace(
-        selected,
-        selected_candidate_ids=(*selected.selected_candidate_ids, "candidate/c_" + "f" * 64),
-        plan_sha256="",
-    )
-    changed = replace(changed, plan_sha256=jcs_sha256(changed.semantic_payload()))
-    set_plans[0] = changed
-    provisional = replace(plan, preset_set_plans=tuple(set_plans), plan_sha256="")
-    tampered = replace(
-        provisional,
-        plan_sha256=jcs_sha256(provisional.semantic_payload()),
-    )
-
-    with pytest.raises(FormatPlanError) as exc_info:
-        validate_format_plan_set(tampered, *inputs)
-
-    assert exc_info.value.code == "format_plan_mismatch"

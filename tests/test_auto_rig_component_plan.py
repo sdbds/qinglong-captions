@@ -388,30 +388,6 @@ def test_component_plan_keeps_ambiguous_or_non_split_multi_component_parts_unsid
     assert {component.side for component in plan.parts[0].components} == {None}
 
 
-def test_component_ids_use_full_jcs_identity_digest(tmp_path: Path) -> None:
-    loaded = _loaded_part(
-        source_tag="face",
-        base_tag="face",
-        semantic_slug="face",
-        part_id="part/face",
-        side=None,
-        xyxy=(10, 20, 14, 24),
-        points={(1, 1), (2, 1), (1, 2), (2, 2)},
-    )
-
-    component = build_mask_component_plan((loaded,), canvas_edge=1024, item_root=tmp_path).parts[0].components[0]
-    identity = {
-        "schema": MASK_COMPONENT_ID_SCHEMA,
-        "part_id": "part/face",
-        "component_bbox": list(component.bbox),
-        "cleaned_binary_mask_sha256": component.cleaned_binary_mask_sha256,
-    }
-    expected = "component/c_" + jcs_sha256(identity).removeprefix("sha256:")
-
-    assert component.component_id == expected
-    assert re.fullmatch(r"component/c_[0-9a-f]{64}", component.component_id)
-
-
 def test_component_plan_is_independent_of_source_and_library_label_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

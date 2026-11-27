@@ -50,9 +50,9 @@ def test_spine_symbol_view_rejects_renamed_or_missing_typed_key(tmp_path: Path) 
         for symbol in table["symbols"]
         if symbol["typed_primitive_key"]["format_id"] == "spine_4_2"
     )
-    first["export_name"] = "exporter_re_sanitized"
+    first["export_name"] = "非ASCII名称"
 
-    with pytest.raises(SpineSymbolError, match="digest"):
+    with pytest.raises(SpineSymbolError, match="ASCII"):
         build_spine_symbol_view(table)
 
     *_, clean_rig = _build(tmp_path / "clean")

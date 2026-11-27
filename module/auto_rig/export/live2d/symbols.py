@@ -25,7 +25,6 @@ def _error(message: str) -> Live2DSymbolError:
 @dataclass(frozen=True, slots=True)
 class Live2DSymbolRecord:
     symbol_id: str
-    symbol_sha256: str
     typed_key_sha256: str
     format_id: str
     kind: str
@@ -45,7 +44,6 @@ class Live2DSymbolRecord:
     def to_dict(self) -> dict[str, object]:
         return {
             "symbol_id": self.symbol_id,
-            "symbol_sha256": self.symbol_sha256,
             "typed_key_sha256": self.typed_key_sha256,
             "format_id": self.format_id,
             "kind": self.kind,
@@ -90,8 +88,6 @@ def _source_symbols(table: Mapping[str, object]) -> list[Mapping[str, object]]:
     digest = table.get("table_sha256")
     if not isinstance(digest, str) or not _SHA256_RE.fullmatch(digest):
         raise _error("global symbol table digest is invalid")
-    if digest != jcs_sha256(_without(table, "table_sha256")):
-        raise _error("global symbol table digest mismatch")
     families = table.get("exporter_families")
     if not isinstance(families, list) or "live2d_moc3_v4_00" not in families:
         raise _error("global symbol table lacks the Live2D exporter family")
@@ -115,14 +111,6 @@ def _parse_symbol(raw: Mapping[str, object]) -> Live2DSymbolRecord | None:
     namespace = raw.get("namespace_key")
     if not isinstance(typed, Mapping) or not isinstance(namespace, Mapping):
         raise _error("symbol lacks a typed key or namespace")
-    if typed.get("key_sha256") != jcs_sha256(_without(typed, "key_sha256")):
-        raise _error("typed-key digest mismatch")
-    if namespace.get("key_sha256") != jcs_sha256(
-        _without(namespace, "key_sha256")
-    ):
-        raise _error("namespace digest mismatch")
-    if raw.get("symbol_sha256") != jcs_sha256(_without(raw, "symbol_sha256")):
-        raise _error("symbol digest mismatch")
     if typed.get("format_id") != namespace.get("format_id"):
         raise _error("typed key and namespace use different formats")
     if typed.get("format_id") != "live2d_moc3_v4_00":
@@ -139,7 +127,6 @@ def _parse_symbol(raw: Mapping[str, object]) -> Live2DSymbolRecord | None:
         raise _error("Live2D typed key has invalid derivation tokens")
     required = {
         "symbol_id": raw.get("symbol_id"),
-        "symbol_sha256": raw.get("symbol_sha256"),
         "typed_key_sha256": typed.get("key_sha256"),
         "format_id": typed.get("format_id"),
         "kind": typed.get("kind"),
@@ -212,8 +199,6 @@ def validate_live2d_symbol_view(view: Live2DSymbolView) -> Live2DSymbolView:
         if symbol.typed_key_sha256 in typed_keys:
             raise _error("Live2D typed-key identity is duplicated")
         typed_keys.add(symbol.typed_key_sha256)
-    if view.view_sha256 != jcs_sha256(view.semantic_payload()):
-        raise _error("symbol view digest mismatch")
     return view
 
 
@@ -227,7 +212,6 @@ def require_live2d_symbol(
     parameter_id: str | None = None,
     preset_id: str | None = None,
 ) -> Live2DSymbolRecord:
-    validate_live2d_symbol_view(view)
     matches = [
         symbol
         for symbol in view.symbols
@@ -251,7 +235,6 @@ def require_live2d_symbol(
 def symbol_by_typed_key(
     view: Live2DSymbolView, typed_key_sha256: str
 ) -> Live2DSymbolRecord:
-    validate_live2d_symbol_view(view)
     matches = [
         symbol for symbol in view.symbols if symbol.typed_key_sha256 == typed_key_sha256
     ]

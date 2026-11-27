@@ -2,49 +2,21 @@ from __future__ import annotations
 
 import hashlib
 import math
+from json.encoder import encode_basestring as _c_encode_string
 from typing import Any
 
 _IEEE754_SAFE_INTEGER = 9_007_199_254_740_991
-_SHORT_ESCAPES = {
-    "\b": "\\b",
-    "\t": "\\t",
-    "\n": "\\n",
-    "\f": "\\f",
-    "\r": "\\r",
-    '"': '\\"',
-    "\\": "\\\\",
-}
 
 
 class JcsContractError(ValueError):
     """Raised when a value cannot be represented as RFC 8785 JSON."""
 
 
-def _validate_unicode(value: str) -> None:
-    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
-        raise JcsContractError("JCS strings must not contain lone UTF-16 surrogates")
-
-
-def _encode_string(value: str) -> str:
-    _validate_unicode(value)
-    encoded = ['"']
-    for character in value:
-        escaped = _SHORT_ESCAPES.get(character)
-        if escaped is not None:
-            encoded.append(escaped)
-            continue
-        codepoint = ord(character)
-        if codepoint <= 0x1F:
-            encoded.append(f"\\u{codepoint:04x}")
-        else:
-            encoded.append(character)
-    encoded.append('"')
-    return "".join(encoded)
-
-
 def _utf16_sort_key(value: str) -> bytes:
-    _validate_unicode(value)
-    return value.encode("utf-16-be")
+    try:
+        return value.encode("utf-16-be")
+    except UnicodeEncodeError as exc:
+        raise JcsContractError("JCS strings must not contain lone UTF-16 surrogates") from exc
 
 
 def _expand_scientific(mantissa: str, exponent: int) -> str:
@@ -81,22 +53,21 @@ def _encode_float(value: float) -> str:
 
 
 def _encode_value(value: Any, active_containers: set[int]) -> str:
-    if value is None:
-        return "null"
-    if value is True:
-        return "true"
-    if value is False:
-        return "false"
-    if isinstance(value, int):
-        if abs(value) > _IEEE754_SAFE_INTEGER:
+    t = type(value)
+    if t is str:
+        return _c_encode_string(value)
+    if t is int:
+        if value > _IEEE754_SAFE_INTEGER or value < -_IEEE754_SAFE_INTEGER:
             raise JcsContractError("JCS integer exceeds the I-JSON safe integer range")
         return str(value)
-    if isinstance(value, float):
+    if t is float:
         return _encode_float(value)
-    if isinstance(value, str):
-        return _encode_string(value)
+    if value is None:
+        return "null"
+    if t is bool:
+        return "true" if value else "false"
 
-    if type(value) is list:
+    if t is list:
         identity = id(value)
         if identity in active_containers:
             raise JcsContractError("JCS arrays must not contain cycles")
@@ -106,28 +77,51 @@ def _encode_value(value: Any, active_containers: set[int]) -> str:
         finally:
             active_containers.remove(identity)
 
-    if type(value) is dict:
+    if t is dict:
         identity = id(value)
         if identity in active_containers:
             raise JcsContractError("JCS objects must not contain cycles")
-        if any(not isinstance(key, str) for key in value):
-            raise JcsContractError("JCS object keys must be strings")
+        all_ascii = True
+        for key in value:
+            kt = type(key)
+            if kt is str:
+                if all_ascii and not key.isascii():
+                    all_ascii = False
+            elif isinstance(key, str):
+                if all_ascii and not key.isascii():
+                    all_ascii = False
+            else:
+                raise JcsContractError("JCS object keys must be strings")
         active_containers.add(identity)
         try:
-            members = []
-            for key in sorted(value, key=_utf16_sort_key):
-                members.append(f"{_encode_string(key)}:{_encode_value(value[key], active_containers)}")
-            return "{" + ",".join(members) + "}"
+            keys = sorted(value) if all_ascii else sorted(value, key=_utf16_sort_key)
+            return "{" + ",".join(
+                f"{_c_encode_string(key)}:{_encode_value(value[key], active_containers)}" for key in keys
+            ) + "}"
         finally:
             active_containers.remove(identity)
 
-    raise JcsContractError(f"unsupported JCS value type: {type(value).__name__}")
+    # Subclasses of int / float / str (e.g. IntEnum, StrEnum)
+    if isinstance(value, int):
+        if value > _IEEE754_SAFE_INTEGER or value < -_IEEE754_SAFE_INTEGER:
+            raise JcsContractError("JCS integer exceeds the I-JSON safe integer range")
+        return str(int(value))
+    if isinstance(value, float):
+        return _encode_float(float(value))
+    if isinstance(value, str):
+        return _c_encode_string(str(value))
+
+    raise JcsContractError(f"unsupported JCS value type: {t.__name__}")
 
 
 def jcs_bytes(payload: Any) -> bytes:
     """Serialize a JSON-compatible value using RFC 8785 canonicalization."""
 
-    return _encode_value(payload, set()).encode("utf-8")
+    rendered = _encode_value(payload, set())
+    try:
+        return rendered.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise JcsContractError("JCS strings must not contain lone UTF-16 surrogates") from exc
 
 
 def jcs_sha256(payload: Any) -> str:

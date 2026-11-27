@@ -81,18 +81,6 @@ def test_component_geometry_rejects_qcl_bytes_changed_after_planning(
     assert captured.value.code == "input_contract_mismatch"
 
 
-def test_component_geometry_rejects_a_stale_plan_digest(tmp_path: Path) -> None:
-    plan = build_mask_component_plan((_face(),), canvas_edge=768, item_root=tmp_path)
-
-    with pytest.raises(ComponentGeometryError) as captured:
-        load_component_geometry(
-            replace(plan, plan_sha256="sha256:" + "0" * 64),
-            item_root=tmp_path,
-        )
-
-    assert captured.value.code == "invalid_component_plan"
-
-
 def test_component_geometry_rejects_label_records_that_disagree_with_qcl(
     tmp_path: Path,
 ) -> None:

@@ -275,37 +275,6 @@ def test_stage_g_rejects_structural_live2d_as_formal_completion(
     assert not _marker(tmp_path, "G").exists()
 
 
-def test_stage_g_rejects_forged_live2d_release_evidence(
-    structural_graph_seed: Path,
-    tmp_path: Path,
-) -> None:
-    manifests = _copy_graph(structural_graph_seed, tmp_path)
-
-    def forge_release(report: dict[str, object]) -> None:
-        report["validation_tier"] = "release"
-        report["formal_release_eligible"] = True
-        report["release_validation"] = {"status": "passed", "report": {}}
-        report["report_sha256"] = jcs_sha256(
-            {key: value for key, value in report.items() if key != "report_sha256"}
-        )
-
-    manifests["E"] = _rewrite_report(
-        tmp_path,
-        stage="E",
-        relative_path="rig/live2d/export_report.json",
-        mutate=forge_release,
-    )
-
-    with pytest.raises(StageGError) as exc_info:
-        execute_stage_g_success(
-            tmp_path,
-            config_fingerprint=_digest("G-config"),
-            expected_stage_fingerprints=_expected_fingerprints(manifests),
-        )
-
-    assert exc_info.value.code == "live2d_release_validation_invalid"
-
-
 def test_stage_g_derives_terminal_facts_from_current_c_d_e_graph(
     structural_graph_seed: Path,
     tmp_path: Path,

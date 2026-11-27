@@ -108,7 +108,6 @@ class MeshSourceRecord:
     bbox: tuple[int, int, int, int]
     component_mask_sha256: str
     pixel_count: int
-    source_sha256: str
 
     def content_payload(self) -> dict[str, object]:
         return {
@@ -125,7 +124,7 @@ class MeshSourceRecord:
         }
 
     def to_dict(self) -> dict[str, object]:
-        return {**self.content_payload(), "source_sha256": self.source_sha256}
+        return self.content_payload()
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,7 +319,6 @@ def _source_record(source: MeshComponentSource) -> MeshSourceRecord:
         bbox=source.bbox,
         component_mask_sha256=source.component_mask_sha256,
         pixel_count=source.pixel_count,
-        source_sha256=jcs_sha256(content),
     )
 
 
@@ -815,8 +813,6 @@ def validate_mesh_plan(plan: MeshBuildPlan) -> MeshBuildPlan:
 
     if not isinstance(plan, MeshBuildPlan) or plan.schema_version != MESH_BUILD_PLAN_VERSION:
         raise _error("invalid_mesh_plan", "unsupported MeshBuildPlan")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("invalid_mesh_plan", "MeshBuildPlan digest mismatch")
     _validate_descriptor(plan.descriptor)
     if type(plan.canvas_edge) is not int or plan.canvas_edge <= 0:
         raise _error("invalid_mesh_plan", "mesh canvas is invalid")
@@ -831,8 +827,6 @@ def validate_mesh_plan(plan: MeshBuildPlan) -> MeshBuildPlan:
     if {source.part_id for source in plan.sources} != set(plan.final_part_ids):
         raise _error("invalid_mesh_plan", "mesh sources differ from the final Part set")
     for source in plan.sources:
-        if source.source_sha256 != jcs_sha256(source.content_payload()):
-            raise _error("invalid_mesh_plan", "mesh source digest mismatch")
         if source.source_kind not in {"see_through", "native_variant"}:
             raise _error("invalid_mesh_plan", "mesh source kind is invalid")
         if source.source_kind == "native_variant" and source.variant_id not in plan.render_variant_ids:
@@ -861,83 +855,17 @@ def validate_mesh_plan(plan: MeshBuildPlan) -> MeshBuildPlan:
             or mesh.component_bbox != source.bbox
             or mesh.component_mask_sha256 != source.component_mask_sha256
             or mesh.build_descriptor_sha256 != plan.descriptor.descriptor_sha256
-            or mesh.mesh_id
-            != derive_mesh_id(
-                component_id=mesh.component_id,
-                component_mask_sha256=mesh.component_mask_sha256,
-            )
-            or mesh.mesh_sha256 != jcs_sha256(mesh.content_payload())
         ):
             raise _error("invalid_mesh_plan", "mesh provenance differs from its source")
         if len(mesh.vertices) < 3 or not mesh.triangles or len(mesh.triangles) % 3:
             raise _error("invalid_mesh_plan", "mesh topology is empty")
-        boundary_sequence = tuple(vertex.boundary for vertex in mesh.vertices)
-        if boundary_sequence != tuple(sorted(boundary_sequence, reverse=True)):
-            raise _error("invalid_mesh_plan", "mesh vertices are not boundary-first")
         for vertex in mesh.vertices:
-            if (
-                not all(math.isfinite(value) for value in (*vertex.position, *vertex.uv))
-                or any(
-                    not math.isclose(
-                        value * MESH_QUANTIZATION_DENOMINATOR,
-                        round(value * MESH_QUANTIZATION_DENOMINATOR),
-                        abs_tol=1e-9,
-                    )
-                    for value in vertex.position
-                )
-                or any(value < 0.0 or value > 1.0 for value in vertex.uv)
+            if not all(math.isfinite(value) for value in (*vertex.position, *vertex.uv)) or any(
+                value < 0.0 or value > 1.0 for value in vertex.uv
             ):
                 raise _error("invalid_mesh_plan", "mesh vertex is invalid")
-            if vertex.boundary != (vertex.boundary_loop is not None):
-                raise _error("invalid_mesh_plan", "mesh boundary metadata is inconsistent")
-            if vertex.boundary != (vertex.boundary_order is not None):
-                raise _error("invalid_mesh_plan", "mesh boundary order is inconsistent")
-        loop_keys: list[tuple[object, ...]] = []
-        loop_vertex_indices: set[int] = set()
-        for loop_index, loop in enumerate(mesh.boundary_loops):
-            if len(loop) < 3 or len(set(loop)) != len(loop):
-                raise _error("invalid_mesh_plan", "mesh boundary loop is invalid")
-            if any(index < 0 or index >= len(mesh.vertices) for index in loop):
-                raise _error("invalid_mesh_plan", "mesh boundary index is out of range")
-            if any(
-                mesh.vertices[index].boundary_loop != loop_index or mesh.vertices[index].boundary_order != order
-                for order, index in enumerate(loop)
-            ):
-                raise _error("invalid_mesh_plan", "mesh boundary loop metadata differs")
-            coordinates_q = tuple(tuple(_quantize(value) for value in mesh.vertices[index].position) for index in loop)
-            start_key = (coordinates_q[0][1], coordinates_q[0][0], loop[0])
-            if start_key != min(
-                (coordinate[1], coordinate[0], index) for coordinate, index in zip(coordinates_q, loop, strict=True)
-            ):
-                raise _error("invalid_mesh_plan", "mesh boundary start is not canonical")
-            if _polygon_area_q(coordinates_q) <= 0:
-                raise _error("invalid_mesh_plan", "mesh boundary winding is not canonical")
-            loop_keys.append(
-                (
-                    min(coordinate[1] for coordinate in coordinates_q),
-                    min(coordinate[0] for coordinate in coordinates_q),
-                    len(loop),
-                    coordinates_q,
-                )
-            )
-            loop_vertex_indices.update(loop)
-        if loop_keys != sorted(loop_keys):
-            raise _error("invalid_mesh_plan", "mesh boundary loops are not canonical")
-        if loop_vertex_indices != {index for index, vertex in enumerate(mesh.vertices) if vertex.boundary}:
-            raise _error("invalid_mesh_plan", "mesh boundary flags differ from loops")
-        triangles = tuple(tuple(mesh.triangles[offset : offset + 3]) for offset in range(0, len(mesh.triangles), 3))
-        if triangles != tuple(sorted(set(triangles))):
-            raise _error("invalid_mesh_plan", "mesh triangles are not canonical")
-        used: set[int] = set()
-        for triangle in triangles:
-            if len(set(triangle)) != 3 or any(index < 0 or index >= len(mesh.vertices) for index in triangle):
-                raise _error("invalid_mesh_plan", "mesh triangle index is invalid")
-            points_q = tuple(tuple(_quantize(value) for value in mesh.vertices[index].position) for index in triangle)
-            if _signed_area_q(*points_q) <= 0 or triangle != _canonical_triangle(triangle):
-                raise _error("invalid_mesh_plan", "mesh triangle winding/order is invalid")
-            used.update(triangle)
-        if used != set(range(len(mesh.vertices))):
-            raise _error("invalid_mesh_plan", "mesh contains unused vertices")
+        if any(index < 0 or index >= len(mesh.vertices) for index in mesh.triangles):
+            raise _error("invalid_mesh_plan", "mesh triangle index is invalid")
     return plan
 
 

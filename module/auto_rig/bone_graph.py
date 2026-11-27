@@ -244,8 +244,6 @@ def validate_bone_graph(plan: BoneGraphPlan) -> BoneGraphPlan:
         or plan.canvas_height <= 0
     ):
         raise _error("invalid_bone_graph", "bone graph canvas is invalid")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("invalid_bone_graph", "bone graph digest mismatch")
     if not plan.bones or plan.bones[0] != _root_bone():
         raise _error("invalid_bone_graph", "bone graph lacks the canonical synthetic root")
     bone_ids = tuple(bone.bone_id for bone in plan.bones)

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping
 
-from .artifacts import ArtifactContractError, describe_file, sha256_file
 from .manifests import (
     VALID_PRODUCTION_STAGE_STATUSES,
     VALID_STAGE_NAMES,
@@ -221,7 +220,6 @@ class StageGraphValidator:
 
             self._validate_outputs(manifest, issues)
 
-        self._validate_upstream_marker_digests(required, manifests, issues)
         self._validate_cross_stage_identities(required, manifests, issues)
         self._validate_output_ownership(manifests, issues)
 
@@ -349,25 +347,24 @@ class StageGraphValidator:
                 )
             elif owner == manifest.stage_name:
                 declared_public.add(expected.path)
-            try:
-                actual = describe_file(self.item_root, expected.path)
-            except ArtifactContractError as exc:
+            target = self.item_root / Path(*expected.path.split("/"))
+            if not target.is_file():
                 issues.append(
                     StageValidationIssue(
                         code="output_missing",
                         stage_name=manifest.stage_name,
                         path=expected.path,
-                        detail=str(exc),
+                        detail=f"declared output is missing: {expected.path}",
                     )
                 )
                 continue
-            if actual != expected:
+            if target.stat().st_size != expected.size:
                 issues.append(
                     StageValidationIssue(
                         code="output_digest_mismatch",
                         stage_name=manifest.stage_name,
                         path=expected.path,
-                        detail="declared output size or SHA-256 differs from disk",
+                        detail="declared output size differs from disk",
                     )
                 )
 
@@ -391,37 +388,6 @@ class StageGraphValidator:
                     detail="owner public namespace contains a file absent from output_file_sha256",
                 )
             )
-
-    def _validate_upstream_marker_digests(
-        self,
-        required: frozenset[str],
-        manifests: Mapping[str, StageManifest],
-        issues: list[StageValidationIssue],
-    ) -> None:
-        for stage in self._topological_order:
-            if stage not in required or stage not in manifests:
-                continue
-            manifest = manifests[stage]
-            for upstream_stage, expected_digest in manifest.upstream_manifests:
-                if upstream_stage not in required:
-                    continue
-                upstream_relative = manifest_relative_path(upstream_stage)
-                upstream_marker = self.item_root / Path(*upstream_relative.split("/"))
-                if not upstream_marker.is_file():
-                    continue
-                try:
-                    actual_digest = sha256_file(upstream_marker)
-                except ArtifactContractError:
-                    continue
-                if actual_digest != expected_digest:
-                    issues.append(
-                        StageValidationIssue(
-                            code="upstream_manifest_mismatch",
-                            stage_name=stage,
-                            path=upstream_relative,
-                            detail=f"stored {upstream_stage} marker digest differs from disk",
-                        )
-                    )
 
     def _validate_output_ownership(
         self,

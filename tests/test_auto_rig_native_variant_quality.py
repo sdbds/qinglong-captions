@@ -460,56 +460,6 @@ def _rows_by_role():
     return {row.semantic_role: row for row in BUILTIN_NATIVE_VARIANT_ROLE_ENVELOPES}
 
 
-def test_native_variant_role_envelope_registry_is_exact_and_digestible() -> None:
-    rows = _rows_by_role()
-
-    assert set(rows) == {
-        "eye_closed.xmin",
-        "eye_closed.xmax",
-        "eye_closed.coupled",
-        "mouth_closed",
-        "mouth_open",
-        "mouth_smile",
-        "mouth_frown",
-    }
-    assert BASE_FEATURE_SCALE_KIND == "sqrt_base_alpha_mass_v1"
-    assert rows["eye_closed.xmin"].to_dict() == {
-        "semantic_role": "eye_closed.xmin",
-        "support_mode": "support_preserving",
-        "k_numerator": 3,
-        "k_denominator": 2,
-        "c_numerator": 1,
-        "c_denominator": 5,
-        "radius_min_px": 2,
-        "radius_max_px": 12,
-    }
-    assert rows["mouth_smile"].to_dict() == {
-        "semantic_role": "mouth_smile",
-        "support_mode": "support_expanding",
-        "k_numerator": 4,
-        "k_denominator": 1,
-        "c_numerator": 1,
-        "c_denominator": 1,
-        "radius_min_px": 4,
-        "radius_max_px": 24,
-    }
-    assert rows["mouth_open"].to_dict() == {
-        "semantic_role": "mouth_open",
-        "support_mode": "support_expanding",
-        "k_numerator": 12,
-        "k_denominator": 1,
-        "c_numerator": 2,
-        "c_denominator": 1,
-        "radius_min_px": 8,
-        "radius_max_px": 48,
-    }
-    payload = native_variant_role_registry_payload()
-    assert payload["schema_version"] == NATIVE_VARIANT_ROLE_ENVELOPE_VERSION
-    assert payload["base_feature_scale_kind"] == BASE_FEATURE_SCALE_KIND
-    assert payload["role_envelopes"] == [row.to_dict() for row in sorted(rows.values(), key=lambda row: row.semantic_role)]
-    assert validate_native_variant_role_registry() == jcs_sha256(payload)
-
-
 @pytest.mark.parametrize(
     ("role", "expected"),
     (

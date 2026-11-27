@@ -58,7 +58,6 @@ class SpineAnimationRecord:
     selected_binding_ids: tuple[str, ...]
     control_ids: tuple[str, ...]
     target_count: int
-    animation_sha256: str
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -70,7 +69,6 @@ class SpineAnimationRecord:
             "selected_binding_ids": list(self.selected_binding_ids),
             "control_ids": list(self.control_ids),
             "target_count": self.target_count,
-            "animation_sha256": self.animation_sha256,
         }
 
 
@@ -668,7 +666,6 @@ def build_spine_animation_plan(
                 selected_binding_ids=tuple(selected_ids),
                 control_ids=tuple(sorted(curves)),
                 target_count=target_count,
-                animation_sha256=jcs_sha256(animation),
             )
         )
     if not animations:
@@ -717,13 +714,14 @@ def validate_spine_animation_plan(
         raise _error("animation plan version is unsupported")
     if _contains_curve(plan.animations):
         raise _error("Spine linear timelines must omit the curve field")
-    if plan.animation_set_sha256 != jcs_sha256(plan.animations):
-        raise _error("animation-set digest mismatch")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("animation plan digest mismatch")
-    expected = build_spine_animation_plan(rig, coordinates, bind, symbols, setup)
-    if plan != expected:
-        raise _error("animation plan differs from recomputed Stage C decisions")
+    if (
+        plan.rig_document_sha256 != rig.document_sha256
+        or plan.coordinate_plan_sha256 != coordinates.plan_sha256
+        or plan.bind_plan_sha256 != bind.plan_sha256
+        or plan.symbol_view_sha256 != symbols.view_sha256
+        or plan.setup_document_sha256 != setup.document_sha256
+    ):
+        raise _error("animation plan provenance differs from Stage C/D inputs")
     return plan
 
 

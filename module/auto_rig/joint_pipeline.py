@@ -468,8 +468,6 @@ def validate_stage_a_joint_plan(plan: StageAJointPlan) -> StageAJointPlan:
         or axial.provider_version != AXIAL_JOINT_GEOMETRY_VERSION
     ):
         raise _error("axial evidence version mismatch")
-    if axial.batch_sha256 != jcs_sha256(axial.semantic_payload()):
-        raise _error("axial evidence batch digest mismatch")
     if axial.anatomy_plan_sha256 != plan.anatomy_plan_sha256:
         raise _error("axial evidence describes a different anatomy plan")
 
@@ -478,8 +476,6 @@ def validate_stage_a_joint_plan(plan: StageAJointPlan) -> StageAJointPlan:
         raise _error("limb evidence must use LimbGeometryEvidenceBatch")
     if limb.schema_version != LIMB_GEOMETRY_EVIDENCE_VERSION or limb.provider_version != LIMB_JOINT_GEOMETRY_VERSION:
         raise _error("limb evidence version mismatch")
-    if limb.batch_sha256 != jcs_sha256(limb.semantic_payload()):
-        raise _error("limb evidence batch digest mismatch")
     if limb.anatomy_plan_sha256 != plan.anatomy_plan_sha256:
         raise _error("limb evidence describes a different anatomy plan")
     if limb.axial_batch_sha256 != axial.batch_sha256:
@@ -498,8 +494,6 @@ def validate_stage_a_joint_plan(plan: StageAJointPlan) -> StageAJointPlan:
     )
     if plan.joints.schema_version != JOINT_OBSERVATION_PLAN_VERSION:
         raise _error("joint observation plan version mismatch")
-    if plan.joints.plan_sha256 != jcs_sha256(plan.joints.semantic_payload()):
-        raise _error("joint observation plan digest mismatch")
 
     eligibility_by_id = {item.joint_id: item for item in axial.eligibilities + limb.eligibilities}
     if set(eligibility_by_id) != set(JOINT_IDS):
@@ -541,16 +535,6 @@ def validate_stage_a_joint_plan(plan: StageAJointPlan) -> StageAJointPlan:
     if outside_ids != expected_outside_ids:
         raise _error("outside override warning set differs from override coordinates")
 
-    expected_joints = resolve_joint_observations(
-        expected_eligibilities,
-        expected_observations,
-        canvas_width=axial.canvas_width,
-        canvas_height=axial.canvas_height,
-    )
-    if plan.joints != expected_joints:
-        raise _error("joint resolutions differ from the frozen resolver")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("Stage A joint plan digest mismatch")
     return plan
 
 

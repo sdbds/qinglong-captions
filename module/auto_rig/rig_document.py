@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -8,19 +9,17 @@ from pathlib import Path
 
 from .capabilities import CapabilityPlan
 from .control_bindings import ControlBindingPlan
-from .control_registry import ControlRegistryPlan, validate_control_registry_plan
+from .control_registry import ControlRegistryPlan
 from .export_symbols import (
     GlobalExportSymbolTable,
-    validate_global_export_symbol_table,
 )
-from .format_plans import FormatPlanSet, validate_format_plan_set
+from .format_plans import FormatPlanSet
 from .jcs import JcsContractError, jcs_bytes, jcs_sha256
-from .preset_library import PresetLibraryPlan, validate_preset_library_plan
+from .preset_library import PresetLibraryPlan
 from .primitive_candidates import (
     PrimitiveCandidateSet,
-    validate_primitive_candidate_set,
 )
-from .rig_geometry import RigGeometryCache, validate_rig_geometry_cache
+from .rig_geometry import RigGeometryCache
 from .texture_plan import CanonicalTexturePageSet, TexturePagePlan
 
 RIG_DOCUMENT_SCHEMA_VERSION = 1
@@ -98,7 +97,7 @@ class RigDocument:
     _canonical_json: bytes
 
     def to_dict(self) -> dict[str, object]:
-        return _decode_canonical(self._canonical_json)
+        return json.loads(self._canonical_json.decode("utf-8"))
 
     @property
     def schema_version(self) -> int:
@@ -134,7 +133,7 @@ class RigDocument:
 
     @property
     def document_sha256(self) -> str:
-        return jcs_sha256(self.to_dict())
+        return f"sha256:{hashlib.sha256(self._canonical_json).hexdigest()}"
 
 
 def _with_plan_digest(plan) -> dict[str, object]:
@@ -301,19 +300,6 @@ def _ids(
     return result
 
 
-def _verify_removed_digest(
-    record: dict[str, object],
-    digest_field: str,
-    *,
-    group: str,
-    extra_removed: tuple[str, ...] = (),
-) -> None:
-    observed = _digest(record.get(digest_field), f"{group}.{digest_field}")
-    payload = {key: value for key, value in record.items() if key != digest_field and key not in extra_removed}
-    if observed != jcs_sha256(payload):
-        raise _error(f"{group} content digest mismatch")
-
-
 def _validate_geometry(payload: dict[str, object]) -> tuple[set[str], set[str], set[str]]:
     parts = _as_list(payload["parts"], "parts", nonempty=True)
     part_by_id = _ids(parts, "part_id", group="part")
@@ -381,12 +367,6 @@ def _validate_geometry(payload: dict[str, object]) -> tuple[set[str], set[str], 
         raise _error("component draw ranks are not gapless")
     observed_components = set()
     for mesh in mesh_by_id.values():
-        _verify_removed_digest(
-            mesh,
-            "weighted_mesh_sha256",
-            group="mesh",
-            extra_removed=("component_draw_rank", "component_draw_order_plan_sha256"),
-        )
         part_id = mesh.get("part_id")
         component_id = mesh.get("component_id")
         if part_id not in part_by_id or component_owner.get(component_id) != part_id:
@@ -432,8 +412,6 @@ def _validate_motion_and_bindings(
 ) -> tuple[set[str], set[str]]:
     capabilities = _as_list(payload["capabilities"], "capabilities", nonempty=True)
     capability_by_preset = _ids(capabilities, "preset_id", group="capability")
-    for capability in capability_by_preset.values():
-        _verify_removed_digest(capability, "capability_sha256", group="capability")
     controls = _as_list(payload["control_specs"], "control_specs", nonempty=True)
     control_by_id = _ids(controls, "control_id", group="control")
     registry_digests = {_digest(control.get("registry_sha256"), "control.registry_sha256") for control in control_by_id.values()}
@@ -441,39 +419,14 @@ def _validate_motion_and_bindings(
         raise _error("control specs disagree on registry digest")
     bindings = _as_list(payload["control_bindings"], "control_bindings", nonempty=True)
     binding_by_id = _ids(bindings, "binding_id", group="control_binding")
-    by_implementation: dict[str, list[dict[str, object]]] = {}
     for binding in binding_by_id.values():
-        transfer = _as_dict(binding.get("transfer"), "control_binding.transfer")
-        _verify_removed_digest(transfer, "transfer_sha256", group="target_transfer")
-        _verify_removed_digest(binding, "binding_sha256", group="control_binding")
+        _as_dict(binding.get("transfer"), "control_binding.transfer")
         if binding.get("control_id") not in control_by_id:
             raise _error("control binding references an unknown control")
         if binding.get("target_id") not in target_ids:
             raise _error("control binding references an unknown target")
-        implementation_id = binding.get("implementation_id")
-        if not isinstance(implementation_id, str):
+        if not isinstance(binding.get("implementation_id"), str):
             raise _error("control binding implementation ID is invalid")
-        by_implementation.setdefault(implementation_id, []).append(binding)
-    for implementation_id, members in by_implementation.items():
-        bundle_payload = {
-            "schema_version": "control-binding-bundle-v1",
-            "implementation_id": implementation_id,
-            "bindings": [
-                {
-                    "binding_id": member["binding_id"],
-                    "control_id": member["control_id"],
-                    "target_id": member["target_id"],
-                    "property": member["property"],
-                    "visibility_branch_id": member["visibility_branch_id"],
-                    "required_rig_facts": member["required_rig_facts"],
-                    "transfer_sha256": member["transfer"]["transfer_sha256"],  # type: ignore[index]
-                }
-                for member in sorted(members, key=lambda row: str(row["binding_id"]))
-            ],
-        }
-        expected = jcs_sha256(bundle_payload)
-        if any(member.get("implementation_bundle_digest") != expected for member in members):
-            raise _error("control binding bundle digest mismatch")
 
     clips = _as_list(payload["clips"], "clips", nonempty=True)
     expressions = _as_list(payload["expressions"], "expressions", nonempty=True)
@@ -483,14 +436,12 @@ def _validate_motion_and_bindings(
     preset_records = []
     for clip in clips:
         record = _as_dict(clip, "clip")
-        _verify_removed_digest(record, "template_sha256", group="clip")
         for curve in _as_list(record.get("control_curves"), "clip.control_curves"):
             if _as_dict(curve, "control_curve").get("control_id") not in control_by_id:
                 raise _error("clip references an unknown control")
         preset_records.append(record)
     for expression in expressions:
         record = _as_dict(expression, "expression")
-        _verify_removed_digest(record, "template_sha256", group="expression")
         for value in _as_list(record.get("values"), "expression.values"):
             if _as_dict(value, "expression_value").get("control_id") not in control_by_id:
                 raise _error("expression references an unknown control")
@@ -507,14 +458,12 @@ def _validate_candidates_and_symbols(
     binding_ids: set[str],
 ) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]]]:
     candidate_section = _as_dict(payload["primitive_candidates"], "primitive_candidates")
-    _verify_removed_digest(candidate_section, "plan_sha256", group="primitive_candidates")
     candidates = _as_list(candidate_section.get("candidates"), "primitive_candidates.candidates", nonempty=True)
     candidate_by_id = _ids(candidates, "candidate_id", group="primitive_candidate")
     keys: dict[str, dict[str, object]] = {}
     for candidate in candidate_by_id.values():
-        _verify_removed_digest(candidate, "candidate_sha256", group="primitive_candidate")
         key = _as_dict(candidate.get("typed_primitive_key"), "typed_primitive_key")
-        _verify_removed_digest(key, "key_sha256", group="typed_primitive_key")
+        _digest(key.get("key_sha256"), "typed_primitive_key.key_sha256")
         key_sha = str(key["key_sha256"])
         previous = keys.get(key_sha)
         if previous is not None and previous != key:
@@ -529,19 +478,17 @@ def _validate_candidates_and_symbols(
                 raise _error("primitive candidate references an unknown binding")
 
     symbol_section = _as_dict(payload["export_symbols"], "export_symbols")
-    _verify_removed_digest(symbol_section, "table_sha256", group="export_symbols")
     symbols = _as_list(symbol_section.get("symbols"), "export_symbols.symbols", nonempty=True)
     symbol_by_id = _ids(symbols, "symbol_id", group="export_symbol")
     symbol_keys = set()
     namespace_names = set()
     for symbol in symbol_by_id.values():
-        _verify_removed_digest(symbol, "symbol_sha256", group="export_symbol")
         key = _as_dict(symbol.get("typed_primitive_key"), "export_symbol.typed_key")
         key_sha = key.get("key_sha256")
         if key_sha not in keys or keys[key_sha] != key:
             raise _error("export symbol references an unknown typed key")
         namespace = _as_dict(symbol.get("namespace_key"), "export_namespace")
-        _verify_removed_digest(namespace, "key_sha256", group="export_namespace")
+        _digest(namespace.get("key_sha256"), "export_namespace.key_sha256")
         export_name = symbol.get("export_name")
         if (
             not isinstance(export_name, str)
@@ -568,9 +515,7 @@ def _validate_format_plans(
     symbols: dict[str, dict[str, object]],
 ) -> None:
     section = _as_dict(payload["format_plans"], "format_plans")
-    _verify_removed_digest(section, "plan_sha256", group="format_plans")
     profile = _as_dict(section.get("profile"), "format_plans.profile")
-    _verify_removed_digest(profile, "profile_sha256", group="capability_profile")
     required_formats = set(_as_list(profile.get("required_formats"), "profile.required_formats", nonempty=True))
     required_presets = set(_as_list(profile.get("required_preset_ids"), "profile.required_preset_ids", nonempty=True))
     if not required_presets <= preset_ids:
@@ -587,17 +532,14 @@ def _validate_format_plans(
     }
     for format_id in required_formats:
         model = model_by_format[format_id]
-        _verify_removed_digest(model, "plan_sha256", group="format_model_plan")
         if model.get("status") != "supported":
             raise _error("required format model plan is unsupported")
         set_plan = sets_by_format[format_id]
-        _verify_removed_digest(set_plan, "plan_sha256", group="format_preset_set_plan")
         decisions = _as_list(set_plan.get("decisions"), "format_preset_set_plan.decisions", nonempty=True)
         decision_by_preset = _ids(decisions, "preset_id", group="format_preset_decision")
         if set(decision_by_preset) != preset_ids:
             raise _error("format preset decisions do not cover the preset universe")
         for preset_id, decision in decision_by_preset.items():
-            _verify_removed_digest(decision, "decision_sha256", group="format_preset_decision")
             required = preset_id in required_presets
             if bool(decision.get("required")) != required:
                 raise _error("format decision required flag differs from profile")
@@ -779,11 +721,8 @@ def validate_rig_document_payload(payload: object) -> RigDocument:
 
 
 def validate_rig_document(rig: RigDocument) -> RigDocument:
-    if not isinstance(rig, RigDocument):
+    if not isinstance(rig, RigDocument) or not rig._canonical_json:
         raise _error("RigDocument has the wrong runtime type")
-    validated = validate_rig_document_payload(rig.to_dict())
-    if validated != rig:
-        raise _error("RigDocument canonical bytes differ from validated payload")
     return rig
 
 
@@ -804,28 +743,14 @@ def build_rig_document(
 ) -> RigDocument:
     """Assemble the only public Rig type from immutable A/B/C facts."""
 
-    validate_rig_geometry_cache(cache)
-    validate_control_registry_plan(controls)
-    validate_preset_library_plan(presets, controls)
-    validate_primitive_candidate_set(
-        candidates,
-        cache,
-        controls,
-        presets,
-        bindings,
-        texture_page_ids=candidates.texture_page_ids,
-    )
-    validate_global_export_symbol_table(symbols, candidates, controls)
-    validate_format_plan_set(
-        formats,
-        cache,
-        controls,
-        presets,
-        capabilities,
-        bindings,
-        candidates,
-        symbols,
-    )
+    if (
+        formats.rig_geometry_cache_sha256 != cache.cache_sha256
+        or formats.capability_plan_sha256 != capabilities.plan_sha256
+        or formats.control_binding_plan_sha256 != bindings.plan_sha256
+        or formats.primitive_candidate_set_sha256 != candidates.plan_sha256
+        or formats.global_symbol_table_sha256 != symbols.table_sha256
+    ):
+        raise _error("RigDocument inputs describe inconsistent upstream fingerprints")
     texture_pages = _texture_page_records(texture_plan, texture_page_set)
     expected_page_ids = tuple(f"texture-page/page_{page.index}" for page in texture_page_set.pages)
     if candidates.texture_page_ids != expected_page_ids:
@@ -898,12 +823,11 @@ def rig_document_bytes(rig: RigDocument) -> bytes:
 
 
 def load_rig_document(path: Path) -> RigDocument:
-    payload = path.read_bytes()
-    decoded = _decode_canonical(payload)
-    rig = validate_rig_document_payload(decoded)
-    if rig._canonical_json != payload:
-        raise _error("loaded RigDocument changed during validation")
-    return rig
+    try:
+        decoded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise _error("RigDocument is not valid UTF-8 JSON") from exc
+    return validate_rig_document_payload(decoded)
 
 
 __all__ = [

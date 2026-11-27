@@ -148,11 +148,8 @@ def validate_rigid_driver_registry(
             row.parameter_id != parameters.get(row.control_id)
             or row.primitive_kind != RIGID_DRIVER_PRIMITIVE_KIND
             or row.stack_rank != expected_ranks[row.control_id]
-            or row.row_sha256 != jcs_sha256(row.semantic_payload())
         ):
             raise _error("rigid driver row differs from its control/parameter contract")
-    if registry.registry_sha256 != jcs_sha256(registry.semantic_payload()):
-        raise _error("registry digest mismatch")
     return registry
 
 

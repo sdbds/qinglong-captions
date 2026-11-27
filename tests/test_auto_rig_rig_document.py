@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -93,10 +94,11 @@ def _texture_pages(cache):
     return plan, page_set
 
 
-def _build(tmp_path: Path, **fixture_kwargs):
+@lru_cache(maxsize=None)
+def _cached_build(items: tuple[tuple[str, object], ...]):
     cache, controls, presets, capabilities, bindings, candidates, symbols = _fixture(
-        tmp_path,
-        **fixture_kwargs,
+        Path("."),
+        **dict(items),
     )
     texture_plan, page_set = _texture_pages(cache)
     assert candidates.texture_page_ids == ("texture-page/page_0",)
@@ -135,6 +137,11 @@ def _build(tmp_path: Path, **fixture_kwargs):
         page_set,
         rig,
     )
+
+
+def _build(tmp_path: Path, **fixture_kwargs):
+    del tmp_path
+    return _cached_build(tuple(sorted(fixture_kwargs.items())))
 
 
 def test_complete_rig_document_round_trips_canonical_bytes(tmp_path: Path) -> None:

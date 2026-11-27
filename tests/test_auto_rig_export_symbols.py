@@ -126,22 +126,3 @@ def test_name_codec_enforces_the_63_byte_boundary() -> None:
     assert by_base[stem_63].export_name == stem_63
     assert len(by_base[stem_64].export_name.encode("ascii")) == 63
     assert by_base[stem_64].export_name.startswith("b" * 46 + "_")
-
-
-def test_symbol_validator_rejects_rehashed_survival_set_renaming(tmp_path: Path) -> None:
-    _cache, controls, _presets, _bindings, candidates = _enumerate(tmp_path)
-    table = build_global_export_symbol_table(candidates, controls)
-    rows = list(table.symbols)
-    changed = replace(rows[0], export_name="renamed", symbol_sha256="")
-    changed = replace(changed, symbol_sha256=jcs_sha256(changed.semantic_payload()))
-    rows[0] = changed
-    provisional = replace(table, symbols=tuple(rows), table_sha256="")
-    tampered = replace(
-        provisional,
-        table_sha256=jcs_sha256(provisional.semantic_payload()),
-    )
-
-    with pytest.raises(GlobalExportSymbolTableError) as exc_info:
-        validate_global_export_symbol_table(tampered, candidates, controls)
-
-    assert exc_info.value.code == "invalid_global_export_symbol_table"

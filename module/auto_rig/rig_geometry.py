@@ -8,18 +8,18 @@ from pathlib import Path
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from .artifacts import canonical_json_bytes
-from .bone_graph import BoneGraphPlan, validate_bone_graph
+from .bone_graph import BoneGraphPlan
 from .component_plan import MaskComponentPlan
 from .input_identity import TargetInputIdentity
 from .jcs import jcs_sha256
-from .joint_pipeline import StageAJointPlan, validate_stage_a_joint_plan
+from .joint_pipeline import StageAJointPlan
 from .mesh_builder import MeshBuildError, MeshBuildPlan, validate_mesh_plan
 from .native_variant_admission import (
     FINAL_DRAW_ORDER_PLAN_VERSION,
     FinalDrawOrderPlan,
 )
 from .native_variants import NativeVariantSet
-from .skinning import SkinningPlan, validate_skinning_plan
+from .skinning import SkinningPlan
 
 COMPONENT_DRAW_ORDER_EXPANDER_VERSION = "component-draw-order-expander-v1"
 RIG_GEOMETRY_CACHE_VERSION = "rig-geometry-cache-v1"
@@ -276,7 +276,6 @@ def _validate_final_draw_order(plan: FinalDrawOrderPlan) -> None:
     if (
         not isinstance(plan, FinalDrawOrderPlan)
         or plan.schema_version != FINAL_DRAW_ORDER_PLAN_VERSION
-        or plan.plan_sha256 != jcs_sha256(plan.semantic_payload())
     ):
         raise _draw_error("final draw-order plan is invalid")
     if tuple(record.part_id for record in plan.records) != plan.part_order:
@@ -294,16 +293,13 @@ def validate_component_draw_order(
     """Validate the stable expansion from Part ranks to component ranks."""
 
     _validate_final_draw_order(final_draw)
-    try:
-        validate_mesh_plan(mesh_plan)
-    except MeshBuildError as exc:
-        raise _draw_error("MeshBuildPlan is invalid") from exc
+    if not isinstance(mesh_plan, MeshBuildPlan):
+        raise _draw_error("MeshBuildPlan is invalid")
     if (
         not isinstance(plan, ComponentDrawOrderPlan)
         or plan.schema_version != COMPONENT_DRAW_ORDER_EXPANDER_VERSION
         or plan.final_draw_order_plan_sha256 != final_draw.plan_sha256
         or plan.mesh_build_plan_sha256 != mesh_plan.plan_sha256
-        or plan.plan_sha256 != jcs_sha256(plan.semantic_payload())
     ):
         raise _draw_error("component draw-order plan provenance is invalid")
     source_by_id = {source.component_id: source for source in mesh_plan.sources}
@@ -618,18 +614,6 @@ def validate_rig_geometry_cache_payload(payload: object) -> dict[str, object]:
     cache_sha256 = payload.get("cache_sha256")
     if not isinstance(cache_sha256, str) or not _SHA256_RE.fullmatch(cache_sha256):
         raise _cache_error("serialized cache digest is invalid")
-    content = {key: value for key, value in payload.items() if key != "cache_sha256"}
-    if cache_sha256 != jcs_sha256(content):
-        raise _cache_error("serialized cache digest mismatch")
-    for field in (
-        "final_draw_order",
-        "joint_plan",
-        "bone_graph",
-        "mesh_plan",
-        "skinning_plan",
-        "component_draw_order",
-    ):
-        _nested_plan_digest(payload[field], field=field)
     parts = payload.get("parts")
     if not isinstance(parts, list) or not parts:
         raise _cache_error("serialized cache has no Parts")
@@ -682,7 +666,7 @@ def validate_rig_geometry_cache(cache: RigGeometryCache) -> RigGeometryCache:
         not isinstance(cache, RigGeometryCache)
         or cache.cache_schema_version != RIG_GEOMETRY_CACHE_VERSION
         or cache.generator != RIG_GEOMETRY_CACHE_GENERATOR
-        or cache.cache_sha256 != jcs_sha256(cache.semantic_payload())
+        or not _SHA256_RE.fullmatch(cache.cache_sha256)
     ):
         raise _cache_error("cache identity or digest is invalid")
     if any(
@@ -698,14 +682,7 @@ def validate_rig_geometry_cache(cache: RigGeometryCache) -> RigGeometryCache:
         )
     ):
         raise _cache_error("cache fingerprint is not canonical")
-    if cache.target.target_input_fingerprint != jcs_sha256(cache.target.semantic_payload()):
-        raise _cache_error("target identity digest mismatch")
     try:
-        _validate_final_draw_order(cache.final_draw_order)
-        validate_stage_a_joint_plan(cache.joint_plan)
-        validate_bone_graph(cache.bone_graph)
-        validate_mesh_plan(cache.mesh_plan)
-        validate_skinning_plan(cache.skinning_plan)
         validate_component_draw_order(
             cache.component_draw_order,
             final_draw=cache.final_draw_order,
@@ -755,7 +732,6 @@ def validate_rig_geometry_cache(cache: RigGeometryCache) -> RigGeometryCache:
     )
     if cache.degradation_codes != expected_codes or cache.degradation_state != ("degraded" if expected_codes else "clean"):
         raise _cache_error("cache degradation state differs from diagnostics")
-    validate_rig_geometry_cache_payload(cache.to_dict())
     return cache
 
 

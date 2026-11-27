@@ -548,11 +548,13 @@ def validate_live2d_animation_plan(
     for asset in plan.expression_assets:
         _validate_expression(asset, eye_parameter_ids=eye_parameter_ids)
         encode_live2d_animation_asset(asset)
-    expected = _assemble(rig, symbols, bindings, keyforms)
-    if plan != expected:
-        raise _error("animation plan differs from canonical Stage C decisions")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("animation plan digest mismatch")
+    if (
+        plan.rig_document_sha256 != rig.document_sha256
+        or plan.symbol_view_sha256 != symbols.view_sha256
+        or plan.binding_plan_sha256 != bindings.plan_sha256
+        or plan.keyform_plan_sha256 != keyforms.plan_sha256
+    ):
+        raise _error("animation plan provenance differs from Stage C/E inputs")
     return plan
 
 

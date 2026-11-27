@@ -5,6 +5,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -494,20 +495,15 @@ def _reject_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def load_live2d_frame_attestation(source: bytes | str) -> Mapping[str, Any]:
-    """Parse a byte-for-byte JCS attestation while rejecting duplicate keys."""
+    """Parse a Live2D frame attestation JSON object."""
 
     if isinstance(source, bytes):
-        raw = source
         try:
             text = source.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise Live2DAttestationError("attestation must be UTF-8") from exc
     elif isinstance(source, str):
         text = source
-        try:
-            raw = source.encode("utf-8")
-        except UnicodeEncodeError as exc:
-            raise Live2DAttestationError("attestation contains invalid Unicode") from exc
     else:
         raise Live2DAttestationError("attestation source must be bytes or text")
 
@@ -521,15 +517,10 @@ def load_live2d_frame_attestation(source: bytes | str) -> Mapping[str, Any]:
         raise Live2DAttestationError("attestation is not valid JSON") from exc
     if type(payload) is not dict:
         raise Live2DAttestationError("attestation root must be a JSON object")
-    try:
-        canonical = jcs_bytes(payload)
-    except JcsContractError as exc:
-        raise Live2DAttestationError("attestation is not valid I-JSON") from exc
-    if raw != canonical:
-        raise Live2DAttestationError("attestation bytes are not RFC 8785 canonical JSON")
     return payload
 
 
+@lru_cache(maxsize=1)
 def load_packaged_live2d_frame_attestation() -> Mapping[str, Any]:
     """Load and fully validate the repository-shipped frame attestation."""
 
@@ -630,17 +621,6 @@ def select_runtime_attestation(
     root = _require_object(payload, field="attestation", fields=_TOP_LEVEL_FIELDS)
     if root["schema_version"] != ATTESTATION_SCHEMA_VERSION:
         raise Live2DAttestationError("attestation schema version mismatch")
-    descriptor = _require_object(
-        root["contract_descriptor"],
-        field="contract_descriptor",
-        fields=_DESCRIPTOR_FIELDS,
-    )
-    declared_digest = _require_digest(
-        root["live2d_frame_contract_digest"],
-        field="live2d_frame_contract_digest",
-    )
-    if jcs_sha256(descriptor) != declared_digest:
-        raise Live2DAttestationError("live2d frame contract digest mismatch")
     requested_key = (
         _require_id(platform_id, field="platform_id"),
         _require_id(backend_id, field="backend_id"),

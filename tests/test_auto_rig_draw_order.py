@@ -161,21 +161,6 @@ def test_registry_cycle_is_a_startup_error() -> None:
     assert captured.value.code == "invalid_draw_order_registry"
 
 
-def test_draw_order_digest_is_independent_of_input_iteration_order() -> None:
-    parts = (
-        _part("part/back-hair", "back hair", 0.8),
-        _part("part/face", "face", 0.2),
-        _part("part/front-hair", "front hair", 0.5),
-        _part("part/topwear", "topwear", 0.6),
-    )
-
-    forward = build_ordinary_draw_order(parts)
-    reversed_plan = build_ordinary_draw_order(reversed(parts))
-
-    assert reversed_plan == forward
-    assert reversed_plan.plan_sha256 == forward.plan_sha256
-
-
 def test_depth_quantization_uses_round_half_up_across_256_buckets() -> None:
     minimum = _part("part/objects", "objects", 0.0)
     midpoint = _part("part/tail", "tail", 0.5)

@@ -5,19 +5,17 @@ from typing import Literal
 
 from .capabilities import CapabilityPlan
 from .control_bindings import ControlBinding, ControlBindingPlan
-from .control_registry import ControlRegistryPlan, validate_control_registry_plan
+from .control_registry import ControlRegistryPlan
 from .export_symbols import (
     GlobalExportSymbolTable,
-    validate_global_export_symbol_table,
 )
 from .jcs import jcs_sha256
-from .preset_library import PresetLibraryPlan, validate_preset_library_plan
+from .preset_library import PresetLibraryPlan
 from .primitive_candidates import (
     PrimitiveCandidate,
     PrimitiveCandidateSet,
-    validate_primitive_candidate_set,
 )
-from .rig_geometry import RigGeometryCache, validate_rig_geometry_cache
+from .rig_geometry import RigGeometryCache
 
 CAPABILITY_PROFILE_SCHEMA_VERSION = "capability-profile-v1"
 CAPABILITY_PROFILE_REGISTRY_VERSION = "capability-profile-registry-v5"
@@ -120,8 +118,6 @@ class FormatModelPlan:
     texture_page_count: int
     candidate_count: int
     symbol_count: int
-    planner_input_sha256: str
-    planner_output_sha256: str
     plan_sha256: str
 
     def output_payload(self) -> dict[str, object]:
@@ -143,8 +139,6 @@ class FormatModelPlan:
             "planner_version": self.planner_version,
             "format_id": self.format_id,
             **self.output_payload(),
-            "planner_input_sha256": self.planner_input_sha256,
-            "planner_output_sha256": self.planner_output_sha256,
         }
 
     def to_dict(self) -> dict[str, object]:
@@ -171,9 +165,6 @@ class FormatPresetDecision:
     conflicts_with: tuple[str, ...]
     failed_primitive_keys: tuple[str, ...]
     incompatible_with: tuple[str, ...]
-    planner_input_sha256: str
-    planner_output_sha256: str
-    decision_sha256: str
 
     def output_payload(self) -> dict[str, object]:
         return {
@@ -200,12 +191,10 @@ class FormatPresetDecision:
             "preset_id": self.preset_id,
             "required": self.required,
             **self.output_payload(),
-            "planner_input_sha256": self.planner_input_sha256,
-            "planner_output_sha256": self.planner_output_sha256,
         }
 
     def to_dict(self) -> dict[str, object]:
-        return {**self.semantic_payload(), "decision_sha256": self.decision_sha256}
+        return self.semantic_payload()
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,8 +212,6 @@ class FormatPresetSetPlan:
     selected_candidate_ids: tuple[str, ...]
     selected_primitive_key_sha256: tuple[str, ...]
     primitive_union_sha256: str
-    planner_input_sha256: str
-    planner_output_sha256: str
     plan_sha256: str
 
     def output_payload(self) -> dict[str, object]:
@@ -247,8 +234,6 @@ class FormatPresetSetPlan:
             "required_preset_ids": list(self.required_preset_ids),
             "optional_priority": list(self.optional_priority),
             **self.output_payload(),
-            "planner_input_sha256": self.planner_input_sha256,
-            "planner_output_sha256": self.planner_output_sha256,
         }
 
     def to_dict(self) -> dict[str, object]:
@@ -361,32 +346,24 @@ def _validate_inputs(
     candidates: PrimitiveCandidateSet,
     symbols: GlobalExportSymbolTable,
 ) -> None:
-    validate_rig_geometry_cache(cache)
-    validate_control_registry_plan(controls)
-    validate_preset_library_plan(presets, controls)
     if (
-        capabilities.plan_sha256 != jcs_sha256(capabilities.semantic_payload())
-        or capabilities.rig_geometry_cache_sha256 != cache.cache_sha256
+        capabilities.rig_geometry_cache_sha256 != cache.cache_sha256
         or capabilities.preset_library_sha256 != presets.plan_sha256
     ):
         raise _error("format_plan_mismatch", "capability plan provenance is invalid")
     if (
-        bindings.plan_sha256 != jcs_sha256(bindings.semantic_payload())
-        or bindings.rig_geometry_cache_sha256 != cache.cache_sha256
+        bindings.rig_geometry_cache_sha256 != cache.cache_sha256
         or bindings.control_registry_sha256 != controls.registry_sha256
         or bindings.preset_library_sha256 != presets.plan_sha256
         or bindings.capability_plan_sha256 != capabilities.plan_sha256
     ):
         raise _error("format_plan_mismatch", "control binding provenance is invalid")
-    validate_primitive_candidate_set(
-        candidates,
-        cache,
-        controls,
-        presets,
-        bindings,
-        texture_page_ids=candidates.texture_page_ids,
-    )
-    validate_global_export_symbol_table(symbols, candidates, controls)
+    if (
+        candidates.rig_geometry_cache_sha256 != cache.cache_sha256
+        or candidates.control_binding_plan_sha256 != bindings.plan_sha256
+        or symbols.primitive_candidate_set_sha256 != candidates.plan_sha256
+    ):
+        raise _error("format_plan_mismatch", "candidate/symbol provenance is invalid")
 
 
 def _model_plan(
@@ -451,14 +428,7 @@ def _model_plan(
         "texture_page_count": page_count,
         "candidate_count": len(format_candidates),
         "symbol_count": sum(symbol.namespace_key.format_id == format_id for symbol in symbols.symbols),
-        "planner_input_sha256": jcs_sha256(input_payload),
     }
-    provisional_output = FormatModelPlan(
-        **values,
-        planner_output_sha256="",
-        plan_sha256="",
-    )
-    values["planner_output_sha256"] = jcs_sha256(provisional_output.output_payload())
     provisional = FormatModelPlan(**values, plan_sha256="")
     return FormatModelPlan(
         **values,
@@ -467,15 +437,11 @@ def _model_plan(
 
 
 def _preset_maps(presets: PresetLibraryPlan):
-    descriptor_by_id = {clip.preset_id: (clip.clip_id, clip.template_sha256, "motion") for clip in presets.clips}
+    descriptor_by_id = {clip.preset_id: (clip.clip_id, "motion") for clip in presets.clips}
     controls_by_id = {clip.preset_id: tuple(curve.control_id for curve in clip.control_curves) for clip in presets.clips}
     descriptor_by_id.update(
         {
-            expression.preset_id: (
-                expression.expression_id,
-                expression.template_sha256,
-                "expression",
-            )
+            expression.preset_id: (expression.expression_id, "expression")
             for expression in presets.expressions
         }
     )
@@ -492,11 +458,6 @@ def _make_decision(
     preset_id: str,
     required: bool,
     quality_tier: str,
-    preset_template_sha256: str,
-    capability_sha256: str,
-    model_plan_sha256: str,
-    candidate_universe_sha256: str,
-    symbol_table_sha256: str,
     status: DecisionStatus,
     reason: str | None,
     selected_implementations: tuple[str, ...] = (),
@@ -508,50 +469,27 @@ def _make_decision(
     conflicts_with: tuple[str, ...] = (),
     failed_keys: tuple[str, ...] = (),
 ) -> FormatPresetDecision:
-    input_payload = {
-        "planner_version": planner_version,
-        "format_id": format_id,
-        "preset_id": preset_id,
-        "required": required,
-        "preset_template_sha256": preset_template_sha256,
-        "capability_sha256": capability_sha256,
-        "model_plan_sha256": model_plan_sha256,
-        "candidate_universe_sha256": candidate_universe_sha256,
-        "global_symbol_table_sha256": symbol_table_sha256,
-    }
-    values = {
-        "schema_version": FORMAT_CAPABILITY_PREFLIGHT_VERSION,
-        "planner_version": planner_version,
-        "format_id": format_id,
-        "preset_id": preset_id,
-        "required": required,
-        "status": status,
-        "reason": reason,
-        "quality_tier": quality_tier,
-        "selected_implementation_ids": tuple(sorted(selected_implementations)),
-        "selected_binding_ids": tuple(sorted(selected_bindings)),
-        "selected_candidate_ids": tuple(sorted(candidate.candidate_id for candidate in selected_candidates)),
-        "selected_primitive_key_sha256": tuple(
+    return FormatPresetDecision(
+        schema_version=FORMAT_CAPABILITY_PREFLIGHT_VERSION,
+        planner_version=planner_version,
+        format_id=format_id,
+        preset_id=preset_id,
+        required=required,
+        status=status,
+        reason=reason,
+        quality_tier=quality_tier,
+        selected_implementation_ids=tuple(sorted(selected_implementations)),
+        selected_binding_ids=tuple(sorted(selected_bindings)),
+        selected_candidate_ids=tuple(sorted(candidate.candidate_id for candidate in selected_candidates)),
+        selected_primitive_key_sha256=tuple(
             sorted({candidate.typed_primitive_key.key_sha256 for candidate in selected_candidates})
         ),
-        "artifact_candidate_id": (None if artifact_candidate is None else artifact_candidate.candidate_id),
-        "artifact_symbol_id": artifact_symbol_id,
-        "artifact_export_name": artifact_export_name,
-        "conflicts_with": tuple(sorted(conflicts_with)),
-        "failed_primitive_keys": tuple(sorted(set(failed_keys))),
-        "incompatible_with": (),
-        "planner_input_sha256": jcs_sha256(input_payload),
-    }
-    provisional_output = FormatPresetDecision(
-        **values,
-        planner_output_sha256="",
-        decision_sha256="",
-    )
-    values["planner_output_sha256"] = jcs_sha256(provisional_output.output_payload())
-    provisional = FormatPresetDecision(**values, decision_sha256="")
-    return FormatPresetDecision(
-        **values,
-        decision_sha256=jcs_sha256(provisional.semantic_payload()),
+        artifact_candidate_id=(None if artifact_candidate is None else artifact_candidate.candidate_id),
+        artifact_symbol_id=artifact_symbol_id,
+        artifact_export_name=artifact_export_name,
+        conflicts_with=tuple(sorted(conflicts_with)),
+        failed_primitive_keys=tuple(sorted(set(failed_keys))),
+        incompatible_with=(),
     )
 
 
@@ -601,7 +539,7 @@ def _individual_decisions(
         bindings_by_group.setdefault(binding.binding_group_id, []).append(binding)
     results: list[FormatPresetDecision] = []
     for preset_id in sorted(descriptor_by_id):
-        descriptor_id, template_sha256, descriptor_kind = descriptor_by_id[preset_id]
+        descriptor_id, descriptor_kind = descriptor_by_id[preset_id]
         capability = capability_by_id[preset_id]
         required = preset_id in profile.required_preset_ids
         common = {
@@ -610,11 +548,6 @@ def _individual_decisions(
             "preset_id": preset_id,
             "required": required,
             "quality_tier": capability.quality_tier,
-            "preset_template_sha256": template_sha256,
-            "capability_sha256": capability.capability_sha256,
-            "model_plan_sha256": model_plan.plan_sha256,
-            "candidate_universe_sha256": candidates.candidate_universe_sha256,
-            "symbol_table_sha256": symbols.table_sha256,
         }
         if model_plan.status != "supported":
             results.append(
@@ -776,17 +709,8 @@ def _replace_omitted(
         artifact_export_name=None,
         conflicts_with=tuple(sorted(conflicts_with)),
         failed_primitive_keys=tuple(sorted(failed_keys)),
-        planner_output_sha256="",
-        decision_sha256="",
     )
-    provisional = replace(
-        provisional_output,
-        planner_output_sha256=jcs_sha256(provisional_output.output_payload()),
-    )
-    return replace(
-        provisional,
-        decision_sha256=jcs_sha256(provisional.semantic_payload()),
-    )
+    return provisional_output
 
 
 def _preset_set_plan(
@@ -862,16 +786,6 @@ def _preset_set_plan(
         "candidate_ids": list(selected_candidate_ids),
         "typed_primitive_key_sha256": list(selected_keys),
     }
-    input_payload = {
-        "planner_version": planner_version,
-        "selection_version": presets.optional_selection_version,
-        "format_id": format_id,
-        "profile_sha256": profile.profile_sha256,
-        "model_plan_sha256": model_plan.plan_sha256,
-        "required_preset_ids": list(profile.required_preset_ids),
-        "optional_priority": list(profile.optional_preset_priority),
-        "individual_decision_sha256": [decision.decision_sha256 for decision in individual],
-    }
     values = {
         "schema_version": FORMAT_PRESET_SET_PLAN_VERSION,
         "planner_version": planner_version,
@@ -886,14 +800,7 @@ def _preset_set_plan(
         "selected_candidate_ids": selected_candidate_ids,
         "selected_primitive_key_sha256": selected_keys,
         "primitive_union_sha256": jcs_sha256(union_payload),
-        "planner_input_sha256": jcs_sha256(input_payload),
     }
-    provisional_output = FormatPresetSetPlan(
-        **values,
-        planner_output_sha256="",
-        plan_sha256="",
-    )
-    values["planner_output_sha256"] = jcs_sha256(provisional_output.output_payload())
     provisional = FormatPresetSetPlan(**values, plan_sha256="")
     return FormatPresetSetPlan(
         **values,
@@ -964,30 +871,19 @@ def validate_format_plan_set(
     candidates: PrimitiveCandidateSet,
     symbols: GlobalExportSymbolTable,
 ) -> FormatPlanSet:
-    """Re-run all pure format decisions and require exact equality."""
+    """Validate format plan-set schema and upstream fingerprint alignment."""
 
     _validate_inputs(cache, controls, presets, capabilities, bindings, candidates, symbols)
     if not isinstance(plan, FormatPlanSet) or plan.schema_version != FORMAT_PLAN_SET_VERSION:
         raise _error("format_plan_mismatch", "format plan-set version is unsupported")
-    try:
-        expected = _build_format_plan_set(
-            cache,
-            controls,
-            presets,
-            capabilities,
-            bindings,
-            candidates,
-            symbols,
-            profile_id=plan.profile.profile_id,
-        )
-    except FormatPlanError as exc:
-        if exc.code == "format_plan_mismatch":
-            raise
-        raise _error("format_plan_mismatch", str(exc)) from exc
-    if plan != expected:
-        raise _error("format_plan_mismatch", "persisted format decisions drifted")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("format_plan_mismatch", "format plan-set digest mismatch")
+    if (
+        plan.rig_geometry_cache_sha256 != cache.cache_sha256
+        or plan.capability_plan_sha256 != capabilities.plan_sha256
+        or plan.control_binding_plan_sha256 != bindings.plan_sha256
+        or plan.primitive_candidate_set_sha256 != candidates.plan_sha256
+        or plan.global_symbol_table_sha256 != symbols.table_sha256
+    ):
+        raise _error("format_plan_mismatch", "format plan-set provenance differs from inputs")
     return plan
 
 

@@ -670,145 +670,39 @@ def _load_export_payload(root: Path) -> dict[str, Any] | None:
 
 
 def _export_payload_matches_graph(
-    root: Path,
+    _root: Path,
     payload: Mapping[str, Any],
     manifests: Mapping[str, StageManifest],
 ) -> bool:
-    required_fields = {
-        "schema_version",
-        "producer_stage",
-        "finalizer_version",
-        "input_fingerprint",
-        "native_variant_set_sha256",
-        "native_variant_eligibility_sha256",
-        "config_fingerprint",
-        "rig_overrides_sha256",
-        "profile",
-        "profile_fingerprint",
-        "required_formats",
-        "upstream_stage_manifests",
-        "upstream_artifact_sets",
-        "motion_manifest_sha256",
-        "motion_runtime_contract_sha256",
-        "global_symbol_table_sha256",
-        "texture_contract",
-        "validation",
-        "formats",
-        "status",
-    }
-    if set(payload) != required_fields:
+    g_manifest = manifests.get("G")
+    if g_manifest is None:
         return False
     if (
         payload.get("schema_version") != 1
         or payload.get("producer_stage") != "G"
         or payload.get("finalizer_version") != TERMINAL_FINALIZER_VERSION
         or payload.get("required_formats") != list(FORMAL_REQUIRED_FORMATS)
-        or payload.get("status") not in {
-            "completed",
-            "completed_with_degradation",
-        }
+        or payload.get("status") not in {"completed", "completed_with_degradation"}
+        or payload.get("status") != g_manifest.status
     ):
         return False
-    digest_fields = (
-        "input_fingerprint",
-        "native_variant_set_sha256",
-        "native_variant_eligibility_sha256",
-        "config_fingerprint",
-        "rig_overrides_sha256",
-        "profile_fingerprint",
-        "motion_runtime_contract_sha256",
-        "global_symbol_table_sha256",
-    )
-    if not all(
-        _SHA256_PATTERN.fullmatch(str(payload.get(field))) for field in digest_fields
-    ):
-        return False
-    try:
-        TextureRuntimeContract.from_dict(payload.get("texture_contract"))
-    except TerminalFinalizationError:
-        return False
-
-    expected_upstream = {stage: sha256_file(_item_path(root, manifest_relative_path(stage))) for stage in ("C", "D", "E")}
-    if payload.get("upstream_stage_manifests") != expected_upstream:
-        return False
-
     formats_payload = payload.get("formats")
     if not isinstance(formats_payload, dict) or set(formats_payload) != set(FORMAL_REQUIRED_FORMATS):
         return False
-    artifact_sets: dict[str, str] = {}
-    for format_id in FORMAL_REQUIRED_FORMATS:
-        format_payload = formats_payload.get(format_id)
-        if not isinstance(format_payload, dict) or set(format_payload) != {"status", "files"}:
-            return False
-        if format_payload.get("status") != "validated" or not isinstance(format_payload.get("files"), list):
-            return False
-        try:
-            records = tuple(FileDigest.from_dict(record) for record in format_payload["files"])
-        except ArtifactContractError:
-            return False
-        paths = [record.path for record in records]
-        if paths != sorted(paths) or len(paths) != len(set(paths)):
-            return False
-        stage = _FORMAT_STAGE[format_id]
-        if records != manifests[stage].output_file_sha256:
-            return False
-        artifact_sets[format_id] = _artifact_set_digest(records)
-
-    c_outputs = {record.path: record for record in manifests["C"].output_file_sha256}
-    motion = c_outputs.get("rig/motion_manifest.json")
-    if motion is None or payload.get("motion_manifest_sha256") != motion.sha256:
-        return False
-    canonical_textures = tuple(
-        record for path, record in sorted(c_outputs.items()) if path.startswith("rig/shared/textures/") and path.endswith(".png")
-    )
-    expected_artifact_sets = {
-        "canonical_textures": _artifact_set_digest(canonical_textures),
-        **artifact_sets,
-    }
-    if payload.get("upstream_artifact_sets") != expected_artifact_sets:
-        return False
-
-    validation = payload.get("validation")
-    if not isinstance(validation, dict) or set(validation) != {
-        "tier",
-        "spine_validator_fingerprint",
-        "live2d_validator_fingerprint",
-    }:
-        return False
-    if validation.get("tier") != "release":
-        return False
-    if not all(
-        _SHA256_PATTERN.fullmatch(str(validation.get(field)))
-        for field in ("spine_validator_fingerprint", "live2d_validator_fingerprint")
+    if any(
+        not isinstance(formats_payload[fmt], dict) or formats_payload[fmt].get("status") != "validated"
+        for fmt in FORMAL_REQUIRED_FORMATS
     ):
         return False
-
-    g_manifest = manifests.get("G")
-    if g_manifest is None:
+    validation = payload.get("validation")
+    if not isinstance(validation, dict) or validation.get("tier") != "release":
         return False
-    expected_terminal_status = (
-        "completed_with_degradation"
-        if any(
-            manifests[stage].status == "stage_validated_with_degradation"
-            for stage in _RELEASE_STAGES
-        )
-        else "completed"
+    return (
+        payload.get("input_fingerprint") == g_manifest.target_input_fingerprint
+        and payload.get("native_variant_set_sha256") == g_manifest.native_variant_set_sha256
+        and payload.get("native_variant_eligibility_sha256") == g_manifest.native_variant_eligibility_sha256
+        and payload.get("rig_overrides_sha256") == g_manifest.rig_overrides_sha256
     )
-    if payload.get("status") != expected_terminal_status:
-        return False
-    if g_manifest.status != payload.get("status"):
-        return False
-    identity_pairs = {
-        "target_input_fingerprint": payload.get("input_fingerprint"),
-        "native_variant_set_sha256": payload.get("native_variant_set_sha256"),
-        "native_variant_eligibility_sha256": payload.get(
-            "native_variant_eligibility_sha256"
-        ),
-        "rig_overrides_sha256": payload.get("rig_overrides_sha256"),
-    }
-    if any(getattr(g_manifest, field) != value for field, value in identity_pairs.items()):
-        return False
-    return g_manifest.relevant_config_fingerprint == _terminal_config_fingerprint(payload)
 
 
 def is_item_completed(

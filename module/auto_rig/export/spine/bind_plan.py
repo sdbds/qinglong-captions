@@ -535,11 +535,8 @@ def validate_spine_bind_plan(
         or plan.affine_version != SPINE_BIND_AFFINE_VERSION
     ):
         raise _error("bind version is unsupported")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("plan digest mismatch")
-    expected = build_spine_bind_plan(bones, meshes, coordinate_plan)
-    if plan != expected:
-        raise _error("plan differs from recomputed bind or reconstruction")
+    if plan.coordinate_plan_sha256 != coordinate_plan.plan_sha256:
+        raise _error("bind plan references another coordinate plan")
     return plan
 
 

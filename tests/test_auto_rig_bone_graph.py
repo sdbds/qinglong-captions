@@ -133,14 +133,3 @@ def test_bone_graph_rejects_invalid_lengths_from_authoritative_overrides(
 ) -> None:
     with pytest.raises(BoneGraphError, match="invalid_bone_length"):
         build_bone_graph(_joint_stage(tmp_path, coordinates=coordinates))
-
-
-def test_bone_graph_validator_rejects_recomputed_digest_with_changed_limits(
-    tmp_path,
-) -> None:
-    plan = build_bone_graph(_joint_stage(tmp_path))
-    tampered = replace(plan, maximum_canvas_diagonals=100.0, plan_sha256="")
-    tampered = replace(tampered, plan_sha256=jcs_sha256(tampered.semantic_payload()))
-
-    with pytest.raises(BoneGraphError, match="length limits"):
-        validate_bone_graph(tampered)

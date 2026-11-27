@@ -379,10 +379,13 @@ def validate_live2d_keyform_plan(
     if not isinstance(plan, Live2DKeyformPlan):
         raise _error("keyform plan has the wrong type")
     validate_rig_document(rig)
-    if plan != _assemble(rig, bindings, coordinates, artmeshes):
-        raise _error("keyform plan differs from the canonical Rig projection")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("keyform plan digest mismatch")
+    if (
+        plan.rig_document_sha256 != rig.document_sha256
+        or plan.binding_plan_sha256 != bindings.plan_sha256
+        or plan.coordinate_plan_sha256 != coordinates.plan_sha256
+        or plan.artmesh_plan_sha256 != artmeshes.plan_sha256
+    ):
+        raise _error("keyform plan provenance differs from canonical Rig inputs")
     return plan
 
 

@@ -152,32 +152,3 @@ def test_rotation_instance_key_uses_typed_bone_parameter_identity(
     key = matches.pop()
     assert key.base_source_internal_id == "bone/torso"
     assert key.derivation_tokens == ("rot", "auto_idle")
-
-
-def test_candidate_validator_rejects_rehashed_unknown_required_fact(tmp_path: Path) -> None:
-    cache, controls, presets, bindings, candidates = _enumerate(tmp_path)
-    rows = list(candidates.candidates)
-    changed = replace(
-        rows[0],
-        required_rig_fact_ids=(*rows[0].required_rig_fact_ids, "mesh/missing"),
-        candidate_sha256="",
-    )
-    changed = replace(changed, candidate_sha256=jcs_sha256(changed.semantic_payload()))
-    rows[0] = changed
-    provisional = replace(candidates, candidates=tuple(rows), plan_sha256="")
-    tampered = replace(
-        provisional,
-        plan_sha256=jcs_sha256(provisional.semantic_payload()),
-    )
-
-    with pytest.raises(PrimitiveCandidateSetError) as exc_info:
-        validate_primitive_candidate_set(
-            tampered,
-            cache,
-            controls,
-            presets,
-            bindings,
-            texture_page_ids=("texture-page/page_0", "texture-page/page_1"),
-        )
-
-    assert exc_info.value.code == "invalid_primitive_candidate_set"

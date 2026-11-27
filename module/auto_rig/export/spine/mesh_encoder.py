@@ -4,8 +4,7 @@ import math
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
-from ...jcs import jcs_sha256
-from .bind_plan import SpineMeshBind, SpineVertexInfluenceBind
+from .bind_plan import SpineMeshBind
 from .uv import canvas_to_spine_region_uv
 
 SPINE_MESH_ENCODER_VERSION = "spine-mesh-encoder-v1"
@@ -42,7 +41,6 @@ class SpineEncodedMesh:
     attachment_object_name: str
     atlas_region_name: str
     payload: dict[str, object]
-    payload_sha256: str
 
     def semantic_payload(self) -> dict[str, object]:
         return {
@@ -58,7 +56,7 @@ class SpineEncodedMesh:
         }
 
     def to_dict(self) -> dict[str, object]:
-        return {**self.semantic_payload(), "payload_sha256": self.payload_sha256}
+        return self.semantic_payload()
 
 
 def _triangles(value: object, *, vertex_count: int) -> list[int]:
@@ -176,20 +174,8 @@ def encode_spine_mesh(
         attachment_object_name=attachment_object_name,
         atlas_region_name=atlas_region_name,
         payload=payload,
-        payload_sha256="",
     )
-    return SpineEncodedMesh(
-        schema_version=provisional.schema_version,
-        mesh_id=provisional.mesh_id,
-        weighted=provisional.weighted,
-        vertex_count=provisional.vertex_count,
-        slot_bone_id=provisional.slot_bone_id,
-        attachment_key_name=provisional.attachment_key_name,
-        attachment_object_name=provisional.attachment_object_name,
-        atlas_region_name=provisional.atlas_region_name,
-        payload=provisional.payload,
-        payload_sha256=jcs_sha256(provisional.semantic_payload()),
-    )
+    return provisional
 
 
 def parse_weighted_vertices(
@@ -239,8 +225,6 @@ def validate_spine_encoded_mesh(
         raise _error("encoded mesh has the wrong type")
     if encoded.schema_version != SPINE_MESH_ENCODER_VERSION:
         raise _error("mesh encoder version is unsupported")
-    if encoded.payload_sha256 != jcs_sha256(encoded.semantic_payload()):
-        raise _error("encoded mesh digest mismatch")
     if encoded.weighted:
         parsed = parse_weighted_vertices(
             encoded.payload.get("vertices"), vertex_count=encoded.vertex_count

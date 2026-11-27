@@ -114,11 +114,6 @@ def atomic_write_bytes(path: str | Path, payload: bytes) -> None:
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        # Replacement order is not a durability proof: the parent directory is not
-        # fsynced on every supported platform. Resume correctness therefore depends
-        # on re-reading and hashing every declared artifact, never on mtime shortcuts.
         os.replace(temporary, target)
     except BaseException:
         temporary.unlink(missing_ok=True)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 
@@ -50,7 +51,7 @@ class MotionManifestProjection:
 
     @property
     def projection_sha256(self) -> str:
-        return jcs_sha256(self.to_dict())
+        return f"sha256:{hashlib.sha256(self._canonical_json).hexdigest()}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +87,6 @@ def _preset_descriptors(rig_payload: dict[str, object]):
             "control_ids": sorted(
                 curve["control_id"] for curve in clip["control_curves"]
             ),
-            "template_sha256": clip["template_sha256"],
         }
     for expression in rig_payload["expressions"]:
         result[expression["preset_id"]] = {
@@ -97,7 +97,6 @@ def _preset_descriptors(rig_payload: dict[str, object]):
             "control_ids": sorted(
                 value["control_id"] for value in expression["values"]
             ),
-            "template_sha256": expression["template_sha256"],
         }
     return result
 
@@ -165,7 +164,6 @@ def _motion_payload(rig: RigDocument) -> dict[str, object]:
                 "duration_seconds": descriptor["duration_seconds"],
                 "loop": descriptor["loop"],
                 "control_ids": descriptor["control_ids"],
-                "template_sha256": descriptor["template_sha256"],
                 "supported_formats": supported_formats,
                 "formats": format_records,
             }

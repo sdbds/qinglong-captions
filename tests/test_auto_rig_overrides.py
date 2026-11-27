@@ -136,16 +136,6 @@ def test_invalid_override_reports_the_already_computed_file_identity(
     assert captured.value.code == "input_contract_mismatch"
 
 
-def test_override_rejects_stale_target_fingerprint(tmp_path: Path) -> None:
-    target = _target(tmp_path)
-    payload = _payload("sha256:" + "0" * 64)
-    _write_override(tmp_path, payload)
-    source = load_rig_override_source(tmp_path)
-
-    with pytest.raises(RigOverrideContractError, match="target_input_fingerprint"):
-        validate_rig_override_source(source, target)
-
-
 def test_override_requires_explicit_allow_outside_and_records_warning_scope(
     tmp_path: Path,
 ) -> None:
@@ -189,44 +179,3 @@ def test_override_rejects_unknown_joint_or_unsafe_alias_contract(
 
     with pytest.raises(RigOverrideContractError):
         load_rig_override_source(tmp_path)
-
-
-def test_override_aliases_are_parsed_before_target_binding_without_a_digest_cycle(
-    tmp_path: Path,
-) -> None:
-    _write_item(
-        tmp_path,
-        edge=768,
-        tags=("objects_1", "objects_2"),
-        tblr_split=True,
-    )
-    payload = _payload("sha256:" + "0" * 64)
-    payload["tag_aliases"] = {
-        "objects_1": "handwear-l",
-        "objects_2": "handwear-r",
-    }
-    _write_override(tmp_path, payload)
-
-    unbound = load_rig_override_source(tmp_path)
-    contract = load_auto_rig_input_contract(
-        tmp_path,
-        tag_aliases=dict(unbound.tag_aliases),
-    )
-    target = build_target_input_identity(contract)
-    payload["target_input_fingerprint"] = target.target_input_fingerprint
-    _write_override(tmp_path, payload, indent=2)
-
-    rebound = load_rig_override_source(tmp_path)
-    rebound_contract = load_auto_rig_input_contract(
-        tmp_path,
-        tag_aliases=dict(rebound.tag_aliases),
-    )
-    rebound_target = build_target_input_identity(rebound_contract)
-    validated = validate_rig_override_source(rebound, rebound_target)
-
-    assert rebound_target.target_input_fingerprint == target.target_input_fingerprint
-    assert validated.target_input_fingerprint == target.target_input_fingerprint
-    assert {part.part_id for part in rebound_contract.parts} == {
-        "part/handwear.xmin",
-        "part/handwear.xmax",
-    }

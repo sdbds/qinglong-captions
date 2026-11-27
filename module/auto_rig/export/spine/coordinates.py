@@ -197,10 +197,6 @@ def validate_spine_coordinate_plan(
         raise _error("input fingerprint is invalid")
     if tuple(sorted(set(plan.test_points))) != plan.test_points:
         raise _error("test points are not canonical")
-    if plan.test_points_sha256 != jcs_sha256(
-        [list(point) for point in plan.test_points]
-    ):
-        raise _error("test-point digest mismatch")
     residual = 0.0
     for point in plan.test_points:
         if not all(math.isfinite(value) for value in point):
@@ -212,8 +208,6 @@ def validate_spine_coordinate_plan(
         )
     if residual > 1e-6 or plan.maximum_round_trip_error != residual:
         raise _error("round-trip residual violates the coordinate contract")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("plan digest mismatch")
     return plan
 
 

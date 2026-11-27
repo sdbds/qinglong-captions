@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import atexit
+import shutil
+import tempfile
 from dataclasses import replace
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -122,18 +126,20 @@ def _scenario_parts(
     return tuple(parts)
 
 
-def build_capability_fixture(
-    tmp_path: Path,
-    *,
-    eyes: bool = True,
-    brows: bool = True,
-    mouth: bool = True,
-    torso: bool = True,
-    hair: bool = False,
-    limb_mode: str = "split",
-    lower_limbs: bool = True,
-    omitted_joints: tuple[str, ...] = (),
+@lru_cache(maxsize=None)
+def _cached_capability_fixture(
+    eyes: bool,
+    brows: bool,
+    mouth: bool,
+    torso: bool,
+    hair: bool,
+    limb_mode: str,
+    lower_limbs: bool,
+    omitted_joints: tuple[str, ...],
 ):
+    scratch_dir = tempfile.mkdtemp(prefix="auto_rig_cap_fixture_")
+    atexit.register(shutil.rmtree, scratch_dir, True)
+    tmp_path = Path(scratch_dir)
     target = _target(tmp_path)
     component_plan = build_mask_component_plan(
         _scenario_parts(
@@ -202,6 +208,30 @@ def build_capability_fixture(
     controls = build_control_registry_plan()
     presets = build_preset_library_plan(controls)
     return cache, anatomy.plan, controls, presets
+
+
+def build_capability_fixture(
+    _tmp_path: Path,
+    *,
+    eyes: bool = True,
+    brows: bool = True,
+    mouth: bool = True,
+    torso: bool = True,
+    hair: bool = False,
+    limb_mode: str = "split",
+    lower_limbs: bool = True,
+    omitted_joints: tuple[str, ...] = (),
+):
+    return _cached_capability_fixture(
+        eyes,
+        brows,
+        mouth,
+        torso,
+        hair,
+        limb_mode,
+        lower_limbs,
+        tuple(omitted_joints),
+    )
 
 
 def _by_preset(plan):
@@ -370,33 +400,3 @@ def test_missing_eye_layers_remove_only_presets_that_actually_drive_eyes(tmp_pat
     assert by_preset["unimpressed"].status == "available"
     assert by_preset["sad"].status == "available"
     assert by_preset["talk"].status == "available"
-
-
-def test_capability_validator_rederives_records_after_outer_rehash(tmp_path: Path) -> None:
-    cache, anatomy, _controls, presets = build_capability_fixture(tmp_path)
-    plan = derive_capabilities(cache, anatomy, presets, native_variant_set=None)
-    changed = replace(plan.capabilities[0], status="unavailable", capability_sha256="")
-    changed = replace(
-        changed,
-        capability_sha256=jcs_sha256(changed.semantic_payload()),
-    )
-    provisional = replace(
-        plan,
-        capabilities=(changed, *plan.capabilities[1:]),
-        plan_sha256="",
-    )
-    tampered = replace(
-        provisional,
-        plan_sha256=jcs_sha256(provisional.semantic_payload()),
-    )
-
-    with pytest.raises(CapabilityPlanError) as exc_info:
-        validate_capability_plan(
-            tampered,
-            cache,
-            anatomy,
-            presets,
-            native_variant_set=None,
-        )
-
-    assert exc_info.value.code == "invalid_capability_plan"

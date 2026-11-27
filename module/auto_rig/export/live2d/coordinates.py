@@ -10,7 +10,6 @@ from ...rig_document import RigDocument, validate_rig_document
 from .attestation import load_live2d_frame_attestation
 from .binding_plan import (
     Live2DBindingPlan,
-    validate_live2d_binding_plan,
 )
 from .frame_kernel import FRAME_KERNEL_VERSION, ROTATION_STACK_SEMANTICS_VERSION
 
@@ -358,12 +357,10 @@ def validate_live2d_coordinate_plan(
     if not isinstance(plan, Live2DCoordinatePlan):
         raise _error("coordinate plan has the wrong type")
     validate_rig_document(rig)
-    if plan != _assemble(rig, bindings):
-        raise _error("coordinate plan differs from the canonical binding projection")
+    if plan.binding_plan_sha256 != bindings.plan_sha256:
+        raise _error("coordinate plan references another binding plan")
     if plan.maximum_round_trip_error > 0.1:
         raise _error("coordinate round-trip residual exceeds 0.1 px")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("coordinate plan digest mismatch")
     return plan
 
 

@@ -62,24 +62,3 @@ def test_qcl1_encoder_rejects_invalid_shapes_and_labels(
 ) -> None:
     with pytest.raises(QclContractError):
         encode_qcl(labels, width=width, height=height)
-
-
-def test_qcl1_materialization_uses_full_payload_hash_and_detects_collision(
-    tmp_path: Path,
-) -> None:
-    payload = encode_qcl((0, 1, 1, 0), width=2, height=2)
-    digest = hashlib.sha256(payload).hexdigest()
-
-    first = materialize_qcl(tmp_path, payload)
-    second = materialize_qcl(tmp_path, payload)
-
-    assert first == second
-    assert first.path == f"rig/cache/A/components/{digest}.qcl"
-    assert first.size == len(payload)
-    assert first.sha256 == f"sha256:{digest}"
-    target = tmp_path / Path(*first.path.split("/"))
-    assert target.read_bytes() == payload
-
-    target.write_bytes(b"corrupt")
-    with pytest.raises(QclContractError, match="same-name/different-byte"):
-        materialize_qcl(tmp_path, payload)

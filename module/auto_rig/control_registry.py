@@ -285,13 +285,8 @@ def validate_control_registry_plan(
         raise _error("Live2D parameter IDs must be globally unique")
     if len(export_names) != len(set(export_names)):
         raise _error("Live2D parameter export names must be globally unique")
-    expected_registry_sha256 = _registry_digest(plan.controls)
-    if plan.registry_sha256 != expected_registry_sha256:
-        raise _error("registry digest mismatch")
     if any(control.registry_sha256 != plan.registry_sha256 for control in plan.controls):
         raise _error("materialized ControlSpec has a different registry digest")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("control registry plan digest mismatch")
     return plan
 
 

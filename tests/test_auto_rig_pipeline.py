@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -123,24 +124,99 @@ class _PipelinePoseProvider:
         )
 
 
+_SPINE_EVIDENCE = {
+    "validated": True,
+    "validator_version": "spine-runtime-validator-v3",
+    "runtime_version": "4.2",
+    "animation_count": 1,
+    "report_sha256": "sha256:" + ("2" * 64),
+}
+
+
+def _mock_spine_runtime_validator(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    evidence = dict(_SPINE_EVIDENCE)
+    monkeypatch.setattr(
+        "module.auto_rig.stage_d.validate_spine_runtime_bundle",
+        lambda *_args, **_kwargs: SimpleNamespace(to_dict=lambda: dict(evidence)),
+    )
+    return evidence
+
+
+def _copy_seed(seed: Path, dest: Path) -> None:
+    shutil.copytree(seed, dest, dirs_exist_ok=True)
+
+
+@pytest.fixture(scope="module")
+def pipeline_psd_seed(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    root = tmp_path_factory.mktemp("pipeline-psd-seed")
+    _write_pipeline_item(root)
+    return root
+
+
+@pytest.fixture(scope="module")
+def merged_limb_psd_seed(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    root = tmp_path_factory.mktemp("merged-limb-psd-seed")
+    _write_merged_limb_pipeline_item(root)
+    return root
+
+
+@pytest.fixture(scope="module")
+def pipeline_disabled_dev_run(
+    tmp_path_factory: pytest.TempPathFactory,
+    pipeline_psd_seed: Path,
+) -> SimpleNamespace:
+    root = tmp_path_factory.mktemp("pipeline-disabled-dev")
+    _copy_seed(pipeline_psd_seed, root)
+    stale_live2d = root / "rig" / "live2d" / "stale.bin"
+    stale_live2d.parent.mkdir(parents=True, exist_ok=True)
+    stale_live2d.write_bytes(b"stale")
+    result = run_auto_rig_item(
+        root,
+        profile_id="spine_4_2_dev",
+        validation_tier="structural",
+        finalize=False,
+        pose_mode="disabled",
+    )
+    return SimpleNamespace(root=root, stale_live2d=stale_live2d, result=result)
+
+
+@pytest.fixture(scope="module")
+def merged_limb_sdpose_run(
+    tmp_path_factory: pytest.TempPathFactory,
+    merged_limb_psd_seed: Path,
+) -> SimpleNamespace:
+    root = tmp_path_factory.mktemp("merged-limb-sdpose")
+    _copy_seed(merged_limb_psd_seed, root)
+    runtime = root / "spine-runtime.exe"
+    runtime.write_bytes(b"official-runtime-probe")
+    provider = _PipelinePoseProvider()
+    with pytest.MonkeyPatch.context() as mp:
+        _mock_spine_runtime_validator(mp)
+        result = run_auto_rig_item(
+            root,
+            validation_tier="structural",
+            spine_runtime_path=runtime,
+            finalize=False,
+            pose_mode="sdpose",
+            pose_providers={"sdpose": provider},
+        )
+    return SimpleNamespace(
+        root=root,
+        runtime=runtime,
+        result=result,
+        initial_calls=provider.calls,
+    )
+
+
 def test_run_auto_rig_item_executes_real_psd_through_structural_stage_e(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    pipeline_psd_seed: Path,
 ) -> None:
-    _write_pipeline_item(tmp_path)
+    _copy_seed(pipeline_psd_seed, tmp_path)
     runtime = tmp_path / "spine-runtime.exe"
     runtime.write_bytes(b"official-runtime-probe")
-    evidence = {
-        "validated": True,
-        "validator_version": "spine-runtime-validator-v3",
-        "runtime_version": "4.2",
-        "animation_count": 1,
-        "report_sha256": "sha256:" + ("2" * 64),
-    }
-    monkeypatch.setattr(
-        "module.auto_rig.stage_d.validate_spine_runtime_bundle",
-        lambda *_args, **_kwargs: SimpleNamespace(to_dict=lambda: evidence),
-    )
+    evidence = _mock_spine_runtime_validator(monkeypatch)
 
     result = run_auto_rig_item(
         tmp_path,
@@ -164,28 +240,19 @@ def test_run_auto_rig_item_executes_real_psd_through_structural_stage_e(
 
 
 def test_spine_dev_pipeline_stops_at_d_without_live2d_or_external_runtime(
-    tmp_path: Path,
+    pipeline_disabled_dev_run: SimpleNamespace,
 ) -> None:
-    _write_pipeline_item(tmp_path)
-    stale_live2d = tmp_path / "rig" / "live2d" / "stale.bin"
-    stale_live2d.parent.mkdir(parents=True, exist_ok=True)
-    stale_live2d.write_bytes(b"stale")
-
-    result = run_auto_rig_item(
-        tmp_path,
-        profile_id="spine_4_2_dev",
-        validation_tier="structural",
-        finalize=False,
-        pose_mode="disabled",
-    )
+    root = pipeline_disabled_dev_run.root
+    stale_live2d = pipeline_disabled_dev_run.stale_live2d
+    result = pipeline_disabled_dev_run.result
 
     assert tuple(result.stage_manifests) == ("A", "B", "C", "D")
     assert result.stage_d is not None
     assert result.stage_d.report["official_spine_runtime_gate"]["status"] == "not_run"
     assert result.stage_e is None
-    assert (tmp_path / "rig" / "spine" / "skeleton.json").is_file()
+    assert (root / "rig" / "spine" / "skeleton.json").is_file()
     assert not stale_live2d.exists()
-    assert not any((tmp_path / "rig" / "live2d").rglob("*"))
+    assert not any((root / "rig" / "live2d").rglob("*"))
     assert result.terminal is None
 
 
@@ -196,18 +263,7 @@ def test_open_mouth_crossfade_keeps_a_geometric_opening_target(
     _write_open_mouth_pipeline_item(tmp_path)
     runtime = tmp_path / "spine-runtime.exe"
     runtime.write_bytes(b"official-runtime-probe")
-    monkeypatch.setattr(
-        "module.auto_rig.stage_d.validate_spine_runtime_bundle",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            to_dict=lambda: {
-                "validated": True,
-                "validator_version": "spine-runtime-validator-v3",
-                "runtime_version": "4.2",
-                "animation_count": 1,
-                "report_sha256": "sha256:" + ("2" * 64),
-            }
-        ),
-    )
+    _mock_spine_runtime_validator(monkeypatch)
 
     run_auto_rig_item(
         tmp_path,
@@ -226,22 +282,13 @@ def test_open_mouth_crossfade_keeps_a_geometric_opening_target(
 def test_pipeline_injected_pose_provider_changes_stage_a_and_emits_limb_joints(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    merged_limb_psd_seed: Path,
+    merged_limb_sdpose_run: SimpleNamespace,
 ) -> None:
-    _write_merged_limb_pipeline_item(tmp_path)
+    _copy_seed(merged_limb_psd_seed, tmp_path)
     runtime = tmp_path / "spine-runtime.exe"
     runtime.write_bytes(b"official-runtime-probe")
-    monkeypatch.setattr(
-        "module.auto_rig.stage_d.validate_spine_runtime_bundle",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            to_dict=lambda: {
-                "validated": True,
-                "validator_version": "spine-runtime-validator-v3",
-                "runtime_version": "4.2",
-                "animation_count": 1,
-                "report_sha256": "sha256:" + ("2" * 64),
-            }
-        ),
-    )
+    _mock_spine_runtime_validator(monkeypatch)
 
     disabled = run_auto_rig_item(
         tmp_path,
@@ -251,43 +298,34 @@ def test_pipeline_injected_pose_provider_changes_stage_a_and_emits_limb_joints(
         pose_mode="disabled",
     )
     disabled_a = disabled.stage_manifests["A"].stage_fingerprint
-    enabled = run_auto_rig_item(
-        tmp_path,
-        validation_tier="structural",
-        spine_runtime_path=runtime,
-        finalize=False,
-        pose_mode="sdpose",
-        pose_providers={"sdpose": _PipelinePoseProvider()},
-    )
+    enabled = merged_limb_sdpose_run.result
 
     assert enabled.stage_manifests["A"].stage_fingerprint != disabled_a
     by_joint = {item.joint_id: item for item in enabled.geometry_cache.joint_plan.joints.resolutions}
     assert by_joint["joint/elbow.xmin"].source == "pose"
-    pose_report = json.loads((tmp_path / "rig" / "cache" / "A" / "pose_report.json").read_text(encoding="utf-8"))
+    pose_report = json.loads(
+        (merged_limb_sdpose_run.root / "rig" / "cache" / "A" / "pose_report.json").read_text(encoding="utf-8")
+    )
     assert pose_report["selected_provider_id"] == "sdpose-body17"
 
 
 def test_pipeline_reuses_validated_a_to_e_without_reloading_pose_or_rewriting_outputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    merged_limb_sdpose_run: SimpleNamespace,
 ) -> None:
-    _write_merged_limb_pipeline_item(tmp_path)
+    _copy_seed(merged_limb_sdpose_run.root, tmp_path)
     runtime = tmp_path / "spine-runtime.exe"
-    runtime.write_bytes(b"official-runtime-probe")
-    monkeypatch.setattr(
-        "module.auto_rig.stage_d.validate_spine_runtime_bundle",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            to_dict=lambda: {
-                "validated": True,
-                "validator_version": "spine-runtime-validator-v3",
-                "runtime_version": "4.2",
-                "animation_count": 1,
-                "report_sha256": "sha256:" + ("2" * 64),
-            }
-        ),
-    )
+    _mock_spine_runtime_validator(monkeypatch)
+    first = merged_limb_sdpose_run.result
+    output_mtimes = {
+        record.path: (tmp_path / Path(*record.path.split("/"))).stat().st_mtime_ns
+        for stage in ("A", "B", "C", "D", "E")
+        for record in first.stage_manifests[stage].output_file_sha256
+    }
+
     provider = _PipelinePoseProvider()
-    first = run_auto_rig_item(
+    second = run_auto_rig_item(
         tmp_path,
         validation_tier="structural",
         spine_runtime_path=runtime,
@@ -295,12 +333,26 @@ def test_pipeline_reuses_validated_a_to_e_without_reloading_pose_or_rewriting_ou
         pose_mode="sdpose",
         pose_providers={"sdpose": provider},
     )
-    output_mtimes = {
-        record.path: (tmp_path / Path(*record.path.split("/"))).stat().st_mtime_ns
-        for stage in ("A", "B", "C", "D", "E")
-        for record in first.stage_manifests[stage].output_file_sha256
-    }
 
+    assert merged_limb_sdpose_run.initial_calls == 1
+    assert provider.calls == 0
+    assert second.reused_stages == ("A", "B", "C", "D", "E")
+    assert {path: (tmp_path / Path(*path.split("/"))).stat().st_mtime_ns for path in output_mtimes} == output_mtimes
+
+
+def test_pipeline_does_not_hide_a_cache_loss_by_rematerializing_before_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    merged_limb_sdpose_run: SimpleNamespace,
+) -> None:
+    _copy_seed(merged_limb_sdpose_run.root, tmp_path)
+    runtime = tmp_path / "spine-runtime.exe"
+    _mock_spine_runtime_validator(monkeypatch)
+    first = merged_limb_sdpose_run.result
+    qcl = next(record for record in first.stage_manifests["A"].output_file_sha256 if record.path.endswith(".qcl"))
+    (tmp_path / Path(*qcl.path.split("/"))).unlink()
+
+    provider = _PipelinePoseProvider()
     second = run_auto_rig_item(
         tmp_path,
         validation_tier="structural",
@@ -311,58 +363,14 @@ def test_pipeline_reuses_validated_a_to_e_without_reloading_pose_or_rewriting_ou
     )
 
     assert provider.calls == 1
-    assert second.reused_stages == ("A", "B", "C", "D", "E")
-    assert {path: (tmp_path / Path(*path.split("/"))).stat().st_mtime_ns for path in output_mtimes} == output_mtimes
-
-
-def test_pipeline_does_not_hide_a_cache_loss_by_rematerializing_before_resume(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _write_merged_limb_pipeline_item(tmp_path)
-    runtime = tmp_path / "spine-runtime.exe"
-    runtime.write_bytes(b"official-runtime-probe")
-    monkeypatch.setattr(
-        "module.auto_rig.stage_d.validate_spine_runtime_bundle",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            to_dict=lambda: {
-                "validated": True,
-                "validator_version": "spine-runtime-validator-v3",
-                "runtime_version": "4.2",
-                "animation_count": 1,
-                "report_sha256": "sha256:" + ("2" * 64),
-            }
-        ),
-    )
-    provider = _PipelinePoseProvider()
-    first = run_auto_rig_item(
-        tmp_path,
-        validation_tier="structural",
-        spine_runtime_path=runtime,
-        finalize=False,
-        pose_mode="sdpose",
-        pose_providers={"sdpose": provider},
-    )
-    qcl = next(record for record in first.stage_manifests["A"].output_file_sha256 if record.path.endswith(".qcl"))
-    (tmp_path / Path(*qcl.path.split("/"))).unlink()
-
-    second = run_auto_rig_item(
-        tmp_path,
-        validation_tier="structural",
-        spine_runtime_path=runtime,
-        finalize=False,
-        pose_mode="sdpose",
-        pose_providers={"sdpose": provider},
-    )
-
-    assert provider.calls == 2
     assert "A" not in second.reused_stages
 
 
 def test_pipeline_failure_publishes_one_public_terminal_error(
     tmp_path: Path,
+    merged_limb_psd_seed: Path,
 ) -> None:
-    _write_merged_limb_pipeline_item(tmp_path)
+    _copy_seed(merged_limb_psd_seed, tmp_path)
 
     class FailingPoseProvider(_PipelinePoseProvider):
         def infer(self, image, *, person_bbox):
@@ -390,8 +398,9 @@ def test_pipeline_failure_publishes_one_public_terminal_error(
 def test_invalid_pipeline_configuration_fails_before_item_failure_publication(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    pipeline_psd_seed: Path,
 ) -> None:
-    _write_pipeline_item(tmp_path)
+    _copy_seed(pipeline_psd_seed, tmp_path)
     publication_attempted = False
 
     def fail_if_called(*_args, **_kwargs) -> None:
@@ -450,6 +459,8 @@ def test_pipeline_does_not_swallow_terminal_failure_publication_errors(
         )
 
     assert exc_info.value.__cause__ is original
+
+
 def test_auto_rig_public_entry_accepts_sdk_root_not_runtime_binary_paths() -> None:
     parameters = inspect.signature(run_auto_rig_item).parameters
 
@@ -461,22 +472,12 @@ def test_auto_rig_public_entry_accepts_sdk_root_not_runtime_binary_paths() -> No
 def test_stage_d_commits_before_live2d_toolchain_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    pipeline_disabled_dev_run: SimpleNamespace,
 ) -> None:
-    _write_pipeline_item(tmp_path)
+    _copy_seed(pipeline_disabled_dev_run.root, tmp_path)
     spine_runtime = tmp_path / "spine-runtime.exe"
     spine_runtime.write_bytes(b"official-runtime-probe")
-    monkeypatch.setattr(
-        "module.auto_rig.stage_d.validate_spine_runtime_bundle",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            to_dict=lambda: {
-                "validated": True,
-                "validator_version": "spine-runtime-validator-v3",
-                "runtime_version": "4.2",
-                "animation_count": 1,
-                "report_sha256": "sha256:" + ("2" * 64),
-            }
-        ),
-    )
+    _mock_spine_runtime_validator(monkeypatch)
 
     def fail_toolchain(**_kwargs):
         raise Live2DRuntimeToolchainError(

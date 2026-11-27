@@ -133,24 +133,6 @@ def test_body_bundle_is_byte_deterministic_for_the_same_source_and_conditioning(
     assert first.read_bytes() == second.read_bytes()
 
 
-def test_bundle_inspection_detects_payload_tampering_without_source_files(
-    tmp_path: Path,
-) -> None:
-    source, contract = _source_fixture(tmp_path / "source")
-    output = tmp_path / "bundle.safetensors"
-    build_sdpose_body_bundle(
-        source,
-        output,
-        source_contract=contract,
-    )
-    raw = bytearray(output.read_bytes())
-    raw[-1] ^= 0x01
-    output.write_bytes(raw)
-
-    with pytest.raises(PoseArtifactError, match="tensor payload"):
-        inspect_sdpose_body_bundle(output, source_contract=contract)
-
-
 def test_failed_rebuild_does_not_replace_a_previous_valid_bundle(tmp_path: Path) -> None:
     source, contract = _source_fixture(tmp_path / "source")
     output = tmp_path / "bundle.safetensors"

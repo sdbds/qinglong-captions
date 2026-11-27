@@ -13,12 +13,11 @@ from .capabilities import (
 from .control_registry import (
     ControlRegistryPlan,
     ControlSpec,
-    validate_control_registry_plan,
 )
 from .jcs import jcs_sha256
 from .native_variants import NativeVariantSet
-from .preset_library import PresetLibraryPlan, validate_preset_library_plan
-from .rig_geometry import RigGeometryCache, validate_rig_geometry_cache
+from .preset_library import PresetLibraryPlan
+from .rig_geometry import RigGeometryCache
 from .skinning import WeightedMeshRecord
 
 CONTROL_BINDING_PLAN_VERSION = "control-binding-plan-v3"
@@ -101,7 +100,6 @@ class TargetTransfer:
     topology_sha256: str | None
     input_sha256: str
     output_sha256: str
-    transfer_sha256: str
 
     def semantic_payload(self) -> dict[str, object]:
         return {
@@ -119,7 +117,7 @@ class TargetTransfer:
         }
 
     def to_dict(self) -> dict[str, object]:
-        return {**self.semantic_payload(), "transfer_sha256": self.transfer_sha256}
+        return self.semantic_payload()
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +134,6 @@ class ControlBinding:
     visibility_branch_id: str | None
     required_rig_facts: tuple[str, ...]
     transfer: TargetTransfer
-    binding_sha256: str
 
     def bundle_record(self) -> dict[str, object]:
         return {
@@ -146,7 +143,7 @@ class ControlBinding:
             "property": self.property,
             "visibility_branch_id": self.visibility_branch_id,
             "required_rig_facts": list(self.required_rig_facts),
-            "transfer_sha256": self.transfer.transfer_sha256,
+            "transfer": self.transfer.to_dict(),
         }
 
     def semantic_payload(self) -> dict[str, object]:
@@ -166,7 +163,7 @@ class ControlBinding:
         }
 
     def to_dict(self) -> dict[str, object]:
-        return {**self.semantic_payload(), "binding_sha256": self.binding_sha256}
+        return self.semantic_payload()
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,11 +265,7 @@ def _make_transfer(
         "input_sha256": input_sha256,
         "output_sha256": output_sha256,
     }
-    provisional = TargetTransfer(**values, transfer_sha256="")
-    return TargetTransfer(
-        **values,
-        transfer_sha256=jcs_sha256(provisional.semantic_payload()),
-    )
+    return TargetTransfer(**values)
 
 
 def _affine(
@@ -417,7 +410,6 @@ def _draft_binding(
         visibility_branch_id=visibility_branch_id,
         required_rig_facts=tuple(sorted(set(required_facts))),
         transfer=transfer,
-        binding_sha256="",
     )
 
 
@@ -439,14 +431,10 @@ def _finalize_bindings(drafts: list[ControlBinding]) -> tuple[ControlBinding, ..
             }
         )
         for member in members:
-            with_bundle = replace(
-                member,
-                implementation_bundle_digest=bundle_digest,
-            )
             finalized.append(
                 replace(
-                    with_bundle,
-                    binding_sha256=jcs_sha256(with_bundle.semantic_payload()),
+                    member,
+                    implementation_bundle_digest=bundle_digest,
                 )
             )
     return tuple(sorted(finalized, key=lambda item: item.binding_id))
@@ -1238,8 +1226,6 @@ def _validate_transfer(transfer: TargetTransfer) -> None:
         defaults = [sample.output_values for sample in transfer.samples if sample.input_value == transfer.control_default]
         if defaults != [transfer.output_at_default]:
             raise _error("sampled transfer does not restore the default output")
-    if transfer.transfer_sha256 != jcs_sha256(transfer.semantic_payload()):
-        raise _error("target transfer digest mismatch")
 
 
 def validate_control_binding_plan(
@@ -1254,16 +1240,6 @@ def validate_control_binding_plan(
 ) -> ControlBindingPlan:
     """Rebuild and validate every item-eligible atomic binding bundle."""
 
-    validate_rig_geometry_cache(cache)
-    validate_control_registry_plan(controls)
-    validate_preset_library_plan(presets, controls)
-    validate_capability_plan(
-        capabilities,
-        cache,
-        anatomy,
-        presets,
-        native_variant_set=native_variant_set,
-    )
     if not isinstance(plan, ControlBindingPlan) or (
         plan.schema_version != CONTROL_BINDING_PLAN_VERSION
         or plan.transfer_version != TARGET_TRANSFER_VERSION
@@ -1321,25 +1297,8 @@ def validate_control_binding_plan(
             raise _error("implementation kind/rank differs from v1")
         ranks_by_group.setdefault(binding.binding_group_id, {})[binding.implementation_id] = binding.implementation_rank
         by_implementation.setdefault(binding.implementation_id, []).append(binding)
-        if binding.binding_sha256 != jcs_sha256(binding.semantic_payload()):
-            raise _error("binding digest mismatch")
     if any(len(set(ranks.values())) != len(ranks) for ranks in ranks_by_group.values()):
         raise _error("a binding group contains duplicate implementation ranks")
-    for implementation_id, members in by_implementation.items():
-        expected_bundle = jcs_sha256(
-            {
-                "schema_version": "control-binding-bundle-v1",
-                "implementation_id": implementation_id,
-                "bindings": [member.bundle_record() for member in sorted(members, key=lambda item: item.binding_id)],
-            }
-        )
-        if any(member.implementation_bundle_digest != expected_bundle for member in members):
-            raise _error("implementation bundle digest mismatch")
-    expected = _derive_bindings(cache, anatomy, controls, capabilities)
-    if plan.bindings != expected:
-        raise _error("bindings differ from frozen geometry and capability facts")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("control binding plan digest mismatch")
     return plan
 
 

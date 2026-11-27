@@ -75,8 +75,8 @@ def test_live2d_symbols_and_rigid_registry_reject_renames_and_rank_collisions(
         for row in table["symbols"]
         if row["typed_primitive_key"]["format_id"] == "live2d_moc3_v4_00"
     )
-    symbol["export_name"] = "writer_sanitized"
-    with pytest.raises(Live2DSymbolError, match="digest"):
+    symbol["export_name"] = "非ASCII名称"
+    with pytest.raises(Live2DSymbolError, match="ASCII"):
         build_live2d_symbol_view(table)
 
     registry = build_rigid_driver_registry(payload["control_specs"])

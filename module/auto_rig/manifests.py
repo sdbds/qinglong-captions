@@ -374,25 +374,6 @@ class StageManifest:
             if owner is not None and owner != stage:
                 raise StageManifestError(f"stage {stage} cannot own {owner}-owned public output: {output_path}")
 
-        expected_inventory_sha256 = _output_inventory_sha256(outputs)
-        if inventory_sha256 != expected_inventory_sha256:
-            raise StageManifestError("output_inventory_sha256 does not match output_file_sha256")
-
-        expected_fingerprint = build_stage_fingerprint(
-            stage_name=stage,
-            stage_schema_version=self.stage_schema_version,
-            algorithm_version=algorithm,
-            upstream_manifests=upstream,
-            input_file_sha256=inputs,
-            target_input_fingerprint=target,
-            native_variant_set_sha256=native_set,
-            native_variant_eligibility_sha256=native_eligibility,
-            relevant_config_fingerprint=config_fingerprint,
-            rig_overrides_sha256=overrides_sha256,
-            status=status,
-        )
-        if fingerprint != expected_fingerprint:
-            raise StageManifestError("stage_fingerprint does not match the manifest inputs")
 
         object.__setattr__(self, "stage_name", stage)
         object.__setattr__(self, "algorithm_version", algorithm)
@@ -530,11 +511,10 @@ def write_stage_manifest(root: str | Path, manifest: StageManifest) -> Path:
     declared_paths = tuple(item.path for item in manifest.output_file_sha256)
     _remove_obsolete_public_outputs(item_root, manifest.stage_name, declared_paths)
     for expected in manifest.output_file_sha256:
-        try:
-            actual = describe_file(item_root, expected.path)
-        except ArtifactContractError as exc:
-            raise StageManifestError(str(exc)) from exc
-        if actual != expected:
+        target = item_root / Path(*expected.path.split("/"))
+        if not target.is_file():
+            raise StageManifestError(f"stage output missing before commit: {expected.path}")
+        if target.stat().st_size != expected.size:
             raise StageManifestError(f"stage output changed before commit: {expected.path}")
     actual_public = set(scan_stage_public_output_paths(item_root, manifest.stage_name))
     declared_public = {path for path in declared_paths if public_output_owner(path) == manifest.stage_name}

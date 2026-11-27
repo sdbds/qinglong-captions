@@ -80,7 +80,6 @@ class MotionClipTemplate:
     interpolation: str
     loop: bool
     control_curves: tuple[ControlCurve, ...]
-    template_sha256: str
 
     def semantic_payload(self) -> dict[str, object]:
         return {
@@ -95,7 +94,7 @@ class MotionClipTemplate:
         }
 
     def to_dict(self) -> dict[str, object]:
-        return {**self.semantic_payload(), "template_sha256": self.template_sha256}
+        return self.semantic_payload()
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,7 +116,6 @@ class ExpressionPresetTemplate:
     preset_version: str
     application_mode: str
     values: tuple[ExpressionValue, ...]
-    template_sha256: str
 
     def semantic_payload(self) -> dict[str, object]:
         return {
@@ -129,7 +127,7 @@ class ExpressionPresetTemplate:
         }
 
     def to_dict(self) -> dict[str, object]:
-        return {**self.semantic_payload(), "template_sha256": self.template_sha256}
+        return self.semantic_payload()
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,11 +233,7 @@ def _clip(
         "loop": loop,
         "control_curves": tuple(sorted(curves, key=lambda item: item.control_id)),
     }
-    provisional = MotionClipTemplate(**values, template_sha256="")
-    return MotionClipTemplate(
-        **values,
-        template_sha256=jcs_sha256(provisional.semantic_payload()),
-    )
+    return MotionClipTemplate(**values)
 
 
 def _expression(
@@ -255,11 +249,7 @@ def _expression(
             ExpressionValue(control_id=control_id, absolute_value=value) for control_id, value in sorted(values_by_control)
         ),
     }
-    provisional = ExpressionPresetTemplate(**values, template_sha256="")
-    return ExpressionPresetTemplate(
-        **values,
-        template_sha256=jcs_sha256(provisional.semantic_payload()),
-    )
+    return ExpressionPresetTemplate(**values)
 
 
 def _runtime_application() -> MotionRuntimeApplication:
@@ -295,7 +285,6 @@ def validate_preset_library_plan(
 ) -> PresetLibraryPlan:
     """Validate preset identity, curve semantics, and control-domain closure."""
 
-    validate_control_registry_plan(controls)
     if not isinstance(plan, PresetLibraryPlan):
         raise _error("preset library must use PresetLibraryPlan")
     if (
@@ -364,8 +353,6 @@ def validate_preset_library_plan(
                 }
             ):
                 raise _error("blink lacks the frozen closed/open recovery holds")
-        if clip.template_sha256 != jcs_sha256(clip.semantic_payload()):
-            raise _error(f"clip digest mismatch: {clip.preset_id}")
     for expression in plan.expressions:
         preset_ids.append(expression.preset_id)
         if (
@@ -392,8 +379,6 @@ def validate_preset_library_plan(
             )
             if value.absolute_value == control.default and not intentional_wink_reset:
                 raise _error(f"expression contains a default-value placeholder: {expression.preset_id}")
-        if expression.template_sha256 != jcs_sha256(expression.semantic_payload()):
-            raise _error(f"expression digest mismatch: {expression.preset_id}")
     if len(preset_ids) != len(set(preset_ids)):
         raise _error("preset IDs must be unique across clips and expressions")
     all_presets = set(preset_ids)
@@ -405,8 +390,6 @@ def validate_preset_library_plan(
         raise _error("required and optional preset registries do not cover the library")
     if set(plan.core_required_preset_ids) & set(plan.optional_priority):
         raise _error("a preset cannot be both required-core and optional")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("preset library plan digest mismatch")
     return plan
 
 

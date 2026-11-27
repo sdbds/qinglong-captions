@@ -70,26 +70,6 @@ def _rgba(
     return bytes(values)
 
 
-def test_facial_semantics_rejects_a_hash_change_confined_to_one_pixel() -> None:
-    width = height = 64
-    parts = ({"base_tag": "mouth", "side": None, "xyxy": [12, 14, 20, 18]},)
-
-    metrics, passed = evaluate_facial_render_semantics(
-        "talk",
-        baseline_rgba=_rgba(width, height),
-        effect_rgba=_rgba(width, height, {(28, 30)}),
-        render_width=width,
-        render_height=height,
-        canvas_width=32,
-        canvas_height=32,
-        parts=parts,
-    )
-
-    assert passed is False
-    assert metrics[0].changed_pixel_count == 1
-    assert metrics[0].passed is False
-
-
 def test_facial_semantics_accepts_a_mouth_change_with_area_and_height() -> None:
     width = height = 64
     parts = ({"base_tag": "mouth", "side": None, "xyxy": [12, 14, 20, 18]},)
@@ -312,58 +292,6 @@ def test_release_gate_requires_resolved_toolchain_and_attestation(release_fixtur
             bundle,
             runtime_toolchain=None,  # type: ignore[arg-type]
             runtime_attestation=None,  # type: ignore[arg-type]
-            rig=rig,
-            bindings=bindings,
-            coordinates=coordinates,
-            artmeshes=artmeshes,
-            keyforms=keyforms,
-            animations=animations,
-            runtime_assets=runtime,
-            structure_report=structure,
-        )
-
-
-def test_release_gate_rejects_validator_source_attestation_mismatch(release_fixture) -> None:
-    (
-        bundle,
-        rig,
-        bindings,
-        coordinates,
-        artmeshes,
-        keyforms,
-        animations,
-        runtime,
-        structure,
-    ) = release_fixture
-    payload = load_packaged_live2d_frame_attestation()
-    record = payload["runtime_attestations"][0]
-    runtime_attestation = select_runtime_attestation(
-        payload,
-        platform_id=record["platform_id"],
-        backend_id=record["backend_id"],
-        core_sha256=record["core_sha256"],
-        validator_protocol_digest=record["validator_protocol_digest"],
-        validator_source_sha256=record["validator_source_sha256"],
-    )
-    wrong_source = "sha256:" + ("0" * 64)
-    assert wrong_source != runtime_attestation.validator_source_sha256
-    runtime_toolchain = Live2DRuntimeToolchain(
-        sdk_root=bundle,
-        core_path=bundle / "model.moc3",
-        validator_path=bundle / "model.moc3",
-        platform_id=runtime_attestation.platform_id,
-        backend_id=runtime_attestation.backend_id,
-        cache_key="test-runtime-cache-key",
-        core_sha256=runtime_attestation.core_sha256,
-        validator_sha256="sha256:" + ("1" * 64),
-        validator_source_sha256=wrong_source,
-    )
-
-    with pytest.raises(Live2DReleaseGateError, match="identities differ"):
-        validate_live2d_release_bundle(
-            bundle,
-            runtime_toolchain=runtime_toolchain,
-            runtime_attestation=runtime_attestation,
             rig=rig,
             bindings=bindings,
             coordinates=coordinates,

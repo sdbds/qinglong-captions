@@ -114,7 +114,6 @@ class PartBoneBinding:
     fallback_bone_ids: tuple[str, ...]
     selected_rigid_bone_id: str
     dynamic_candidate: bool
-    binding_sha256: str
 
     def content_payload(self) -> dict[str, object]:
         return {
@@ -134,7 +133,7 @@ class PartBoneBinding:
         }
 
     def to_dict(self) -> dict[str, object]:
-        return {**self.content_payload(), "binding_sha256": self.binding_sha256}
+        return self.content_payload()
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,7 +205,6 @@ class WeightedMeshRecord:
     side: str | None
     component_bbox: tuple[int, int, int, int]
     component_mask_sha256: str
-    binding_sha256: str
     allowed_bone_ids: tuple[str, ...]
     dynamic_candidate: bool
     vertices: tuple[WeightedMeshVertex, ...]
@@ -226,7 +224,6 @@ class WeightedMeshRecord:
             "side": self.side,
             "component_bbox": list(self.component_bbox),
             "component_mask_sha256": self.component_mask_sha256,
-            "binding_sha256": self.binding_sha256,
             "allowed_bone_ids": list(self.allowed_bone_ids),
             "dynamic_candidate": self.dynamic_candidate,
             "vertices": [vertex.to_dict() for vertex in self.vertices],
@@ -415,7 +412,6 @@ def _make_binding(
         fallback_bone_ids=fallback,
         selected_rigid_bone_id=selected,
         dynamic_candidate=dynamic_candidate,
-        binding_sha256=jcs_sha256(content),
     )
 
 
@@ -485,8 +481,6 @@ def build_part_bone_bindings(
         raise _error("invalid_skinning_input", "Part bindings differ from final mesh Parts")
     result = tuple(bindings[part_id] for part_id in sorted(bindings))
     for binding in result:
-        if binding.binding_sha256 != jcs_sha256(binding.content_payload()):
-            raise _error("invalid_skinning_plan", "Part binding digest mismatch")
         if binding.selected_rigid_bone_id not in emitted:
             raise _error("invalid_skinning_plan", "Part binding fallback bone is missing")
         if any(bone_id not in emitted for bone_id in binding.usable_bone_ids):
@@ -865,7 +859,6 @@ def _weighted_mesh(
         "side": mesh.side,
         "component_bbox": list(mesh.component_bbox),
         "component_mask_sha256": mesh.component_mask_sha256,
-        "binding_sha256": binding.binding_sha256,
         "allowed_bone_ids": list(allowed),
         "dynamic_candidate": binding.dynamic_candidate,
         "vertices": [vertex.to_dict() for vertex in vertices],
@@ -883,7 +876,6 @@ def _weighted_mesh(
         side=mesh.side,
         component_bbox=mesh.component_bbox,
         component_mask_sha256=mesh.component_mask_sha256,
-        binding_sha256=binding.binding_sha256,
         allowed_bone_ids=allowed,
         dynamic_candidate=binding.dynamic_candidate,
         vertices=vertices,
@@ -924,8 +916,6 @@ def validate_skinning_plan(plan: SkinningPlan) -> SkinningPlan:
 
     if not isinstance(plan, SkinningPlan) or plan.schema_version != SKINNING_PLAN_VERSION:
         raise _error("invalid_skinning_plan", "unsupported SkinningPlan")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("invalid_skinning_plan", "SkinningPlan digest mismatch")
     if plan.descriptor != build_skinning_descriptor():
         raise _error("invalid_skinning_plan", "skinning descriptor differs from v1")
     if not plan.bone_ids or plan.bone_ids[0] != "bone/root" or len(plan.bone_ids) != len(set(plan.bone_ids)):
@@ -935,8 +925,6 @@ def validate_skinning_plan(plan: SkinningPlan) -> SkinningPlan:
     if len(bindings) != len(plan.part_bindings) or tuple(bindings) != tuple(sorted(bindings)):
         raise _error("invalid_skinning_plan", "Part bindings are not canonical")
     for binding in plan.part_bindings:
-        if binding.binding_sha256 != jcs_sha256(binding.content_payload()):
-            raise _error("invalid_skinning_plan", "Part binding digest mismatch")
         if binding.selected_rigid_bone_id not in bone_id_set or any(
             bone_id not in bone_id_set for bone_id in binding.usable_bone_ids
         ):
@@ -948,10 +936,7 @@ def validate_skinning_plan(plan: SkinningPlan) -> SkinningPlan:
         binding = bindings.get(mesh.part_id)
         if (
             binding is None
-            or mesh.binding_sha256 != binding.binding_sha256
             or mesh.dynamic_candidate != binding.dynamic_candidate
-            or mesh.weighted_mesh_sha256 != jcs_sha256(mesh.content_payload())
-            or mesh.mesh_sha256 != jcs_sha256(_mesh_geometry_payload(mesh))
             or not mesh.vertices
             or not mesh.triangles
             or len(mesh.triangles) % 3

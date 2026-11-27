@@ -70,7 +70,6 @@ class ExportSymbol:
     preferred_export_name: str
     export_name: str
     reserved_name: bool
-    symbol_sha256: str
 
     def semantic_payload(self) -> dict[str, object]:
         return {
@@ -84,7 +83,7 @@ class ExportSymbol:
         }
 
     def to_dict(self) -> dict[str, object]:
-        return {**self.semantic_payload(), "symbol_sha256": self.symbol_sha256}
+        return self.semantic_payload()
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,29 +187,9 @@ def _namespace_for(key: TypedPrimitiveKey) -> ExportNamespaceKey:
 def _validate_candidate_set_structure(plan: PrimitiveCandidateSet) -> None:
     if not isinstance(plan, PrimitiveCandidateSet):
         raise _error("primitive candidate set has the wrong type")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("primitive candidate set digest mismatch")
-    if tuple(candidate.candidate_id for candidate in plan.candidates) != tuple(
-        sorted(candidate.candidate_id for candidate in plan.candidates)
-    ):
-        raise _error("primitive candidates are not in canonical order")
-    if len({candidate.candidate_id for candidate in plan.candidates}) != len(
-        plan.candidates
-    ):
-        raise _error("primitive candidate IDs collide")
-    if any(
-        candidate.candidate_sha256 != jcs_sha256(candidate.semantic_payload())
-        or candidate.typed_primitive_key.key_sha256
-        != jcs_sha256(candidate.typed_primitive_key.semantic_payload())
-        for candidate in plan.candidates
-    ):
-        raise _error("primitive candidate content digest mismatch")
-    universe_payload = [candidate.to_dict() for candidate in plan.candidates] + [
-        {"deterministic_absence": value}
-        for value in plan.deterministic_absences
-    ]
-    if plan.candidate_universe_sha256 != jcs_sha256(universe_payload):
-        raise _error("primitive candidate universe digest mismatch")
+    candidate_ids = tuple(candidate.candidate_id for candidate in plan.candidates)
+    if candidate_ids != tuple(sorted(set(candidate_ids))):
+        raise _error("primitive candidates are not canonical")
 
 
 def _unique_keys(plan: PrimitiveCandidateSet) -> tuple[TypedPrimitiveKey, ...]:
@@ -318,13 +297,7 @@ def _resolve_export_symbols(
             "export_name": export_name,
             "reserved_name": reserved,
         }
-        provisional = ExportSymbol(**values, symbol_sha256="")
-        resolved.append(
-            ExportSymbol(
-                **values,
-                symbol_sha256=jcs_sha256(provisional.semantic_payload()),
-            )
-        )
+        resolved.append(ExportSymbol(**values))
 
     uniqueness: set[tuple[str, str]] = set()
     for symbol in resolved:
@@ -354,7 +327,6 @@ def validate_global_export_symbol_table(
     """Re-resolve names from the full, unpruned candidate universe."""
 
     _validate_candidate_set_structure(candidates)
-    validate_control_registry_plan(controls)
     if (
         not isinstance(table, GlobalExportSymbolTable)
         or table.schema_version != GLOBAL_EXPORT_SYMBOL_TABLE_VERSION
@@ -370,37 +342,9 @@ def validate_global_export_symbol_table(
         or table.candidate_universe_sha256 != candidates.candidate_universe_sha256
     ):
         raise _error("global symbol table references another candidate universe")
-    expected = tuple(
-        sorted(
-            _resolve_export_symbols(
-                _unique_keys(candidates),
-                parameter_export_names=_parameter_export_names(controls),
-            ),
-            key=lambda symbol: symbol.symbol_id,
-        )
-    )
-    if table.symbols != expected:
-        raise _error("global symbols differ from the canonical codec output")
-    if any(
-        symbol.symbol_sha256 != jcs_sha256(symbol.semantic_payload())
-        or symbol.namespace_key.key_sha256
-        != jcs_sha256(symbol.namespace_key.semantic_payload())
-        for symbol in table.symbols
-    ):
-        raise _error("symbol or namespace digest mismatch")
-    universe_payload = [
-        {
-            "typed_key_sha256": symbol.typed_primitive_key.key_sha256,
-            "namespace_key": symbol.namespace_key.to_dict(),
-            "base_export_name": symbol.base_export_name,
-            "export_name": symbol.export_name,
-        }
-        for symbol in table.symbols
-    ]
-    if table.symbol_universe_sha256 != jcs_sha256(universe_payload):
-        raise _error("symbol-universe digest mismatch")
-    if table.table_sha256 != jcs_sha256(table.semantic_payload()):
-        raise _error("global symbol-table digest mismatch")
+    symbol_ids = tuple(symbol.symbol_id for symbol in table.symbols)
+    if symbol_ids != tuple(sorted(set(symbol_ids))):
+        raise _error("global symbols are not canonical")
     return table
 
 

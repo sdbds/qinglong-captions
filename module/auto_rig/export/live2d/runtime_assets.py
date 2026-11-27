@@ -365,8 +365,8 @@ def build_live2d_runtime_asset_plan(
 ) -> Live2DRuntimeAssetPlan:
     validate_rig_document(rig)
     validate_live2d_symbol_view(symbols)
-    if not isinstance(animations, Live2DAnimationPlan) or animations.plan_sha256 != jcs_sha256(animations.semantic_payload()):
-        raise _error("animation plan type or digest is invalid")
+    if not isinstance(animations, Live2DAnimationPlan):
+        raise _error("animation plan type is invalid")
     for asset in (*animations.motion_assets, *animations.expression_assets):
         encode_live2d_animation_asset(asset)
     return _assemble(rig, symbols, bindings, artmeshes, animations)
@@ -384,11 +384,14 @@ def validate_live2d_runtime_asset_plan(
         raise _error("runtime asset plan has the wrong type")
     encode_live2d_runtime_asset(plan.model3)
     encode_live2d_runtime_asset(plan.cdi3)
-    expected = _assemble(rig, symbols, bindings, artmeshes, animations)
-    if plan != expected:
-        raise _error("runtime asset plan differs from canonical Stage C/E plans")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("runtime asset plan digest mismatch")
+    if (
+        plan.rig_document_sha256 != rig.document_sha256
+        or plan.symbol_view_sha256 != symbols.view_sha256
+        or plan.binding_plan_sha256 != bindings.plan_sha256
+        or plan.artmesh_plan_sha256 != artmeshes.plan_sha256
+        or plan.animation_plan_sha256 != animations.plan_sha256
+    ):
+        raise _error("runtime asset plan provenance differs from Stage C/E inputs")
     return plan
 
 

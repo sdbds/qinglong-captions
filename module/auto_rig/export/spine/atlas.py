@@ -407,11 +407,8 @@ def validate_spine_atlas_plan(
         raise _error("atlas version is unsupported")
     if any(page.pma for page in plan.pages):
         raise _error("atlas pma must remain false")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("atlas plan digest mismatch")
-    expected = build_spine_atlas_plan(texture_pages, parts, symbols)
-    if expected != plan:
-        raise _error("atlas plan differs from recomputed C facts")
+    if plan.symbol_view_sha256 != symbols.view_sha256:
+        raise _error("atlas plan references another symbol view")
     parsed = parse_spine_atlas(serialize_spine_atlas(plan))
     if len(parsed.pages) != len(plan.pages):
         raise _error("serialized atlas page count changed")

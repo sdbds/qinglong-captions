@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,23 +20,41 @@ from module.auto_rig.stage_d import (
 from tests.test_auto_rig_stage_c import _execute
 
 
-def _run_stage_d(root: Path):
+def _copy_seed(seed: Path, dest: Path) -> None:
+    shutil.copytree(seed, dest, dirs_exist_ok=True)
+
+
+@pytest.fixture(scope="module")
+def stage_c_seed(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
+    root = tmp_path_factory.mktemp("stage-d-c-seed")
     *_inputs, stage_c = _execute(root)
+    return SimpleNamespace(root=root, stage_c=stage_c)
+
+
+@pytest.fixture(scope="module")
+def stage_d_seed(
+    tmp_path_factory: pytest.TempPathFactory,
+    stage_c_seed: SimpleNamespace,
+) -> SimpleNamespace:
+    root = tmp_path_factory.mktemp("stage-d-seed")
+    _copy_seed(stage_c_seed.root, root)
     c_marker = root / Path(*manifest_relative_path("C").split("/"))
     stage_d = execute_stage_d(
         root,
         upstream_manifests={"C": sha256_file(c_marker)},
         relevant_config_fingerprint=canonical_json_sha256({"profile": "dual_runtime_core_v1", "tier": "spine-4.2"}),
     )
-    return stage_c, stage_d
+    return SimpleNamespace(root=root, stage_c=stage_c_seed.stage_c, stage_d=stage_d)
 
 
 def test_stage_d_commits_exact_spine_inventory_and_validated_report(
-    tmp_path: Path,
+    stage_d_seed: SimpleNamespace,
 ) -> None:
-    stage_c, result = _run_stage_d(tmp_path)
+    root = stage_d_seed.root
+    stage_c = stage_d_seed.stage_c
+    result = stage_d_seed.stage_d
 
-    manifest = read_stage_manifest(tmp_path, "D")
+    manifest = read_stage_manifest(root, "D")
     assert result.manifest == manifest
     assert manifest.algorithm_version == STAGE_D_ALGORITHM_VERSION
     assert manifest.status == "stage_validated"
@@ -45,23 +64,25 @@ def test_stage_d_commits_exact_spine_inventory_and_validated_report(
         "rig/spine/export_report.json",
         "rig/spine/textures/page_0.png",
     }
-    assert set(scan_stage_public_output_paths(tmp_path, "D")) == expected
+    assert set(scan_stage_public_output_paths(root, "D")) == expected
     assert {item.path for item in manifest.output_file_sha256} == expected
     assert result.validation.validated is True
     assert result.report["validation"]["report_sha256"] == result.validation.report_sha256
     assert result.report["rig_json_sha256"] == stage_c.rig.document_sha256
-    assert (tmp_path / "rig" / "spine" / "skeleton.json").read_bytes() == result.skeleton_bytes
-    assert (tmp_path / "rig" / "spine" / "skeleton.atlas").read_bytes() == result.atlas_bytes
-    assert (tmp_path / "rig" / "spine" / "textures" / "page_0.png").read_bytes() == (
-        tmp_path / "rig" / "shared" / "textures" / "page_0.png"
+    assert (root / "rig" / "spine" / "skeleton.json").read_bytes() == result.skeleton_bytes
+    assert (root / "rig" / "spine" / "skeleton.atlas").read_bytes() == result.atlas_bytes
+    assert (root / "rig" / "spine" / "textures" / "page_0.png").read_bytes() == (
+        root / "rig" / "shared" / "textures" / "page_0.png"
     ).read_bytes()
-    assert not (tmp_path / "rig" / "cache" / "D" / "failure.json").exists()
+    assert not (root / "rig" / "cache" / "D" / "failure.json").exists()
 
 
 def test_stage_d_replaces_edited_outputs_and_removes_obsolete_owned_files(
     tmp_path: Path,
+    stage_d_seed: SimpleNamespace,
 ) -> None:
-    stage_c, first = _run_stage_d(tmp_path)
+    _copy_seed(stage_d_seed.root, tmp_path)
+    first = stage_d_seed.stage_d
     stale = tmp_path / "rig" / "spine" / "textures" / "page_9.png"
     stale.write_bytes(b"stale")
     (tmp_path / "rig" / "spine" / "skeleton.json").write_bytes(b"{}")
@@ -80,8 +101,9 @@ def test_stage_d_replaces_edited_outputs_and_removes_obsolete_owned_files(
 
 def test_stage_d_failure_invalidates_marker_and_writes_private_evidence(
     tmp_path: Path,
+    stage_d_seed: SimpleNamespace,
 ) -> None:
-    stage_c, _first = _run_stage_d(tmp_path)
+    _copy_seed(stage_d_seed.root, tmp_path)
     shared_page = tmp_path / "rig" / "shared" / "textures" / "page_0.png"
     shared_page.write_bytes(shared_page.read_bytes() + b"tampered")
 
@@ -99,8 +121,9 @@ def test_stage_d_failure_invalidates_marker_and_writes_private_evidence(
 def test_stage_d_records_opt_in_official_runtime_evidence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    stage_c_seed: SimpleNamespace,
 ) -> None:
-    *_inputs, stage_c = _execute(tmp_path)
+    _copy_seed(stage_c_seed.root, tmp_path)
     runtime = tmp_path / "spine-runtime.exe"
     runtime.write_bytes(b"official-runtime-probe")
     evidence = {

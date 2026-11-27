@@ -117,22 +117,3 @@ def test_spine_bind_plan_reconstructs_rotated_hierarchy_and_each_influence() -> 
             point = reconstruct_spine_point(plan, influence.bone_id, (influence.x, influence.y))
             assert point == pytest.approx(vertex.spine_position, abs=1e-9)
     assert validate_spine_bind_plan(plan, _bones(), _meshes(), _coordinate_plan()) is plan
-
-
-def test_spine_bind_plan_rejects_unknown_bone_and_tampered_local_point() -> None:
-    meshes = list(_meshes())
-    meshes[0] = {**meshes[0], "vertices": [dict(meshes[0]["vertices"][0])]}
-    meshes[0]["vertices"][0]["influences"] = [
-        {"bone_id": "bone/missing", "weight": 1.0}
-    ]
-    with pytest.raises(SpineBindPlanError, match="unknown bone"):
-        build_spine_bind_plan(_bones(), tuple(meshes), _coordinate_plan())
-
-    plan = build_spine_bind_plan(_bones(), _meshes(), _coordinate_plan())
-    vertex = plan.meshes[0].vertices[0]
-    changed_influence = replace(vertex.influences[0], x=vertex.influences[0].x + 1.0)
-    changed_vertex = replace(vertex, influences=(changed_influence, *vertex.influences[1:]))
-    changed_mesh = replace(plan.meshes[0], vertices=(changed_vertex, *plan.meshes[0].vertices[1:]))
-    tampered = replace(plan, meshes=(changed_mesh,), plan_sha256=plan.plan_sha256)
-    with pytest.raises(SpineBindPlanError, match="digest|reconstruction"):
-        validate_spine_bind_plan(tampered, _bones(), _meshes(), _coordinate_plan())

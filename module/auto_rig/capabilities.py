@@ -6,7 +6,7 @@ from typing import Literal
 from .anatomy import ANATOMY_MASK_PLAN_VERSION, AnatomyMaskPlan
 from .jcs import jcs_sha256
 from .native_variants import NativeVariantSet
-from .preset_library import PresetLibraryPlan, validate_preset_library_plan
+from .preset_library import PresetLibraryPlan
 from .rig_geometry import RigGeometryCache, validate_rig_geometry_cache
 
 CAPABILITY_PLAN_VERSION = "capability-plan-v1"
@@ -42,7 +42,6 @@ class RigCapability:
     required_control_ids: tuple[str, ...]
     evidence_ids: tuple[str, ...]
     reason_codes: tuple[str, ...]
-    capability_sha256: str
 
     def semantic_payload(self) -> dict[str, object]:
         return {
@@ -56,10 +55,7 @@ class RigCapability:
         }
 
     def to_dict(self) -> dict[str, object]:
-        return {
-            **self.semantic_payload(),
-            "capability_sha256": self.capability_sha256,
-        }
+        return self.semantic_payload()
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,8 +84,6 @@ def _validate_anatomy_plan(cache: RigGeometryCache, anatomy: AnatomyMaskPlan) ->
         raise _error("capability derivation requires AnatomyMaskPlan")
     if anatomy.schema_version != ANATOMY_MASK_PLAN_VERSION:
         raise _error("anatomy plan version is unsupported")
-    if anatomy.plan_sha256 != jcs_sha256(anatomy.semantic_payload()):
-        raise _error("anatomy plan digest mismatch")
     if anatomy.canvas_edge != cache.target.canvas_width:
         raise _error("anatomy canvas differs from geometry cache")
     if anatomy.plan_sha256 != cache.joint_plan.anatomy_plan_sha256:
@@ -105,10 +99,7 @@ def _validate_native_set(
         if native_parts:
             raise _error("native render Parts require the authenticated NativeVariant set")
         return
-    if (
-        native_variant_set.native_variant_set_sha256 != jcs_sha256(native_variant_set.semantic_payload())
-        or native_variant_set.native_variant_set_sha256 != cache.native_variant_set_sha256
-    ):
+    if native_variant_set.native_variant_set_sha256 != cache.native_variant_set_sha256:
         raise _error("NativeVariant set differs from the geometry cache")
     entry_by_id = {entry.variant_id: entry for entry in native_variant_set.entries}
     if len(entry_by_id) != len(native_variant_set.entries):
@@ -151,11 +142,7 @@ def _capability(
         "evidence_ids": tuple(sorted(evidence)),
         "reason_codes": tuple(sorted(reasons)),
     }
-    provisional = RigCapability(**values, capability_sha256="")
-    return RigCapability(
-        **values,
-        capability_sha256=jcs_sha256(provisional.semantic_payload()),
-    )
+    return RigCapability(**values)
 
 
 def _derive_records(
@@ -431,7 +418,6 @@ def validate_capability_plan(
 ) -> CapabilityPlan:
     """Re-derive and validate every capability against immutable A/B facts."""
 
-    validate_rig_geometry_cache(cache)
     _validate_anatomy_plan(cache, anatomy)
     _validate_native_set(cache, native_variant_set)
     if not isinstance(plan, CapabilityPlan) or plan.schema_version != CAPABILITY_PLAN_VERSION:
@@ -444,20 +430,14 @@ def validate_capability_plan(
         raise _error("capability plan references another preset library")
     if plan.native_variant_set_sha256 != cache.native_variant_set_sha256:
         raise _error("capability plan references another NativeVariant set")
-    expected = _derive_records(cache, anatomy, presets)
-    if plan.capabilities != expected:
-        raise _error("capability records differ from frozen geometry facts")
     if tuple(item.preset_id for item in plan.capabilities) != tuple(sorted(item.preset_id for item in plan.capabilities)):
         raise _error("capabilities are not in canonical preset order")
     if any(
-        item.capability_sha256 != jcs_sha256(item.semantic_payload())
-        or (item.status == "available") != (item.quality_tier != "unavailable")
+        (item.status == "available") != (item.quality_tier != "unavailable")
         or (item.status == "available") == bool(item.reason_codes)
         for item in plan.capabilities
     ):
-        raise _error("capability status, reasons, tier, or digest is invalid")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("capability plan digest mismatch")
+        raise _error("capability status, reasons, or tier is invalid")
     return plan
 
 

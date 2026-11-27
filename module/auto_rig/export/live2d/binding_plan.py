@@ -38,7 +38,6 @@ class Live2DParameterPlan:
     default: float
     maximum: float
     unit: str
-    symbol_sha256: str
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -49,7 +48,6 @@ class Live2DParameterPlan:
             "default": self.default,
             "maximum": self.maximum,
             "unit": self.unit,
-            "symbol_sha256": self.symbol_sha256,
         }
 
 
@@ -66,7 +64,6 @@ class Live2DBindingRecord:
     binding_ids: tuple[str, ...]
     candidate_ids: tuple[str, ...]
     preset_ids: tuple[str, ...]
-    transfer_sha256: tuple[str, ...]
     stack_rank: int | None
 
     def to_dict(self) -> dict[str, object]:
@@ -82,7 +79,6 @@ class Live2DBindingRecord:
             "binding_ids": list(self.binding_ids),
             "candidate_ids": list(self.candidate_ids),
             "preset_ids": list(self.preset_ids),
-            "transfer_sha256": list(self.transfer_sha256),
             "stack_rank": self.stack_rank,
         }
 
@@ -344,15 +340,13 @@ def _assemble(
         primitive_target_id = candidate.get("primitive_target_id")
         rig_target_id = binding.get("target_id")
         property_name = binding.get("property")
-        transfer = _mapping(binding.get("transfer"), field="target transfer")
-        transfer_digest = transfer.get("transfer_sha256")
+        _mapping(binding.get("transfer"), field="target transfer")
         if (
             primitive_kind
             not in {"live2d_artmesh", "live2d_rotation_deformer"}
             or not isinstance(primitive_target_id, str)
             or not isinstance(rig_target_id, str)
             or not isinstance(property_name, str)
-            or not isinstance(transfer_digest, str)
         ):
             raise _error("binding candidate has an unsupported primitive contract")
         rank = None
@@ -376,7 +370,6 @@ def _assemble(
                 "binding_ids": set(),
                 "candidate_ids": set(),
                 "preset_ids": set(),
-                "transfer_sha256": set(),
                 "stack_rank": rank,
             },
         )
@@ -396,7 +389,6 @@ def _assemble(
         group["binding_ids"].add(binding_id)  # type: ignore[union-attr]
         group["candidate_ids"].add(candidate_id)  # type: ignore[union-attr]
         group["preset_ids"].update(preset_ids)  # type: ignore[union-attr]
-        group["transfer_sha256"].add(transfer_digest)  # type: ignore[union-attr]
 
     non_rigid_parameters: dict[str, set[str]] = {}
     records = []
@@ -418,7 +410,6 @@ def _assemble(
                 binding_ids=tuple(sorted(group["binding_ids"])),  # type: ignore[arg-type]
                 candidate_ids=tuple(sorted(group["candidate_ids"])),  # type: ignore[arg-type]
                 preset_ids=tuple(sorted(group["preset_ids"])),  # type: ignore[arg-type]
-                transfer_sha256=tuple(sorted(group["transfer_sha256"])),  # type: ignore[arg-type]
                 stack_rank=group["stack_rank"],  # type: ignore[arg-type]
             )
         )
@@ -459,7 +450,6 @@ def _assemble(
                 default=default,
                 maximum=maximum,
                 unit=unit,
-                symbol_sha256=symbol.symbol_sha256,
             )
         )
 
@@ -619,18 +609,17 @@ def validate_live2d_binding_plan(
     if not isinstance(plan, Live2DBindingPlan):
         raise _error("binding plan has the wrong type")
     validate_rig_document(rig)
-    validate_live2d_symbol_view(symbols)
-    validate_rigid_driver_registry(registry, rig.to_dict()["control_specs"])
     if (
         plan.schema_version != LIVE2D_BINDING_PLAN_VERSION
         or plan.liveness_version != LIVE2D_DRIVER_LIVENESS_VERSION
     ):
         raise _error("binding/liveness version is unsupported")
-    expected = _assemble(rig, symbols, registry)
-    if plan != expected:
-        raise _error("binding plan differs from the canonical Rig projection")
-    if plan.plan_sha256 != jcs_sha256(plan.semantic_payload()):
-        raise _error("binding plan digest mismatch")
+    if (
+        plan.rig_document_sha256 != rig.document_sha256
+        or plan.symbol_view_sha256 != symbols.view_sha256
+        or plan.rigid_driver_registry_sha256 != registry.registry_sha256
+    ):
+        raise _error("binding plan provenance differs from canonical Rig inputs")
     return plan
 
 
