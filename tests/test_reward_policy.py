@@ -171,10 +171,10 @@ def test_checked_in_reward_policy_has_one_active_owner_and_no_thresholds():
             text = (ROOT / "config" / name).read_text(encoding="utf-8")
         return tomllib.loads(text)
 
-    configs = {name: shipped_config(name) for name in (*_CONFIG_FILES, "config.toml")}
+    configs = {name: shipped_config(name) for name in _CONFIG_FILES}
     split_owners = {name for name in _CONFIG_FILES if "reward_model" in configs[name]}
     assert split_owners == {"model.toml"}
-    for name in ("model.toml", "config.toml"):
+    for name in ("model.toml",):
         config = configs[name]
         assert config["reward_model"]["default_scorer"] == DEFAULT_SCORER, name
         assert "quality" not in config["reward_model"], name

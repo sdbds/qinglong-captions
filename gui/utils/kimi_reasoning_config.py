@@ -76,10 +76,14 @@ def _save_kimi_setting(
     normalizer: Callable[[object], str],
     *,
     model_config_path: Path = MODEL_CONFIG_PATH,
-    legacy_config_path: Path = LEGACY_CONFIG_PATH,
+    legacy_config_path: Path | None = None,
 ) -> str:
     normalized_value = normalizer(value)
-    paths = (Path(model_config_path), Path(legacy_config_path))
+    paths = (
+        (Path(model_config_path),)
+        if legacy_config_path is None
+        else (Path(model_config_path), Path(legacy_config_path))
+    )
     original_contents = [path.read_bytes() for path in paths]
     documents = [tomlkit.parse(content.decode("utf-8")) for content in original_contents]
     sections = [_require_section(document, section, path) for document, path in zip(documents, paths)]
@@ -140,7 +144,7 @@ def save_kimi_reasoning_effort(
     value: object,
     *,
     model_config_path: Path = MODEL_CONFIG_PATH,
-    legacy_config_path: Path = LEGACY_CONFIG_PATH,
+    legacy_config_path: Path | None = None,
 ) -> str:
     return _save_kimi_setting(
         section,
@@ -170,7 +174,7 @@ def save_kimi_thinking(
     value: object,
     *,
     model_config_path: Path = MODEL_CONFIG_PATH,
-    legacy_config_path: Path = LEGACY_CONFIG_PATH,
+    legacy_config_path: Path | None = None,
 ) -> str:
     return _save_kimi_setting(
         section,

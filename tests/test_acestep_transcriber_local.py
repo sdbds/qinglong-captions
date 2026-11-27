@@ -29,12 +29,9 @@ def test_acestep_transcriber_defaults_to_official_model_id():
 
 def test_shipped_prompt_files_declare_acestep_transcriber_defaults():
     prompt_config = tomllib.loads((ROOT / "config" / "prompts.toml").read_text(encoding="utf-8"))
-    legacy_config = tomllib.loads((ROOT / "config" / "config.toml").read_text(encoding="utf-8"))
 
     assert prompt_config["prompts"]["acestep_transcriber_audio_system_prompt"] == "*Task* Transcribe this audio in detail"
     assert prompt_config["prompts"]["acestep_transcriber_audio_prompt"] == "*Task* Transcribe this audio in detail"
-    assert legacy_config["prompts"]["acestep_transcriber_audio_system_prompt"] == "*Task* Transcribe this audio in detail"
-    assert legacy_config["prompts"]["acestep_transcriber_audio_prompt"] == "*Task* Transcribe this audio in detail"
 
 
 def test_acestep_transcriber_can_handle_audio_only():

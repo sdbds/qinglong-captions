@@ -28,12 +28,9 @@ def test_eureka_audio_defaults_to_official_model_id():
 
 def test_shipped_prompt_files_declare_eureka_audio_defaults():
     prompt_config = tomllib.loads((ROOT / "config" / "prompts.toml").read_text(encoding="utf-8"))
-    legacy_config = tomllib.loads((ROOT / "config" / "config.toml").read_text(encoding="utf-8"))
 
     assert prompt_config["prompts"]["eureka_audio_system_prompt"] == "Descript The audio."
     assert prompt_config["prompts"]["eureka_audio_prompt"] == "Descript The audio."
-    assert legacy_config["prompts"]["eureka_audio_system_prompt"] == "Descript The audio."
-    assert legacy_config["prompts"]["eureka_audio_prompt"] == "Descript The audio."
 
 
 def test_eureka_audio_can_handle_audio_only():

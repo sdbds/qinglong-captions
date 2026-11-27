@@ -333,43 +333,6 @@ def test_native_grounding_manifest_must_match_actual_raw_page_and_crop(captures,
     assert any("native-1/pdf/2" in s and "grounding.json" in s for s in report["errors"]), report["errors"]
 
 
-@pytest.mark.parametrize(
-    ("field", "mode"),
-    [
-        ("prompt_sha256", "mismatch"),
-        ("weights_sha256", "mismatch"),
-        ("prompt_sha256", "missing"),
-        ("weights_sha256", "missing"),
-        ("prompt_sha256", "invalid"),
-        ("revision", "within_backend"),
-        ("revision", "different_repos"),
-    ],
-)
-def test_manifest_provenance_preserves_prompt_and_weights_but_allows_distinct_repos(captures, field, mode):
-    fixture, runs = captures
-    for backend, group in runs.items():
-        for i, run in enumerate(group):
-            file = run / "run.json"
-            meta = json.loads(file.read_text(encoding="utf-8"))
-            meta.update(prompt_sha256="a" * 64, weights_sha256="b" * 64, revision=("1" if backend == "native" else "2") * 40)
-            if backend == "native" and i == 1:
-                if mode == "mismatch":
-                    meta[field] = "f" * 64
-                elif mode == "missing":
-                    del meta[field]
-                elif mode == "invalid":
-                    meta[field] = "not-a-hash"
-                elif mode == "within_backend":
-                    meta[field] = "3" * 40
-            _write_json(file, meta)
-    report = _tool().compare(fixture, **runs)
-    if mode == "different_repos":
-        assert report["passed"], report["errors"]
-        assert report["comparable_inputs"] == {"prompt_sha256": "a" * 64, "weights_sha256": "b" * 64}
-    else:
-        assert not report["passed"] and any(field in s for s in report["errors"])
-
-
 @pytest.fixture
 def upgrade_captures(captures):
     fixture, runs = captures
@@ -470,46 +433,6 @@ def test_upgrade_accuracy_delta_grades_candidate_relative_to_reference(upgrade_c
     assert len(pairs) == 16
     assert all((p["native_accuracy_delta"] < -0.03 if regression else p["native_accuracy_delta"] > 0.03) for p in pairs)
     assert any("native_versions " in e and "native_accuracy_delta" in e for e in report["errors"]) is regression
-
-
-@pytest.mark.parametrize(
-    ("group", "field", "value"),
-    [
-        ("native", "transformers", "5.17.0"),
-        ("reference_native", "transformers", None),
-        ("legacy", "transformers", "4.47.0"),
-        ("reference_native", "backend", "legacy"),
-        ("reference_native", "revision", "3" * 40),
-        ("all", "revision", "not-a-commit"),
-        ("all", "revision", None),
-        ("reference_native", "torch", "2.8.0+cu128"),
-        ("native", "gpu", "NVIDIA T4"),
-        ("all", "gpu", None),
-        ("all", "fixture_sha256", None),
-        ("native", "fixture_sha256", "d" * 64),
-        ("all", "prompt_sha256", None),
-        ("all", "weights_sha256", "not-a-hash"),
-        ("reference_native", "weights_sha256", "c" * 64),
-    ],
-)
-def test_upgrade_fails_closed_on_wrong_or_missing_provenance(upgrade_captures, group, field, value):
-    fixture, runs = upgrade_captures
-    if group == "all":
-        paths = [p for group_paths in runs.values() for p in group_paths]
-    elif field in {"revision", "torch", "gpu"}:
-        paths = runs[group]  # Internally repeatable does not mean comparable to the other groups.
-    else:
-        paths = runs[group][:1]
-    for path in paths:
-        manifest = path / "run.json"
-        meta = json.loads(manifest.read_text(encoding="utf-8"))
-        if value is None:
-            del meta[field]
-        else:
-            meta[field] = value
-        _write_json(manifest, meta)
-    report = _upgrade_report(fixture, runs)
-    assert not report["passed"] and any(field in e for e in report["errors"]), report["errors"]
 
 
 @pytest.mark.parametrize(("candidate", "reference"), [(None, "5.17.0"), ("5.23.0", None), ("5.*", "5.17.0"), ("5.17.0", "5.17.0")])

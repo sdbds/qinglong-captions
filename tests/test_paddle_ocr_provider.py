@@ -152,7 +152,7 @@ def test_default_config_separates_ppocrv6_ocr_and_vl_pipeline_kwargs():
         "use_seal_recognition",
     }
 
-    for config_path in (ROOT / "config" / "model.toml", ROOT / "config" / "config.toml"):
+    for config_path in (ROOT / "config" / "model.toml",):
         data = tomllib.loads(config_path.read_text(encoding="utf-8"))
         paddle_config = data["paddle_ocr"]
         pipeline = paddle_config["pipeline"]

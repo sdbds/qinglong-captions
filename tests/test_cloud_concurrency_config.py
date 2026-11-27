@@ -38,7 +38,7 @@ def test_captioner_parser_uses_current_kimi_models_without_reasoning_cli():
 
 
 def test_shipped_kimi_configs_default_k3_reasoning_effort_to_high():
-    for relative_path in ("config/model.toml", "config/config.toml"):
+    for relative_path in ("config/model.toml",):
         config = toml.load(ROOT / relative_path)
 
         assert config["kimi_vl"]["reasoning_effort"] == "high"

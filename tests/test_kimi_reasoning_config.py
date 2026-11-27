@@ -193,3 +193,15 @@ def test_save_kimi_reasoning_effort_requires_existing_provider_section(tmp_path)
             model_config_path=model_path,
             legacy_config_path=legacy_path,
         )
+
+
+def test_save_kimi_reasoning_effort_defaults_to_model_toml_only(tmp_path):
+    from gui.utils.kimi_reasoning_config import save_kimi_reasoning_effort
+
+    model_path = tmp_path / "model.toml"
+    _write_config(model_path, kimi_vl_effort="low", kimi_code_effort="max")
+
+    saved = save_kimi_reasoning_effort("kimi_vl", "high", model_config_path=model_path)
+    assert saved == "high"
+    assert toml.load(model_path)["kimi_vl"]["reasoning_effort"] == "high"
+    assert not (tmp_path / "config.toml").exists()

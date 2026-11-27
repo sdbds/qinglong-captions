@@ -318,7 +318,7 @@ def test_gemini_3_models_use_supported_generation_parameters(model_path, thinkin
 
 
 @pytest.mark.parametrize("model_path", ["gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.7-flash"])
-@pytest.mark.parametrize("config_path", ["config/config.toml", "config/model.toml"])
+@pytest.mark.parametrize("config_path", ["config/model.toml"])
 def test_current_gemini_models_load_supported_text_generation_config(config_path, model_path):
     provider = GeminiProvider(
         ProviderContext(
@@ -373,7 +373,7 @@ def test_pre_gemini_3_models_keep_legacy_generation_parameters():
     assert config["thinking_config"] == {"thinking_budget": -1}
 
 
-@pytest.mark.parametrize("config_path", ["config/config.toml", "config/model.toml"])
+@pytest.mark.parametrize("config_path", ["config/model.toml"])
 def test_gemini_generation_config_removes_deprecated_models_and_parameters(config_path):
     config = tomllib.loads((ROOT / config_path).read_text(encoding="utf-8"))["generation_config"]
     model_configs = {key: value for key, value in config.items() if key.startswith("gemini-")}

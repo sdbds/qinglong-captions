@@ -29,7 +29,7 @@ def provider(section, **args):
 
 
 def test_catalog_and_both_config_formats_select_31():
-    for filename in ("model.toml", "config.toml"):
+    for filename in ("model.toml",):
         with (CONFIG / filename).open("rb") as file:
             section = tomllib.load(file)["moondream"]
         assert provider(section).model_id == REPO

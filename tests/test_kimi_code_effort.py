@@ -134,7 +134,7 @@ def test_k28_rejects_invalid_effort_before_http_request(tmp_path, captured_reque
     assert captured_requests == []
 
 
-@pytest.mark.parametrize("config_name", ["prompts.toml", "config.toml"])
+@pytest.mark.parametrize("config_name", ["prompts.toml"])
 @pytest.mark.parametrize("model_path", ["kimi-for-coding", "k3-256k"])
 def test_shipped_anti_tag_echo_instruction_reaches_request(tmp_path, captured_requests, config_name, model_path):
     prompts = toml.load(Path(__file__).resolve().parents[1] / "config" / config_name)["prompts"]
