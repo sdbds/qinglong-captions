@@ -416,6 +416,7 @@ class MistralOCRProvider(VisionAPIProvider):
 
     def post_validate(self, result: CaptionResult, media: MediaContext, args) -> CaptionResult:
         """Mistral OCR 特殊的后验证：角色名校验"""
+        result = super().post_validate(result, media, args)
         description = result.description
 
         # 角色名校验（如果设置了）

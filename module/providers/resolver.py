@@ -6,7 +6,7 @@ PromptResolver - 集中化的 Prompt 选择逻辑
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Tuple, Type
 
 from .base import PromptContext, Provider
 from .catalog import canonicalize_provider_name, provider_prompt_fallback_keys, provider_prompt_prefixes
@@ -148,7 +148,7 @@ class PromptResolver:
         sys_key = tpl.get("system_key", "")
         usr_key = tpl.get("user_key", "")
         new_system = self.prompts.get(sys_key, system) if sys_key else system
-        new_user = self.prompts.get(usr_key, "") if usr_key else ""
+        new_user = self.prompts.get(usr_key, user) if usr_key else ""
         return new_system, new_user
 
     def _pair_override(self, system: str, user: str, mime: str) -> Tuple[str, str]:
@@ -230,7 +230,12 @@ class PromptResolver:
                         result = result.replace(alt_placeholder, val.strip())
 
                     # 处理 \b 单词边界格式（如 "change a to b" -> "change X to Y"）
-                    if "{a}" not in template and "<a>" not in template:
+                    if (
+                        "{a}" not in template
+                        and "<a>" not in template
+                        and re.search(r"\ba\b", template)
+                        and (len(groups) == 1 or re.search(r"\bb\b", template))
+                    ):
                         result = re.sub(r"\ba\b", groups[0].strip(), result)
                         if len(groups) > 1:
                             result = re.sub(r"\bb\b", groups[1].strip(), result)

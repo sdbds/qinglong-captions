@@ -309,29 +309,17 @@ class LogViewer:
         self._clear_display()
 
     def _save_log(self):
-        """保存日志到文件（纯文本，无 ANSI）"""
-        from tkinter import filedialog, Tk
+        """保存日志到文件（纯文本，无 ANSI，经浏览器异步下载，不阻塞事件循环）"""
         from datetime import datetime
 
-        root = Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".log",
-            initialfile=f"training_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
-            filetypes=[("Log files", "*.log"), ("Text files", "*.txt"), ("All files", "*.*")],
-        )
-        root.destroy()
-
-        if filename:
-            try:
-                clean_lines = [strip_ansi(line) for line in self.lines]
-                with open(filename, "w", encoding="utf-8") as f:
-                    f.write("\n".join(clean_lines))
-                self.success(t("log_saved").format(path=filename))
-            except Exception as e:
-                self.error(t("log_save_failed").format(error=e))
+        filename = f"training_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        try:
+            clean_lines = [strip_ansi(line) for line in self.lines]
+            payload = "\n".join(clean_lines).encode("utf-8")
+            ui.download(payload, filename=filename)
+            self.success(t("log_saved").format(path=filename))
+        except Exception as e:
+            self.error(t("log_save_failed").format(error=e))
 
     def _copy_all(self):
         """复制所有日志到剪贴板（纯文本，无 ANSI）"""

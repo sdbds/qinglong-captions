@@ -14,6 +14,17 @@
 #   "torchvision",
 #   "qinglong-score>=0.2.2",
 # ]
+# [[tool.uv.index]]
+# name = "pytorch-cu130"
+# url = "https://download.pytorch.org/whl/cu130"
+# explicit = true
+# [tool.uv.sources]
+# torch = [
+#   { index = "pytorch-cu130", marker = "sys_platform == 'win32' or (sys_platform == 'linux' and platform_machine in 'x86_64,aarch64')" },
+# ]
+# torchvision = [
+#   { index = "pytorch-cu130", marker = "sys_platform == 'win32' or (sys_platform == 'linux' and platform_machine in 'x86_64,aarch64')" },
+# ]
 # ///
 """Score image datasets through the public Qinglong Score contract."""
 

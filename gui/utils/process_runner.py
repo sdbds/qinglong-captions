@@ -62,86 +62,81 @@ _SECRET_OPTION_RE = re.compile(
     r"(?:^|[-_])(?:api[-_]?key|access[-_]?key|secret[-_]?key|token|password|passwd|secret|authorization)$",
     re.IGNORECASE,
 )
-_UV_TORCH_EXTRAS = frozenset(
-    {
-        "translate",
-        "wdtagger",
-        "wdtagger-cl-tagger-v2",
-        "wdtagger-pixai",
-        "onnx-base",
-        "pixai-onnx-export",
-        "reward-model",
-        "moondream",
-        "moondream-legacy",
-        "olmocr",
-        "deepseek-ocr",
-        "deepseek-ocr-native",
-        "deepseek-ocr-legacy",
-        "unlimited-ocr",
-        "unlimited-ocr2",
-        "logics-ocr",
-        "hunyuan-ocr",
-        "glm-ocr",
-        "nanonets-ocr",
-        "firered-ocr",
-        "lighton-ocr",
-        "dots-ocr",
-        "qianfan-ocr",
-        "chandra-ocr",
-        "see-through",
-        "musvit-onnx",
-        "muscriptor-local",
-        "qwen-vl-local",
-        "step-vl-local",
-        "penguin-vl-local",
-        "reka-edge-local",
-        "gemma4-local",
-        "marlin-2b-local",
-        "lfm-vl-local",
-        "music-flamingo-local",
-        "eureka-audio-local",
-        "acestep-transcriber-local",
-        "cohere-transcribe-local",
-    }
-)
-_UV_TORCHVISION_EXTRAS = frozenset(
-    {
-        "translate",
-        "wdtagger",
-        "wdtagger-cl-tagger-v2",
-        "wdtagger-pixai",
-        "onnx-base",
-        "pixai-onnx-export",
-        "reward-model",
-        "moondream",
-        "moondream-legacy",
-        "olmocr",
-        "deepseek-ocr",
-        "deepseek-ocr-native",
-        "deepseek-ocr-legacy",
-        "unlimited-ocr",
-        "unlimited-ocr2",
-        "logics-ocr",
-        "hunyuan-ocr",
-        "glm-ocr",
-        "firered-ocr",
-        "lighton-ocr",
-        "dots-ocr",
-        "qianfan-ocr",
-        "chandra-ocr",
-        "see-through",
-        "musvit-onnx",
-        "qwen-vl-local",
-        "step-vl-local",
-        "penguin-vl-local",
-        "reka-edge-local",
-        "gemma4-local",
-    }
-)
-_UV_TORCH_GROUPS = frozenset({"test"})
-_UV_TORCHVISION_GROUPS = frozenset()
 _SEE_THROUGH_OPENCV_CLEANUP_PACKAGES = OPENCV_DISTRIBUTION_PACKAGES
 _PYPROJECT_PATH = Path(__file__).resolve().parent.parent.parent / "pyproject.toml"
+_DEP_NAME_RE = re.compile(r"^\s*([A-Za-z0-9_.-]+)")
+_SELF_EXTRA_RE = re.compile(r"^\s*qinglong-captions\[([^\]]+)\]")
+_SUBPROCESS_PROBE_TIMEOUT_SECONDS = 30.0
+
+
+def _derive_pyproject_package_profiles(
+    pyproject_path: Path,
+) -> tuple[frozenset[str], frozenset[str], frozenset[str], frozenset[str]]:
+    """Derive extras/groups requiring torch or torchvision directly from pyproject.toml."""
+    try:
+        data = toml.load(pyproject_path)
+    except Exception:
+        return frozenset(), frozenset(), frozenset({"test"}), frozenset()
+
+    project = data.get("project") if isinstance(data.get("project"), dict) else {}
+    optional = project.get("optional-dependencies") if isinstance(project.get("optional-dependencies"), dict) else {}
+    groups = data.get("dependency-groups") if isinstance(data.get("dependency-groups"), dict) else {}
+
+    def _expand_extra(name: str, seen: set[str]) -> set[str]:
+        if name in seen:
+            return set()
+        seen.add(name)
+        pkgs: set[str] = set()
+        for raw in optional.get(name, []) or []:
+            if not isinstance(raw, str):
+                continue
+            self_match = _SELF_EXTRA_RE.match(raw)
+            if self_match:
+                for sub in self_match.group(1).split(","):
+                    pkgs.update(_expand_extra(sub.strip(), seen))
+                continue
+            dep_match = _DEP_NAME_RE.match(raw)
+            if dep_match:
+                pkgs.add(dep_match.group(1).lower().replace("_", "-"))
+        return pkgs
+
+    torch_extras: set[str] = set()
+    torchvision_extras: set[str] = set()
+    for extra_name in optional:
+        resolved = _expand_extra(extra_name, set())
+        if "torch" in resolved:
+            torch_extras.add(extra_name)
+        if "torchvision" in resolved:
+            torchvision_extras.add(extra_name)
+
+    torch_groups: set[str] = set()
+    torchvision_groups: set[str] = set()
+    for group_name, deps in groups.items():
+        pkgs = set()
+        for raw in deps or []:
+            if isinstance(raw, str):
+                dep_match = _DEP_NAME_RE.match(raw)
+                if dep_match:
+                    pkgs.add(dep_match.group(1).lower().replace("_", "-"))
+        if "torch" in pkgs:
+            torch_groups.add(group_name)
+        if "torchvision" in pkgs:
+            torchvision_groups.add(group_name)
+
+    return (
+        frozenset(torch_extras),
+        frozenset(torchvision_extras),
+        frozenset(torch_groups),
+        frozenset(torchvision_groups),
+    )
+
+
+(
+    _UV_TORCH_EXTRAS,
+    _UV_TORCHVISION_EXTRAS,
+    _UV_TORCH_GROUPS,
+    _UV_TORCHVISION_GROUPS,
+) = _derive_pyproject_package_profiles(_PYPROJECT_PATH)
 
 # 序列化同一个 venv 的依赖补丁；不同 venv 可以并发。
 _uv_patch_locks: dict[str, asyncio.Lock] = {}
@@ -264,7 +259,7 @@ SCRIPT_REGISTRY = {
     # step 5 - 导出
     "module.lanceexport": ("./module/lanceexport.py", None),
     # step 6 - 工具
-    "module.waterdetect": ("./module/waterdetect.py", None),
+    "module.waterdetect": ("./module/waterdetect.py", "wdtagger-cl-tagger-v2"),
     "module.audio_separator": ("./module/audio_separator.py", "vocal-midi"),
     "module.see_through.cli": ("-m:module.see_through.cli", "see-through"),
     "module.sheet_music_musvit": ("./module/sheet_music_musvit.py", "musvit-onnx"),
@@ -579,14 +574,22 @@ class ProcessRunner:
         return "paddleocr-native" in extras
 
     @staticmethod
-    def _profile_uses_torch(extras: list[str], groups: list[str]) -> bool:
-        return any(extra in _UV_TORCH_EXTRAS for extra in extras) or any(group in _UV_TORCH_GROUPS for group in groups)
+    def _profile_sets(work_dir: Optional[Path] = None) -> tuple[frozenset[str], frozenset[str], frozenset[str], frozenset[str]]:
+        if work_dir is not None:
+            candidate = Path(work_dir) / "pyproject.toml"
+            if candidate.is_file() and candidate.resolve() != _PYPROJECT_PATH.resolve():
+                return _derive_pyproject_package_profiles(candidate)
+        return _UV_TORCH_EXTRAS, _UV_TORCHVISION_EXTRAS, _UV_TORCH_GROUPS, _UV_TORCHVISION_GROUPS
 
-    @staticmethod
-    def _profile_uses_torchvision(extras: list[str], groups: list[str]) -> bool:
-        return any(extra in _UV_TORCHVISION_EXTRAS for extra in extras) or any(
-            group in _UV_TORCHVISION_GROUPS for group in groups
-        )
+    @classmethod
+    def _profile_uses_torch(cls, extras: list[str], groups: list[str], work_dir: Optional[Path] = None) -> bool:
+        torch_extras, _, torch_groups, _ = cls._profile_sets(work_dir)
+        return any(extra in torch_extras for extra in extras) or any(group in torch_groups for group in groups)
+
+    @classmethod
+    def _profile_uses_torchvision(cls, extras: list[str], groups: list[str], work_dir: Optional[Path] = None) -> bool:
+        _, tv_extras, _, tv_groups = cls._profile_sets(work_dir)
+        return any(extra in tv_extras for extra in extras) or any(group in tv_groups for group in groups)
 
     @staticmethod
     def _infer_uv_torch_backend(env: dict) -> Optional[str]:
@@ -618,8 +621,9 @@ class ProcessRunner:
                 errors="replace",
                 env=env,
                 check=False,
+                timeout=_SUBPROCESS_PROBE_TIMEOUT_SECONDS,
             )
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             return None
 
         lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
@@ -658,8 +662,9 @@ class ProcessRunner:
                 errors="replace",
                 env=env,
                 check=False,
+                timeout=_SUBPROCESS_PROBE_TIMEOUT_SECONDS,
             )
-        except OSError as exc:
+        except (OSError, subprocess.TimeoutExpired) as exc:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
         output_lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
@@ -705,8 +710,9 @@ class ProcessRunner:
                 errors="replace",
                 env=env,
                 check=False,
+                timeout=_SUBPROCESS_PROBE_TIMEOUT_SECONDS,
             )
-        except OSError as exc:
+        except (OSError, subprocess.TimeoutExpired) as exc:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
         output_lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
@@ -1083,7 +1089,7 @@ class ProcessRunner:
                 self._notify_log(message)
                 return ProcessResult(ProcessStatus.ERROR, opencv_return_code, message)
 
-            probe = self._inspect_cv2_runtime(target_python, env)
+            probe = await asyncio.to_thread(self._inspect_cv2_runtime, target_python, env)
             if probe.get("ok"):
                 probe_version = probe.get("version") or "unknown"
                 probe_file = probe.get("file") or "unknown"
@@ -1168,14 +1174,16 @@ class ProcessRunner:
             cmd.extend(["--index-strategy", self._uv_index_strategy(env)])
             if target_python:
                 cmd.extend(["--python", target_python])
-            has_torch = self._profile_uses_torch(extras, groups)
-            has_torchvision = self._profile_uses_torchvision(extras, groups)
+            has_torch = self._profile_uses_torch(extras, groups, work_dir=work_dir)
+            has_torchvision = self._profile_uses_torchvision(extras, groups, work_dir=work_dir)
             torch_backend = self._infer_uv_torch_backend(env) if has_torch else None
             if sys.platform == "win32" and "moondream" in extras:
                 torch_backend = "cu128"
             if torch_backend:
                 cmd.extend(["--torch-backend", torch_backend])
-                installed_torch_backend = self._inspect_installed_torch_backend(target_python, env)
+                installed_torch_backend = await asyncio.to_thread(
+                    self._inspect_installed_torch_backend, target_python, env
+                )
                 if installed_torch_backend and installed_torch_backend != torch_backend:
                     cmd.extend(["--reinstall-package", "torch"])
                     if has_torchvision:
@@ -1209,7 +1217,7 @@ class ProcessRunner:
                 return ProcessResult(ProcessStatus.ERROR, return_code, message)
 
             if "see-through" in extras:
-                stack_probe = self._inspect_see_through_cv_stack(target_python, env)
+                stack_probe = await asyncio.to_thread(self._inspect_see_through_cv_stack, target_python, env)
                 if stack_probe.get("ok"):
                     numpy_version = stack_probe.get("numpy_version") or "unknown"
                     opencv_python_version = stack_probe.get("opencv_python_version") or "unknown"
@@ -1630,10 +1638,6 @@ class ProcessRunner:
             return ProcessResult(ProcessStatus.ERROR, -1, error_msg)
         finally:
             self.process = None
-
-    def run_script_sync(self, script_key: str, args: List[str], **kwargs) -> ProcessResult:
-        """同步运行脚本（用于简单调用）"""
-        return asyncio.run(self.run_python_script(script_key, args, **kwargs))
 
     @staticmethod
     def terminate_process_tree(process, *, process_group: bool = False):

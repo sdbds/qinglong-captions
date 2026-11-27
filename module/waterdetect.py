@@ -9,13 +9,28 @@
 #   "mutagen",
 #   "toml",
 #   "huggingface_hub[hf_xet]>=0.35.2",
-#   "torch==2.11.0",
+#   "torch==2.13.0",
 #   "transformers>4.50",
 #   "torchvision",
 #   "scipy",
-#   "huggingface_hub[hf_xet]>=0.35.2",
-#   "onnxruntime-gpu==1.20.2; sys_platform == 'win32'",
+#   "onnxruntime-gpu>=1.24.4; sys_platform == 'win32'",
 #   "onnxruntime-gpu>=1.20.2; sys_platform == 'linux'",
+# ]
+# [[tool.uv.index]]
+# name = "pytorch-cu130"
+# url = "https://download.pytorch.org/whl/cu130"
+# explicit = true
+# [[tool.uv.index]]
+# name = "onnxruntime-cuda13"
+# url = "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-13/pypi/simple/"
+# explicit = true
+# [tool.uv.sources]
+# onnxruntime-gpu = { index = "onnxruntime-cuda13" }
+# torch = [
+#   { index = "pytorch-cu130", marker = "sys_platform == 'win32' or (sys_platform == 'linux' and platform_machine in 'x86_64,aarch64')" },
+# ]
+# torchvision = [
+#   { index = "pytorch-cu130", marker = "sys_platform == 'win32' or (sys_platform == 'linux' and platform_machine in 'x86_64,aarch64')" },
 # ]
 # [tool.uv.extra-build-dependencies]
 #       tensorrt-cu13 = ["setuptools"]

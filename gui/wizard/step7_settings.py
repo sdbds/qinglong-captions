@@ -87,6 +87,18 @@ class SettingsDialog:
             return _unwrap(doc)
         return {}
 
+    @classmethod
+    def _update_toml_table(cls, target: Any, source: dict) -> None:
+        """Apply plain-dict edits onto a tomlkit table in-place to preserve comments."""
+        for key in list(target.keys()):
+            if key not in source:
+                del target[key]
+        for key, value in source.items():
+            if isinstance(value, dict) and key in target and isinstance(target[key], dict):
+                cls._update_toml_table(target[key], value)
+            else:
+                target[key] = value
+
     def _save_current(self):
         key = self._active_key
         if key == "env":
@@ -99,8 +111,32 @@ class SettingsDialog:
                 )
             return
         try:
-            content = tomlkit.dumps(self.data[key])
-            (CONFIG_DIR / _CONFIG_FILES[key]).write_text(content, encoding="utf-8")
+            import os
+            import tempfile
+
+            target_path = CONFIG_DIR / _CONFIG_FILES[key]
+            if target_path.exists():
+                doc = tomlkit.parse(target_path.read_text(encoding="utf-8"))
+                self._update_toml_table(doc, self.data[key])
+                content = tomlkit.dumps(doc)
+            else:
+                content = tomlkit.dumps(self.data[key])
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=f".{target_path.name}.",
+                suffix=".tmp",
+                dir=str(target_path.parent),
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+                    tmp_file.write(content)
+                os.replace(tmp_name, target_path)
+            except BaseException:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+                raise
             ui.notify(t("save_success"), type="positive", position="top")
         except Exception as exc:
             ui.notify(

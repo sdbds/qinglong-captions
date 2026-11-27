@@ -262,7 +262,14 @@ def save_caption(
                             with open(json_path, "w", encoding="utf-8") as j:
                                 json.dump(parsed_json, j, indent=2, ensure_ascii=False)
 
-                            desc = caption_text(parsed_json)
+                            bbox_fallback = (
+                                json_content
+                                if isinstance(parsed_json, dict)
+                                and isinstance(parsed_json.get("high_level_description"), str)
+                                and parsed_json["high_level_description"].strip()
+                                else ""
+                            )
+                            desc = caption_text(parsed_json, fallback=bbox_fallback)
                             f.write(desc if desc else "")
                         except json.JSONDecodeError:
                             if line and line.strip():

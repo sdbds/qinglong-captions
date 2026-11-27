@@ -55,10 +55,9 @@ class LogBuffer:
             return list(self._buf)
 
     def clear(self):
-        """清空缓冲区（新进程启动时调用）"""
+        """清空缓冲区（保持 _seq 单调递增，避免其他已订阅视图丢弃后续新日志）"""
         with self._lock:
             self._buf.clear()
-            self._seq = 0
 
 
 # 模块级全局单例

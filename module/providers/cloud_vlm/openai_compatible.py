@@ -14,8 +14,7 @@
 """
 
 import json
-from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from module.providers.base import CaptionResult, MediaContext, PromptContext
 from module.providers.cloud_vlm_base import CloudVLMProvider
@@ -109,7 +108,7 @@ class OpenAICompatibleProvider(CloudVLMProvider):
         from openai import OpenAI
 
         # 获取配置
-        api_key = getattr(self.ctx.args, "openai_api_key", "sk-no-key-required")
+        api_key = getattr(self.ctx.args, "openai_api_key", "") or "sk-no-key-required"
         base_url = getattr(self.ctx.args, "openai_base_url", "")
         model_name = getattr(self.ctx.args, "openai_model_name", "default")
 
@@ -125,7 +124,7 @@ class OpenAICompatibleProvider(CloudVLMProvider):
         max_tokens = getattr(self.ctx.args, "openai_max_tokens", 2048)
         
         # 检查是否支持 JSON 模式
-        use_json_mode = getattr(self.ctx.args, "openai_json_mode", True)
+        use_json_mode = bool(getattr(self.ctx.args, "openai_json_mode", True)) and media.mime.startswith("image")
 
         request_params = {
             "model": model_name,

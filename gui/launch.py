@@ -58,6 +58,7 @@ if args.cloud:
 from nicegui import ui, app
 from main import (
     APP_TITLE,
+    _install_exception_filter,
     home_page,
     import_page,
     split_page,
@@ -70,6 +71,8 @@ from main import (
     not_found_page,  # 404 页面
 )
 from gui.theme import apply_theme
+
+_install_exception_filter()
 
 # 设置页面路由 - 所有页面
 ui.page("/")(home_page)

@@ -12,9 +12,7 @@ import io
 import random
 import re
 import time
-import traceback
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any, Callable, Optional, Tuple
 
 from PIL import Image
@@ -26,7 +24,7 @@ DEFAULT_IMAGE_QUALITY = 85
 try:
     from rich_pixels import Pixels
 except ImportError:
-    Pixels = Any  # 降级处理
+    Pixels = None  # 降级处理
 
 
 def resolve_image_quality(
@@ -57,7 +55,7 @@ def resolve_image_quality(
 
 def encode_image_to_blob(
     image_path: str, to_rgb: bool = False, max_size: int = 1024, quality: int = DEFAULT_IMAGE_QUALITY
-) -> Tuple[Optional[str], Optional[Pixels]]:
+) -> Tuple[Optional[str], Optional[Any]]:
     """
     编码图像为 base64，带尺寸优化
 
@@ -110,7 +108,11 @@ def encode_image_to_blob(
                 image = image.convert("RGB")
 
             # 创建缩略图用于显示
-            pixels = Pixels.from_image(image, resize=(max(1, image.width // 18), max(1, image.height // 18)))
+            pixels = (
+                Pixels.from_image(image, resize=(max(1, image.width // 18), max(1, image.height // 18)))
+                if Pixels is not None
+                else None
+            )
 
             # 编码为 base64
             with io.BytesIO() as buffer:
@@ -142,9 +144,8 @@ def with_retry_impl(fn: Callable[[], Any], retry_config: Any, console: Optional[
 
     从原 with_retry 函数提取，适配 RetryConfig
     """
-    from .base import RetryConfig
 
-    max_retries = retry_config.max_retries
+    max_retries = max(1, int(retry_config.max_retries))
     base_wait = retry_config.base_wait
     try:
         jitter_ratio = max(0.0, float(getattr(retry_config, "jitter_ratio", 0.2)))
@@ -203,7 +204,7 @@ def with_retry_impl(fn: Callable[[], Any], retry_config: Any, console: Optional[
 
 
 def _contains_http_status(message: str, status: int) -> bool:
-    return re.search(rf"(?<!\d){status}(?!\d)", message) is not None
+    return re.search(rf"(?<![0-9A-Za-z_./\\-]){status}(?![0-9A-Za-z_.xX])", message) is not None
 
 
 def classify_remote_api_error(
@@ -227,8 +228,14 @@ def classify_remote_api_error(
     - 400/401/403 与典型参数错误: 快速失败
     - 其他错误: 默认重试
     """
+    if isinstance(error, (FileNotFoundError, PermissionError, ImportError, ModuleNotFoundError, MemoryError)):
+        return None
+
     message = str(error)
     lower = message.lower()
+
+    if "cuda out of memory" in lower or "out of memory" in lower:
+        return None
 
     if _contains_http_status(message, 429) or "rate limit" in lower:
         return rate_limit_wait

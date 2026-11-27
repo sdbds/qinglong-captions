@@ -118,26 +118,29 @@ def _decode_base64_image(image_base64: str) -> bytes:
 
 def _normalize_subtitle_timestamps(output: str) -> str:
     timestamp_pattern = re.compile(
-        r"(?<!:)(\d):(\d{2})[,:.](\d{3})|"
-        r"(?<!:)(\d{2}):(\d{2})[,:.](\d{3})|"
-        r"(?<!:)(\d{2}):(\d{2}):(\d{2})[,:.](\d{3})|"
+        r"(?<![0-9:])(\d{2}):(\d{2}):(\d{2})[,:.](\d{3})|"
+        r"(?<![0-9:])(\d):(\d{2}):(\d{2})[,:.](\d{3})|"
         r"(?<![0-9:])([1-9][0-9][0-9]+):(\d{2}):(\d{2})[,:.](\d{3})|"
-        r"(?<!:)(\d{2}):(\d{2})[,:.](\d{2})[,:.](\d{3})",
+        r"(?<![0-9:])(\d{2}):(\d{2})[,:.](\d{2})[,:.](\d{3})|"
+        r"(?<![0-9:])(\d{2}):(\d{2})[,:.](\d{3})|"
+        r"(?<![0-9:])(\d):(\d{2})[,:.](\d{3})",
         re.MULTILINE,
     )
 
     def normalize_timestamp(match):
         groups = match.groups()
         if groups[0] is not None:
-            return f"00:0{groups[0]}:{groups[1]},{groups[2]}"
-        if groups[3] is not None:
-            return f"00:{groups[3]}:{groups[4]},{groups[5]}"
-        if groups[6] is not None:
-            return f"{groups[6]}:{groups[7]}:{groups[8]},{groups[9]}"
-        if groups[10] is not None:
-            return f"{groups[10]}:{groups[11]}:{groups[12]},{groups[13]}"
-        if groups[14] is not None:
-            return f"00:{groups[15]}:{groups[16]},{groups[17]}"
+            return f"{groups[0]}:{groups[1]}:{groups[2]},{groups[3]}"
+        if groups[4] is not None:
+            return f"0{groups[4]}:{groups[5]}:{groups[6]},{groups[7]}"
+        if groups[8] is not None:
+            return f"{groups[8]}:{groups[9]}:{groups[10]},{groups[11]}"
+        if groups[12] is not None:
+            return f"00:{groups[13]}:{groups[14]},{groups[15]}"
+        if groups[16] is not None:
+            return f"00:{groups[16]}:{groups[17]},{groups[18]}"
+        if groups[19] is not None:
+            return f"00:0{groups[19]}:{groups[20]},{groups[21]}"
         return match.group(0)
 
     return timestamp_pattern.sub(normalize_timestamp, output)
@@ -307,7 +310,7 @@ def postprocess_caption_content(output, filepath, args, console):
         if isinstance(parsed, dict):
             return _caption_result_from_processed(parsed, metadata, mode=image_mode, raw=output)
     except json.JSONDecodeError:
-        has_template = bool(active_image_template(args))
+        has_template = bool(template_id)
         # Backticks inside a JSON string do not delimit the outer fence.
         match = _FULL_JSON_FENCE.fullmatch(output) if is_image else None
         fenced = match[1].strip() if match else ""
