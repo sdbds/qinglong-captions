@@ -19,10 +19,15 @@ from gui.utils.kimi_reasoning_config import (
 )
 from gui.utils.toml_helpers import assess_current_model_fit as assess_current_model_fit_from_toml
 from gui.utils.toml_helpers import load_current_route_model_ids as load_current_route_model_ids_from_toml
-from gui.utils.toml_helpers import find_model_config_section
-from utils.ocr_model_config import DEEPSEEK_LEGACY_MODEL, deepseek_ocr_extra, moondream_extra_from_config, unlimited_ocr_extra
+from gui.utils import toml_helpers as _toml_helpers
 from module.caption_outcome import PARTIAL_CAPTION_EXIT_CODE
-from module.providers.catalog import route_choices, route_requires_remote_config
+from module.providers.catalog import (
+    repo_id_requires_quantized_runtime,
+    resolve_runtime_extras,
+    route_choices,
+    route_requires_remote_config,
+    route_uv_extra_map,
+)
 from module.providers.cloud_vlm.kimi_reasoning import (
     DEFAULT_KIMI_CODE_MODEL_ID,
     DEFAULT_KIMI_MODEL_ID,
@@ -431,47 +436,9 @@ class CaptionStep:
         }
     }
 
-    OCR_EXTRA_MAP = {
-        "infinity_parser2_ocr": "infinity-parser2-ocr",
-        "ovis_ocr2": "ovis-ocr2",
-        "ocria_nano": "ocria-nano",
-        "unlimited_ocr": "unlimited-ocr",
-        "paddle_ocr": "paddleocr-onnx",
-        "deepseek_ocr": "deepseek-ocr",
-        "deepseek_ocr_native": "deepseek-ocr-native",
-        "deepseek_ocr_legacy": "deepseek-ocr-legacy",
-        "logics_ocr": "logics-ocr",
-        "lighton_ocr": "lighton-ocr",
-        "dots_ocr": "dots-ocr",
-        "qianfan_ocr": "qianfan-ocr",
-        "olmocr": "olmocr",
-        "hunyuan_ocr": "hunyuan-ocr",
-        "moondream": "moondream",
-        "glm_ocr": "glm-ocr",
-        "nanonets_ocr": "nanonets-ocr",
-        "firered_ocr": "firered-ocr",
-        "chandra_ocr": "chandra-ocr",
-    }
-
-    VLM_EXTRA_MAP = {
-        "moondream": "moondream",
-        "qwen_vl_local": "qwen-vl-local",
-        "step_vl_local": "step-vl-local",
-        "penguin_vl_local": "penguin-vl-local",
-        "reka_edge_local": "reka-edge-local",
-        "gemma4_local": "gemma4-local",
-        "lfm_vl_local": "lfm-vl-local",
-        "marlin_2b_local": "marlin-2b-local",
-    }
-
-    ALM_EXTRA_MAP = {
-        "gemma4_local": "gemma4-local",
-        "music_flamingo_local": "music-flamingo-local",
-        "eureka_audio_local": "eureka-audio-local",
-        "acestep_transcriber_local": "acestep-transcriber-local",
-        "cohere_transcribe_local": "cohere-transcribe-local",
-        "mega_asr_local": "mega-asr-local",
-    }
+    OCR_EXTRA_MAP = route_uv_extra_map("ocr_model")
+    VLM_EXTRA_MAP = route_uv_extra_map("vlm_image_model")
+    ALM_EXTRA_MAP = route_uv_extra_map("alm_model")
 
     ALM_AUDIO_TASK_OPTIONS = {
         "gemma4_local": {
@@ -855,17 +822,9 @@ class CaptionStep:
 
     @staticmethod
     def _format_args_for_log(args: list[str]) -> str:
-        redacted_args: list[str] = []
-        for arg in args:
-            if not isinstance(arg, str):
-                arg = str(arg)
-            if arg.startswith("--") and "=" in arg:
-                key, _value = arg.split("=", 1)
-                if "api_key" in key.lower():
-                    redacted_args.append(f"{key}=***")
-                    continue
-            redacted_args.append(arg)
-        return repr(redacted_args)
+        from gui.utils.process_runner import ProcessRunner
+
+        return ProcessRunner.format_command_for_log([str(arg) for arg in args])
 
     def _handle_segment_time_change(self, value: Any) -> None:
         self.config["segment_time"] = int(value)
@@ -984,7 +943,7 @@ class CaptionStep:
 
     @classmethod
     def _repo_id_requires_quantized_runtime(cls, repo_id: Optional[str]) -> bool:
-        return bool(repo_id and cls._BITSANDBYTES_REPO_PATTERN.search(repo_id.lower()))
+        return repo_id_requires_quantized_runtime(repo_id)
 
     def _selected_local_route_model_ids(self) -> tuple[str, ...]:
         model_id_map = _load_current_route_model_ids()
@@ -996,53 +955,21 @@ class CaptionStep:
         return tuple(model_id_map.get(route_name, "") for route_name in route_names if route_name)
 
     def _build_local_extra_args(self) -> list[str]:
+        extras = resolve_runtime_extras(
+            ocr_model=getattr(getattr(self, "ocr_model", None), "value", "") or "",
+            vlm_image_model=getattr(getattr(self, "vlm_image_model", None), "value", "") or "",
+            alm_model=self._current_alm_model(),
+            codex_subscription=self._codex_enabled(),
+            codex_backend=str(self._codex_value("codex_backend", "sdk_app_server") or "sdk_app_server"),
+            codex_auto_install_sdk=bool(self.config.get("codex_auto_install_sdk", True)),
+            grok_build_subscription=self._grok_build_enabled(),
+            openai_base_url=str(getattr(getattr(self, "openai_base_url", None), "value", "") or ""),
+            model_config_path=_toml_helpers._MODEL_CONFIG_PATH,
+            selected_model_ids=self._selected_local_route_model_ids(),
+        )
         extra_args: list[str] = []
-        seen: set[str] = set()
-
-        if self._codex_enabled():
-            if self._codex_value("codex_backend", "sdk_app_server") == "sdk_app_server" and bool(
-                self.config.get("codex_auto_install_sdk", True)
-            ):
-                self._append_extra(extra_args, seen, self.CODEX_SUBSCRIPTION_EXTRA)
-            return extra_args
-        if self._grok_build_enabled():
-            return extra_args
-
-        ocr_route = self.ocr_model.value or ""
-        ocr_extra = self.OCR_EXTRA_MAP.get(ocr_route)
-        if ocr_route == "deepseek_ocr":
-            selected = find_model_config_section(ocr_route)
-            section = selected[1] if selected else {}
-            ocr_extra = deepseek_ocr_extra(
-                section.get("model_id", DEEPSEEK_LEGACY_MODEL),
-                base_size=section.get("base_size", 1024),
-                image_size=section.get("image_size", 768),
-                crop_mode=section.get("crop_mode", True),
-            )
-        elif ocr_route == "unlimited_ocr":
-            selected = find_model_config_section(ocr_route)
-            section = selected[1] if selected else {}
-            ocr_extra = unlimited_ocr_extra(
-                section.get("model_id", "baidu/Unlimited-OCR-2"), section.get("model_version", "auto")
-            )
-        vlm_extra = self.VLM_EXTRA_MAP.get(self.vlm_image_model.value or "")
-        if "moondream" in (ocr_extra, vlm_extra):
-            profile = moondream_extra_from_config(
-                image_ocr=ocr_route == "moondream",
-                has_base_url=bool(getattr(getattr(self, "openai_base_url", None), "value", "")),
-            )
-            if ocr_extra == "moondream":
-                ocr_extra = profile
-            if vlm_extra == "moondream":
-                vlm_extra = profile
-        self._append_extra(extra_args, seen, ocr_extra)
-        self._append_extra(extra_args, seen, vlm_extra)
-        self._append_extra(extra_args, seen, self.ALM_EXTRA_MAP.get(self._current_alm_model()))
-        if any(
-            self._repo_id_requires_quantized_runtime(model_id) for model_id in self._selected_local_route_model_ids()
-        ):
-            self._append_extra(extra_args, seen, self.QUANTIZED_RUNTIME_EXTRA)
-
+        for extra_name in extras:
+            extra_args.extend(["--extra", extra_name])
         return extra_args
 
     def _build_caption_args(self, dataset_path: str) -> list[str]:

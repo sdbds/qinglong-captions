@@ -73,17 +73,14 @@ $uv_args = [Collections.ArrayList]::new()
 $ext_args = [Collections.ArrayList]::new()
 function Get-ProjectPython { return $Python }
 $ast = [Management.Automation.Language.Parser]::ParseFile($Source, [ref]$null, [ref]$null)
-foreach ($name in @('Add-UvExtra', 'Get-MoondreamExtra')) {
+foreach ($name in @('Add-UvExtra', 'Get-CaptionRuntimeExtras')) {
     $fn = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
-    if ($fn) {
-        $helper = Join-Path $PSScriptRoot "$name.ps1"
-        [IO.File]::WriteAllText($helper, $fn.Extent.Text)
-        . $helper
-    }
+    if (-not $fn) { throw "$name missing" }
+    $helper = Join-Path $PSScriptRoot "$name.ps1"
+    [IO.File]::WriteAllText($helper, $fn.Extent.Text)
+    . $helper
 }
-foreach ($block in $ast.EndBlock.Statements) {
-    if ($block.Extent.Text -match '^if \(\$(ocr_model|vlm_image_model)\) \{') { Invoke-Expression $block.Extent.Text }
-}
+foreach ($extra in (Get-CaptionRuntimeExtras -PythonExe $Python)) { Add-UvExtra $extra }
 $uv_args
 """,
         encoding="utf-8",

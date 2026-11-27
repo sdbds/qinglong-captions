@@ -9,7 +9,7 @@ from packaging.requirements import Requirement
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize("filename", ["config/model.toml", "config/config.toml"])
+@pytest.mark.parametrize("filename", ["config/model.toml"])
 def test_shipped_configs_select_new_versions_without_forcing_legacy_protocols(filename):
     config = tomllib.loads((ROOT / filename).read_text(encoding="utf-8"))
     assert config["unlimited_ocr"]["model_id"] == "baidu/Unlimited-OCR-2"
@@ -97,11 +97,12 @@ $source = Join-Path $Root '4.captioner.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($source, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw $errors[0] }
 $fn = $ast.Find({param($node)
-  $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-UnlimitedOcrExtra'
+  $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-CaptionRuntimeExtras'
 }, $true)
-if (-not $fn) { throw 'Get-UnlimitedOcrExtra is missing' }
+if (-not $fn) { throw 'Get-CaptionRuntimeExtras is missing' }
 Invoke-Expression $fn.Extent.Text
-Get-UnlimitedOcrExtra -ModelConfigPath $Config -PythonExe $Python
+$ocr_model = "unlimited_ocr"
+Get-CaptionRuntimeExtras -ModelConfigPath $Config -PythonExe $Python
 """
     # PowerShell passes remaining -Command arguments as code; a temporary script
     # keeps paths as data, including spaces/non-ASCII, without running the launcher.
@@ -116,3 +117,93 @@ Get-UnlimitedOcrExtra -ModelConfigPath $Config -PythonExe $Python
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "unlimited-ocr2"
+
+
+def test_powershell_get_project_python_prefers_dot_venv_over_venv_and_path(tmp_path):
+    import shutil
+
+    powershell = shutil.which("pwsh")
+    if not powershell:
+        pytest.skip("PowerShell is unavailable")
+    dot_venv_py = tmp_path / ".venv" / "Scripts" / "python.exe"
+    venv_py = tmp_path / "venv" / "Scripts" / "python.exe"
+    dot_venv_py.parent.mkdir(parents=True)
+    venv_py.parent.mkdir(parents=True)
+    dot_venv_py.write_bytes(b"")
+    venv_py.write_bytes(b"")
+
+    runner = tmp_path / "check-project-python.ps1"
+    runner.write_text(
+        """
+param($Source, $WorkDir)
+$ErrorActionPreference = 'Stop'
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Source, [ref]$null, [ref]$null)
+$fn = $ast.Find({param($n)
+  $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-ProjectPython'
+}, $true)
+if (-not $fn) { throw 'Get-ProjectPython is missing' }
+Invoke-Expression $fn.Extent.Text
+Set-Location $WorkDir
+$first = Get-ProjectPython
+Remove-Item -LiteralPath (Join-Path $WorkDir '.venv/Scripts/python.exe')
+$second = Get-ProjectPython
+Write-Output $first
+Write-Output $second
+""",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-File", str(runner), str(ROOT / "4.captioner.ps1"), str(tmp_path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stderr
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    assert [Path(line).resolve() for line in lines] == [dot_venv_py.resolve(), venv_py.resolve()]
+
+
+def test_powershell_extra_selector_falls_back_to_uv_isolated_python_on_cold_start(tmp_path):
+    import shutil
+
+    powershell = shutil.which("pwsh")
+    if not powershell or not shutil.which("uv"):
+        pytest.skip("PowerShell or uv is unavailable")
+    config = tmp_path / "model.toml"
+    config.write_text(
+        '[unlimited_ocr]\nmodel_id = "baidu/Unlimited-OCR-2"\n'
+        '[moondream]\nmodel_id = "moondream/moondream3.1-9B-A2B"\n',
+        encoding="utf-8",
+    )
+    runner = tmp_path / "cold-start-extras.ps1"
+    runner.write_text(
+        """
+param($Root, $ConfigDir, $ModelConfig)
+$ErrorActionPreference = 'Stop'
+$source = Join-Path $Root '4.captioner.ps1'
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($source, [ref]$null, [ref]$null)
+$fn = $ast.Find({param($n)
+  $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-CaptionRuntimeExtras'
+}, $true)
+if (-not $fn) { throw 'Get-CaptionRuntimeExtras is missing' }
+Invoke-Expression $fn.Extent.Text
+$ocr_model = "unlimited_ocr"
+$vlm_image_model = "moondream"
+$alm_model = "gemma4_local"
+Get-CaptionRuntimeExtras -ConfigDir $ConfigDir -ModelConfigPath $ModelConfig -PythonExe ""
+""",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-File", str(runner), str(ROOT), str(tmp_path), str(config)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stderr
+    assert [line.strip() for line in result.stdout.splitlines() if line.strip()] == [
+        "unlimited-ocr2",
+        "moondream",
+        "gemma4-local",
+    ]

@@ -55,20 +55,13 @@ $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($Source, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw $errors[0] }
 function Get-ProjectPython { return $Python }
-function Add-UvExtra($Name) { Write-Output $Name }
 $fn = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-    $node.Name -eq 'Get-DeepSeekOcrExtra' }, $true)
-if ($fn) {
-    # A file-backed definition retains $PSScriptRoot for the real default config lookup.
-    $helper = Join-Path $PSScriptRoot 'selector.ps1'
-    [IO.File]::WriteAllText($helper, $fn.Extent.Text)
-    . $helper
-}
-$ext_args = [System.Collections.ArrayList]::new()
-$dispatch = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.IfStatementAst] -and
-    $node.Clauses[0].Item1.Extent.Text -eq '$ocr_model' }, $true)
-if (-not $dispatch) { throw 'OCR selection block missing' }
-Invoke-Expression $dispatch.Extent.Text
+    $node.Name -eq 'Get-CaptionRuntimeExtras' }, $true)
+if (-not $fn) { throw 'Get-CaptionRuntimeExtras missing' }
+$helper = Join-Path $PSScriptRoot 'selector.ps1'
+[IO.File]::WriteAllText($helper, $fn.Extent.Text)
+. $helper
+Get-CaptionRuntimeExtras -PythonExe $Python
 """,
         encoding="utf-8",
     )

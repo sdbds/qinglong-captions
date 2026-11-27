@@ -113,10 +113,10 @@ $tags_highlightrate = 0.38
 Set-Location $PSScriptRoot
 $env:PYTHONPATH = "$PSScriptRoot$([System.IO.Path]::PathSeparator)$($env:PYTHONPATH)"
 $VenvPaths = @(
-  "./venv/Scripts/activate",
   "./.venv/Scripts/activate",
-  "./venv/bin/Activate.ps1",
-  "./.venv/bin/activate.ps1"
+  "./venv/Scripts/activate",
+  "./.venv/bin/Activate.ps1",
+  "./venv/bin/Activate.ps1"
 )
 
 foreach ($Path in $VenvPaths) {
@@ -194,74 +194,26 @@ function Get-UvProfile {
   return ($ArgsList | ForEach-Object { $_.ToString().Replace("--extra=", "extra:").Replace("--group=", "group:") }) -join ", "
 }
 
-function Test-QuantizedRepoIdRuntimeDeps {
-  param (
-    [string]$RepoId
-  )
+function Get-ProjectPython {
+  $Roots = [System.Collections.ArrayList]::new()
+  if ($PSScriptRoot) { [void]$Roots.Add($PSScriptRoot) }
+  [void]$Roots.Add(".")
 
-  if ([string]::IsNullOrWhiteSpace($RepoId)) {
-    return $false
-  }
-
-  return [regex]::IsMatch(
-    $RepoId.ToLowerInvariant(),
-    '(?:^|[-_./])(?:nf4|fp8-block|bnb|bitsandbytes|4bit|8bit|int4|int8)(?:$|[-_./])'
-  )
-}
-
-function Get-ModelConfigRouteModelId {
-  param (
-    [string]$RouteName
-  )
-
-  if ([string]::IsNullOrWhiteSpace($RouteName)) {
-    return ""
-  }
-
-  $ModelConfigPath = Join-Path $PSScriptRoot "config/model.toml"
-  if (-not (Test-Path $ModelConfigPath)) {
-    return ""
-  }
-
-  $Content = Get-Content $ModelConfigPath -Raw -Encoding UTF8
-  $SectionPattern = "(?ms)^\[" + [regex]::Escape($RouteName) + "\]\s*(.*?)(?=^\[|\z)"
-  $SectionMatch = [regex]::Match($Content, $SectionPattern)
-  if (-not $SectionMatch.Success) {
-    return ""
-  }
-
-  $ModelIdMatch = [regex]::Match($SectionMatch.Groups[1].Value, '^\s*model_id\s*=\s*"([^"]+)"', [System.Text.RegularExpressions.RegexOptions]::Multiline)
-  if (-not $ModelIdMatch.Success) {
-    return ""
-  }
-
-  return $ModelIdMatch.Groups[1].Value
-}
-
-function Resolve-SelectedRouteModelIds {
-  $Resolved = [System.Collections.ArrayList]::new()
-
-  foreach ($RouteName in @($ocr_model, $vlm_image_model, $alm_model)) {
-    $ResolvedId = Get-ModelConfigRouteModelId -RouteName $RouteName
-    if (-not [string]::IsNullOrWhiteSpace($ResolvedId)) {
-      [void]$Resolved.Add($ResolvedId)
+  foreach ($RootDir in ($Roots | Select-Object -Unique)) {
+    foreach ($RelPath in @(".venv/Scripts/python.exe", "venv/Scripts/python.exe", ".venv/bin/python", "venv/bin/python")) {
+      $Candidate = Join-Path $RootDir $RelPath
+      if (Test-Path -LiteralPath $Candidate -PathType Leaf) {
+        return (Resolve-Path -LiteralPath $Candidate).Path
+      }
     }
   }
 
-  return @($Resolved)
-}
-
-function Get-ProjectPython {
-  $Candidates = @(
-    "./.venv/Scripts/python.exe",
-    "./venv/Scripts/python.exe",
-    "./.venv/bin/python",
-    "./venv/bin/python"
-  )
-
-  foreach ($Candidate in $Candidates) {
-    if (Test-Path $Candidate) {
-      return (Resolve-Path $Candidate).Path
+  if ($env:VIRTUAL_ENV) {
+    foreach ($SubPath in @("Scripts/python.exe", "bin/python")) {
+      $VenvPython = Join-Path $env:VIRTUAL_ENV $SubPath
+      if (Test-Path -LiteralPath $VenvPython -PathType Leaf) {
+        return (Resolve-Path -LiteralPath $VenvPython).Path
+      }
     }
   }
 
@@ -273,73 +225,99 @@ function Get-ProjectPython {
   return $null
 }
 
-function Get-DeepSeekOcrExtra {
+function Get-CaptionRuntimeExtras {
   param (
-    [string]$ModelConfigPath = (Join-Path $PSScriptRoot "config/model.toml"),
+    [string]$ConfigDir = "",
+    [string]$ModelConfigPath = "",
     [string]$PythonExe = (Get-ProjectPython)
   )
-  if (-not $PythonExe) {
-    throw "Python is required to select the DeepSeek OCR dependency profile."
-  }
-  $Selector = @'
-import sys
-from utils.ocr_model_config import deepseek_ocr_extra_from_config
-print(deepseek_ocr_extra_from_config(sys.argv[1]))
-'@
-  $Extra = & $PythonExe -c $Selector $ModelConfigPath
-  if ($LASTEXITCODE -ne 0 -or $Extra -notin @("deepseek-ocr", "deepseek-ocr-legacy")) {
-    throw "Could not resolve the DeepSeek OCR dependency profile from $ModelConfigPath."
-  }
-  return $Extra
-}
 
-function Get-MoondreamExtra {
-  $PythonExe = Get-ProjectPython
-  if (-not $PythonExe) { throw "Python is required to select the Moondream runtime." }
-  $Selector = @'
-import sys
-from utils.ocr_model_config import moondream_extra_from_config
-profile = moondream_extra_from_config(sys.argv[1], backend=sys.argv[2].removeprefix('mode:'),
-                                     has_base_url=sys.argv[3] == '1', image_ocr=sys.argv[4] == '1')
-print(profile or 'remote')
-'@
-  $ConfigDir = Join-Path $PSScriptRoot "config"
-  $Extra = & $PythonExe -c $Selector $ConfigDir "mode:$local_runtime_backend" ([int][bool]$openai_base_url) ([int]($ocr_model -eq "moondream"))
-  if ($LASTEXITCODE -ne 0 -or $Extra -notin @("moondream", "moondream-legacy", "remote")) { throw "Could not select Moondream runtime." }
-  if ($Extra -ne "remote") { return $Extra }
+  if (-not ($ocr_model -or $vlm_image_model -or $alm_model -or $codex_subscription -or $grok_build_subscription)) {
+    return @()
+  }
+
+  $CatalogScript = $null
+  $SearchRoots = [System.Collections.ArrayList]::new()
+  if ($PSScriptRoot) { [void]$SearchRoots.Add($PSScriptRoot) }
+  [void]$SearchRoots.Add(".")
+  if ($env:PYTHONPATH) {
+    foreach ($Entry in ($env:PYTHONPATH -split [IO.Path]::PathSeparator)) {
+      if (-not [string]::IsNullOrWhiteSpace($Entry)) {
+        [void]$SearchRoots.Add($Entry.Trim())
+      }
+    }
+  }
+  foreach ($SearchRoot in ($SearchRoots | Select-Object -Unique)) {
+    $CandidateCatalog = Join-Path $SearchRoot "module/providers/catalog.py"
+    if (Test-Path -LiteralPath $CandidateCatalog -PathType Leaf) {
+      $CatalogScript = (Resolve-Path -LiteralPath $CandidateCatalog).Path
+      break
+    }
+  }
+
+  if (-not $ConfigDir -and -not $ModelConfigPath) {
+    if ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot "config") -PathType Container)) {
+      $ConfigDir = Join-Path $PSScriptRoot "config"
+    } elseif (Test-Path -LiteralPath "./config" -PathType Container) {
+      $ConfigDir = "./config"
+    }
+  }
+
+  $CatalogArgs = [System.Collections.ArrayList]::new()
+  if ($CatalogScript) {
+    [void]$CatalogArgs.Add($CatalogScript)
+  } else {
+    [void]$CatalogArgs.Add("-W")
+    [void]$CatalogArgs.Add("ignore::RuntimeWarning:runpy")
+    [void]$CatalogArgs.Add("-m")
+    [void]$CatalogArgs.Add("module.providers.catalog")
+  }
+  [void]$CatalogArgs.Add("--resolve-extras")
+  if ($ocr_model) { [void]$CatalogArgs.Add("--ocr_model"); [void]$CatalogArgs.Add($ocr_model) }
+  if ($vlm_image_model) { [void]$CatalogArgs.Add("--vlm_image_model"); [void]$CatalogArgs.Add($vlm_image_model) }
+  if ($alm_model) { [void]$CatalogArgs.Add("--alm_model"); [void]$CatalogArgs.Add($alm_model) }
+  if ($codex_subscription) {
+    [void]$CatalogArgs.Add("--codex_subscription")
+    if ($codex_backend) { [void]$CatalogArgs.Add("--codex_backend"); [void]$CatalogArgs.Add($codex_backend) }
+    if (-not $codex_auto_install_sdk) { [void]$CatalogArgs.Add("--no-codex_auto_install_sdk") }
+  }
+  if ($grok_build_subscription) { [void]$CatalogArgs.Add("--grok_build_subscription") }
+  if ($local_runtime_backend) { [void]$CatalogArgs.Add("--local_runtime_backend"); [void]$CatalogArgs.Add($local_runtime_backend) }
+  if ($openai_base_url) { [void]$CatalogArgs.Add("--openai_base_url"); [void]$CatalogArgs.Add($openai_base_url) }
+  if ($ModelConfigPath) {
+    [void]$CatalogArgs.Add("--model_config"); [void]$CatalogArgs.Add($ModelConfigPath)
+  } elseif ($ConfigDir) {
+    [void]$CatalogArgs.Add("--config_dir"); [void]$CatalogArgs.Add($ConfigDir)
+  }
+
+  if ($PythonExe) {
+    $Lines = & $PythonExe @CatalogArgs
+  } elseif (Get-Command uv -ErrorAction SilentlyContinue) {
+    $Lines = & uv run --no-project --isolated python @CatalogArgs
+  } else {
+    throw "Python or uv is required to resolve caption runtime extras from module/providers/catalog.py."
+  }
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to resolve caption runtime extras via module/providers/catalog.py."
+  }
+  return @($Lines | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ -ne "" })
 }
 
 function Get-IsolatedCaptionRuntimePython {
   param ([string]$Extra)
   $Bootstrap = Get-ProjectPython
-  if (-not $Bootstrap) {
-    throw "Python is required to prepare the isolated caption runtime."
+  $RootArg = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+  if ($Bootstrap) {
+    $Runtime = & $Bootstrap -m utils.deepseek_runtime --root $RootArg --extra $Extra
+  } elseif (Get-Command uv -ErrorAction SilentlyContinue) {
+    $Runtime = & uv run --no-project --with filelock python -m utils.deepseek_runtime --root $RootArg --extra $Extra
+  } else {
+    throw "Python or uv is required to prepare the isolated caption runtime."
   }
-  $Runtime = & $Bootstrap -m utils.deepseek_runtime --root $PSScriptRoot --extra $Extra
   if ($LASTEXITCODE -ne 0 -or -not $Runtime -or -not (Test-Path -LiteralPath $Runtime -PathType Leaf)) {
     throw "Caption runtime preparation failed for ${Extra}; the shared project environment was not used."
   }
   return $Runtime
-}
-
-function Get-UnlimitedOcrExtra {
-  param (
-    [string]$ModelConfigPath = (Join-Path $PSScriptRoot "config/model.toml"),
-    [string]$PythonExe = (Get-ProjectPython)
-  )
-  if (-not $PythonExe) {
-    throw "Python is required to select the Unlimited OCR dependency profile."
-  }
-  $Selector = @'
-import sys
-from utils.ocr_model_config import unlimited_ocr_extra_from_config
-print(unlimited_ocr_extra_from_config(sys.argv[1]))
-'@
-  $Extra = & $PythonExe -c $Selector $ModelConfigPath
-  if ($LASTEXITCODE -ne 0 -or $Extra -notin @("unlimited-ocr", "unlimited-ocr2")) {
-    throw "Could not resolve the Unlimited OCR dependency profile from model.toml."
-  }
-  return $Extra
 }
 
 function Uninstall-PaddleTorchStack {
@@ -354,7 +332,6 @@ function Uninstall-PaddleTorchStack {
     [void]$UninstallArgs.Add("--python")
     [void]$UninstallArgs.Add($PythonExe)
   }
-  [void]$UninstallArgs.Add("-y")
   [void]$UninstallArgs.Add("torch")
   [void]$UninstallArgs.Add("torchvision")
   [void]$UninstallArgs.Add("torchaudio")
@@ -612,9 +589,6 @@ if ($codex_subscription) {
   if ($codex_auto_install_sdk) {
     [void]$ext_args.Add("--codex_auto_install_sdk")
   }
-  if ($codex_backend -eq "sdk_app_server" -and $codex_auto_install_sdk) {
-    Add-UvExtra "codex-subscription"
-  }
 }
 
 if ($grok_build_subscription) {
@@ -690,96 +664,11 @@ if ($ocr_model) {
   if ($document_image) {
     [void]$ext_args.Add("--document_image")
   }
-  
-  # Model-specific extras
-  if ($ocr_model -eq "infinity_parser2_ocr") {
-    Add-UvExtra "infinity-parser2-ocr"
-  }
-  elseif ($ocr_model -in @("ovis_ocr2", "ovis_ocr3")) {
-    Add-UvExtra "ovis-ocr2"
-  }
-  elseif ($ocr_model -in @("ocria_nano", "ocria_nano_1")) {
-    Add-UvExtra "ocria-nano"
-  }
-  elseif ($ocr_model -eq "unlimited_ocr") {
-    Add-UvExtra (Get-UnlimitedOcrExtra)
-  }
-  elseif ($ocr_model -eq "paddle_ocr") {
-    Add-UvExtra "paddleocr-onnx"
-  }
-  elseif ($ocr_model -eq "deepseek_ocr") {
-    Add-UvExtra (Get-DeepSeekOcrExtra)
-  }
-  elseif ($ocr_model -eq "deepseek_ocr_native") {
-    Add-UvExtra "deepseek-ocr-native"
-  }
-  elseif ($ocr_model -eq "deepseek_ocr_legacy") {
-    Add-UvExtra "deepseek-ocr-legacy"
-  }
-  elseif ($ocr_model -eq "logics_ocr") {
-    Add-UvExtra "logics-ocr"
-  }
-  elseif ($ocr_model -eq "lighton_ocr") {
-    Add-UvExtra "lighton-ocr"
-  }
-  elseif ($ocr_model -eq "dots_ocr") {
-    Add-UvExtra "dots-ocr"
-  }
-  elseif ($ocr_model -eq "qianfan_ocr") {
-    Add-UvExtra "qianfan-ocr"
-  }
-  elseif ($ocr_model -eq "olmocr") {
-    Add-UvExtra "olmocr"
-  }
-  elseif ($ocr_model -eq "hunyuan_ocr") {
-    Add-UvExtra "hunyuan-ocr"
-  }
-  elseif ($ocr_model -eq "moondream") {
-    Add-UvExtra (Get-MoondreamExtra)
-  }
-  elseif ($ocr_model -eq "glm_ocr") {
-    Add-UvExtra "glm-ocr"
-  }
-  elseif ($ocr_model -eq "nanonets_ocr") {
-    Add-UvExtra "nanonets-ocr"
-  }
-  elseif ($ocr_model -eq "firered_ocr") {
-    Add-UvExtra "firered-ocr"
-  }
-  elseif ($ocr_model -eq "chandra_ocr") {
-    Add-UvExtra "chandra-ocr"
-  }
 }
 
 # VLM model selection for image tasks
 if ($vlm_image_model) {
   [void]$ext_args.Add("--vlm_image_model=$vlm_image_model")
-  
-  # Model-specific extras
-  if ($vlm_image_model -eq "moondream") {
-    Add-UvExtra (Get-MoondreamExtra)
-  }
-  elseif ($vlm_image_model -eq "qwen_vl_local") {
-    Add-UvExtra "qwen-vl-local"
-  }
-  elseif ($vlm_image_model -eq "step_vl_local") {
-    Add-UvExtra "step-vl-local"
-  }
-  elseif ($vlm_image_model -eq "penguin_vl_local") {
-    Add-UvExtra "penguin-vl-local"
-  }
-  elseif ($vlm_image_model -eq "reka_edge_local") {
-    Add-UvExtra "reka-edge-local"
-  }
-  elseif ($vlm_image_model -eq "lfm_vl_local") {
-    Add-UvExtra "lfm-vl-local"
-  }
-  elseif ($vlm_image_model -eq "gemma4_local") {
-    Add-UvExtra "gemma4-local"
-  }
-  elseif ($vlm_image_model -eq "marlin_2b_local") {
-    Add-UvExtra "marlin-2b-local"
-  }
 }
 
 # ALM model selection for audio tasks
@@ -788,29 +677,10 @@ if ($alm_model) {
   if ($alm_language) {
     [void]$ext_args.Add("--alm_language=$alm_language")
   }
-
-  if ($alm_model -eq "music_flamingo_local") {
-    Add-UvExtra "music-flamingo-local"
-  }
-  elseif ($alm_model -eq "eureka_audio_local") {
-    Add-UvExtra "eureka-audio-local"
-  }
-  elseif ($alm_model -eq "acestep_transcriber_local") {
-    Add-UvExtra "acestep-transcriber-local"
-  }
-  elseif ($alm_model -eq "cohere_transcribe_local") {
-    Add-UvExtra "cohere-transcribe-local"
-  }
-  elseif ($alm_model -eq "mega_asr_local") {
-    Add-UvExtra "mega-asr-local"
-  }
 }
 
-foreach ($ResolvedModelId in (Resolve-SelectedRouteModelIds)) {
-  if (Test-QuantizedRepoIdRuntimeDeps -RepoId $ResolvedModelId) {
-    Add-UvExtra "quantized-runtime"
-    break
-  }
+foreach ($ResolvedExtra in (Get-CaptionRuntimeExtras)) {
+  Add-UvExtra $ResolvedExtra
 }
 
 if ($scene_detector -ne "AdaptiveDetector") {
@@ -853,8 +723,9 @@ function Invoke-CaptionWithRuntime {
     Install-UvDependencyPatch -ArgsList $ArgsList -PythonExe $RuntimePython
     Write-Output "runtime target environment: $(Get-UvEnvName)"
     Write-Output "runtime dependency profile: $(Get-UvProfile $ArgsList)"
-    if ($RuntimePython) {
-      & $RuntimePython "./module/captioner.py" $DatasetPath $CaptionArgs
+    $CaptionPython = if ($RuntimePython) { $RuntimePython } else { Get-ProjectPython }
+    if ($CaptionPython) {
+      & $CaptionPython "./module/captioner.py" $DatasetPath $CaptionArgs
     } else {
       python "./module/captioner.py" $DatasetPath $CaptionArgs
     }

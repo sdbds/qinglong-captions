@@ -8,7 +8,10 @@ the original monolithic config.toml.
 from pathlib import Path
 from typing import Any, Dict
 
-import toml
+try:
+    import tomllib
+except ImportError:  # Python < 3.11 fallback
+    import toml as tomllib  # type: ignore[no-redef]
 
 _CONFIG_FILES = ["prompts.toml", "model.toml", "general.toml", "onnx.toml"]
 
@@ -33,13 +36,13 @@ def load_config(config_dir: str = "config") -> Dict[str, Any]:
         path = config_path / name
         if path.exists():
             split_found = True
-            data = toml.load(path)
+            data = tomllib.loads(path.read_text(encoding="utf-8"))
             merged.update(data)
 
     # Fall back to legacy config.toml if no split files found
     if not split_found:
         legacy = config_path / "config.toml"
         if legacy.exists():
-            merged = toml.load(legacy)
+            merged = tomllib.loads(legacy.read_text(encoding="utf-8"))
 
     return merged

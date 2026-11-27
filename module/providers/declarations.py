@@ -44,6 +44,7 @@ class ProviderDeclaration:
     segmentation_bypass_mime_prefixes: Tuple[str, ...] = ()
     video_max_seconds_config_sections: Tuple[str, ...] = ()
     video_max_seconds_default: float = 120.0
+    uv_extra: str = ""
 
 
 def route(
@@ -74,6 +75,7 @@ def prompt_fallback(mime_prefix: str, field: str, *keys: str) -> PromptFallbackD
 PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ProviderDeclaration(
         name="codex_subscription",
+        uv_extra="codex-subscription",
         module_path="module.providers.cloud_vlm.codex_subscription",
         priority=10,
         capabilities=capabilities(supports_images=True, supports_video=True, supports_cloud_concurrency=True),
@@ -161,6 +163,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="infinity_parser2_ocr",
+        uv_extra="infinity-parser2-ocr",
         module_path="module.providers.ocr.infinity_parser2",
         priority=120,
         routes=(route("ocr_model", order=10),),
@@ -170,6 +173,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="ovis_ocr2",
+        uv_extra="ovis-ocr2",
         module_path="module.providers.ocr.ovis_ocr2",
         priority=122,
         routes=(route("ocr_model", aliases=("ovis_ocr3",), order=15),),
@@ -180,6 +184,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="ocria_nano",
+        uv_extra="ocria-nano",
         module_path="module.providers.ocr.ocria_nano",
         priority=124,
         routes=(route("ocr_model", aliases=("ocria_nano_1",), order=16),),
@@ -188,6 +193,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="unlimited_ocr",
+        uv_extra="unlimited-ocr",
         module_path="module.providers.ocr.unlimited",
         priority=125,
         routes=(route("ocr_model", order=85),),
@@ -197,6 +203,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="deepseek_ocr",
+        uv_extra="deepseek-ocr",
         module_path="module.providers.ocr.deepseek",
         priority=130,
         routes=(route("ocr_model", order=80),),
@@ -204,6 +211,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="deepseek_ocr_native",
+        uv_extra="deepseek-ocr-native",
         module_path="module.providers.ocr.deepseek_native",
         priority=131,
         routes=(route("ocr_model", order=81),),
@@ -211,6 +219,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="deepseek_ocr_legacy",
+        uv_extra="deepseek-ocr-legacy",
         module_path="module.providers.ocr.deepseek",
         priority=132,
         routes=(route("ocr_model", order=82),),
@@ -218,6 +227,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="logics_ocr",
+        uv_extra="logics-ocr",
         module_path="module.providers.ocr.logics",
         priority=140,
         routes=(route("ocr_model", order=120),),
@@ -225,6 +235,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="dots_ocr",
+        uv_extra="dots-ocr",
         module_path="module.providers.ocr.dots",
         priority=150,
         routes=(route("ocr_model", order=30),),
@@ -232,6 +243,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="qianfan_ocr",
+        uv_extra="qianfan-ocr",
         module_path="module.providers.ocr.qianfan",
         priority=160,
         routes=(route("ocr_model", order=70),),
@@ -239,6 +251,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="lighton_ocr",
+        uv_extra="lighton-ocr",
         module_path="module.providers.ocr.lighton",
         priority=170,
         routes=(route("ocr_model", order=40),),
@@ -246,6 +259,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="hunyuan_ocr",
+        uv_extra="hunyuan-ocr",
         module_path="module.providers.ocr.hunyuan",
         priority=180,
         routes=(route("ocr_model", order=140),),
@@ -253,6 +267,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="glm_ocr",
+        uv_extra="glm-ocr",
         module_path="module.providers.ocr.glm",
         priority=190,
         routes=(route("ocr_model", order=90),),
@@ -260,6 +275,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="chandra_ocr",
+        uv_extra="chandra-ocr",
         module_path="module.providers.ocr.chandra",
         priority=200,
         routes=(route("ocr_model", order=20),),
@@ -267,6 +283,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="olmocr",
+        uv_extra="olmocr",
         module_path="module.providers.ocr.olmocr",
         priority=210,
         routes=(route("ocr_model", order=50),),
@@ -274,6 +291,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="paddle_ocr",
+        uv_extra="paddleocr-onnx",
         module_path="module.providers.ocr.paddle",
         priority=220,
         routes=(route("ocr_model", order=60),),
@@ -281,6 +299,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="nanonets_ocr",
+        uv_extra="nanonets-ocr",
         module_path="module.providers.ocr.nanonets",
         priority=230,
         routes=(route("ocr_model", order=110),),
@@ -288,6 +307,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="firered_ocr",
+        uv_extra="firered-ocr",
         module_path="module.providers.ocr.firered",
         priority=240,
         routes=(route("ocr_model", order=100),),
@@ -295,6 +315,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="moondream",
+        uv_extra="moondream",
         module_path="module.providers.local_vlm.moondream",
         priority=250,
         routes=(route("ocr_model", order=150), route("vlm_image_model", order=10)),
@@ -302,6 +323,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="qwen_vl_local",
+        uv_extra="qwen-vl-local",
         module_path="module.providers.local_vlm.qwen_vl_local",
         priority=260,
         routes=(route("vlm_image_model", order=20),),
@@ -310,6 +332,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="step_vl_local",
+        uv_extra="step-vl-local",
         module_path="module.providers.local_vlm.step_vl_local",
         priority=270,
         routes=(route("vlm_image_model", order=30),),
@@ -322,6 +345,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="penguin_vl_local",
+        uv_extra="penguin-vl-local",
         module_path="module.providers.local_vlm.penguin_vl_local",
         priority=280,
         routes=(route("vlm_image_model", order=40),),
@@ -330,6 +354,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="reka_edge_local",
+        uv_extra="reka-edge-local",
         module_path="module.providers.local_vlm.reka_edge_local",
         priority=290,
         routes=(route("vlm_image_model", order=50),),
@@ -339,6 +364,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="lfm_vl_local",
+        uv_extra="lfm-vl-local",
         module_path="module.providers.local_vlm.lfm_vl_local",
         priority=300,
         routes=(route("vlm_image_model", order=60),),
@@ -347,6 +373,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="gemma4_local",
+        uv_extra="gemma4-local",
         module_path="module.providers.local_vlm.gemma4_local",
         priority=310,
         routes=(route("vlm_image_model", order=70), route("alm_model", order=60)),
@@ -357,6 +384,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="marlin_2b_local",
+        uv_extra="marlin-2b-local",
         module_path="module.providers.local_vlm.marlin_2b_local",
         priority=320,
         routes=(route("vlm_image_model", order=80),),
@@ -367,6 +395,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="music_flamingo_local",
+        uv_extra="music-flamingo-local",
         module_path="module.providers.local_alm.music_flamingo_local",
         priority=330,
         routes=(route("alm_model", order=10),),
@@ -377,6 +406,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="eureka_audio_local",
+        uv_extra="eureka-audio-local",
         module_path="module.providers.local_alm.eureka_audio_local",
         priority=340,
         routes=(route("alm_model", order=20),),
@@ -386,6 +416,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="acestep_transcriber_local",
+        uv_extra="acestep-transcriber-local",
         module_path="module.providers.local_alm.acestep_transcriber_local",
         priority=350,
         routes=(route("alm_model", order=30),),
@@ -395,6 +426,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="cohere_transcribe_local",
+        uv_extra="cohere-transcribe-local",
         module_path="module.providers.local_alm.cohere_transcribe_local",
         priority=360,
         routes=(route("alm_model", order=40),),
@@ -404,6 +436,7 @@ PROVIDER_DECLARATIONS: Tuple[ProviderDeclaration, ...] = (
     ),
     ProviderDeclaration(
         name="mega_asr_local",
+        uv_extra="mega-asr-local",
         module_path="module.providers.local_alm.mega_asr_local",
         priority=370,
         routes=(route("alm_model", order=50),),
